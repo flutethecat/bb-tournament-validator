@@ -13,6 +13,11 @@ Checked 2026-10-31 against `apps/config-web/src`.
 No email address is written to a log. Emails are read from Discord at sign-in (`auth/discordSso.ts`) and stored only in the
 identity record. No `console.*` call in `src/` prints an identity record, a profile or an email.
 
+Portal mail (`src/mail/`) logs the template name, a message id, recipient counts and the provider's HTTP status only: the
+log transport (no `POSTMARK_SERVER_TOKEN`) writes `template=… recipients=1`, the webhook logs the record type and whether
+it suppressed, never the address. Postmark's own activity log holds recipient addresses on Postmark's side (45 days by
+default; see `docs/mail/setup.md`).
+
 ## IP addresses
 
 `clientIp` exists in three places and only ever feeds in-memory rate limiters, never a log line or a file:

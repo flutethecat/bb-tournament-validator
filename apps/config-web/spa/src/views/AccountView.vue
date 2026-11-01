@@ -3,7 +3,7 @@
 // 380 px at >= 1280). Main: Identity (GET/PATCH /api/me/profile), Calendar (deadlines and fixtures from the nav tree's
 // GET /api/me/deadlines, availability shading, proposed times once that lane lands) with a "Set schedule" button in its
 // band: the availability editor (GET/PUT /api/me/scheduling) opens in a dialog, and /account#schedule opens it on load.
-// Side: Session, Teams, test sign-in.
+// Side: Session, Email (league-email address and confirmation, src/components/AccountEmail.vue), Teams, test sign-in.
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, onServerPrefetch, ref, watch } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import { API_KEY } from "../app";
@@ -17,6 +17,7 @@ import AccountLeagueSharing from "../components/AccountLeagueSharing.vue";
 import { LEAGUE_SHARING_KEY } from "../account/leagueSharing";
 import { createContactEditor } from "../account/contact";
 import { ONBOARDING_KEY } from "../account/onboarding";
+import AccountEmail from "../components/AccountEmail.vue";
 import { calendarZone } from "../account/calendar";
 import { createAccountEditors } from "../account/editors";
 import { createScheduleDialog, SCHEDULE_DIALOG_KEY, SCHEDULE_HASH } from "../account/scheduleDialog";
@@ -133,6 +134,11 @@ onServerPrefetch(() => (coach.value ? schedule.value.load() : undefined));
             <button class="lobby-btn" type="button" :disabled="signingOut" @click="signOut">Sign out</button>
           </p>
           <p v-if="signOutError" class="lobby-error hm-small" role="alert">{{ signOutError }}</p>
+        </section>
+
+        <section v-if="session.signedIn()" id="email" :key="`email-${coach}`" class="hm-panel" aria-labelledby="ac-email-h">
+          <header class="hm-band"><h2 id="ac-email-h">Email</h2><span class="hm-cap">League emails</span></header>
+          <AccountEmail />
         </section>
 
         <section id="teams" class="hm-panel" aria-labelledby="ac-teams-h">

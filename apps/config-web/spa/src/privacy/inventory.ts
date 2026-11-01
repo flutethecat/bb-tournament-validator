@@ -145,6 +145,13 @@ export const INVENTORY: readonly InventoryRow[] = [
     public: "no", retention: ACCOUNT_LIFETIME,
   },
   {
+    id: "mail", store: "data-store/mail/ (outbox/journal.jsonl, prefs.json, suppression.json, audit.jsonl)",
+    data: "Emails waiting to be sent or recently sent (your address and the message), the address you confirmed for league emails and any open confirmation request, whether you turned league emails off, a one-way hash of addresses that bounced or reported spam, and a log of league messages (league, sender, how many recipients; no addresses).",
+    purpose: "Sending confirmation links and league messages without showing your address to organisers; not sending to addresses that bounced.",
+    public: "no",
+    retention: "Message bodies and addresses in the outbox: 30 days after sending; the rest of the outbox record (no address or text): 180 days. Bounce and complaint hashes are kept so we never mail that address again. Your confirmed address and email choice: while your account exists.",
+  },
+  {
     id: "bug-reports", store: "bug-reports/ (BUG_REPORTS_DIR)",
     data: "Bug reports you send: a game log, wire trace and optional screenshot, named by your coach name.",
     purpose: "Support and fixing bugs.",
@@ -191,7 +198,7 @@ export const COLLECT_GROUPS: readonly CollectGroup[] = [
   { title: "Your account", text: "Your Discord user id and username, the verified email on your Discord account, and your Discord avatar. If you add them: your preferred name, a contact email, and up to three phone numbers.", ids: ["identities", "contact-details", "consents", "sessions", "discord-sso", "organizers"] },
   { title: "What you create", text: "Rosters, teams, logos, avatars, match records, and league and tournament entries.", ids: ["coach-avatars", "team-avatars", "builder-saves", "team-library", "tournaments", "leagues", "tabletop"] },
   { title: "Game results and ratings", text: "Who played, who won, and the ratings and titles that follow.", ids: ["results", "fork-db"] },
-  { title: "Notifications, chat and bug reports", text: "Notices we send you on the site, lobby chat messages, and the bug reports you choose to send.", ids: ["notifications", "bug-reports", "lobby-chat"] },
+  { title: "Notifications, email, chat and bug reports", text: "Notices we send you on the site, emails we send you (only if you opt in and confirm an address), lobby chat messages, and the bug reports you choose to send.", ids: ["notifications", "mail", "bug-reports", "lobby-chat"] },
   { title: "Technical data", text: "A session cookie, and your IP address held in memory only, for abuse limits.", ids: ["logs", "desktop-claims", "translation-cache"] },
 ];
 

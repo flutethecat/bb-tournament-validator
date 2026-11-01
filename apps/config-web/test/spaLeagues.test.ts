@@ -439,6 +439,14 @@ describe("league routes (server-rendered against a mocked API)", () => {
     const { html } = await render("/leagues/tabbl", loadedDetail(), ORGANISER);
     expect(html).toContain("League artwork");
     expect(html).toContain("Upload header bar");
+    // Message members (newest season only): the composer, plain text, and the no-address promise.
+    expect(html).toContain('id="lg-message-h"');
+    expect(html).toContain("All members");
+    expect(html).toContain("you never see their address");
+    const visitor = await render("/leagues/tabbl", loadedDetail());
+    expect(visitor.html).not.toContain('id="lg-message-h"');
+    const older = await render("/leagues/tabbl?season=season-1", loadedDetail("season-1"), ORGANISER);
+    expect(older.html).not.toContain('id="lg-message-h"');
   });
 
   it("standings, fixtures (cards + an unplayed row), teams, a team roster and honours tabs", async () => {

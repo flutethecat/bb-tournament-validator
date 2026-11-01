@@ -6,7 +6,7 @@ import { RouterLink } from "vue-router";
 import { API_KEY } from "../app";
 import { COLLECT_GROUPS, FEATURES, INVENTORY, PRIVACY_HOSTING, PRIVACY_LAST_UPDATED, type InventoryRow } from "../privacy/inventory";
 
-interface Contact { controller: string | null; email: string | null; hosting: string; euRepresentative: string | null; translation?: "deepl" | "azure" | null }
+interface Contact { controller: string | null; email: string | null; hosting: string; euRepresentative: string | null; translation?: "deepl" | "azure" | null; mail?: "postmark" | null }
 
 const fetcher = inject(API_KEY)!;
 const contact = ref<Contact | null>(null);
@@ -97,7 +97,8 @@ const sections = [
         <li><h3 class="hm-log-title">Discord</h3><p>You sign in with it, and a league's webhook posts that league's news to its Discord server.</p></li>
         <li><h3 class="hm-log-title">Our hosting provider</h3><p>It stores the data on our behalf.</p></li>
         <li v-if="translationName" data-testid="translation-provider"><h3 class="hm-log-title">{{ translationName }} (chat translation)</h3><p>Chat translation is switched on. When you translate a chat message, its text is sent to {{ translationName }}. Without it, no message text leaves our server.</p></li>
-        <li><h3 class="hm-log-title">Our email delivery provider</h3><p>When an organiser sends a league message to coaches who agreed to receive them, Super FUMBBL sends the email through our email delivery provider. It receives your email address and the message, and nothing else.</p></li>
+        <li v-if="contact?.mail === 'postmark'" data-testid="mail-provider"><h3 class="hm-log-title">Postmark (email delivery)</h3><p>Delivers the emails we send: address confirmation links and league messages. It receives your email address and the message. It tells us when an address bounces or reports spam, so we stop sending to it.</p></li>
+        <li v-else><h3 class="hm-log-title">Our email delivery provider</h3><p>None is switched on yet, so we send no email. When one is, it receives only your email address and the message, and we list it here.</p></li>
       </ul>
       <p>We do not sell your data, show ads, or run analytics trackers.</p>
     </section>

@@ -83,6 +83,33 @@ The "Who we are" block reads `GET /api/privacy/contact` (cached 5 min), which se
 Help page". Hosting is fixed at "United States" and `euRepresentative` is `null` until paid launch. Breach runbook, processor
 list and log-hygiene notes are in the repo root `docs/privacy/`.
 
+## Portal mail (`src/mail/`)
+
+The site emails coaches itself, so league organisers never see an address. Owner setup (Postmark, DNS, webhook):
+`docs/mail/setup.md` at the repo root.
+
+- League "Message members" (League page, Overview, organisers and site admins): `GET|POST /api/leagues/:id/messages`
+  (`{ scope: "all"|"team"|"coach", teamId?, coach?, subject <= 120, body <= 5000 plain text, requestId? }`). Every
+  recipient gets a notification; email only to members with league-contact consent, the league acknowledgement and a
+  confirmed, non-suppressed address (`RecipientResolver`, `src/mail/recipients.ts`). Response: `{ id, notified, queued,
+  skipped: { noConsent, unverified, suppressed }, emailEnabled }`, counts only. 10 messages an hour per organiser per
+  league; 500 emails a day per league.
+- Account page Email panel: `GET /api/me/email`, `POST /api/me/email/verify { email? }`, `POST /api/me/email/league-mail { on: true }`.
+- Public: `GET /api/mail/verify?token=`, `GET|POST /api/mail/unsubscribe` (GET = confirmation page, POST = RFC 8058
+  one-click or the page's button), `POST /api/mail/postmark/webhook` (Basic auth with `POSTMARK_WEBHOOK_SECRET`).
+- Outbox: `<FORK_STATE_DIR>/mail/outbox/journal.jsonl` (survives restarts; idempotency key per message; worker 10/s).
+
+| Variable | Default | Use |
+|---|---|---|
+| `POSTMARK_SERVER_TOKEN` | (none: log transport, nothing sent) | Postmark server API token |
+| `MAIL_FROM` | (none: email off with a token set) | bare no-reply address; display name "Super FUMBBL" |
+| `MAIL_REPLY_TO` | (none) | optional Reply-To |
+| `MAIL_STREAM` | `outbound` | Postmark transactional stream (confirmation email) |
+| `MAIL_LEAGUE_STREAM` | `MAIL_STREAM` | Postmark stream for league messages (a Broadcasts stream) |
+| `MAIL_LINK_SECRET` | host key file `<state>/mail/link.key` | HMAC key (>= 32 chars) for unsubscribe / confirmation links |
+| `MAIL_LINK_BASE_URL` | `PUBLIC_BASE_URL` | absolute origin for links in emails; neither set = email off |
+| `POSTMARK_WEBHOOK_SECRET` | (none: webhook 503) | Basic-auth password on the Postmark webhook |
+
 ## Start Game / Lobby page (`/lobby/`)
 
 Source: `lobby/` (vanilla TypeScript + Vite, styled with the site theme `/theme.css` + `/theme.js`, which stay

@@ -1,5 +1,6 @@
 // Privacy notice contact block (GET /api/privacy/contact): the controller name and contact address come from the
-// environment so the public repo never carries them. Only these two keys are ever read.
+// environment so the public repo never carries them. Besides those two, only provider switches are read (never a key or
+// token is returned).
 
 export interface PrivacyContact {
   controller: string | null;
@@ -9,6 +10,8 @@ export interface PrivacyContact {
   euRepresentative: null;
   /** The third-party translation provider chat text goes to, only while an operator has enabled one. */
   translation: "deepl" | "azure" | null;
+  /** The mail provider portal email goes through, only while one is configured (src/mail/config.ts). */
+  mail: "postmark" | null;
 }
 
 function clean(value: string | undefined, max: number): string | null {
@@ -33,5 +36,6 @@ export function privacyContact(env: Record<string, string | undefined> = process
     hosting: "United States",
     euRepresentative: null,
     translation: translationProvider(env),
+    mail: env.POSTMARK_SERVER_TOKEN?.trim() ? "postmark" : null,
   };
 }

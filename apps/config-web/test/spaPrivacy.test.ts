@@ -116,6 +116,17 @@ describe("privacy notice (server-rendered)", () => {
     for (const t of ["discord_oauth_state", "discord_sso_pending", 'data-row="lobby-chat"', 'data-row="desktop-claims"', 'data-row="translation-cache"', "visible to spectators while they are recorded and after publication; test matches never"]) expect(without, t).toContain(t);
   });
 
+  it("names Postmark only when the endpoint reports a mail provider, and lists the mail inventory row", async () => {
+    const withMail = await render("/privacy", { ...out, "/api/privacy/contact": { controller: null, email: null, hosting: "United States", euRepresentative: null, translation: null, mail: "postmark" } });
+    expect(withMail).toContain('data-testid="mail-provider"');
+    expect(withMail).toContain("Postmark");
+    const without = await render("/privacy", { ...out, ...contact });
+    expect(without).not.toContain('data-testid="mail-provider"');
+    expect(without).toContain("None is switched on, so we send no email.");
+    expect(without).toContain('data-row="mail"');
+    expect(without).toContain("the organiser never sees your address");
+  });
+
   it("inventory rows are complete and unique", () => {
     const { INVENTORY, COLLECT_GROUPS } = mods.inventory;
     const ids = INVENTORY.map((r: any) => r.id);
@@ -144,12 +155,12 @@ describe("GET /api/privacy/contact", () => {
   it("reads only the two env keys", () => {
     const env = { PRIVACY_CONTROLLER_NAME: " Example Operator ", PRIVACY_CONTACT_EMAIL: "privacy@example.test", DISCORD_CLIENT_SECRET: "never-echoed", ADMIN_PASSWORD: "never-echoed" };
     const body = privacyContact(env);
-    expect(body).toEqual({ controller: "Example Operator", email: "privacy@example.test", hosting: "United States", euRepresentative: null, translation: null });
+    expect(body).toEqual({ controller: "Example Operator", email: "privacy@example.test", hosting: "United States", euRepresentative: null, translation: null, mail: null });
     expect(JSON.stringify(body)).not.toContain("never-echoed");
   });
 
   it("falls back to nulls when unset or malformed", () => {
-    const unset = { controller: null, email: null, hosting: "United States", euRepresentative: null, translation: null };
+    const unset = { controller: null, email: null, hosting: "United States", euRepresentative: null, translation: null, mail: null };
     expect(privacyContact({})).toEqual(unset);
     expect(privacyContact({ PRIVACY_CONTROLLER_NAME: "  ", PRIVACY_CONTACT_EMAIL: "not an address" })).toEqual(unset);
   });

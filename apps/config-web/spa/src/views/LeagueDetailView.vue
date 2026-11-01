@@ -3,7 +3,7 @@
 // Season field (every season, newest first, with its rules edition), then the season's tabs: Overview, Standings,
 // Fixtures, Teams (a team's roster via ?team=, a player via ?player=<playerId>), Honours. Organisers and admins get the artwork controls on Overview,
 // the League settings cog at the right end of the header strip, the per-fixture Super FUMBBL switch, the League news
-// composer (Overview) and the fixtures editor (Fixtures). A fixture's summary (?tab=fixtures&fixture=<id>) replaces
+// composer and "Message members" (Overview, newest season) and the fixtures editor (Fixtures). A fixture's summary (?tab=fixtures&fixture=<id>) replaces
 // the fixtures list: the match, its result, and Play on Super FUMBBL.
 import { computed, inject, nextTick, onMounted, provide, ref, watch } from "vue";
 import { usePageTitle } from "../shell/pageTitle";
@@ -15,6 +15,7 @@ import LeagueFixtures from "../components/LeagueFixtures.vue";
 import LeagueFixtureSummary from "../components/LeagueFixtureSummary.vue";
 import LeagueFront from "../components/LeagueFront.vue";
 import LeagueHonours from "../components/LeagueHonours.vue";
+import LeagueMessageMembers from "../components/LeagueMessageMembers.vue";
 import LeagueNews from "../components/LeagueNews.vue";
 import LeagueOverview from "../components/LeagueOverview.vue";
 import LeagueTabs from "../components/LeagueTabs.vue";
@@ -133,6 +134,7 @@ usePageTitle(() => state.league?.name);
         <template v-if="tab === 'overview'">
           <LeagueNews :season="season" :manage="manage" />
           <LeagueOverview :league="state.league" :season="season" :summary="current!" :crests="state.crests" />
+          <LeagueMessageMembers v-if="manage && season.id === state.seasons[0]?.id" :league-id="id" :season="season" />
           <LeagueArtEdit v-if="manage" />
         </template>
         <LeagueStandings v-else-if="tab === 'standings'" :season="season" />
