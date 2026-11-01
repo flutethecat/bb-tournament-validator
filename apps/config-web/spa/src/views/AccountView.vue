@@ -8,6 +8,7 @@
 // my data / delete my account), test sign-in.
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, onServerPrefetch, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
+import "../account/onboarding.css";
 import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
 import TestSignInCard from "../components/TestSignInCard.vue";
@@ -131,7 +132,7 @@ onServerPrefetch(() => (coach.value ? schedule.value.load() : undefined));
 
         <section v-if="session.signedIn()" id="calendar" :key="`calendar-${coach}`" class="hm-panel" aria-labelledby="ac-calendar-h">
           <header class="hm-band"><h2 id="ac-calendar-h">Calendar</h2><RouterLink class="hm-cap" to="/home#deadlines">Deadlines</RouterLink>
-            <button ref="opener" class="lobby-btn ac-set-schedule" type="button" aria-haspopup="dialog" @click="scheduleDialog.show()">Set schedule</button>
+            <button ref="opener" class="ob-btn small ac-set-schedule" type="button" aria-haspopup="dialog" @click="scheduleDialog.show()">Set schedule</button>
           </header>
           <AccountCalendar :deadlines="deadlines" :proposals="proposals" :blocks="schedule.state.blocks" :timezone="zone" :now="now" :loading="tree?.state.loading" />
         </section>
@@ -152,9 +153,9 @@ onServerPrefetch(() => (coach.value ? schedule.value.load() : undefined));
             <dd>{{ discord?.username || (discord?.linked === false ? "Not linked" : "Signed in with Discord") }}</dd>
           </dl>
           <p class="hm-actions">
-            <button class="lobby-btn" type="button" :disabled="signingOut" @click="signOut">Sign out</button>
+            <button class="ob-btn" type="button" :disabled="signingOut" @click="signOut">Sign out</button>
           </p>
-          <p v-if="signOutError" class="lobby-error hm-small" role="alert">{{ signOutError }}</p>
+          <p v-if="signOutError" class="sf-error hm-small" role="alert">{{ signOutError }}</p>
         </section>
 
         <section v-if="session.signedIn()" id="email" :key="`email-${coach}`" class="hm-panel" aria-labelledby="ac-email-h">

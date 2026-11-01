@@ -29,8 +29,8 @@ onMounted(() => { void sharing.load(props.coach); });
         <div class="ac-share-head">
           <strong>{{ l.name }}</strong>
           <span class="muted hm-small">{{ statusText(l) }}{{ l.onRoster ? "" : " · no longer on this league" }}</span>
-          <button v-if="l.status === 'shared'" class="lobby-btn small" type="button" :disabled="Boolean(state.busy)" @click="sharing.decline(l.id)">Stop sharing</button>
-          <button v-else-if="l.onRoster && open !== l.id" class="lobby-btn small" type="button" :disabled="Boolean(state.busy)" @click="open = l.id">Share…</button>
+          <button v-if="l.status === 'shared'" class="ob-btn small" type="button" :disabled="Boolean(state.busy)" @click="sharing.decline(l.id)">Stop sharing</button>
+          <button v-else-if="l.onRoster && open !== l.id" class="ob-btn small" type="button" :disabled="Boolean(state.busy)" @click="open = l.id">Share…</button>
         </div>
         <div v-if="open === l.id && l.status !== 'shared'" class="ac-share-form">
           <p class="hm-small">{{ l.text }}</p>
@@ -43,13 +43,13 @@ onMounted(() => { void sharing.load(props.coach); });
             :legend="`What else the organisers of ${l.name} can see`" @update:model-value="(v) => sharing.setFields(l.id, v)"
           />
           <div class="ob-actions">
-            <button class="lobby-btn primary small" type="button" :disabled="state.ticked !== l.id || Boolean(state.busy)" @click="share(l)">Share</button>
-            <button class="lobby-btn small" type="button" @click="open = ''">Cancel</button>
+            <button class="ob-btn primary small" type="button" :disabled="state.ticked !== l.id || Boolean(state.busy)" @click="share(l)">Share</button>
+            <button class="ob-btn small" type="button" @click="open = ''">Cancel</button>
           </div>
         </div>
       </li>
     </ul>
     <p class="muted hm-small">Organisers of a league you join see your coach name and teams and can send you league messages through Super FUMBBL (only if you also allow league messages in Contact &amp; consent above). They see your preferred name, email or phone only if you tick it, here or under Sharing.</p>
-    <p v-if="state.error" class="lobby-error hm-small" role="alert">{{ state.error }}</p>
+    <p v-if="state.error" class="sf-error hm-small" role="alert">{{ state.error }}</p>
   </div>
 </template>

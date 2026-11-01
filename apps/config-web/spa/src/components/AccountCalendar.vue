@@ -3,6 +3,7 @@
 // times, chips coloured like the Deadlines panel, weekly availability shaded on the matching weekdays. Under 640 px the
 // grid gives way to the Agenda list of the month.
 import { computed, ref, watch } from "vue";
+import "../account/onboarding.css";
 import { RouterLink } from "vue-router";
 import { CHIP_CLASS, type DeadlineView } from "../home/deadlines";
 import type { AvailabilityBlock } from "../home/schedule";
@@ -39,10 +40,10 @@ const agendaDate = (at: string) => {
 <template>
   <div class="ac-cal">
     <div class="ac-cal-nav">
-      <button class="lobby-btn small" type="button" aria-label="Previous month" @click="go(-1)">‹</button>
+      <button class="ob-btn small" type="button" aria-label="Previous month" @click="go(-1)">‹</button>
       <h3 class="ac-cal-month" aria-live="polite">{{ monthLabel(ym) }}</h3>
-      <button class="lobby-btn small" type="button" aria-label="Next month" @click="go(1)">›</button>
-      <button class="lobby-btn small ac-cal-today" type="button" @click="go(0)">Today</button>
+      <button class="ob-btn small" type="button" aria-label="Next month" @click="go(1)">›</button>
+      <button class="ob-btn small ac-cal-today" type="button" @click="go(0)">Today</button>
     </div>
 
     <div class="ac-grid" role="grid" :aria-label="`Calendar, ${monthLabel(ym)}`">

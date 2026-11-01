@@ -64,7 +64,7 @@ describe("privacy notice (server-rendered)", () => {
     expect(html).toContain("Example Operator");
     expect(html).toContain("mailto:privacy@example.test");
     expect(html).toContain("United States");
-    for (const word of ["preferred name", "phone numbers", "Legal basis: your consent", "never public"]) expect(html, word).toContain(word);
+    for (const word of ["preferred name", "phone number", "Legal basis: your consent", "never public"]) expect(html, word).toContain(word);
   });
 
   it("exports the privacy version from one place", async () => {

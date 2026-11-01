@@ -2,6 +2,7 @@
 // "Test sign-in (this machine only)": shown only when GET /api/auth/test-login/options says enabled (the server
 // switches it on with TEST_LOGIN_SECRET + TEST_LOGIN_COACHES, loopback only). Mints a real session without Discord.
 import { computed, inject, onMounted, onServerPrefetch, ref } from "vue";
+import "../account/onboarding.css";
 import { API_KEY } from "../app";
 import { SESSION_KEY, TEST_LOGIN_SECRET_KEY } from "../session";
 import type { TestLoginOptions } from "../shared/api";
@@ -84,23 +85,29 @@ onServerPrefetch(loadOptions);
 </script>
 
 <template>
-  <section v-if="options.enabled" class="lobby-card" aria-label="Test sign-in">
-    <h2>Test sign-in (this machine only)</h2>
-    <p class="muted">Signs in as a listed test coach without Discord. Test matches never count.</p>
-    <form class="lobby-form" @submit.prevent="signIn">
-      <label for="ts-coach">Coach</label>
-      <select id="ts-coach" v-model="coach">
-        <option v-for="c in options.coaches" :key="c.coach" :value="c.coach">{{ c.coach }} ({{ c.level }})</option>
-      </select>
-      <label for="ts-secret">Test secret</label>
-      <input id="ts-secret" v-model="secret" type="password" autocomplete="off" />
-      <button class="lobby-btn primary" type="submit" :disabled="busy">Sign in</button>
+  <section v-if="options.enabled" class="hm-panel sg-test" aria-label="Test sign-in">
+    <header class="hm-band"><h2>Test sign-in (this machine only)</h2></header>
+    <p class="sg-test-help">Signs in as a listed test coach without Discord. Test matches never count.</p>
+    <form class="sg-test-form" novalidate @submit.prevent="signIn">
+      <div class="ob-field">
+        <label class="ob-label" for="ts-coach">Coach</label>
+        <select id="ts-coach" v-model="coach">
+          <option v-for="c in options.coaches" :key="c.coach" :value="c.coach">{{ c.coach }} ({{ c.level }})</option>
+        </select>
+      </div>
+      <div class="ob-field">
+        <label class="ob-label" for="ts-secret">Test secret</label>
+        <input id="ts-secret" v-model="secret" type="password" autocomplete="off" />
+      </div>
+      <button class="ob-btn" type="submit" :disabled="busy">Sign in</button>
     </form>
-    <p v-if="signedInAs" class="muted" role="status">Signed in as {{ signedInAs }} (test)</p>
-    <p v-if="error" class="lobby-error" role="alert">{{ error }}</p>
-    <template v-if="session.signedIn() && isTest">
-      <button class="lobby-btn" type="button" @click="signOut">Sign out</button>
-      <p v-if="signOutError" class="lobby-error" role="alert">{{ signOutError }}</p>
-    </template>
+    <div class="sg-test-out">
+      <p v-if="signedInAs" class="hm-notice" role="status">Signed in as {{ signedInAs }} (test)</p>
+      <p v-if="error" class="sf-error" role="alert">{{ error }}</p>
+      <template v-if="session.signedIn() && isTest">
+        <button class="ob-btn small" type="button" @click="signOut">Sign out</button>
+        <p v-if="signOutError" class="sf-error" role="alert">{{ signOutError }}</p>
+      </template>
+    </div>
   </section>
 </template>

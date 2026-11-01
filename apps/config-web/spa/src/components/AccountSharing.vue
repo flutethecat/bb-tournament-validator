@@ -40,15 +40,15 @@ onMounted(() => { if (!state.loaded && !state.loadFailed) void sharing.load(); }
             />
             <span>{{ SHARE_LABEL[f] }}<span v-if="fieldDisabled(state.info, f)" class="muted hm-small"> ({{ note(f) }})</span></span>
           </label>
-          <button class="lobby-btn small" type="button" :disabled="!sharing.dirty(r) || Boolean(state.busy)" @click="sharing.save(r)">{{ state.busy === r.scope ? "Saving…" : "Save" }}</button>
+          <button class="ob-btn small" type="button" :disabled="!sharing.dirty(r) || Boolean(state.busy)" @click="sharing.save(r)">{{ state.busy === r.scope ? "Saving…" : "Save" }}</button>
         </fieldset>
       </li>
     </ul>
     <p class="muted hm-small">Organisers always see your coach name and teams. Nothing else is shared unless you tick it here.</p>
     <p v-if="state.notice" class="hm-notice hm-small" role="status">{{ state.notice }}</p>
-    <p v-if="state.error" class="lobby-error hm-small" role="alert">
+    <p v-if="state.error" class="sf-error hm-small" role="alert">
       {{ state.error }}
-      <button v-if="state.loadFailed" class="lobby-btn small hm-retry" type="button" @click="sharing.load()">Retry</button>
+      <button v-if="state.loadFailed" class="ob-btn small hm-retry" type="button" @click="sharing.load()">Retry</button>
     </p>
   </div>
 </template>

@@ -23,6 +23,7 @@ const hosting = computed(() => contact.value?.hosting || PRIVACY_HOSTING);
 const rowById = (id: string): InventoryRow | undefined => INVENTORY.find((r) => r.id === id);
 const translationName = computed(() => (contact.value?.translation === "deepl" ? "DeepL" : contact.value?.translation === "azure" ? "Azure Translator" : ""));
 const publicLabel = (r: InventoryRow): string => (r.public === "yes" ? "Yes" : r.public === "partly" ? "Partly" : "No");
+const PUBLIC_TONE: Record<InventoryRow["public"], string> = { yes: "info", partly: "soon", no: "muted" };
 
 const sections = [
   ["who", "Who we are"], ["collect", "What we collect"], ["why", "Why we use it"], ["public", "What is public"],
@@ -64,7 +65,7 @@ const sections = [
               <th scope="row"><code>{{ r.store }}</code></th>
               <td>{{ r.data }}</td>
               <td>{{ r.purpose }}</td>
-              <td>{{ publicLabel(r) }}<span v-if="r.publicNote" class="pv-note"> {{ r.publicNote }}</span></td>
+              <td class="pv-public"><span class="sf-chip" :data-tone="PUBLIC_TONE[r.public]">{{ publicLabel(r) }}</span><template v-if="r.publicNote"><span class="pv-sr">: </span><span class="pv-note">{{ r.publicNote }}</span></template></td>
               <td>{{ r.retention }}</td>
             </tr>
           </tbody>
@@ -78,7 +79,7 @@ const sections = [
         <li><h3 class="hm-log-title">To run your account and the services you use</h3><p>Signing in, rosters, teams, games, leagues and tournaments. Legal basis: contract.</p></li>
         <li><h3 class="hm-log-title">For public results and standings</h3><p>Game results, ratings and standings are a shared record for the community and organisers. Legal basis: legitimate interest. You have the right to object.</p></li>
         <li><h3 class="hm-log-title">For security and abuse prevention</h3><p>Rate limits, bans and keeping the site safe. Legal basis: legitimate interest.<template v-if="FEATURES.delete"> If a banned coach deletes their account we keep a hash of their Discord id so the ban holds.</template></p></li>
-        <li><h3 class="hm-log-title">To show your profile to your league's organisers</h3><p>When you join a league we ask whether its organisers may see your name and profile and send you league messages through Super FUMBBL. Your email address and phone numbers are never shown to them. If you don't agree, you stay on your team and they see only your coach name and NAF details. Legal basis: your consent. You can stop at any time on the <RouterLink to="/account">Account page</RouterLink>.</p></li>
+        <li><h3 class="hm-log-title">To show your profile to your league's organisers</h3><p>When you join a league we ask whether its organisers may see your name and profile and send you league messages through Super FUMBBL. Your email address and phone number are shown to them only if you choose to share them with that league. If you don't agree, you stay on your team and they see only your coach name and NAF details. Legal basis: your consent. You can stop at any time on the <RouterLink to="/account">Account page</RouterLink>.</p></li>
         <li><h3 class="hm-log-title">To send you league messages</h3><p>If you agree, organisers of leagues you join can send you league messages. Super FUMBBL sends them for the organiser through our email delivery provider; the organiser never receives your address. Legal basis: your consent. <template v-if="FEATURES.consentWithdrawal">You can withdraw it at any time on the <RouterLink to="/account">Account page</RouterLink>.</template><template v-else>You can withdraw it by emailing the contact above; withdrawing on the Account page is coming soon.</template><template v-if="FEATURES.consentRecording"> We record your choice, and that you accepted this notice when you signed up.</template></p></li>
         <li><h3 class="hm-log-title">Announcement emails</h3><p>We send none today. If we add them, they will be opt-in, and your consent is the legal basis.</p></li>
       </ul>
@@ -87,8 +88,8 @@ const sections = [
     <section id="public" class="hm-panel" aria-labelledby="pv-public-h">
       <header class="hm-band"><h2 id="pv-public-h">What is public</h2></header>
       <p>Anyone can see your coach name, avatar, teams, rosters you share, your tournament and league participation, and your game results and ratings.</p>
-      <p><strong>Your email, phone numbers and Discord ids are never public.</strong></p>
-      <p>Your contact email and phone numbers are never shared with organisers. Your preferred name and profile are visible to the organisers of leagues you joined and agreed to show them to. Whether they may send you league messages is a separate choice you make.<template v-if="FEATURES.delete"> They are deleted with your account.</template></p>
+      <p><strong>Your email, phone number and Discord ids are never public.</strong></p>
+      <p>Your contact email and phone number are shared with an organiser only if you tick them for that league or tournament under Sharing on the Account page. Your preferred name and profile are visible to the organisers of leagues you joined and agreed to show them to. Whether they may send you league messages is a separate choice you make.<template v-if="FEATURES.delete"> They are deleted with your account.</template></p>
     </section>
 
     <section id="share" class="hm-panel" aria-labelledby="pv-share-h">
@@ -153,9 +154,11 @@ const sections = [
 .pv-toc { margin: 8px 0 0; line-height: 1.8; }
 .pv-table-wrap { overflow-x: auto; margin-top: 12px; }
 .pv-table { width: 100%; border-collapse: collapse; font-size: 14px; }
-.pv-table th, .pv-table td { padding: 6px 8px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--ui-border, rgba(128, 128, 128, .3)); }
-.pv-table thead th { white-space: nowrap; }
-.pv-note { color: var(--ui-muted); }
+.pv-table th, .pv-table td { padding: 8px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--sf-panel-line); }
+.pv-table thead th { font: 10px/1.4 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); white-space: nowrap; }
+.pv-table tbody tr:nth-child(even) { background: color-mix(in srgb, var(--ui-surface-2) 50%, transparent); }
+.pv-public { min-width: 160px; }
+.pv-note { display: block; margin-top: 6px; color: var(--ui-muted); }
 .pv-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .pv-small { margin: 6px 0 0; font-size: 12px; color: var(--ui-muted); }
 .pv-small a { color: inherit; text-decoration: underline; }

@@ -2,6 +2,7 @@
 // EMAIL panel (Account page): the address league emails go to (the coach's own data), whether it is confirmed, the form
 // that sends a confirmation link (POST /api/me/email/verify), and the league-email switch after an unsubscribe link.
 import { inject, onMounted, ref } from "vue";
+import "../account/onboarding.css";
 import { API_KEY } from "../app";
 import { ApiError } from "../shared/api";
 import { loadMyMail, mailStatusLine, requestEmailVerification, turnLeagueMailOn, type MyMailStatus } from "../leagues/messages";
@@ -44,7 +45,7 @@ onMounted(load);
 
 <template>
   <div class="ac-email" data-testid="account-email">
-    <p v-if="!status" class="hm-empty">Loading...</p>
+    <p v-if="!status" class="hm-empty">Loading…</p>
     <template v-else>
       <dl class="ac-facts">
         <dt>League emails to</dt>
@@ -53,17 +54,20 @@ onMounted(load);
       <p class="hm-small">{{ mailStatusLine(status) }}</p>
       <p v-if="status.pending" class="hm-small">A confirmation link was sent to {{ status.pending.email }}.</p>
       <p class="hm-small hm-empty">League organisers never see your address: messages are sent by Super FUMBBL.</p>
-      <form v-if="status.emailEnabled" class="ls-form" @submit.prevent="sendLink">
-        <label v-if="!status.email" class="ls-field"><span>Email to confirm</span><input v-model="address" type="email" maxlength="254" autocomplete="email" placeholder="you@example.com" /></label>
+      <form v-if="status.emailEnabled" class="ac-email-form" @submit.prevent="sendLink">
+        <div v-if="!status.email" class="ob-field">
+          <label class="ob-label" for="ac-email-confirm">Email to confirm</label>
+          <input id="ac-email-confirm" v-model="address" type="email" maxlength="254" autocomplete="email" placeholder="you@example.com" />
+        </div>
         <p v-else-if="!status.verified" class="hm-small hm-empty">To use another address, change your contact email first.</p>
-        <p v-if="!status.email || !status.verified" class="hm-actions"><button class="lobby-btn" type="submit" :disabled="busy || (!address.trim() && !status.email)">Send confirmation link</button></p>
+        <p v-if="!status.email || !status.verified" class="hm-actions"><button class="ob-btn" type="submit" :disabled="busy || (!address.trim() && !status.email)">Send confirmation link</button></p>
       </form>
       <p v-else class="hm-small hm-empty">Email is not set up on this site yet.</p>
       <p v-if="status.leagueMailOff" class="hm-small">
         You turned league emails off with an unsubscribe link.
-        <button class="lobby-btn small" type="button" :disabled="busy" @click="resume">Turn league emails back on</button>
+        <button class="ob-btn small ac-email-resume" type="button" :disabled="busy" @click="resume">Turn league emails back on</button>
       </p>
-      <p v-if="error" class="lobby-error hm-small" role="alert">{{ error }}</p>
+      <p v-if="error" class="sf-error hm-small" role="alert">{{ error }}</p>
       <p v-else-if="notice" class="hm-notice hm-small" role="status">{{ notice }}</p>
     </template>
   </div>

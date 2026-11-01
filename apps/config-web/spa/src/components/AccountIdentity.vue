@@ -5,6 +5,7 @@
 // (Discord, NAF, FUMBBL) renders the server's rows (src/account/connections.ts); NAF links through an inline form that
 // the server checks against the public NAF coach page (the NAF has no sign-in, so this is not proof of ownership).
 import { onMounted, onServerPrefetch, ref } from "vue";
+import "../account/onboarding.css";
 import { prepareAvatar } from "../shared/avatarImage";
 import { DISPLAY_NAME_MAX, FUMBBL_NAME_MAX, NAF_NAME_MAX, type ProfileEditor, type ProfileField } from "../account/profile";
 import { actionLabel, STATUS_LABEL, STATUS_TONE, type ConnectionAction, type ConnectionView } from "../account/connections";
@@ -69,10 +70,10 @@ onServerPrefetch(() => props.editor.load());
           <small class="muted hm-small">Coach name <span class="hm-led">{{ coach }}</span></small>
           <small id="ac-avatar-help" class="muted hm-small">Your avatar. Falls back to your Discord avatar.</small>
           <span class="ac-avatar-actions">
-            <button v-if="state.view.avatarSource === 'upload'" class="lobby-btn small" type="button" :disabled="state.avatar.busy" @click="editor.removeAvatar()">Remove</button>
+            <button v-if="state.view.avatarSource === 'upload'" class="ob-btn small" type="button" :disabled="state.avatar.busy" @click="editor.removeAvatar()">Remove</button>
             <small v-if="state.avatar.busy" class="muted hm-small" role="status">Working…</small>
           </span>
-          <small v-if="state.avatar.error" class="lobby-error hm-small" role="alert">{{ state.avatar.error }}</small>
+          <small v-if="state.avatar.error" class="sf-error hm-small" role="alert">{{ state.avatar.error }}</small>
         </div>
       </div>
 
@@ -84,7 +85,7 @@ onServerPrefetch(() => props.editor.load());
           id="ac-display" type="text" autocomplete="nickname" :maxlength="DISPLAY_NAME_MAX" :placeholder="coach" :value="state.form.displayName"
           :aria-invalid="state.problems.displayName ? 'true' : undefined" aria-describedby="ac-display-help" @input="edit('displayName', $event)"
         />
-        <small id="ac-display-help" class="hm-small" :class="state.problems.displayName ? 'lobby-error' : 'muted'">{{ state.problems.displayName || "What other coaches see. Empty = your coach name." }}</small>
+        <small id="ac-display-help" class="hm-small" :class="state.problems.displayName ? 'sf-error' : 'muted'">{{ state.problems.displayName || "What other coaches see. Empty = your coach name." }}</small>
       </div>
 
       <div class="ac-field">
@@ -93,7 +94,7 @@ onServerPrefetch(() => props.editor.load());
           id="ac-fumbbl" type="text" autocomplete="off" :maxlength="FUMBBL_NAME_MAX" :value="state.form.fumbblName" :readonly="state.view.fumbblLinked"
           :aria-invalid="state.problems.fumbblName ? 'true' : undefined" aria-describedby="ac-fumbbl-help" @input="edit('fumbblName', $event)"
         />
-        <small id="ac-fumbbl-help" class="hm-small" :class="state.problems.fumbblName ? 'lobby-error' : 'muted'">{{ state.problems.fumbblName || (state.view.fumbblLinked ? "Linked through tournament registration; an organiser can change it." : "Your account name on fumbbl.com, if you have one.") }}</small>
+        <small id="ac-fumbbl-help" class="hm-small" :class="state.problems.fumbblName ? 'sf-error' : 'muted'">{{ state.problems.fumbblName || (state.view.fumbblLinked ? "Linked through tournament registration; an organiser can change it." : "Your account name on fumbbl.com, if you have one.") }}</small>
       </div>
 
       <div class="ac-row">
@@ -103,7 +104,7 @@ onServerPrefetch(() => props.editor.load());
             id="ac-naf-name" type="text" autocomplete="off" :maxlength="NAF_NAME_MAX" :value="state.form.nafName"
             :aria-invalid="state.problems.nafName ? 'true' : undefined" aria-describedby="ac-naf-name-help" @input="edit('nafName', $event)"
           />
-          <small id="ac-naf-name-help" class="hm-small" :class="state.problems.nafName ? 'lobby-error' : 'muted'">{{ state.problems.nafName || "As on your NAF membership." }}</small>
+          <small id="ac-naf-name-help" class="hm-small" :class="state.problems.nafName ? 'sf-error' : 'muted'">{{ state.problems.nafName || "As on your NAF membership." }}</small>
         </div>
         <div class="ac-field">
           <label for="ac-naf-id">NAF number</label>
@@ -111,7 +112,7 @@ onServerPrefetch(() => props.editor.load());
             id="ac-naf-id" type="text" inputmode="numeric" autocomplete="off" maxlength="10" :value="state.form.nafId"
             :aria-invalid="state.problems.nafId ? 'true' : undefined" aria-describedby="ac-naf-id-help" @input="edit('nafId', $event)"
           />
-          <small id="ac-naf-id-help" class="hm-small" :class="state.problems.nafId ? 'lobby-error' : 'muted'">{{ state.problems.nafId || "Adds your NAF games to your rating." }}</small>
+          <small id="ac-naf-id-help" class="hm-small" :class="state.problems.nafId ? 'sf-error' : 'muted'">{{ state.problems.nafId || "Adds your NAF games to your rating." }}</small>
         </div>
       </div>
 
@@ -119,11 +120,11 @@ onServerPrefetch(() => props.editor.load());
       </fieldset>
 
       <div class="hm-actions">
-        <button class="lobby-btn primary small" type="submit" :disabled="state.saving">{{ state.saving ? "Saving…" : "Save profile" }}</button>
+        <button class="ob-btn primary small" type="submit" :disabled="state.saving">{{ state.saving ? "Saving…" : "Save profile" }}</button>
         <span v-if="state.notice" class="hm-notice" role="status">{{ state.notice }}</span>
         <span v-else-if="editor.dirty()" class="muted hm-small">Unsaved changes.</span>
       </div>
-      <p v-if="state.error" class="lobby-error hm-small" role="alert">{{ state.error }}</p>
+      <p v-if="state.error" class="sf-error hm-small" role="alert">{{ state.error }}</p>
     </form>
 
     <section v-if="state.view.connections?.length" class="ac-conn" aria-labelledby="ac-conn-h">
@@ -142,7 +143,7 @@ onServerPrefetch(() => props.editor.load());
               </td>
               <td class="ac-conn-actions">
                 <button
-                  v-for="a in row.actions" :key="a" class="lobby-btn small" type="button" :disabled="Boolean(conn.state.busy) || conn.state.open === row.id"
+                  v-for="a in row.actions" :key="a" class="ob-btn small" type="button" :disabled="Boolean(conn.state.busy) || conn.state.open === row.id"
                   :aria-expanded="a === 'link' && row.linkVia?.mode === 'form' ? conn.state.open === row.id : undefined" @click="act(row, a)"
                 >{{ conn.state.busy === row.id && a !== "link" ? "Working…" : actionLabel(row, a) }}</button>
               </td>
@@ -159,12 +160,12 @@ onServerPrefetch(() => props.editor.load());
                         :aria-invalid="conn.state.problems[f.name] ? 'true' : undefined" :aria-describedby="conn.state.problems[f.name] ? `ac-conn-${row.id}-${f.name}-err` : undefined"
                         :readonly="conn.state.busy === row.id" @input="conn.set(f.name, val($event))"
                       />
-                      <small v-if="conn.state.problems[f.name]" :id="`ac-conn-${row.id}-${f.name}-err`" class="lobby-error hm-small">{{ conn.state.problems[f.name] }}</small>
+                      <small v-if="conn.state.problems[f.name]" :id="`ac-conn-${row.id}-${f.name}-err`" class="sf-error hm-small">{{ conn.state.problems[f.name] }}</small>
                     </div>
                   </div>
                   <div class="hm-actions">
-                    <button class="lobby-btn primary small" type="submit" :disabled="Boolean(conn.state.busy)">{{ conn.state.busy === row.id ? "Checking…" : "Check and link" }}</button>
-                    <button class="lobby-btn small" type="button" :disabled="Boolean(conn.state.busy)" @click="conn.cancel()">Cancel</button>
+                    <button class="ob-btn primary small" type="submit" :disabled="Boolean(conn.state.busy)">{{ conn.state.busy === row.id ? "Checking…" : "Check and link" }}</button>
+                    <button class="ob-btn small" type="button" :disabled="Boolean(conn.state.busy)" @click="conn.cancel()">Cancel</button>
                   </div>
                 </form>
               </td>
@@ -173,12 +174,12 @@ onServerPrefetch(() => props.editor.load());
         </tbody>
       </table>
       <p v-if="conn.state.notice" class="hm-notice hm-small" role="status">{{ conn.state.notice }}</p>
-      <p v-if="conn.state.error" class="lobby-error hm-small" role="alert">{{ conn.state.error }}</p>
+      <p v-if="conn.state.error" class="sf-error hm-small" role="alert">{{ conn.state.error }}</p>
     </section>
     </template>
-    <p v-else class="lobby-error hm-small" role="alert">
+    <p v-else class="sf-error hm-small" role="alert">
       {{ state.error }}
-      <button class="lobby-btn small hm-retry" type="button" @click="editor.load()">Retry</button>
+      <button class="ob-btn small hm-retry" type="button" @click="editor.load()">Retry</button>
     </p>
   </div>
 </template>

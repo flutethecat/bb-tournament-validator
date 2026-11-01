@@ -25,11 +25,13 @@
 .ac-avatar-actions:empty { display: none; }
 .ac-shown { font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ac-field { display: grid; gap: 4px; min-width: 0; }
-.ac-field label, .ac-label { font: 11px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-heading); }
-.ac-field input { min-height: 40px; padding: 4px 8px; color: var(--ui-text); background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-radius: 2px; font: inherit; max-width: 420px; }
+/* Field captions: the builder's small muted Silkscreen label (design §4); .ac-label is the Connections sub-heading. */
+.ac-field label { font: 10px/1.6 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
+.ac-label { font: 11px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-heading); }
+.ac-field input { min-height: 44px; box-sizing: border-box; width: 100%; padding: 0 10px; color: var(--ui-text); background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-radius: 2px; font: inherit; max-width: 420px; }
 .ac-field input[readonly] { color: var(--ui-muted); border-style: dashed; }
 .ac-field input[aria-invalid="true"] { border-color: var(--ui-scarlet); }
-.ac-field input:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 1px; }
+.ac-field input:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 1px; border-color: var(--ui-heading); }
 .ac-readonly { min-height: 24px; }
 .ac-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; max-width: 640px; }
 .ac-naf-warn { margin: 0; color: var(--ui-warn); }
@@ -44,22 +46,23 @@
 .ac-conn-icon { width: 20px; height: 20px; vertical-align: -5px; margin-right: 4px; image-rendering: pixelated; }
 .ac-conn-id { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
 .ac-conn-actions { white-space: nowrap; text-align: right; }
-.ac-conn-actions .lobby-btn + .lobby-btn { margin-left: 6px; }
+.ac-conn-actions .ob-btn + .ob-btn { margin-left: 6px; }
 .ac-conn-form-row > td { padding: 8px 0 12px; border-bottom: 1px solid color-mix(in srgb, var(--sf-panel-line) 60%, transparent); }
 .ac-conn-form { display: grid; gap: 8px; }
 .ac-conn-form p { margin: 0; }
 
 /* ---- session */
-.ac-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; margin-top: 0; }
-.ac-facts dt { color: var(--ui-muted); font-size: 14px; }
+/* Key/value rows (design §5): Silkscreen muted keys, body-text values. */
+.ac-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; gap: 6px 14px; margin-top: 0; }
+.ac-facts dt { font: 10px/1.6 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
 .ac-facts dd { margin: 0; overflow-wrap: anywhere; }
 
 /* ---- calendar */
 .ac-cal { display: grid; gap: 8px; }
 .ac-cal-nav { display: flex; align-items: center; gap: 8px; }
-.ac-cal-nav .lobby-btn { min-width: 36px; }
+.ac-cal-nav .ob-btn { min-width: 36px; }
 .ac-cal-month { margin: 0; min-width: 10ch; text-align: center; font: 13px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .12em; color: var(--ui-heading); }
-.ac-cal-today { margin-left: auto; }
+.ac-cal-nav .ac-cal-today { margin-left: auto; }
 .ac-grid { display: grid; gap: 2px; }
 .ac-grid-row { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; }
 .ac-wd { font: 11px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; text-align: center; color: var(--ui-heading); padding: 2px 0; }
@@ -94,20 +97,31 @@
 /* ---- Set schedule (calendar band button + dialog) */
 .ac-page .hm-band:has(.ac-set-schedule) { flex-wrap: wrap; align-items: center; }
 .ac-page .hm-band:has(.ac-set-schedule) h2 { margin-right: auto; }
-.ac-set-schedule { min-height: 44px; }
+.ac-set-schedule { align-self: center; }
 .ac-sched-modal { width: min(920px, 100%); }
 .ac-sched-body { display: grid; gap: 10px; min-width: 0; overflow-x: auto; }
 @media (max-width: 760px) {
   .tn-modal-backdrop:has(.ac-sched-modal) { padding: 16px; place-items: center; }
   .ac-sched-modal { width: 100%; max-height: calc(100dvh - 32px); }
 }
-.ac-privacy-link { margin: 0 0 12px; font-size: 14px; }
+.ac-privacy-link { margin: 0; font: 11px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; text-align: right; }
+.ac-privacy-link a { color: var(--ui-muted); text-decoration: underline; text-underline-offset: 3px; }
+.ac-privacy-link a:hover { color: var(--ui-text); }
 
 /* Privacy panel (privacy spec 2026-10-31): download / delete my account. */
 .ac-privacy .hm-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.ac-danger { color: var(--ui-danger); border-color: var(--ui-danger); }
+/* Destructive buttons (design §5): danger fill, on-danger ink, same bevel and lift as .ob-btn. */
+.ob-btn.ac-danger { color: var(--ui-on-danger); background: linear-gradient(color-mix(in srgb, var(--ui-danger) 88%, white), var(--ui-danger) 55%, color-mix(in srgb, var(--ui-danger) 82%, black)); border-color: color-mix(in srgb, var(--ui-danger) 60%, black); }
+.ob-btn.ac-danger:hover:not(:disabled) { border-color: color-mix(in srgb, var(--ui-danger) 60%, black); filter: brightness(1.06); }
 .ac-privacy-step { margin-top: 10px; padding-top: 8px; border-top: 2px solid var(--sf-panel-line); }
-.ac-privacy-step h3 { margin: 0 0 6px; font-size: 16px; }
+.ac-privacy-step h3 { margin: 0 0 6px; font: 12px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-danger); }
 .ac-privacy-step ul { margin: 4px 0 8px; padding-left: 20px; }
-.ac-del-input { display: block; width: 100%; max-width: 320px; min-height: 40px; margin: 6px 0; padding: 4px 8px; color: var(--ui-text); background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-radius: 2px; font: inherit; }
+.ac-del-input { display: block; width: 100%; max-width: 320px; min-height: 44px; box-sizing: border-box; margin: 6px 0; padding: 0 10px; color: var(--ui-text); background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-radius: 2px; font: inherit; }
 .ac-del-input:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 1px; }
+
+/* ---- Email panel, sharing rows (buttons are .ob-btn since the 11-01 restyle) */
+.ac-email-form { display: grid; gap: 10px; }
+.ac-email p { margin: 0 0 8px; }
+.ac-email .ac-email-resume { margin-left: 8px; }
+.ac-share-head .ob-btn, .ac-share-fields > .ob-btn { margin-left: auto; } /* beats .ob-btn { margin: 0 } */
+.ac-share-form .ob-actions { gap: 10px; }

@@ -2,6 +2,7 @@
 // "Delete a coach" (site admins, Testing area): the account deletion of privacy spec §3 for an email request.
 // POST /api/admin/coaches/:coach/delete { confirm: <coach name> }; the server audits it with the pseudonym only.
 import { computed, inject, onMounted, ref } from "vue";
+import "../account/onboarding.css";
 import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
 import { confirmMatches } from "../account/privacy";
@@ -70,33 +71,51 @@ async function remove(): Promise<void> {
 </script>
 
 <template>
-  <section v-if="visible" class="lobby-card" aria-label="Delete a coach">
-    <h2>Delete a coach</h2>
-    <p class="muted">For an emailed deletion request. Removes the account, uploads, saves, library and notifications; public history is anonymised. Can't be undone.</p>
-    <form v-if="step === 'name'" class="lobby-form" @submit.prevent="next">
-      <label for="adc-coach">Coach name</label>
-      <input id="adc-coach" v-model="coach" type="text" maxlength="40" autocomplete="off" />
-      <button class="lobby-btn" type="submit">Continue</button>
+  <section v-if="visible" class="hm-panel adc-card" aria-labelledby="adc-h">
+    <header class="hm-band" data-tone="admin"><h2 id="adc-h">Delete a coach</h2><span class="hm-cap">Site admins</span></header>
+    <p class="adc-help">For an emailed deletion request. Removes the account, uploads, saves, library and notifications; public history is anonymised. Can't be undone.</p>
+    <form v-if="step === 'name'" class="adc-form" novalidate @submit.prevent="next">
+      <div class="ob-field">
+        <label class="ob-label" for="adc-coach">Coach name</label>
+        <input id="adc-coach" v-model="coach" type="text" maxlength="40" autocomplete="off" />
+      </div>
+      <div class="ob-actions"><button class="ob-btn" type="submit">Continue</button></div>
     </form>
-    <form v-else class="lobby-form" @submit.prevent="remove">
-      <label for="adc-confirm">Type <strong>{{ coach }}</strong> again to delete</label>
-      <input id="adc-confirm" v-model="typed" type="text" maxlength="40" autocomplete="off" :disabled="busy" />
-      <button class="lobby-btn" type="button" :disabled="busy" @click="step = 'name'">Back</button>
-      <button class="lobby-btn" type="submit" :disabled="busy || !typed">Delete coach</button>
+    <form v-else class="adc-form" novalidate @submit.prevent="remove">
+      <div class="ob-field">
+        <label class="ob-label" for="adc-confirm">Type <strong>{{ coach }}</strong> again to delete</label>
+        <input id="adc-confirm" v-model="typed" type="text" maxlength="40" autocomplete="off" :disabled="busy" />
+      </div>
+      <div class="ob-actions">
+        <button class="ob-btn" type="button" :disabled="busy" @click="step = 'name'">Back</button>
+        <button class="ob-btn ac-danger" type="submit" :disabled="busy || !typed">Delete coach</button>
+      </div>
     </form>
-    <p v-if="notice" class="muted" role="status">{{ notice }}</p>
+    <p v-if="notice" class="hm-notice" role="status">{{ notice }}</p>
     <div v-if="jobs.open.length" class="adc-jobs">
-      <h3>Delete jobs needing attention</h3>
-      <ul>
-        <li v-for="j in jobs.open" :key="j.jobId" :class="j.stuck ? 'lobby-error' : undefined">
-          {{ j.pseudonym }}: {{ j.stuck ? "stuck on" : "retrying" }} {{ j.pending.join(", ") }} (since {{ j.startedAt.slice(0, 10) }})
-          <template v-if="j.stuck">
-            <button class="lobby-btn" type="button" @click="jobAction(j, 'retry')">Retry</button>
-            <button class="lobby-btn" type="button" @click="jobAction(j, 'close')">Close</button>
-          </template>
+      <h3 class="adc-jobs-h">Delete jobs needing attention</h3>
+      <ul class="adc-job-list">
+        <li v-for="j in jobs.open" :key="j.jobId" class="adc-job" :data-stuck="j.stuck ? 'true' : undefined">
+          <span class="adc-job-text" :class="j.stuck ? 'sf-error' : undefined">{{ j.pseudonym }}: {{ j.stuck ? "stuck on" : "retrying" }} {{ j.pending.join(", ") }} (since {{ j.startedAt.slice(0, 10) }})</span>
+          <span v-if="j.stuck" class="adc-job-actions">
+            <button class="ob-btn small" type="button" @click="jobAction(j, 'retry')">Retry</button>
+            <button class="ob-btn small" type="button" @click="jobAction(j, 'close')">Close</button>
+          </span>
         </li>
       </ul>
     </div>
-    <p v-if="error" class="lobby-error" role="alert">{{ error }}</p>
+    <p v-if="error" class="sf-error" role="alert">{{ error }}</p>
   </section>
 </template>
+
+<style>
+/* "Delete a coach" admin card: the Account page's panel, field and button language. Tokens only. */
+.adc-card > p { margin-top: 0; }
+.adc-help { font-size: 14px; color: var(--ui-muted); }
+.adc-form { display: grid; gap: 10px; max-width: 420px; margin-bottom: 10px; }
+.adc-jobs { margin-top: 12px; padding-top: 10px; border-top: 2px solid var(--sf-panel-line); }
+.adc-jobs-h { margin: 0 0 8px; font: 11px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-heading); }
+.adc-job-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.adc-job { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 6px 0; border-bottom: 1px solid var(--sf-panel-line); font-size: 14px; }
+.adc-job-actions { display: inline-flex; gap: 6px; margin-left: auto; }
+</style>

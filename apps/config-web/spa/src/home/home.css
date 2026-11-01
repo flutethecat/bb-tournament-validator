@@ -367,3 +367,6 @@ h3.hm-log-title { font-family: var(--font-body, sans-serif); font-weight: 700; }
 .sf-discord-login:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 3px; }
 .sf-discord-mark { flex: 0 0 auto; display: block; filter: drop-shadow(0 1px 0 var(--sf-discord-deep)); }
 @media (prefers-reduced-motion: reduce) { .sf-discord-login { transition: none; } }
+
+/* ---- Shared primitives (style-acct lane, 11-01): error text for panels that no longer use the legacy lobby-* rules. */
+.sf-error { margin: 0; color: var(--ui-danger); font-size: 14px; }

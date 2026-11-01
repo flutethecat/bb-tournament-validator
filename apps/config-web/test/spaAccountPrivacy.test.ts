@@ -147,8 +147,8 @@ describe("privacy panel markup (SSR)", () => {
   it("step two asks for the coach name; the final button is disabled until it matches", async () => {
     const empty = await renderPanel("confirm");
     expect(empty).toContain("Type your coach name <strong>Alice</strong> to confirm.");
-    expect(empty).toMatch(/<button class="lobby-btn ac-danger" type="submit" disabled[^>]*>Delete my account<\/button>/);
+    expect(empty).toMatch(/<button class="ob-btn ac-danger" type="submit" disabled[^>]*>Delete my account<\/button>/);
     const typed = await renderPanel("confirm", "alice");
-    expect(typed).toMatch(/<button class="lobby-btn ac-danger" type="submit"(?! disabled)[^>]*>Delete my account<\/button>/);
+    expect(typed).toMatch(/<button class="ob-btn ac-danger" type="submit"(?! disabled)[^>]*>Delete my account<\/button>/);
   });
 });

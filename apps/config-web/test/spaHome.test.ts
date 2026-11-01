@@ -912,7 +912,7 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(html).not.toContain('role="dialog"');
     const band = html.match(/<header class="hm-band"><h2 id="ac-calendar-h">Calendar<\/h2>[\s\S]*?<\/header>/)?.[0] ?? "";
     expect(band).toContain(">Deadlines</a>");
-    expect(band).toMatch(/<button[^>]*class="lobby-btn ac-set-schedule"[^>]*aria-haspopup="dialog"[^>]*>Set schedule<\/button>/);
+    expect(band).toMatch(/<button[^>]*class="ob-btn small ac-set-schedule"[^>]*aria-haspopup="dialog"[^>]*>Set schedule<\/button>/);
     expect(html).not.toContain("inert");
   });
 
@@ -1036,7 +1036,7 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(form).toContain("The NAF has no sign-in, so this confirms the record exists and matches what you entered; it does not prove it is yours.");
     expect(form).toMatch(/<label for="ac-conn-naf-nafName">NAF coach name<\/label>/);
     expect(form).toMatch(/id="ac-conn-naf-nafId"[^>]*inputmode="numeric"/);
-    expect(form).toMatch(/<button class="lobby-btn primary small" type="submit"[^>]*>Check and link<\/button>/);
+    expect(form).toMatch(/<button class="ob-btn primary small" type="submit"[^>]*>Check and link<\/button>/);
     expect(form).toContain(">Cancel</button>");
     expect(html).toMatch(/<button[^>]*disabled[^>]*aria-expanded="true"[^>]*>Link NAF account<\/button>/);
 
