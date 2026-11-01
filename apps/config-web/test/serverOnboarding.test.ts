@@ -329,6 +329,8 @@ describe("per-organiser sharing over HTTP (spec 2026-10-31)", () => {
     const tc = await call("TOrg", "GET", `/api/tournaments/${t.id}/entrants/${encodeURIComponent(victim.id)}/contact`);
     expect(await tc.json()).toEqual({ contact: { coach: "Victim" } });
     expect((await call("Org", "GET", `/api/tournaments/${t.id}/entrants/${encodeURIComponent(victim.id)}/contact`)).status).toBe(403);
+    // A coach with no seat on the league cannot answer for it (no write, no notice).
+    expect((await call("Outsider", "POST", "/api/me/leagues/sharing", { leagueId: "lg", share: false })).status).toBe(403);
     // Back to nothing shared, so the route sweep below sees the default.
     expect((await put("Victim", "league:lg", { fields: [] })).status).toBe(200);
     expect(await (await lgContact("Org")).json()).toEqual({ contact: { coach: "Victim" } });

@@ -338,3 +338,129 @@ describe("tournament grant through the real store", () => {
     expect(sharedContactFor({ coach: "TOwner" }, stored("Kim"), scope("tournament:t1"), membership)).toEqual({ coach: "Kim", phones: contact.phones });
   });
 });
+
+// ---- review fixes (Sol 6.1 on 5d09909) ---------------------------------------------------------------------------------
+
+describe("leaving a league's roster withdraws the acknowledgement; a re-assigned coach confirms again (P1)", () => {
+  it("organiser clears Alice's only assignment, then reassigns her: nothing is shared until she confirms, pre-ticked", async () => {
+    const { LeagueStore } = await import("../src/leagues/store.js");
+    const { applyTeamCoach } = await import("../src/leagues/teamCoach.js");
+    const { leagueSharingView, recordLeagueExits } = await import("../src/auth/leagueSharing.js");
+    const dir = mkdtempSync(join(tmpdir(), "org-sharing-lg-"));
+    stores.push(dir);
+    const store = new LeagueStore(dir);
+    const exits: Array<[string, string[]]> = [];
+    store.onRosterExit = (leagueId, coaches) => { exits.push([leagueId, coaches]); recordLeagueExits(leagueId, coaches, LATER); };
+    store.upsertLeague({ id: "lx", name: "League X", fullName: "League X", slug: "lx", organisers: ["OrgX"] } as never);
+    const team = (id: string, coachId: string) => ({ id, name: id, race: "Human", coach: coachId, coachId, teamValue: null, players: [], formerPlayers: [] });
+    store.putSeason({ id: "lx-s1", leagueId: "lx", number: 1, name: "S1", sourceSlug: "lx-s1", ruleset: "bb2025", status: "active", phases: [], fixtures: [], honours: [], awards: [], pinned: false, participants: [], teams: [team("t-a", "Alice"), team("t-b", "Bob")] } as never);
+    const src: MembershipSources = { tournaments: { tournament: () => undefined, entrants: () => [] }, leagues: store as never };
+    seed(record("Alice", { contact, consent: { ...privacy, leagues: { lx: ack() }, sharing: { "league:lx": grant(["email"]) } } }));
+    expect(sharedContactFor({ coach: "OrgX" }, stored("Alice"), scope("league:lx"), src)?.email).toBe("kim@example.test");
+    // Clear her only assignment (the season write reports the exit; Bob stays).
+    let season = store.season("lx", "lx-s1")!;
+    applyTeamCoach(season, "t-a", null, "OrgX", LATER.toISOString(), false);
+    store.putSeason(season);
+    expect(exits).toEqual([["lx", ["Alice"]]]);
+    expect(stored("Alice").consent?.leagues).toBeUndefined();
+    expect(stored("Alice").consent?.sharing?.["league:lx"]?.fields).toEqual(["email"]); // the record stays
+    // Reassigned: on the roster again, but nothing shows until she confirms.
+    season = store.season("lx", "lx-s1")!;
+    applyTeamCoach(season, "t-a", "Alice", "OrgX", LATER.toISOString(), false);
+    store.putSeason(season);
+    expect(sharedContactFor({ coach: "OrgX" }, stored("Alice"), scope("league:lx"), src)).toBeUndefined();
+    const row = leagueSharingView(stored("Alice"), src).leagues.find((l) => l.id === "lx")!;
+    expect(row).toMatchObject({ status: "pending", fields: ["email"] }); // asked again, pre-ticked
+    answerLeagueRegistration("Alice", { leagueId: "lx", share: true, acknowledged: true, fields: ["email"] }, src, undefined, new Date("2026-11-04T10:00:00.000Z"));
+    expect(sharedContactFor({ coach: "OrgX" }, stored("Alice"), scope("league:lx"), src)?.email).toBe("kim@example.test");
+    // Removing the season altogether is an exit too.
+    store.removeSeason("lx", "lx-s1");
+    expect(exits.at(-1)).toEqual(["lx", ["Alice", "Bob"]]);
+    expect(stored("Alice").consent?.leagues).toBeUndefined();
+  });
+
+  it("a tournament grant older than the active entry is not applied", () => {
+    const src: MembershipSources = {
+      tournaments: { tournament: () => ({ status: "active", ownerCoachId: "TOwner" }), entrants: () => [{ coach: { ffbCoachId: "Kim" }, registeredAt: LATER.toISOString() }] },
+      leagues: membership.leagues,
+    };
+    const k = record("Kim", { contact, consent: { ...privacy, sharing: { "tournament:t9": grant(["email"], NOW) } } });
+    expect(sharedContactFor({ coach: "TOwner" }, k, scope("tournament:t9"), src)).toEqual({ coach: "Kim" });
+  });
+});
+
+describe("league answers need a seat (P2)", () => {
+  it("a non-member's decline is 403 with no write and no notification; an ack holder can still withdraw", () => {
+    seed(record("Stranger", { consent: { ...privacy } }), record("Former", { consent: { ...privacy, leagues: { a: ack() } } }));
+    const sent: string[] = [];
+    const status = (fn: () => unknown) => { try { fn(); return 200; } catch (e) { return (e as SharingError).status ?? 400; } };
+    expect(status(() => answerLeagueRegistration("Stranger", { leagueId: "a", share: false }, membership, (c) => { sent.push(c); }, NOW))).toBe(403);
+    expect(status(() => answerLeagueRegistration("Stranger", { leagueId: "a", share: true, acknowledged: true }, membership, (c) => { sent.push(c); }, NOW))).toBe(403);
+    expect(stored("Stranger").consent?.leaguesDeclined).toBeUndefined();
+    expect(sent).toEqual([]);
+    // Former still holds an acknowledgement but is off the roster: may stop sharing, organisers are not told.
+    expect(status(() => answerLeagueRegistration("Former", { leagueId: "a", share: false }, membership, (c) => { sent.push(c); }, NOW))).toBe(200);
+    expect(stored("Former").consent?.leagues).toBeUndefined();
+    expect(sent).toEqual([]);
+  });
+});
+
+describe("NAF pending (P2)", () => {
+  it("an organiser-made entry on a sanctioned tournament owes the NAF answer: coach asked, submission refused, answer clears it", async () => {
+    const h = harness();
+    const t = await createTournament(h, true);
+    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, co, { teamId: "team-alice", coach: "Alice", notNafMember: true }))?.status).toBe(201);
+    const entry = h.store.entrants(t.id)[0]!;
+    expect(entry.nafPending).toBe(true);
+    expect(entry.notNafMember).toBeUndefined(); // only the coach says that
+    const ask = h.inbox.find((n) => n.coach === "Alice")!;
+    expect(ask).toMatchObject({ type: "naf-request", title: "You were entered in Veers Open — give your NAF number", link: `/app/tournaments/${t.id}?tab=overview` });
+    const sub = await h.call("POST", `/api/tournaments/${t.id}/submissions`, player("Alice"), { saveId: "save:x" });
+    expect(sub).toMatchObject({ status: 400, body: { error: NAF_REQUIRED_MESSAGE } });
+    const managerView = await h.call("GET", `/api/tournaments/${t.id}`, co);
+    expect((managerView!.body as { entrants: Array<{ nafPending?: boolean }> }).entrants[0]!.nafPending).toBe(true);
+    // Answer route: the coach only; bad answers refused; "not a NAF member" tells the managers except the coach.
+    const nafPath = `/api/tournaments/${t.id}/entrants/${encodeURIComponent(entry.id)}/naf`;
+    expect((await h.call("POST", nafPath, co, { notNafMember: true }))?.status).toBe(403);
+    expect(await h.call("POST", nafPath, player("Alice"), {})).toMatchObject({ status: 400, body: { error: NAF_REQUIRED_MESSAGE } });
+    expect((await h.call("POST", nafPath, player("Alice"), { nafNumber: "x1" }))?.status).toBe(400);
+    const before = h.inbox.length;
+    expect((await h.call("POST", nafPath, player("Alice"), { notNafMember: true }))?.status).toBe(200);
+    expect(h.store.entrants(t.id)[0]).toMatchObject({ notNafMember: true });
+    expect(h.store.entrants(t.id)[0]!.nafPending).toBeUndefined();
+    expect(h.inbox.slice(before).map((n) => [n.coach, n.title])).toEqual([
+      ["Veers", "Alice registered for Veers Open — not a NAF member"],
+      ["Piett", "Alice registered for Veers Open — not a NAF member"],
+    ]);
+    // No longer pending: the submission passes the NAF check (it stops later only for want of a validator here).
+    expect((await h.call("POST", `/api/tournaments/${t.id}/submissions`, player("Alice"), { saveId: "save:x" }))?.status).toBe(503);
+  });
+
+  it("an organiser who gives the NAF number leaves nothing pending", async () => {
+    const h = harness();
+    const t = await createTournament(h, true);
+    await h.call("POST", `/api/tournaments/${t.id}/entrants`, co, { teamId: "team-bob", coach: "Bob", nafNumber: "77" });
+    expect(h.store.entrants(t.id)[0]).toMatchObject({ nafNumber: "77" });
+    expect(h.store.entrants(t.id)[0]!.nafPending).toBeUndefined();
+    expect(h.inbox.find((n) => n.coach === "Bob")?.type).toBe("share-request");
+  });
+
+  it("making a tournament NAF sanctioned with entries in: unanswered entries become pending, one notice per coach, none to organisers", async () => {
+    const h = harness();
+    const t = await createTournament(h);
+    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamId: "team-alice" });
+    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Bob"), { teamId: "team-bob", nafNumber: "12" });
+    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Carol"), { teamId: "team-carol" });
+    await h.call("DELETE", `/api/tournaments/${t.id}/entrants/${encodeURIComponent(h.store.entrants(t.id)[2]!.id)}`, player("Carol"));
+    const before = h.inbox.length;
+    expect((await h.call("PATCH", `/api/tournaments/${t.id}`, owner, { nafSanctioned: true }))?.status).toBe(200);
+    const byCoach = Object.fromEntries(h.store.entrants(t.id).map((e) => [e.coach.ffbCoachId, e.nafPending === true]));
+    expect(byCoach).toEqual({ Alice: true, Bob: false, Carol: false });
+    expect(h.inbox.slice(before).map((n) => [n.coach, n.type, n.title])).toEqual([["Alice", "naf-request", "Veers Open is NAF sanctioned — give your NAF number"]]);
+    // Saving again (already sanctioned) sends nothing more; switching it off clears pending.
+    await h.call("PATCH", `/api/tournaments/${t.id}`, owner, { nafSanctioned: true });
+    expect(h.inbox.length).toBe(before + 1);
+    await h.call("PATCH", `/api/tournaments/${t.id}`, owner, { nafSanctioned: false });
+    expect(h.store.entrants(t.id).some((e) => e.nafPending)).toBe(false);
+  });
+});

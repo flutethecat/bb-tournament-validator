@@ -328,6 +328,14 @@ describe("phase 2/3 views (server-rendered against a mocked API)", () => {
     expect(html).not.toContain("NAF number (required");
   });
 
+  it("NAF pending entry: the coach answers before submitting (Submit team disabled)", async () => {
+    const body = detailBody({ tournament: tournament({ nafSanctioned: true, myEntrantId: "t1:entrant:1" }), entrants: [alice({ nafPending: true }), bob()] });
+    const { html } = await render("/tournaments/t1", { ...AS("Alice"), "/api/tournaments/t1": body, ...OPTIONS }, loaded("t1", "Alice"));
+    expect(html).toContain("Give your NAF number, or say you are not a NAF member, before you submit a roster.");
+    expect(html).toContain(">Save NAF answer</button>");
+    expect(html).toMatch(/<button class="lobby-btn primary" type="submit" disabled[^>]*>Submit team<\/button>/);
+  });
+
   it("NAF-sanctioned tournament: the chip, the required NAF number and the 'I am not a NAF member' box", async () => {
     const body = detailBody({ tournament: tournament({ nafSanctioned: true }), entrants: [bob()] });
     const { html } = await render("/tournaments/t1", { ...AS("Alice"), "/api/tournaments/t1": body, ...OPTIONS }, loaded("t1", "Alice"));

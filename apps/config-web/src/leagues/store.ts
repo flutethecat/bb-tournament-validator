@@ -111,6 +111,13 @@ export class LeagueStore {
   private seasonWrites = 0;
   private readonly forkIndexTtlMs: number;
   private readonly now: () => number;
+  /**
+   * Called after a season write or removal through this store with the coach accounts that are no longer on ANY season
+   * of the league (an organiser cleared or moved their only assignment, a re-import dropped them, a season went). The
+   * server uses it to withdraw their league acknowledgement, so a re-joining coach confirms again (spec 2026-10-31).
+   * A season file written by another process is not seen here.
+   */
+  onRosterExit?: (leagueId: string, coaches: string[]) => void;
 
   constructor(stateDir: string, opts: { forkIndexTtlMs?: number; now?: () => number } = {}) {
     this.root = join(stateDir, "leagues");
@@ -299,23 +306,51 @@ export class LeagueStore {
     mkdirSync(dir, { recursive: true });
     const all = this.rawSeasons(season.leagueId);
     const prior = all.find((s) => s.sourceSlug === season.sourceSlug || s.id === season.id);
+    const after = [...all.filter((s) => s.id !== season.id && s.id !== prior?.id), season];
     // Monotonic per season id (also when the caller wrote from a stale copy): read-model caches key on it.
     season.revision = Math.max(all.find((s) => s.id === season.id)?.revision ?? 0, season.revision ?? 0) + 1;
     this.write(join(dir, `${season.id}.json`), season);
     this.seasonWrites += 1;
     this.unindexSeason(season.leagueId, season.id);
     if (this.forkIndex) this.indexSeason(this.forkIndex.byGame, season);
-    if (prior && prior.id !== season.id) this.removeSeason(season.leagueId, prior.id);
+    if (prior && prior.id !== season.id) this.dropSeasonFile(season.leagueId, prior.id);
+    this.reportExits(season.leagueId, all, after);
     return prior ? { replaced: prior.id } : {};
   }
 
   removeSeason(leagueId: string, seasonId: string): void {
     if (!SEASON_ID.test(seasonId)) return;
+    const before = this.onRosterExit ? this.rawSeasons(leagueId) : [];
+    this.dropSeasonFile(leagueId, seasonId);
+    this.reportExits(leagueId, before, before.filter((s) => s.id !== seasonId));
+  }
+
+  private dropSeasonFile(leagueId: string, seasonId: string): void {
     const path = join(this.leagueDir(leagueId), "seasons", `${seasonId}.json`);
     try { unlinkSync(path); } catch { /* gone */ }
     this.seasonWrites += 1;
     this.unindexSeason(leagueId, seasonId);
   }
+
+  private reportExits(leagueId: string, before: readonly SeasonRecord[], after: readonly SeasonRecord[]): void {
+    if (!this.onRosterExit) return;
+    const now = rosterAccounts(after);
+    const gone = [...rosterAccounts(before)].filter(([key]) => !now.has(key)).map(([, coach]) => coach);
+    if (!gone.length) return;
+    try { this.onRosterExit(leagueId, gone); } catch { /* the season write stands */ }
+  }
+}
+
+/** Coach accounts on a league's seasons (team rows not cleared by an organiser, participant rows): key -> spelling.
+ *  The same rule as isLeagueRosterMember (src/auth/contactFor.ts). */
+export function rosterAccounts(seasons: readonly SeasonRecord[]): Map<string, string> {
+  const out = new Map<string, string>();
+  const add = (c: string | undefined) => { const v = c?.trim(); if (v && !out.has(v.toLowerCase())) out.set(v.toLowerCase(), v); };
+  for (const s of seasons) {
+    for (const t of s.teams ?? []) if (!t.coachAssigned?.cleared) add(t.coachId);
+    for (const p of s.participants ?? []) add(p.coachId);
+  }
+  return out;
 }
 
 /** Organiser or owner (by trimmed, case-insensitive coach id) of this league; admins are checked by the caller. */

@@ -171,6 +171,9 @@ export interface TournamentEntrantRecord {
   nafNumber?: string;
   /** Set when the coach ticked "I am not a NAF member" registering for a NAF-sanctioned tournament (managers only). */
   notNafMember?: true;
+  /** NAF sanctioned, and the coach has not answered yet (an organiser-made entry, or the tournament became sanctioned
+   *  after the entry): the coach's roster submission is refused until they give a NAF number or "not a NAF member". */
+  nafPending?: true;
 }
 
 export interface TournamentRoundRecord {

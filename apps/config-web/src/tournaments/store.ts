@@ -457,8 +457,17 @@ export class TournamentStore {
       else if (patch.endsAt !== undefined) tournament.endsAt = patch.endsAt;
       if (patch.pairingSystem !== undefined) tournament.pairingSystem = patch.pairingSystem;
       if (patch.seedingMode !== undefined) tournament.seedingMode = patch.seedingMode;
-      if (patch.nafSanctioned === true) tournament.nafSanctioned = true;
-      else if (patch.nafSanctioned === false) delete tournament.nafSanctioned;
+      if (patch.nafSanctioned === true && tournament.nafSanctioned !== true) {
+        tournament.nafSanctioned = true;
+        // Entries made before the tournament was sanctioned owe a NAF answer now.
+        for (const entrant of Object.values(data.entrants)) {
+          if (entrant.tournamentId !== tournamentId || entrant.droppedAt !== undefined) continue;
+          if (!entrant.nafNumber && !entrant.notNafMember) entrant.nafPending = true;
+        }
+      } else if (patch.nafSanctioned === false && tournament.nafSanctioned === true) {
+        delete tournament.nafSanctioned;
+        for (const entrant of Object.values(data.entrants)) if (entrant.tournamentId === tournamentId) delete entrant.nafPending;
+      }
       if (patch.organizerCoachId !== undefined) {
         tournament.organizerCoachId = patch.organizerCoachId.trim();
         tournament.ownerCoachId = tournament.organizerCoachId;
@@ -551,7 +560,7 @@ export class TournamentStore {
     coach: VerifiedCoachIdentity,
     teamId: string,
     now = new Date(),
-    nafEntry: { nafNumber?: string; notNafMember?: boolean } = {},
+    nafEntry: { nafNumber?: string; notNafMember?: boolean; nafPending?: boolean } = {},
   ): TournamentEntrantRecord {
     return this.mutate((data) => {
       const tournament = data.tournaments[tournamentId];
@@ -580,11 +589,33 @@ export class TournamentStore {
         flags: { ...DEFAULT_ENTRANT_FLAGS },
         ...(nafEntry.nafNumber ? { nafNumber: nafEntry.nafNumber } : {}),
         ...(nafEntry.notNafMember ? { notNafMember: true as const } : {}),
+        ...(nafEntry.nafPending ? { nafPending: true as const } : {}),
       };
       assertId(entrant.id, "entrant id");
       data.entrants[entrant.id] = entrant;
       tournament.updatedAt = now.toISOString();
       delete data.standings[tournamentId];
+      return entrant;
+    });
+  }
+
+  /** The coach's NAF answer for their entry: a NAF number, or "not a NAF member". Clears nafPending. */
+  answerNaf(
+    tournamentId: string,
+    entrantId: string,
+    answer: { nafNumber: string } | { notNafMember: true },
+    now = new Date(),
+  ): TournamentEntrantRecord {
+    return this.mutate((data) => {
+      const tournament = data.tournaments[tournamentId];
+      if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
+      const entrant = data.entrants[entrantId];
+      if (!entrant || entrant.tournamentId !== tournamentId || entrant.droppedAt !== undefined)
+        throw new TournamentStoreError(404, "Tournament entrant not found.");
+      if ("nafNumber" in answer) { entrant.nafNumber = answer.nafNumber; delete entrant.notNafMember; }
+      else { entrant.notNafMember = true; delete entrant.nafNumber; }
+      delete entrant.nafPending;
+      tournament.updatedAt = now.toISOString();
       return entrant;
     });
   }

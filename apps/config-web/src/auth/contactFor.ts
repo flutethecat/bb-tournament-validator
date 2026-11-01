@@ -40,7 +40,7 @@ export interface LeagueSummary { id: string; name: string; organisers: string[];
 export interface MembershipSources {
   tournaments: {
     tournament(id: string): unknown;
-    entrants(id: string): ReadonlyArray<{ coach: { ffbCoachId: string }; droppedAt?: string }>;
+    entrants(id: string): ReadonlyArray<{ coach: { ffbCoachId: string }; droppedAt?: string; registeredAt?: string }>;
   };
   leagues: {
     league(id: string): LeagueSummary | undefined;
@@ -146,8 +146,9 @@ export function parseShareScope(value: unknown): ShareScope | undefined {
 const tournamentStatus = (t: unknown): string | undefined =>
   t && typeof t === "object" && typeof (t as { status?: unknown }).status === "string" ? (t as { status: string }).status : undefined;
 
-/** The coach is in the scope right now: an acknowledged league roster membership, or an active entry of a tournament
- *  that is not cancelled. A grant is read only while this holds. */
+/** The coach is in the scope right now: an acknowledged league roster membership (leaving the roster removes the
+ *  acknowledgement, src/auth/leagueSharing.ts recordLeagueExits), or an active entry of a tournament that is not
+ *  cancelled. A grant is read only while this holds. */
 export function inShareScope(record: CoachIdentityRecord, scope: ShareScope, sources: MembershipSources): boolean {
   if (scope.kind === "tournament") {
     const t = sources.tournaments.tournament(scope.id);
@@ -156,14 +157,24 @@ export function inShareScope(record: CoachIdentityRecord, scope: ShareScope, sou
   return isLeagueRosterMember(record.ffbCoachId, scope.id, sources) && sharesWithLeague(record, scope.id);
 }
 
-/** The coach's grant for this scope is in force: they are in the scope, and for a league the grant is not older than
- *  the current acknowledgement (a coach who left and joined again confirms their old choice first). */
+/** The coach's active entry of a tournament (undefined when none). */
+function activeEntry(record: CoachIdentityRecord, tournamentId: string, sources: MembershipSources) {
+  const key = normalizeFfbCoachId(record.ffbCoachId);
+  return sources.tournaments.entrants(tournamentId).find((e) => !e.droppedAt && sameCoach(key)(e.coach.ffbCoachId));
+}
+
+/** The coach's grant for this scope is in force: they are in the scope, and the grant was given during the current
+ *  membership - for a league not older than the current acknowledgement (a coach who left lost the acknowledgement and
+ *  confirms their old choice again, pre-ticked, when they re-join), for a tournament not older than the active entry. */
 export function grantApplies(record: CoachIdentityRecord, scope: ShareScope, sources: MembershipSources): boolean {
   const grant = record.consent?.sharing?.[scope.key];
   if (!grant || !inShareScope(record, scope, sources)) return false;
   if (scope.kind === "league") {
     const ack = record.consent?.leagues?.[scope.id];
     if (!ack || grant.at < ack.at) return false;
+  } else {
+    const entry = activeEntry(record, scope.id, sources);
+    if (!entry || (entry.registeredAt && grant.at < entry.registeredAt)) return false;
   }
   return true;
 }

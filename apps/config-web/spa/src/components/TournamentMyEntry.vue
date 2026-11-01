@@ -56,7 +56,7 @@ watch(() => sharing?.state.info?.nafNumber, (n) => { if (n && !nafNumber.value) 
 
 onMounted(() => {
   if (coach.value && state.teamOptions.status === "idle") void detail.loadTeamOptions(coach.value);
-  if (coach.value && !mine.value && sharing) void sharing.load();
+  if (coach.value && (!mine.value || mine.value.nafPending) && sharing) void sharing.load();
 });
 
 const busy = computed(() => Boolean(state.busy));
@@ -66,6 +66,13 @@ async function doRegister() {
   await detail.register(teamId.value, { share: share.value, ...(sanctioned.value ? (notNafMember.value ? { notNafMember: true } : { nafNumber: nafNumber.value }) : {}) });
 }
 async function doSubmit() { if (saveRef.value) await detail.submit(saveRef.value); }
+// An entry still owing its NAF answer (organiser-made, or the tournament became NAF sanctioned).
+const nafPending = computed(() => Boolean(mine.value?.nafPending && sanctioned.value));
+async function doAnswerNaf() {
+  nafTouched.value = true;
+  if (!mine.value || nafError.value) return;
+  await detail.answerNaf(mine.value.id, notNafMember.value ? { notNafMember: true } : { nafNumber: nafNumber.value });
+}
 async function doWithdraw() { await detail.withdraw(); }
 </script>
 
@@ -116,6 +123,19 @@ async function doWithdraw() { await detail.withdraw(); }
           </span>
           <span class="tn-chip" :data-roster="roster">{{ ROSTER_LABEL[roster] }}</span>
         </div>
+        <form v-if="nafPending && canWrite" class="tn-reg-naf tn-naf-pending" novalidate @submit.prevent="doAnswerNaf">
+          <p class="lobby-error hm-small">This tournament is NAF sanctioned. Give your NAF number, or say you are not a NAF member, before you submit a roster.</p>
+          <label for="tn-entry-naf">NAF number (required — this tournament is NAF sanctioned)</label>
+          <input
+            id="tn-entry-naf" v-model="nafNumber" type="text" inputmode="numeric" maxlength="10" autocomplete="off" :disabled="notNafMember"
+            :aria-invalid="nafTouched && nafError ? 'true' : undefined" aria-describedby="tn-entry-naf-help" @blur="nafTouched = true"
+          />
+          <small id="tn-entry-naf-help" class="hm-small" :class="nafTouched && nafError ? 'lobby-error' : 'muted'">{{
+            nafTouched && nafError ? nafError : "Not optional: your NAF number is shared with the organisers as part of your entry."
+          }}</small>
+          <label class="ob-check"><input v-model="notNafMember" type="checkbox" /> <span>I am not a NAF member</span></label>
+          <div class="tn-actions"><button class="lobby-btn primary" type="submit" :disabled="busy || (nafTouched && Boolean(nafError))">Save NAF answer</button></div>
+        </form>
         <ul v-if="problems.length" class="tn-problems" aria-label="Roster problems">
           <li v-for="(p, i) in problems" :key="i">{{ p }}</li>
         </ul>
@@ -139,7 +159,7 @@ async function doWithdraw() { await detail.withdraw(); }
               <option v-for="c in g.items" :key="c.ref" :value="c.ref">{{ c.label }}</option>
             </optgroup>
           </select>
-          <button class="lobby-btn primary" type="submit" :disabled="locked || !saveRef || busy">Submit team</button>
+          <button class="lobby-btn primary" type="submit" :disabled="locked || nafPending || !saveRef || busy">Submit team</button>
         </form>
         <p v-if="locked && !closed" class="muted">Rosters are locked. Ask an organiser to unlock them to change your team.</p>
 

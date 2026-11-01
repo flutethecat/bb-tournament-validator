@@ -11,12 +11,15 @@
 // The acknowledgement gates the league mailer (src/auth/contactFor.ts mailerRecipientFor) and the league organisers' view
 // of the coach (sharedContactFor: the coach name plus only the fields of the league:<id> grant).
 // A future self-service join must ask the same notice at join time and store the same acknowledgement.
+// Leaving the roster (LeagueStore.onRosterExit -> recordLeagueExits) withdraws the acknowledgement and any decline, so a
+// coach put back on a team is asked again; their old sharing grant only pre-ticks the boxes until they confirm.
+// Answering (share or decline) needs a seat on the league (403 otherwise); withdrawing an acknowledgement does not.
 
 import { contactOf, LEAGUE_SHARE_VERSION, leagueShareText, parseShareFields, sharesWithLeague, type ShareField } from "./contactSchema.js";
 import { ContactValidationError } from "./contactSchema.js";
 import { leaguesOf, type MembershipSources } from "./contactFor.js";
-import { withGrant } from "./sharing.js";
-import { normalizeFfbCoachId, ownIdentityRecord, upsertIdentity, type CoachIdentityRecord } from "./identitiesStore.js";
+import { SharingError, withGrant } from "./sharing.js";
+import { normalizeFfbCoachId, ownIdentityRecord, readIdentities, upsertIdentity, type CoachIdentityRecord } from "./identitiesStore.js";
 
 export const LEAGUE_SHARING_PATH = "/api/me/leagues/sharing";
 
@@ -69,11 +72,14 @@ export function setLeagueSharing(coach: string, body: unknown, sources: Membersh
   const fields = parseShareFields(b.fields);
   if (!b.share && b.fields !== undefined) throw new ContactValidationError("fields are sent only when sharing.");
   let previous = ownIdentityRecord(coach);
+  const onRoster = leaguesOf(previous.ffbCoachId, sources).some((l) => l.id === leagueId);
+  // Declining needs a seat too (or an acknowledgement to withdraw): a stranger cannot answer for a league.
+  if (!b.share && !onRoster && !sharesWithLeague(previous, leagueId)) throw new SharingError(403, "You are not on that league.");
   const leagues = { ...previous.consent?.leagues };
   const declined = { ...previous.consent?.leaguesDeclined };
   if (b.share) {
     if (b.acknowledged !== true) throw new ContactValidationError("Tick the box to confirm you agree to share your data with this league's organisers.");
-    if (!leaguesOf(previous.ffbCoachId, sources).some((l) => l.id === leagueId)) throw new ContactValidationError("You are not on that league.");
+    if (!onRoster) throw new SharingError(403, "You are not on that league.");
     if (!sharesWithLeague(previous, leagueId)) leagues[leagueId] = { at: now.toISOString(), version: LEAGUE_SHARE_VERSION };
     delete declined[leagueId];
     // The league:<id> grant is written with the acknowledgement (same time), so it applies at once.
@@ -116,7 +122,9 @@ export function answerLeagueRegistration(
   const was = status(before);
   const is = status(after);
   const league = sources.leagues.league(leagueId);
-  if (!notify || !league || was === is || is === "pending") return after;
+  // Only a coach on the roster registers or declines; withdrawing from a league they already left tells nobody.
+  const onRoster = leaguesOf(after.ffbCoachId, sources).some((l) => l.id === leagueId);
+  if (!notify || !league || !onRoster || was === is || is === "pending") return after;
   const key = normalizeFfbCoachId(after.ffbCoachId);
   const organisers = new Map<string, string>();
   for (const o of [league.owner, ...league.organisers]) if (o?.trim()) organisers.set(normalizeFfbCoachId(o), o.trim());
@@ -128,4 +136,35 @@ export function answerLeagueRegistration(
     } catch { /* fire-and-forget */ }
   }
   return after;
+}
+
+/**
+ * Coaches who are no longer on any season of a league (LeagueStore.onRosterExit): their acknowledgement and any decline
+ * for that league are withdrawn, so a re-joining coach is asked again and nothing is shared until they confirm. The
+ * league:<id> sharing grant stays as a record: the notice pre-ticks it, and it is not read until the coach confirms.
+ * Coaches without an identity record are skipped (nothing to withdraw).
+ */
+export function recordLeagueExits(leagueId: string, coaches: readonly string[], now = new Date()): void {
+  const known = readIdentities().coaches;
+  for (const coach of coaches) {
+    const record = known[normalizeFfbCoachId(coach)];
+    if (!record?.consent?.leagues?.[leagueId] && !record?.consent?.leaguesDeclined?.[leagueId]) continue;
+    const leagues = { ...record.consent.leagues };
+    const declined = { ...record.consent.leaguesDeclined };
+    delete leagues[leagueId];
+    delete declined[leagueId];
+    const { leagues: _l, leaguesDeclined: _d, ...rest } = record.consent;
+    try {
+      upsertIdentity({
+        ...record,
+        consent: {
+          ...rest,
+          ...(Object.keys(leagues).length ? { leagues } : {}),
+          ...(Object.keys(declined).length ? { leaguesDeclined: declined } : {}),
+        },
+        updatedAt: now.toISOString(),
+        updatedBy: "league-roster",
+      });
+    } catch { /* a fenced (deleting) account: nothing to keep */ }
+  }
 }

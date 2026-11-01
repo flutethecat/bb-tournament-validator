@@ -26,6 +26,7 @@ export const NOTIFICATION_TYPES = [
   "league-broadcast",
   "registration",
   "share-request",
+  "naf-request",
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 

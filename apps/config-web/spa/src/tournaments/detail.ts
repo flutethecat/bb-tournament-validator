@@ -250,6 +250,11 @@ export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () =>
    *  teams; on a NAF-sanctioned tournament a NAF number, or notNafMember. */
   const register = (teamId: string, entry: RegistrationExtras = {}) =>
     run("register", () => deps.api(`${base()}/entrants`, { method: "POST", body: registrationBody(teamId, entry) }), "You are registered.");
+  /** The coach's NAF answer for their entry (NAF-sanctioned tournament): a NAF number or "not a NAF member". */
+  const answerNaf = (entrantId: string, answer: { nafNumber?: string; notNafMember?: boolean }) =>
+    run("naf", () => deps.api(`${base()}/entrants/${encodeURIComponent(entrantId)}/naf`, {
+      method: "POST", body: answer.notNafMember ? { notNafMember: true } : { nafNumber: (answer.nafNumber ?? "").trim() },
+    }), "NAF answer saved.");
   const withdraw = () => {
     const mine = state.tournament?.myEntrantId;
     return mine
@@ -322,7 +327,7 @@ export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () =>
 
   return {
     state, load, loadStandings, ensureTab, refresh, loadTeamOptions,
-    register, withdraw, submit,
+    register, withdraw, submit, answerNaf,
     saveSettings, setOwner, addOrganizer, removeOrganizer, lockRosters, unlockRosters, finish, patchEntrant,
     start, previewRound, generateRound,
     savePage, uploadBanner, removeBanner, postNews, editNews, deleteNews,

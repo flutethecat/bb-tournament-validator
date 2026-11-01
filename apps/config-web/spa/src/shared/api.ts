@@ -201,6 +201,8 @@ export interface TournamentEntrant {
   /** Coach and managers only: the NAF number given at registration, and the "not a NAF member" flag. */
   nafNumber?: string;
   notNafMember?: boolean;
+  /** NAF sanctioned and the coach has not answered yet (coach and managers). */
+  nafPending?: boolean;
   /** Managers only: what the coach shares with this tournament's organisers (the coach name plus granted fields). */
   shared?: TournamentSharedContact;
 }

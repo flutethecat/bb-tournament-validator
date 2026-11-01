@@ -107,6 +107,7 @@ function seed(e: TournamentEntrant, raw: string) {
             <span v-if="!sharedLines(r.e).length" class="muted">Not shared</span>
             <span v-if="r.e.nafNumber" class="muted">NAF #{{ r.e.nafNumber }}</span>
             <span v-if="r.e.notNafMember"><span class="tn-chip" data-naf="not-member">Not a NAF member</span></span>
+            <span v-if="r.e.nafPending"><span class="tn-chip" data-naf="pending">NAF pending</span></span>
           </td>
           <td data-label="Roster">
             <span class="tn-chip" :data-roster="r.roster">{{ ROSTER_LABEL[r.roster] }}</span>
