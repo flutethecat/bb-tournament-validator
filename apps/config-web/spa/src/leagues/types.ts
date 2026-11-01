@@ -14,6 +14,8 @@ export interface SeasonSummary {
   fixtureCount: number;
   playedCount: number;
   champion?: { coach: string; team: string; race: string };
+  /** Finished on this site (Finish season wrote a podium record): the organiser may reopen it. */
+  finishedHere?: boolean;
 }
 
 export interface LeagueSummary {
@@ -161,8 +163,20 @@ export interface StandingRow {
   tdAgainst: number;
   casFor: number;
   casAgainst: number;
+  completions?: number;
+  interceptions?: number;
+  injuriesFor?: number;
+  injuriesAgainst?: number;
+  deathsFor?: number;
+  deathsAgainst?: number;
+  foulsFor?: number;
+  foulsAgainst?: number;
+  /** The team's last results in this table, oldest first (server-derived). */
+  latest?: Array<"W" | "D" | "L">;
   [key: string]: unknown;
 }
+
+export type StandingsStat = "completions" | "interceptions" | "injuries" | "deaths" | "fouls";
 
 export interface LeaguePhase {
   id: string;
@@ -171,6 +185,9 @@ export interface LeaguePhase {
   groups: string[];
   standings: StandingRow[];
   includes?: string[];
+  /** The table is the TourPlay export's ("imported") or computed from the results ("computed"). */
+  standingsSource?: "computed" | "imported";
+  standingsStats?: StandingsStat[];
 }
 
 export interface PlayerSeasonStats {
@@ -265,6 +282,19 @@ export interface LeagueAward {
   team: string;
   race: string;
   goldenStar: boolean;
+  podium?: true;
+}
+
+export type PodiumSlot = "champion" | "runnerUp" | "consolation";
+export interface PodiumPlace { ref: string; teamId?: string; team: string; coach: string; race: string }
+/** GET /api/leagues/:id/seasons/:sid/podium: what Finish season proposes (server standings.ts). */
+export interface PodiumProposal {
+  champion?: PodiumPlace;
+  runnerUp?: PodiumPlace;
+  consolation?: PodiumPlace;
+  decidedBy: "playoff" | "standings" | "imported" | "none";
+  note: string;
+  candidates: PodiumPlace[];
 }
 
 export interface UnattributedStats { team: string; teamId?: string; name: string; position: string; stats: PlayerSeasonStats; reason: string; /** playerIds the total could belong to (absent on files imported before ids existed). */ candidates?: string[] }

@@ -7,7 +7,7 @@ import { resolveCrest } from "../tabletop/art";
 import type { Fetcher } from "../session";
 import type {
   FormerPlayer, HonourTable, HonourValue, LeagueFixture, LeagueNewsPost, LeaguePhase, LeaguePlayer, LeagueStats, LeagueSummary, LeagueTeam, SeasonRecord, SeasonSummary, StatsCard,
-  StatsScope,
+  StandingRow, StandingsStat, StatsScope,
 } from "./types";
 
 const errorText = (err: unknown, fallback: string): string => (err instanceof Error && err.message ? err.message : fallback);
@@ -464,18 +464,36 @@ export function fixturesByPhase(season: SeasonRecord): PhaseGroup[] {
     .filter((g) => g.rounds.length);
 }
 
-/** Standings tables: one per phase + group, phases with no table left out. */
-export function standingsTables(season: SeasonRecord): Array<{ key: string; title: string; note: string; rows: LeaguePhase["standings"] }> {
-  const out: Array<{ key: string; title: string; note: string; rows: LeaguePhase["standings"] }> = [];
+/** Optional stat columns of a standings table, in display order (only those the server says the table carries). */
+export const STANDINGS_STAT_COLUMNS: ReadonlyArray<{ id: StandingsStat; label: string; title: string; value: (r: StandingRow) => string }> = [
+  { id: "completions", label: "COM", title: "Completions", value: (r) => String(r.completions ?? 0) },
+  { id: "interceptions", label: "INT", title: "Interceptions", value: (r) => String(r.interceptions ?? 0) },
+  { id: "injuries", label: "INJ", title: "Serious injuries inflicted-suffered", value: (r) => `${r.injuriesFor ?? 0}-${r.injuriesAgainst ?? 0}` },
+  { id: "deaths", label: "DTH", title: "Deaths inflicted-suffered", value: (r) => `${r.deathsFor ?? 0}-${r.deathsAgainst ?? 0}` },
+  { id: "fouls", label: "FOU", title: "Fouls made-suffered", value: (r) => `${r.foulsFor ?? 0}-${r.foulsAgainst ?? 0}` },
+];
+
+export interface StandingsTable { key: string; title: string; note: string; rows: StandingRow[]; stats: StandingsStat[]; source: "computed" | "imported" | "" }
+
+/** Standings tables (server-derived): one per phase + group, phases with no games left out. */
+export function standingsTables(season: SeasonRecord): StandingsTable[] {
+  const out: StandingsTable[] = [];
   for (const p of season.phases) {
     if (!p.standings.length || p.standings.every((r) => r.played === 0)) continue;
     const includes = (p.includes ?? []).map((id) => season.phases.find((x) => x.id === id)).filter(Boolean).map((x) => phaseLabel(x!.name));
     const note = includes.length ? `Includes ${includes.join(" and ")} games.` : "";
     const groups = [...new Set(p.standings.map((r) => r.group))];
-    for (const g of groups) out.push({ key: `${p.id}:${g}`, title: g ? `${phaseTitle(p)} · ${g}` : phaseTitle(p), note, rows: p.standings.filter((r) => r.group === g) });
+    const stats = p.standingsStats ?? [];
+    for (const g of groups) out.push({ key: `${p.id}:${g}`, title: g ? `${phaseTitle(p)} · ${g}` : phaseTitle(p), note, rows: p.standings.filter((r) => r.group === g), stats, source: p.standingsSource ?? "" });
   }
   return out;
 }
+
+/** The signed-in coach's row (their fork account on the row, case-insensitive). */
+export const isMyStanding = (r: Pick<StandingRow, "coachId">, coach: string): boolean =>
+  Boolean(coach.trim() && r.coachId && r.coachId.trim().toLowerCase() === coach.trim().toLowerCase());
+
+export const LATEST_LABEL: Record<string, string> = { W: "Win", D: "Draw", L: "Loss" };
 
 /** The team a ?team= value names: its id (exact), else a team name only when exactly one team has it. */
 export function teamByRef(season: SeasonRecord, ref: string): LeagueTeam | undefined {

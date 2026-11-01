@@ -411,6 +411,8 @@ export async function editFixture(
     fixture.away.cas = result.awayCas;
     announce = resultSig(fixture) !== before;
   }
+  // Standings are derived from the results (standings.ts); an imported season with a newer result is recomputed.
+  if (result !== undefined) season.resultsChangedAt = (deps.now?.() ?? new Date()).toISOString();
   deps.store.putSeason(season);
   if (announce) await fixtureEvent(league, season, fixture, "result", { by: who.coach }, { store: deps.store, postWebhook: deps.postWebhook, now: deps.now });
   return res(200, { ok: true, fixture: shown(fixture) });

@@ -158,6 +158,7 @@ export async function seed(root: string, opts: SeedOptions = {}): Promise<void> 
     ],
     awards: [], news: [{ id: "n1", title: "Welcome", body: "Hello all", by: "Alice", at: "" }],
     log: [{ at: "", by: "Bob", kind: "team-coach", text: "Bob assigned Alice Smith to Green Orcs" }],
+    podium: { decidedBy: "organiser", proposed: { champion: "green-orcs" }, final: { champion: "green-orcs" }, overridden: true, by: "Alice", at: "" },
   });
 
   // tabletop

@@ -4,10 +4,10 @@ import type { ViteDevServer } from "vite";
 import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
 import {
-  applyTierFill, createLeagueSettings, isSettingsTab, isWebhookUrl, nextSeasonDefaults, openSeason, openSeasons, postcodeError, teamBuildingError, tierFillPlan,
+  applyTierFill, createLeagueSettings, isSettingsTab, isWebhookUrl, nextSeasonDefaults, openSeason, openSeasons, podiumPickError, podiumPicks, postcodeError, teamBuildingError, tierFillPlan,
 } from "../spa/src/leagues/settings";
-import { createFixtureRows, createLeagueDetail, newFixtureError, newsList } from "../spa/src/leagues/league";
-import type { LeagueFixture, LeagueSettingsView, LeagueSummary, SeasonRecord, SeasonSummary, TeamBuildingRosterRule } from "../spa/src/leagues/types";
+import { createFixtureRows, createLeagueDetail, isMyStanding, newFixtureError, newsList, standingsTables } from "../spa/src/leagues/league";
+import type { LeagueFixture, LeagueSettingsView, LeagueSummary, PodiumProposal, SeasonRecord, SeasonSummary, StandingRow, TeamBuildingRosterRule } from "../spa/src/leagues/types";
 
 // SPA League settings: the controller and helpers, every tab server-rendered against a mocked Fetcher, the cog on the
 // league page by role, and the per-fixture Super FUMBBL switch.
@@ -459,6 +459,47 @@ describe("league settings routes (server-rendered)", () => {
     expect(d.state.season["season-5"]).toBeUndefined(); // reloads when opened
     expect(d.state.editNotice).toBe("Coach account set to ForkTester.");
   });
+
+  const standingRow = (over: Partial<StandingRow>): StandingRow => ({
+    group: "", rank: 1, team: "Grudge Rollers", teamId: "grudge", race: "Dwarf", coach: "Jay", coachId: "Jay", points: 3, played: 1, wins: 1, draws: 0, losses: 0,
+    tdFor: 2, tdAgainst: 1, casFor: 1, casAgainst: 0, completions: 4, interceptions: 1, injuriesFor: 1, injuriesAgainst: 0, deathsFor: 0, deathsAgainst: 0, foulsFor: 2, foulsAgainst: 0, ...over,
+  });
+  const withTable = () => ({ league: league(), season: { ...season6(), phases: [{ id: "season-regular", category: "Season", name: "Regular", groups: [""], standingsSource: "computed", standingsStats: ["completions", "fouls"], standings: [
+    standingRow({ latest: ["L", "W"] }),
+    standingRow({ rank: 2, team: "Rot Girl Summer", teamId: "rot", coach: "Jeff", coachId: undefined, points: 0, wins: 0, losses: 1, tdFor: 1, tdAgainst: 2, latest: ["L"] }),
+  ] }] } });
+
+  it("Standings tab: live table in .sf-table, PTS/MP/LATEST dots, recorded stat columns only, My standing for the signed-in coach", async () => {
+    const extra = { "/api/leagues/tabbl/seasons/season-6": withTable };
+    const { html } = await render("/leagues/tabbl?tab=standings", detail, ORGANISER, extra);
+    expect(html).toContain('class="sf-table lg-table lg-standings"');
+    for (const h of ["PTS", "MP", "Latest", "COM", "FOU"]) expect(html).toContain(`>${h}</th>`);
+    expect(html).not.toContain(">INT</th>"); // not in standingsStats
+    expect(html.replace(/<!--[^>]*-->/g, "")).toContain("2 teams · Live");
+    expect(html).toContain('aria-label="Last results: Loss, Win"');
+    expect(html).toMatch(/data-mine="true"[^>]*aria-current="true"/);
+    expect(html).toContain("My standing");
+    const anon = await render("/leagues/tabbl?tab=standings", detail, ANON, extra);
+    expect(anon.html).not.toContain("data-mine");
+    expect(anon.html).not.toContain("My standing");
+  });
+
+  it("Overview: a crowned champion shows with its star", async () => {
+    const crowned = () => ({ league: league(), season: { ...season6(), status: "completed", awards: [
+      { category: "Season", type: "Overall Champion", name: "Champion", description: "Final standings", coach: "Jay", team: "Grudge Rollers", race: "Dwarf", goldenStar: true, podium: true },
+      { category: "Season", type: "Runner-up", name: "Runner-up", description: "Final standings", coach: "Jeff", team: "Rot Girl Summer", race: "Nurgle", goldenStar: false, podium: true },
+    ] } });
+    const { html } = await render("/leagues/tabbl", detail, ANON, { "/api/leagues/tabbl/seasons/season-6": crowned });
+    expect(html.replace(/<!--[^>]*-->/g, "")).toMatch(/data-award="Overall Champion"><span class="lg-award-type">Overall Champion ★<\/span><strong>Grudge Rollers<\/strong>/);
+    expect(html).toContain('data-award="Runner-up"');
+  });
+
+  it("Administration: Reopen shows for a season finished here", async () => {
+    const done: SeasonSummary = { ...s5, finishedHere: true };
+    const { html } = await render("/leagues/tabbl/settings", loaded({ "/api/leagues/tabbl": { league: league(), seasons: [done, s6] } }), ORGANISER);
+    expect(html).toContain(">Reopen Season 5</button>");
+    expect((await render("/leagues/tabbl/settings", loaded(), ORGANISER)).html).not.toContain(">Reopen");
+  });
 });
 
 describe("league settings review regressions (SPA side)", () => {
@@ -478,5 +519,49 @@ describe("league settings review regressions (SPA side)", () => {
     expect(settingsReads).toBe(2);
     expect(s.state.view!.revision).toBe(5);
     expect(s.state.errors.information).toContain("Another organiser changed these settings");
+  });
+});
+
+describe("standings and podium helpers (SPA side)", () => {
+  const proposal: PodiumProposal = {
+    decidedBy: "standings", note: "The final standings decide the podium.",
+    champion: { ref: "a", team: "Alpha", coach: "Ann", race: "Orc" }, runnerUp: { ref: "b", team: "Bravo", coach: "Bob", race: "Orc" },
+    candidates: [{ ref: "a", team: "Alpha", coach: "Ann", race: "Orc" }, { ref: "b", team: "Bravo", coach: "Bob", race: "Orc" }, { ref: "c", team: "Charlie", coach: "Cy", race: "Orc" }],
+  };
+
+  it("podium picks start from the proposal; one team in two places is refused", () => {
+    expect(podiumPicks(proposal)).toEqual({ champion: "a", runnerUp: "b", consolation: "" });
+    expect(podiumPicks(null)).toEqual({ champion: "", runnerUp: "", consolation: "" });
+    expect(podiumPickError({ champion: "a", runnerUp: "b", consolation: "" })).toBe("");
+    expect(podiumPickError({ champion: "a", runnerUp: "a", consolation: "" })).toContain("only one podium place");
+  });
+
+  it("controller: reads the proposal, finishes with the override, reopens", async () => {
+    const f = mockFetcher({
+      ...API,
+      "/api/leagues/tabbl/seasons/season-6/podium": { proposal, status: "active" },
+      "POST /api/leagues/tabbl/seasons/season-6/finish": { ok: true },
+      "POST /api/leagues/tabbl/seasons/season-5/reopen": { ok: true },
+    });
+    const s = createLeagueSettings({ api: f });
+    await s.load("tabbl");
+    expect(await s.podiumProposal("season-6")).toEqual(proposal);
+    expect(await s.finishSeason("season-6", { champion: "c", runnerUp: "b", consolation: "" })).toBe(true);
+    expect(f.calls.find((c) => c.method === "POST" && c.path.endsWith("/finish"))!.body).toEqual({ podium: { champion: "c", runnerUp: "b", consolation: "" } });
+    expect(await s.finishSeason("season-6")).toBe(true);
+    expect(f.calls.filter((c) => c.method === "POST" && c.path.endsWith("/finish")).at(-1)!.body).toEqual({});
+    expect(await s.reopenSeason("season-5")).toBe(true);
+    expect(s.state.notices.finish).toContain("reopened");
+    expect(await s.podiumProposal("season-9")).toBeNull();
+    expect(s.state.errors.finish).toContain("no mock");
+  });
+
+  it("standings tables carry the source and stat columns; My standing matches the coach account only", () => {
+    const row = { group: "", rank: 1, team: "A", race: "Orc", coach: "Ann", coachId: "Ann", points: 3, played: 1, wins: 1, draws: 0, losses: 0, tdFor: 1, tdAgainst: 0, casFor: 0, casAgainst: 0 };
+    const tables = standingsTables({ ...season6(), phases: [{ id: "p", category: "Season", name: "Regular", groups: [""], standings: [row], standingsSource: "computed", standingsStats: ["fouls"] }] });
+    expect(tables[0]).toMatchObject({ source: "computed", stats: ["fouls"] });
+    expect(isMyStanding(row, " ann ")).toBe(true);
+    expect(isMyStanding(row, "")).toBe(false);
+    expect(isMyStanding({ coachId: undefined }, "Ann")).toBe(false);
   });
 });

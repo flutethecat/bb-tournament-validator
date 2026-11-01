@@ -727,6 +727,8 @@ function anonymiseSeason(an: Anonymiser, tx: TextReplacer, displays: ReadonlySet
     }
   }
   for (const a of objs(s.awards)) if (linked(a)) mark(LINKED_ROW(an, a));
+  // The podium record holds team refs only (its places are the awards above) plus who finished the season.
+  if (isObj(s.podium)) mark(an.fields(s.podium, ["by"], []));
   for (const n of objs(s.news)) { mark(an.fields(n, ["by"], [])); mark(tx.texts(n, ["title", "body"])); }
   for (const l of objs(s.log)) { mark(an.fields(l, ["by"], [])); mark(tx.texts(l, ["text"])); }
   if (isObj(s.redraft)) {

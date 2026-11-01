@@ -287,7 +287,14 @@ export interface StandingRow {
   sentOffsAgainst: number;
   secretObjectives: number;
   buchholz: number;
+  /** Read model only (standings.ts): the team's last results in this table, oldest first, at most six. */
+  latest?: Array<"W" | "D" | "L">;
 }
+
+/** Tiebreak keys a phase may name (standings.ts orderRows). headToHead = points from the games among the tied teams. */
+export type TiebreakKey = "points" | "tdDiff" | "casDiff" | "headToHead" | "tdFor" | "casFor" | "wins" | "name";
+/** Optional stat columns a table carries (only when the results recorded them). */
+export type StandingsStat = "completions" | "interceptions" | "injuries" | "deaths" | "fouls";
 
 export interface LeaguePhase {
   id: string;
@@ -297,6 +304,14 @@ export interface LeaguePhase {
   standings: StandingRow[];
   /** Fixture-only phases whose games count in this phase's standings (e.g. Interdivision in Regular). */
   includes?: string[];
+  /** Points per result for computed standings (absent = W3 D1 L0, standings.ts DEFAULT_POINTS). */
+  points?: { win: number; draw: number; loss: number };
+  /** Tiebreak order for computed standings (absent = points, TD diff, CAS diff, head-to-head, name). */
+  tiebreaks?: TiebreakKey[];
+  /** Read model only (standings.ts): the table is the TourPlay export's, or computed from the results. */
+  standingsSource?: "computed" | "imported";
+  /** Read model only: the optional stat columns this table carries. */
+  standingsStats?: StandingsStat[];
 }
 
 export interface LeagueParticipant {
@@ -465,6 +480,27 @@ export interface LeagueAward {
   team: string;
   race: string;
   goldenStar: boolean;
+  /** Written by Finish season (the podium); removed again when the season is reopened. */
+  podium?: true;
+}
+
+export type PodiumSlot = "champion" | "runnerUp" | "consolation";
+
+/**
+ * The podium Finish season crowned (standings.ts proposePodium; the places themselves are the podium awards). Team refs
+ * only (team id, or name:<team>): coach names live on the awards, which the privacy anonymiser already covers.
+ */
+export interface SeasonPodium {
+  /** How the final podium was decided: the playoff final, the final standings, the organiser's override, the import's awards. */
+  decidedBy: "playoff" | "standings" | "organiser" | "imported" | "none";
+  /** What the site proposed, by team ref. */
+  proposed: Partial<Record<PodiumSlot, string>>;
+  /** What was crowned, by team ref. */
+  final: Partial<Record<PodiumSlot, string>>;
+  /** The organiser changed the proposal. */
+  overridden: boolean;
+  by: string;
+  at: string;
 }
 
 /**
@@ -500,6 +536,10 @@ export interface SeasonRecord {
   awards: LeagueAward[];
   unattributedStats: UnattributedStats[];
   importedAt: string;
+  /** Last time a result was entered, edited, cleared or applied on this site (standings.ts: an imported season with a newer result is recomputed). */
+  resultsChangedAt?: string;
+  /** Set by Finish season; cleared by Reopen. */
+  podium?: SeasonPodium;
   /** Bumped by the store on every write (results, fixtures, redraft application...): the stats cache keys on it. */
   revision?: number;
   /** "manual" = started from League settings (Start a new season). */

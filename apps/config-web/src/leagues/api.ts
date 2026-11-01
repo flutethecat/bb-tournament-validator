@@ -14,7 +14,9 @@
  *   PATCH  /api/leagues/:id/settings                              { revision, administration?, information?, registrations?, teamBuilding?, connections? }
  *   GET    /api/leagues/:id/coaches?q=                            coach-name lookup against the identities (add organiser)
  *   POST   /api/leagues/:id/seasons                               { name?, ruleset? } start the next season
- *   POST   /api/leagues/:id/seasons/:seasonId/finish              status -> completed
+ *   GET    /api/leagues/:id/seasons/:seasonId/podium              the podium Finish season proposes (standings.ts) + candidates
+ *   POST   /api/leagues/:id/seasons/:seasonId/finish              { podium?: { champion?, runnerUp?, consolation? } (team refs) } status -> completed, crowns the podium
+ *   POST   /api/leagues/:id/seasons/:seasonId/reopen              a season finished here goes back in progress; its podium is cleared
  *   PATCH  /api/leagues/:id/seasons/:seasonId/teams/:teamId       { revision, coachId, allSeasons? } assign a coach account (teamCoach.ts)
  *   PATCH  /api/leagues/:id/seasons/:seasonId/fixtures/:fixtureId { forkEnabled?, forkAllowLate?, forkCancelled? } Super FUMBBL per fixture
  *                                                                 { date?, round?, result? } fixtures editor (events.ts)
@@ -49,10 +51,11 @@ import {
   parseConnections, parseInformation, parseRegistrations, parseTeamBuilding, registrationsOf, settingsView, SettingsError, teamBuildingTable,
 } from "./settings.js";
 import { leagueStats, isStatsScope, type LeagueStats, type StatsScope } from "./stats.js";
+import { clearStandingsCache, podiumAwards, PODIUM_SLOTS, proposePodium, withStandings, type PodiumPlace } from "./standings.js";
 import { fixturePlayed } from "./tourplay.js";
 import { ORGANISER_LOG_KINDS } from "./teamValue.js";
 import { isLeagueOrganiser, LEAGUE_ART_DIR, LEAGUE_ART_PATH, leagueOwner, LeagueStore, LeagueStoreError, SEASON_ID } from "./store.js";
-import { LEAGUE_RULESETS, type LeagueFixture, type LeagueRecord, type LeagueTeam, type LeagueRuleset, type SeasonRecord, type SeasonStatus } from "./types.js";
+import { LEAGUE_RULESETS, type LeagueFixture, type LeagueRecord, type LeagueTeam, type LeagueRuleset, type PodiumSlot, type SeasonRecord, type SeasonStatus } from "./types.js";
 
 export const LOGO_MAX_BYTES = 1024 * 1024;
 export const BANNER_MAX_BYTES = 2 * 1024 * 1024;
@@ -91,6 +94,8 @@ export interface SeasonSummary {
   fixtureCount: number;
   playedCount: number;
   champion?: { coach: string; team: string; race: string };
+  /** Finished on this site (it carries a podium record): an organiser may reopen it. */
+  finishedHere?: boolean;
 }
 
 export interface LeagueApiIdentity { coach: string; admin: boolean }
@@ -155,6 +160,7 @@ export function seasonSummary(s: SeasonRecord): SeasonSummary {
     fixtureCount: s.fixtures.length,
     playedCount: played,
     ...(champ ? { champion: { coach: champ.coach, team: champ.team, race: champ.race } } : {}),
+    ...(s.status === "completed" && s.podium ? { finishedHere: true } : {}),
   };
 }
 
@@ -254,7 +260,7 @@ function withArtLock<T>(id: string, task: () => Promise<T>): Promise<T> {
 
 const statsCache = new Map<string, { key: string; stats: LeagueStats }>();
 /** Account deletion rewrote league files: drop the derived statistics. */
-export function clearLeagueStatsCache(): void { statsCache.clear(); }
+export function clearLeagueStatsCache(): void { statsCache.clear(); clearStandingsCache(); }
 
 function statsFor(store: LeagueStore, leagueId: string, scope: StatsScope): LeagueStats {
   const seasons = store.seasons(leagueId);
@@ -403,7 +409,7 @@ function isSettingsRoute(method: string, rest: string[]): boolean {
   if (first && SETTINGS_ROUTES.has(first)) return true;
   if (first !== "seasons" || more.length) return false;
   if (second === undefined) return method !== "GET" && method !== "HEAD";
-  return (third === "finish" && fourth === undefined) || (third === "fixtures" && fourth !== undefined)
+  return ((third === "finish" || third === "podium" || third === "reopen") && fourth === undefined) || (third === "fixtures" && fourth !== undefined)
     || (third === "teams" && fourth !== undefined && method !== "GET" && method !== "HEAD");
 }
 
@@ -497,7 +503,7 @@ async function settingsRoute(
     if (first === "export.zip" && second === undefined) {
       if (method !== "GET") return { status: 405, body: { error: "Use GET." } };
       const only = query.get("season");
-      const seasons = deps.store.seasons(lg.id).filter((s) => !only || s.id === only);
+      const seasons = deps.store.seasons(lg.id).filter((s) => !only || s.id === only).map(withStandings);
       if (only && !seasons.length) return { status: 404, body: { error: "Season not found." } };
       const bytes = zipFiles(leagueCsvFiles(lg, seasons), deps.now?.() ?? new Date());
       return { status: 200, download: { bytes, contentType: "application/zip", filename: `${lg.slug || lg.id}-results${only ? `-${only}` : ""}.zip` } };
@@ -517,9 +523,19 @@ async function settingsRoute(
         if (method !== "POST") return { status: 405, body: { error: "Use POST." } };
         return await createSeason(lg, who, input, deps);
       }
+      if (third === "podium") {
+        if (method !== "GET") return { status: 405, body: { error: "Use GET." } };
+        const s = deps.store.season(lg.id, second);
+        if (!s) return { status: 404, body: { error: "Season not found." } };
+        return { status: 200, body: { proposal: proposePodium(s), status: s.status } };
+      }
       if (third === "finish") {
         if (method !== "POST") return { status: 405, body: { error: "Use POST." } };
-        return finishSeason(lg, second, deps);
+        return await finishSeason(lg, second, who, input, deps);
+      }
+      if (third === "reopen") {
+        if (method !== "POST") return { status: 405, body: { error: "Use POST." } };
+        return reopenSeason(lg, second, deps);
       }
       if (third === "teams" && fourth) {
         if (method !== "PATCH") return { status: 405, body: { error: "Use PATCH." } };
@@ -682,14 +698,76 @@ async function createSeason(league: LeagueRecord, who: LeagueApiIdentity, input:
   return { status: 201, body: { ok: true, season: seasonSummary(season) } };
 }
 
-async function finishSeason(league: LeagueRecord, seasonId: string, deps: LeagueApiDeps): Promise<LeagueApiResult> {
+/**
+ * The organiser's podium override: { champion?, runnerUp?, consolation? }, each a candidate's team ref or null (empty).
+ * A slot left out keeps the proposal. Throws SettingsError.
+ */
+export function parsePodiumOverride(input: unknown, candidates: PodiumPlace[]): Partial<Record<PodiumSlot, string | null>> {
+  if (input === undefined) return {};
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new SettingsError(400, "podium must be an object.", "podium");
+  const raw = input as Record<string, unknown>;
+  const out: Partial<Record<PodiumSlot, string | null>> = {};
+  for (const slot of PODIUM_SLOTS) {
+    const v = raw[slot];
+    if (v === undefined) continue;
+    if (v === null || v === "") { out[slot] = null; continue; }
+    if (typeof v !== "string" || !candidates.some((c) => c.ref === v)) throw new SettingsError(400, "Pick a team of this season.", slot);
+    out[slot] = v;
+  }
+  return out;
+}
+
+async function finishSeason(league: LeagueRecord, seasonId: string, who: LeagueApiIdentity, input: Record<string, unknown>, deps: LeagueApiDeps): Promise<LeagueApiResult> {
   const season = deps.store.season(league.id, seasonId);
   if (!season) return { status: 404, body: { error: "Season not found." } };
   if (season.status === "completed") return { status: 409, body: { error: `${season.name} is already finished.` } };
+  const at = (deps.now?.() ?? new Date()).toISOString();
+  const proposal = proposePodium(season);
+  if (proposal.decidedBy === "imported") {
+    // The imported awards stand untouched; the record lets the season be reopened like any other.
+    if (input.podium !== undefined) return { status: 409, body: { error: "This season's podium came with the TourPlay import and cannot be changed here.", field: "podium" } };
+    const refs: Partial<Record<PodiumSlot, string>> = {};
+    for (const slot of PODIUM_SLOTS) if (proposal[slot]) refs[slot] = proposal[slot]!.ref;
+    season.podium = { decidedBy: "imported", proposed: refs, final: { ...refs }, overridden: false, by: who.coach, at };
+  } else {
+    const override = parsePodiumOverride(input.podium, proposal.candidates);
+    const byRef = new Map(proposal.candidates.map((c) => [c.ref, c]));
+    const proposed: Partial<Record<PodiumSlot, string>> = {};
+    const places: Partial<Record<PodiumSlot, PodiumPlace>> = {};
+    for (const slot of PODIUM_SLOTS) {
+      const p = proposal[slot];
+      if (p) proposed[slot] = p.ref;
+      const ref = override[slot] === undefined ? p?.ref : override[slot];
+      const place = ref ? byRef.get(ref) ?? (p?.ref === ref ? p : undefined) : undefined;
+      if (place) places[slot] = place;
+    }
+    const refs = PODIUM_SLOTS.map((s) => places[s]?.ref).filter(Boolean);
+    if (new Set(refs).size !== refs.length) throw new SettingsError(400, "A team can take only one podium place.", "podium");
+    const final: Partial<Record<PodiumSlot, string>> = {};
+    for (const slot of PODIUM_SLOTS) if (places[slot]) final[slot] = places[slot]!.ref;
+    const overridden = PODIUM_SLOTS.some((slot) => (final[slot] ?? "") !== (proposed[slot] ?? ""));
+    const decidedBy = overridden ? "organiser" : proposal.decidedBy;
+    season.awards = [...season.awards.filter((a) => !a.podium), ...podiumAwards(places, decidedBy)];
+    season.podium = { decidedBy, proposed, final, overridden, by: who.coach, at };
+  }
   season.status = "completed";
-  season.endedAt = (deps.now?.() ?? new Date()).toISOString();
+  season.endedAt = at;
   deps.store.putSeason(season);
   await postMilestone(league, deps, buildMilestonePost(league, "season-finished", season.name));
+  return { status: 200, body: { ok: true, season: seasonSummary(season) } };
+}
+
+/** Reopen a season finished on this site (it has a podium record): back in progress, podium awards and record removed. */
+function reopenSeason(league: LeagueRecord, seasonId: string, deps: LeagueApiDeps): LeagueApiResult {
+  const season = deps.store.season(league.id, seasonId);
+  if (!season) return { status: 404, body: { error: "Season not found." } };
+  if (season.status !== "completed") return { status: 409, body: { error: `${season.name} is still in progress.` } };
+  if (!season.podium) return { status: 409, body: { error: "Only a season finished on this site can be reopened." } };
+  season.status = "active";
+  delete season.endedAt;
+  delete season.podium;
+  season.awards = season.awards.filter((a) => !a.podium);
+  deps.store.putSeason(season);
   return { status: 200, body: { ok: true, season: seasonSummary(season) } };
 }
 
@@ -786,7 +864,7 @@ async function patchFixture(league: LeagueRecord, seasonId: string, fixtureId: s
  */
 export function seasonForViewer(league: LeagueRecord, full: SeasonRecord, auth: LeagueApiIdentity | undefined): SeasonRecord {
   // Redraft state (budgets, R&R, draft rosters) is served only by the authorised redraft routes, never in a season read.
-  const { redraft: _r, ...season } = full;
+  const { redraft: _r, ...season } = withStandings(full);
   const fixtures = season.fixtures.map((f) => (f.forkNotice || f.fork ? publicForkState(f) : f));
   // Organiser-only log entries (team value diff / not recomputed) stay with organisers and admins.
   const manager = Boolean(auth && (auth.admin || isLeagueOrganiser(league, auth.coach)));

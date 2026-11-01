@@ -354,6 +354,7 @@ export function applyForkResult(season: SeasonRecord, fixture: LeagueFixture, re
   };
   fork.result = applied;
   fork.status = "finished";
+  season.resultsChangedAt = now.toISOString();
   return { applied: true, result: applied, retired, teamValueDiffs };
 }
 

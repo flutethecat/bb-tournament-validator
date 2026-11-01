@@ -5,7 +5,7 @@
 import { reactive, type InjectionKey } from "vue";
 import { ApiError } from "../shared/api";
 import type { Fetcher } from "../session";
-import type { LeagueCountry, LeagueSettingsView, LeagueSummary, SeasonSummary, TeamBuildingRosterRule } from "./types";
+import type { LeagueCountry, LeagueSettingsView, LeagueSummary, PodiumProposal, PodiumSlot, SeasonSummary, TeamBuildingRosterRule } from "./types";
 
 export type SettingsTab = "administration" | "information" | "registrations" | "team-building" | "connections";
 export const SETTINGS_TABS: ReadonlyArray<{ id: SettingsTab; label: string }> = [
@@ -164,8 +164,21 @@ export function createLeagueSettings(deps: { api: Fetcher }) {
         // The new season becomes the team building season.
         if (state.view) state.view.teamBuilding = null;
       }, "New season started."),
-    finishSeason: (seasonId: string) =>
-      action("finish", () => deps.api(`${base()}/seasons/${encodeURIComponent(seasonId)}/finish`, { method: "POST", body: {} }), "Season finished."),
+    /** Finish a season; `podium` = the organiser's picks by team ref ("" = leave the place empty), omitted = the proposal. */
+    finishSeason: (seasonId: string, podium?: Partial<Record<PodiumSlot, string>>) =>
+      action("finish", () => deps.api(`${base()}/seasons/${encodeURIComponent(seasonId)}/finish`, { method: "POST", body: podium ? { podium } : {} }), "Season finished."),
+    /** The podium Finish season proposes (null when it cannot be read; the error shows under the season actions). */
+    async podiumProposal(seasonId: string): Promise<PodiumProposal | null> {
+      say("finish", "");
+      try {
+        return (await deps.api<{ proposal: PodiumProposal }>(`${base()}/seasons/${encodeURIComponent(seasonId)}/podium`)).proposal;
+      } catch (err) {
+        say("finish", errorText(err, "Can't work out the podium right now."));
+        return null;
+      }
+    },
+    reopenSeason: (seasonId: string) =>
+      action("finish", () => deps.api(`${base()}/seasons/${encodeURIComponent(seasonId)}/reopen`, { method: "POST", body: {} }), "Season reopened. Its podium was cleared."),
     testDiscord: () => action("discord-test", () => deps.api(`${base()}/discord/test`, { method: "POST", body: {} }), "Test post sent. Check the channel.", false),
     async lookupCoaches(q: string): Promise<string[]> {
       if (q.trim().length < 2) return [];
@@ -179,6 +192,17 @@ export const LEAGUE_SETTINGS_KEY: InjectionKey<LeagueSettings> = Symbol("league-
 
 /** The newest season in progress (seasons may overlap: owner 10-30), else none. */
 export const openSeason = (seasons: SeasonSummary[]): SeasonSummary | undefined => openSeasons(seasons)[0];
+
+/** The podium picks the dialog starts from: the proposal's team refs ("" = empty). */
+export function podiumPicks(p: PodiumProposal | null): Record<PodiumSlot, string> {
+  return { champion: p?.champion?.ref ?? "", runnerUp: p?.runnerUp?.ref ?? "", consolation: p?.consolation?.ref ?? "" };
+}
+
+/** "" when the picks are fine; otherwise why Confirm is disabled (one team in two places). */
+export function podiumPickError(picks: Record<PodiumSlot, string>): string {
+  const refs = Object.values(picks).filter(Boolean);
+  return new Set(refs).size === refs.length ? "" : "A team can take only one podium place.";
+}
 
 /** Every season in progress, newest first (Finish season picks one of them). */
 export const openSeasons = (seasons: SeasonSummary[]): SeasonSummary[] => [...seasons].filter((s) => s.status === "active").sort((a, b) => b.number - a.number);

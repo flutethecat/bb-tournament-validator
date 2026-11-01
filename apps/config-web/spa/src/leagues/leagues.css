@@ -146,6 +146,27 @@ button.lg-cog { margin: 0; padding: 0; font: inherit; color: inherit; cursor: po
 .lg-date { white-space: nowrap; }
 .lg-fx-table td .sf-chip { margin-right: 4px; }
 
+/* ---- standings (LeagueStandings.vue): LATEST dots, "My standing" row */
+.lg-standings tbody tr[data-mine="true"] { background: color-mix(in srgb, var(--sf-seat-home) 18%, transparent); box-shadow: inset 3px 0 0 var(--sf-seat-home); }
+.lg-standings tbody tr[data-mine="true"] .lg-team-name { color: var(--sf-led); }
+.lg-latest { white-space: nowrap; }
+.lg-dots { display: inline-flex; gap: 3px; vertical-align: middle; }
+.lg-dot { display: inline-grid; place-items: center; width: 14px; height: 14px; border-radius: 50%; font: 8px/1 var(--sf-band-font); color: var(--ui-secondary); box-shadow: var(--sf-bevel); }
+.lg-dot[data-r="W"] { background: var(--ui-success); }
+.lg-dot[data-r="D"] { background: var(--ui-muted); }
+.lg-dot[data-r="L"] { background: var(--ui-danger); }
+.lg-my-standing { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0 0 8px; padding: 6px 8px; border-left: 3px solid var(--sf-seat-home); background: color-mix(in srgb, var(--ui-surface-2) 70%, transparent); }
+.lg-my-standing strong { font: 500 18px/1 var(--font-heading); color: var(--sf-led); }
+.lg-my-standing small { color: var(--ui-muted); font-size: 12px; }
+
+/* ---- Finish season dialog: the podium picks (LeagueSettingsAdmin.vue) */
+.ls-podium { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.ls-podium > li { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 2px 10px; align-items: end; padding: 8px; border-left: 3px solid var(--sf-panel-line); background: color-mix(in srgb, var(--ui-surface-2) 70%, transparent); border-radius: 2px; }
+.ls-podium > li[data-slot="champion"] { border-left-color: var(--sf-led); }
+.ls-podium > li[data-slot="runnerUp"] { border-left-color: var(--sf-seat-home); }
+.ls-podium-place { font: 500 22px/1 var(--font-heading); color: var(--sf-gold); text-align: center; padding-bottom: 6px; }
+.ls-podium-was { grid-column: 2; color: var(--ui-muted); font-size: 13px; }
+
 /* ---- fixtures */
 .lg-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; }
 .lg-select { display: inline-flex; align-items: center; gap: 8px; }

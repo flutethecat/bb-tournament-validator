@@ -39,7 +39,7 @@ const phases = computed(() => props.season.phases.filter((p) => props.season.fix
         </dl>
         <ul v-if="podium.length" class="lg-podium" aria-label="Season awards">
           <li v-for="a in podium" :key="a.type + a.team" :data-award="a.type">
-            <span class="lg-award-type">{{ a.type }}</span>
+            <span class="lg-award-type">{{ a.type }}<template v-if="a.goldenStar"> ★</template></span>
             <strong>{{ a.team }}</strong>
             <small>{{ a.coach }}<template v-if="a.race"> · {{ a.race }}</template></small>
           </li>
