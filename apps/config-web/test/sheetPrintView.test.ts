@@ -241,16 +241,17 @@ describe("the on-screen sheet (TournamentBuilderPrintSheet.vue, server-rendered)
 
   it("header labels, panel titles in the PDF's order, table rows, ruleset box rows", async () => {
     const html = await render(sheetModel(fakeBuilder()));
-    expect(html).toContain('<div class="ps-race">Necromantic Horror</div>');
+    // owner 11-01: the team's name is the big title, the race the small labelled line
+    expect(html).toContain('<div class="ps-race">Malta Moonlighters</div>');
     expect(html).toMatch(/<span class="ps-label">COACH<\/span> flutethecat/);
-    expect(html).toMatch(/<span class="ps-label">TEAM<\/span> Malta Moonlighters/);
+    expect(html).toMatch(/<span class="ps-label">RACE<\/span> Necromantic Horror/);
     const titles = [...html.matchAll(/<thead><tr><th(?: colspan="\d")?>([^<]+)<\/th><\/tr><\/thead>/g)].map((m) => m[1]!.replace("&amp;", "&"));
     expect(titles).toEqual(["TOURNAMENT RULESET", "SIDELINE", "INDUCEMENTS", "LEAGUES & SPECIAL RULES", "SUMMARY"]);
     const cells = [...html.matchAll(/<td class="ps-k">([^<]*)<\/td><td class="ps-v">([^<]*)<\/td>/g)].map((m) => [m[1], m[2]]).filter(([k]) => k);
     expect(cells).toEqual(NAF_RULESET);
     const body = html.slice(html.indexOf('<table class="ps-roster">'));
     expect([...body.matchAll(/<td class="ps-pos"/g)]).toHaveLength(12);
-    expect(body).toMatch(/<th scope="col" class="ps-r">#<\/th><th scope="col">POSITION<\/th>/);
+    expect(body).toMatch(/<th scope="col" class="ps-r">#<\/th><th scope="col">PLAYER<\/th>/);
     expect(body).toContain('<span class="ps-primary">Block</span>');
     expect(body).toContain('<span class="ps-secondary">Dodge</span>');
     expect(html).toContain("Super FUMBBL Tournament Builder · NAF World Cup 2027 (Malta) - Rules Pack V3.0");

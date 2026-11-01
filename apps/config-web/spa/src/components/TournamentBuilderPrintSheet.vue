@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // The team sheet as the exported PDF prints it (owner 10-30), one-to-one with public/sheet-pdf.js
-// buildSheetDocDefinition: the header (race, COACH, TEAM, the TOURNAMENT RULESET box top right), the band of four
-// panels (Sideline · Inducements · Leagues & special rules · Summary), the roster table (# · Position · MA ST AG PA AV ·
+// buildSheetDocDefinition: the header (team name, COACH, RACE, the TOURNAMENT RULESET box top right), the band of four
+// panels (Sideline · Inducements · Leagues & special rules · Summary), the roster table (# · Player (name over position) · MA ST AG PA AV ·
 // Skills · Cost; "(Star)" / "(C)" markers, zebra rows, hairline rules, head fill), the keywords line and the footer.
 // It renders the SAME model object the PDF consumes (spa/src/teams/sheetRuleset.ts sheetModel) and reads the ruleset rows
 // through sheet-pdf.js's own rulesetRows(), so the preview and the PDF cannot disagree. Paper palette and Roboto:
@@ -49,10 +49,10 @@ const improved = (row: SheetRow, k: Stat): boolean => !row.isStar && row.stats?.
 <template>
   <article class="ps-paper" aria-label="Team sheet">
     <header class="ps-header">
-      <div class="ps-race">{{ model.raceName || "Team" }}</div>
+      <div class="ps-race">{{ model.teamName || model.raceName || "Team" }}</div>
       <div class="ps-ident">
         <div><span class="ps-label">COACH</span> {{ model.coach || "—" }}</div>
-        <div><span class="ps-label">TEAM</span> {{ model.teamName || "—" }}</div>
+        <div><span class="ps-label">RACE</span> {{ model.raceName || "—" }}</div>
       </div>
       <table v-if="ruleset.length" class="ps-box ps-ruleset">
         <colgroup><col class="ps-ck"><col class="ps-cv"><col class="ps-ck"><col class="ps-cv"></colgroup>
@@ -103,7 +103,7 @@ const improved = (row: SheetRow, k: Stat): boolean => !row.isStar && row.stats?.
       <table class="ps-roster">
         <thead>
           <tr>
-            <th scope="col" class="ps-r">#</th><th scope="col">POSITION</th>
+            <th scope="col" class="ps-r">#</th><th scope="col">PLAYER</th>
             <th v-for="k in STATS" :key="k" scope="col" class="ps-r">{{ k }}</th>
             <th scope="col">SKILLS</th><th scope="col" class="ps-r">COST</th>
           </tr>
@@ -111,7 +111,10 @@ const improved = (row: SheetRow, k: Stat): boolean => !row.isStar && row.stats?.
         <tbody>
           <tr v-for="row in model.rows" :key="row.number" :class="{ 'ps-star': row.isStar }">
             <td class="ps-r">{{ row.number }}</td>
-            <td class="ps-pos" :title="row.positionFull !== row.position ? row.positionFull : undefined">{{ row.position }}<small v-if="row.isStar" class="ps-mark-star">(Star)</small><small v-else-if="row.captain" class="ps-mark-captain" title="Team Captain">(C)</small></td>
+            <td class="ps-pos" :class="{ 'ps-named': row.name }" :title="row.positionFull !== row.position ? row.positionFull : undefined">
+              <span v-if="row.name" class="ps-pname">{{ row.name }}</span>
+              <span :class="{ 'ps-psub': row.name }">{{ row.position }}<small v-if="row.isStar" class="ps-mark-star">(Star)</small><small v-else-if="row.captain" class="ps-mark-captain" title="Team Captain">(C)</small></span>
+            </td>
             <td v-for="k in STATS" :key="k" class="ps-r" :class="{ 'ps-improved': improved(row, k) }">{{ statText(row, k) }}</td>
             <td class="ps-skills"><template v-for="(p, i) in skills(row)" :key="i"><template v-if="i">, </template><span :class="p.cls || undefined">{{ p.text }}</span></template></td>
             <td class="ps-r ps-nowrap">{{ row.cost != null ? gold(row.cost) : "—" }}</td>

@@ -188,7 +188,7 @@ describe("team builder page — roster sheet", () => {
 
   it("renders printed skills plain then added skills coloured by access, asterisks kept", () => {
     expect(markup).toContain("COACH NAME");
-    expect(markup).toContain("TEAM NAME");
+    expect(markup).toContain('<span class="rs-label">RACE</span>'); // owner 11-01: the team name is the title, the race its line
     expect(markup).toContain("Amorical Dwarves w/ Bribe");
     expect(markup).toContain('<span class="sk-printed">Frenzy*</span>, <span class="sk-printed">Hatred (Troll)*</span>');
     expect(markup).toContain('<span class="sk-printed">Thick Skull</span>, <span class="sk-primary">Guard</span>');

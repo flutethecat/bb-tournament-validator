@@ -148,7 +148,7 @@ describe("tournament builder controller", () => {
     expect(v.headline).toBe("Team is invalid: 1 issue");
     expect(v.errors).toEqual(["Tier 1 allows no secondary skills (Guard on #2)."]);
     const body = f.calls.filter((c) => c.method === "POST" && c.path.endsWith("/preview")).at(-1)!.body as any;
-    expect(body.picks).toEqual([{ positionId: "hlin", count: 1, chosenSkills: ["Tackle", "Wrestle"] }, { positionId: "hlin", count: 1, chosenSkills: ["Guard"] }]);
+    expect(body.picks).toEqual([{ positionId: "hlin", count: 1, chosenSkills: ["Tackle", "Wrestle"], names: [expect.any(String)] }, { positionId: "hlin", count: 1, chosenSkills: ["Guard"], names: [expect.any(String)] }]);
     expect(b.canExport()).toBe(false);
     expect(b.canBuild()).toBe(false);
   });
@@ -175,7 +175,7 @@ describe("tournament builder controller", () => {
     expect(b.slotCanCaptain(b.state.slots[0])).toBe(false);
     b.toggleCaptain(1);
     expect(b.state.slots[1]!.captain).toBe(true);
-    expect(b.requestBody().picks.find((p) => p.captain)).toEqual({ positionId: "hbli", count: 1, captain: true });
+    expect(b.requestBody().picks.find((p) => p.captain)).toEqual({ positionId: "hbli", count: 1, captain: true, names: [expect.any(String)] });
     expect(b.valueLines().find((l) => l.label === "Team Captain")?.value).toBe("#2 Blitzer");
   });
 
@@ -234,7 +234,7 @@ describe("tournament builder controller", () => {
     expect(post.body).toEqual({
       name: "Reavers",
       body: {
-        rosterId: "human", coach: "Alice", teamName: "Reavers", picks: [{ positionId: "hbli", count: 1 }], reRolls: 2, apothecary: true,
+        rosterId: "human", coach: "Alice", teamName: "Reavers", picks: [{ positionId: "hbli", count: 1, names: [expect.any(String)] }], reRolls: 2, apothecary: true,
         assistantCoaches: 0, cheerleaders: 0, dedicatedFans: 1, packageName: "Test Cup", rosteredInducements: [{ key: "bribes", count: 1 }],
       },
     });
@@ -243,7 +243,7 @@ describe("tournament builder controller", () => {
     b.addPosition("hlin");
     expect(await b.saveTeam()).toBe(true);
     const put = f.calls.find((c) => c.method === "PUT")!;
-    expect((put.body as any).body.picks).toEqual([{ positionId: "hbli", count: 1 }, { positionId: "hlin", count: 1 }]);
+    expect((put.body as any).body.picks).toEqual([{ positionId: "hbli", count: 1, names: [expect.any(String)] }, { positionId: "hlin", count: 1, names: [expect.any(String)] }]); // each player's generated name rides its pick
   });
 
   it("saving / sharing need the session; signed out the preview still runs as a guest", async () => {
@@ -688,7 +688,8 @@ describe("tournament builder page (server-rendered)", () => {
     const sheet = await render("/tournament-team-builder?tab=sheet", f, prepare);
     // The Sheet tab is the exported PDF previewed on paper (owner 10-30): the PDF's header, ruleset box and roster table.
     expect(sheet).toContain('<h2 id="ps-frame-h">Sheet · preview of the exported PDF</h2>');
-    expect(sheet).toContain('<span class="ps-label">TEAM</span> Reavers &lt;x&gt;');
+    expect(sheet).toContain('<div class="ps-race">Reavers &lt;x&gt;</div>'); // the team's name is the title (owner 11-01)
+    expect(sheet).toContain('<span class="ps-label">RACE</span> Human');
     expect(sheet).toContain('<span class="ps-secondary">Guard</span>'); // Guard printed as an added Secondary skill
     expect(sheet).toContain('<th colspan="4">TOURNAMENT RULESET</th>');
     expect(sheet).toContain('<td class="ps-k">Package</td><td class="ps-v">Test Cup</td>');
@@ -1156,6 +1157,41 @@ describe("tournament builder page (client behaviour)", () => {
       expect(elite[0]!.attrs).toMatchObject({ src: "/icons/builder/elite-diamond.png", alt: "Elite skill", title: "Elite skill" });
       expect(cup.all().some((e) => e.tag === "#text" && e.text === "Elite")).toBe(false);
     } finally { cup.app.unmount(); }
+  });
+
+  it("player names (owner 11-01): the name is the row header over the position; click to rename, Escape cancels, Enter saves; reroll", async () => {
+    const page = await mount("/tournament-team-builder?package=Test%20Cup&race=human", mockFetcher(routes()));
+    try {
+      await page.fire(page.find((e) => e.attrs.id === "tb-team-name"), "input", { value: "Reavers" });
+      await page.fire(page.find((e) => String(e.attrs["aria-label"]).startsWith("Add Human Lineman,")), "click");
+      const nameBtn = () => page.find((e) => e.tag === "button" && e.attrs["data-name"] === 0);
+      const generated = textOf(nameBtn());
+      expect(generated.length).toBeGreaterThan(3);
+      expect(nameBtn().attrs.class).toBe("tb-pname");
+      expect(textOf(page.find((e) => e.attrs.class === "tb-psub"))).toBe("Lineman"); // the position is the subheader
+      const key = async (el: FakeEl, k: string) => { await el.on.keydown?.({ key: k, preventDefault() {}, stopPropagation() {} }); await settle(); };
+      const input = () => page.all().find((e) => e.tag === "input" && e.attrs.class === "tb-name-input");
+      // click -> the inline field (maxlength 30); Escape cancels
+      await page.fire(nameBtn(), "click");
+      expect(input()?.attrs.maxlength).toBe(30);
+      await page.fire(input()!, "input", { value: "Not Kept" });
+      await key(input()!, "Escape");
+      expect(input()).toBeUndefined();
+      expect(textOf(nameBtn())).toBe(generated);
+      // F2 opens it too; Enter saves a trimmed name
+      await key(nameBtn(), "F2");
+      await page.fire(input()!, "input", { value: "  Gunnar  the Bold " });
+      await key(input()!, "Enter");
+      expect(textOf(nameBtn())).toBe("Gunnar the Bold");
+      // empty keeps the old name
+      await page.fire(nameBtn(), "click");
+      await page.fire(input()!, "input", { value: "   " });
+      await page.fire(input()!, "blur");
+      expect(textOf(nameBtn())).toBe("Gunnar the Bold");
+      // reroll
+      await page.fire(page.find((e) => e.attrs["aria-label"] === "Reroll name for #1"), "click");
+      expect(textOf(nameBtn())).not.toBe("Gunnar the Bold");
+    } finally { page.app.unmount(); }
   });
 
   it("skill packs: picking collapses the list into the save line; Change skill pack re-opens it with focus on the chosen pack; re-picking the same pack keeps it", async () => {

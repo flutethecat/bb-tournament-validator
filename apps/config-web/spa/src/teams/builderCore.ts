@@ -45,6 +45,8 @@ export interface BuilderRoster {
 /** One roster slot (a player) in builder order. */
 export interface Slot {
   positionId: string;
+  /** The player's name (owner 11-01: generated on hire, editable; never on stars). Rides the pick as names[i]. */
+  name?: string;
   isStar?: boolean;
   captain?: boolean;
   chosenSkills: string[];
@@ -60,6 +62,8 @@ export interface TeamPick {
   chosenStatIncreases?: string[];
   chosenStats?: Partial<Record<Stat, number>>;
   captain?: boolean;
+  /** One player name per player of the pick ("" = unnamed). */
+  names?: string[];
 }
 
 export interface StatRules {
@@ -178,6 +182,7 @@ export interface StatCell { value: string | number; improved: boolean }
 
 export interface SheetPlayerInput {
   position: BuilderPosition | null;
+  name?: string;
   chosenSkills: string[];
   chosenStatIncreases: string[];
   chosenStats: Partial<Record<Stat, number>> | null;
@@ -201,6 +206,8 @@ export interface SheetInput {
 }
 export interface SheetRow {
   number: number;
+  /** The player name ("" when none); the position is its subheader. */
+  name: string;
   position: string;
   positionFull: string;
   stats: Record<Stat, StatCell>;

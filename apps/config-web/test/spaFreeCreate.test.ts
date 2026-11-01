@@ -20,6 +20,9 @@ import { FREE_CREATE_BUILD_PACKAGE, resolveBuilderPackage } from "../src/teamBui
 import { buildBodyForSave, createSave, type TeamBuilderSave } from "../src/teamBuilderSaves";
 import { teamBuilderWireError } from "../src/teamBuilderWire";
 import { sharedTeamView } from "../src/teamShareView";
+import { cleanPlayerName, expandPickNames, nameGeneratorFor, PLAYER_NAME_MAX, pickNamesError } from "../src/playerNames";
+import { applyPickNames } from "../src/teamBuilderBuild";
+import { teamBuilderBoundsError } from "../src/teamBuilderWire";
 
 // Roster Builder "Free Create" (owner 10-31): any BB2025 race, the race's roster limits only, no tournament rules and no
 // site validation; "Ignore in-game limits" lifts position maxes, skill access and stat limits and lists every star (16
@@ -404,6 +407,138 @@ describe("Free Create: sheet and PDF ruleset box", () => {
   it("sheetRulesetRows: the Free Create marker ignores every package input", () => {
     expect(sheetRulesetRows({ packageName: "free-create", tierLabel: "Tier 1", raceRules: null, pack: null, tierRules: null, league: "Old World Classic", budget: 1_000_000 }))
       .toEqual([["Ruleset", "Free Create — no tournament rules"]]);
+  });
+});
+
+describe("Roster Builder player names (owner 11-01)", () => {
+  const seeded = (seed = 7) => { let s = seed; return () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; };
+  const makeSeeded = (f: Fetcher) => createTournamentBuilder({ api: f, coach: () => "Alice", previewDelay: 0, origin: () => "https://sf.example", clipboard: async () => undefined, random: seeded() });
+  async function named() {
+    const f = mockFetcher(routes());
+    const b = makeSeeded(f);
+    await b.init({ packageName: FREE_CREATE_PACKAGE, race: "human" });
+    b.setTeamName("Named Reavers");
+    return { b, f };
+  }
+
+  it("a hire gets a generated name in the race's style; stars never get one; names differ across the roster", async () => {
+    const { b } = await named();
+    b.addPosition("hlin");
+    b.addPosition("hlin");
+    b.addPosition("hlin");
+    b.addStar(b.starChoices()[0]!.key);
+    const names = b.state.slots.map((s) => s.name);
+    expect(names.slice(0, 3).every((n) => typeof n === "string" && n.length > 3 && n.length <= PLAYER_NAME_MAX)).toBe(true);
+    expect(new Set(names.slice(0, 3)).size).toBe(3);
+    expect(names[3]).toBeUndefined();
+    expect(nameGeneratorFor("Human")).toBe("default");
+    expect(nameGeneratorFor("Amazon")).toBe("amazon");
+    expect(nameGeneratorFor("Wood Elf")).toBe("elf");
+    expect(nameGeneratorFor("Black Orc")).toBe("orc");
+  });
+
+  it("rename: trimmed plain text, at most 30 characters; empty keeps the old name; stars can't be renamed", async () => {
+    const { b } = await named();
+    b.addPosition("hlin");
+    b.addStar(b.starChoices()[0]!.key);
+    const before = b.state.slots[0]!.name;
+    expect(b.renameSlot(0, "   ")).toBe(false);
+    expect(b.state.slots[0]!.name).toBe(before);
+    expect(b.renameSlot(0, "  Grimm\u0007   Ironhide  ")).toBe(true);
+    expect(b.state.slots[0]!.name).toBe("Grimm Ironhide");
+    expect(b.renameSlot(0, "A".repeat(50))).toBe(true);
+    expect(b.state.slots[0]!.name).toBe("A".repeat(PLAYER_NAME_MAX));
+    expect(b.renameSlot(1, "Nope")).toBe(false);
+    expect(cleanPlayerName("x\u202Ey")).toBe("x y");
+    expect(cleanPlayerName(42)).toBe("");
+  });
+
+  it("reroll gives a different name", async () => {
+    const { b } = await named();
+    b.addPosition("hlin");
+    const first = b.state.slots[0]!.name;
+    const next = b.rerollName(0);
+    expect(next).not.toBe(first);
+    expect(b.state.slots[0]!.name).toBe(next);
+  });
+
+  it("names ride the picks (one per player), survive reorder, save and reload; old saves get names on load", async () => {
+    const { b, f } = await named();
+    b.addPosition("hlin");
+    b.addPosition("hlin");
+    b.addPosition("hogr");
+    b.renameSlot(0, "First Lineman");
+    b.renameSlot(1, "Second Lineman");
+    b.renameSlot(2, "Big Ogre");
+    expect(b.moveSlot(2, 0)).toBe(true); // drag-reorder keeps each player's name
+    expect(b.state.slots.map((s) => s.name)).toEqual(["Big Ogre", "First Lineman", "Second Lineman"]);
+    const picks = b.requestBody().picks as any[];
+    expect(picks).toEqual([{ positionId: "hogr", count: 1, names: ["Big Ogre"] }, { positionId: "hlin", count: 2, names: ["First Lineman", "Second Lineman"] }]);
+    expect(expandPickNames(picks)).toEqual(["Big Ogre", "First Lineman", "Second Lineman"]);
+    expect(teamBuilderBoundsError(b.requestBody())).toBeNull();
+    expect(await b.saveTeam()).toBe(true);
+    const saved = (f.calls.find((c) => c.method === "POST" && c.path === "/api/fork/team-builder/saves")!.body as any).body;
+    expect(buildBodyForSave(saved).picks).toEqual(picks); // the server keeps names on a build's save
+    const c = makeSeeded(mockFetcher(routes({ "/api/fork/team-builder/saves/sv2": { save: { id: "sv2", name: "Named", body: saved } } })));
+    await c.init({ saveId: "sv2" });
+    expect(c.state.slots.map((s) => s.name)).toEqual(["Big Ogre", "First Lineman", "Second Lineman"]);
+    const old = { rosterId: "human", teamName: "Old", packageName: "free-create", picks: [{ positionId: "hlin", count: 2 }] };
+    const d = makeSeeded(mockFetcher(routes({ "/api/fork/team-builder/saves/sv3": { save: { id: "sv3", name: "Old", body: old } } })));
+    await d.init({ saveId: "sv3" });
+    expect(d.state.slots.every((s) => typeof s.name === "string" && s.name.length > 0)).toBe(true);
+  });
+
+  it("the wire bounds names: an array of strings, at most one per player, each at most 30 characters", () => {
+    expect(pickNamesError(undefined, 1)).toBeNull();
+    expect(pickNamesError(["a", "b"], 1)).toBe("names may list at most one entry per player of the pick.");
+    expect(pickNamesError([1], 1)).toBe("each names entry must be a string of at most 30 characters.");
+    expect(pickNamesError(["x".repeat(31)], 1)).toBe("each names entry must be a string of at most 30 characters.");
+    expect(teamBuilderBoundsError({ picks: [{ positionId: "hlin", count: 1, names: "Bob" }] })).toBe("names must be an array when supplied.");
+  });
+
+  it("the fork build writes the kept names into the team XML (escaped), by player order", () => {
+    const xml = '<roster id="human.bb2025"><name>Human</name><reRollCost>50000</reRollCost><maxReRolls>8</maxReRolls><apothecary>true</apothecary>'
+      + '<position id="1"><quantity>16</quantity><name>Human Lineman</name><type>Regular</type><gender>male</gender></position></roster>';
+    const picks = [{ positionId: "1", count: 3, names: ["Ann <Smash>", "", "Bo & Co"] }];
+    const composed = composeTeam({ forkRosterXml: xml, coach: "C", teamName: "T", reRolls: 0, apothecary: false, picks: picks.map(({ names: _n, ...p }) => p) }, bb2025, 1);
+    const named = applyPickNames(composed, picks);
+    const got = [...named.xml.matchAll(/<player nr="\d+"[^>]*><name>([^<]*)<\/name>/g)].map((m) => m[1]);
+    expect(got).toEqual(["Ann &lt;Smash&gt;", "Human Lineman 2", "Bo &amp; Co"]);
+    expect(applyPickNames(composed, [{ positionId: "1", count: 2, names: ["Only Two"] }]).xml).toBe(composed.xml); // misaligned: untouched
+  });
+
+  it("the share view, the sheet model and the PDF carry the names (position as the subheader; team name as the title, race below)", async () => {
+    const { b } = await named();
+    b.addPosition("hlin");
+    b.renameSlot(0, "Long Named Player Of The Year");
+    for (const k of ["Block", "Tackle", "Guard"]) b.addSkill(0, k);
+    const m = b.sheetModel();
+    expect(m.rows[0]).toMatchObject({ name: "Long Named Player Of The Year", position: "Lineman" });
+    expect(b.teamViewModel().players[0]).toMatchObject({ name: "Long Named Player Of The Year", position: "Lineman" });
+    const ctx: any = { console, setTimeout, clearTimeout };
+    ctx.window = ctx; ctx.self = ctx; ctx.globalThis = ctx;
+    createContext(ctx);
+    runInContext(readFileSync(new URL("../public/sheet-pdf.js", import.meta.url), "utf8"), ctx);
+    const doc = ctx.SheetPdf.buildSheetDocDefinition(m, { gold: core.gold, generatedOn: "2026-11-01" });
+    const json = JSON.stringify(doc);
+    expect(json).toContain('"text":"PLAYER"');
+    expect(json).toContain("Long Named Player Of The Year");
+    expect(json).toContain('"text":"RACE  "');
+    expect(json).not.toContain('"text":"TEAM  "');
+    expect(JSON.stringify(doc.content[0].columns[0])).toContain("Named Reavers"); // the big title
+    const table = doc.content.find((c: any) => c.table)?.table;
+    expect(table).toMatchObject({ headerRows: 1, dontBreakRows: true }); // a player's row never splits across pages
+    expect(table.widths[1]).toBe(112); // a long name wraps inside its fixed column
+    const cell = table.body[1][1];
+    expect(cell.stack[0]).toMatchObject({ bold: true });
+    expect(JSON.stringify(cell.stack[1])).toContain("Lineman");
+    // share view: names by pick order
+    const xml = '<roster id="human.bb2025"><name>Human</name><reRollCost>50000</reRollCost><maxReRolls>8</maxReRolls><apothecary>true</apothecary>'
+      + '<position id="1"><quantity>16</quantity><name>Human Lineman</name><type>Regular</type><gender>male</gender></position></roster>';
+    const composed = composeTeam({ forkRosterXml: xml, coach: "C", teamName: "T", reRolls: 0, apothecary: false, picks: [{ positionId: "1", count: 2 }] }, bb2025, 1);
+    const save = { id: "sv_n", name: "Free", rosterId: "human", raceName: "Human", packageName: "free-create", teamId: null, updatedAt: "", createdAt: "", body: { rosterId: "human", packageName: "free-create", picks: [{ positionId: "1", count: 2, names: ["Ada", "Bea"] }] } } as TeamBuilderSave;
+    const view = sharedTeamView({ coach: "C", save, roster: composed.roster, free: true, ruleset: { name: "Free Create", budget: null, tierLabel: null }, publicDir: mkdtempSync(join(tmpdir(), "fc-names-")) });
+    expect(view.players.map((p) => p.name)).toEqual(["Ada", "Bea"]);
   });
 });
 

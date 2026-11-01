@@ -190,7 +190,7 @@ import { CoachRatingCache, fumbblBaseUrlFromEnv } from "./coachRating.js";
 import { createSiteBackend } from "./site-backend/index.js";
 import { replayDeferredGameResults } from "./site-backend/banking.js";
 import { teamBuilderBoundsError, teamBuilderWireError } from "./teamBuilderWire.js";
-import { builtLibraryTeam, registerBuiltTeam, resolveTeamBuilderBuildTarget, retargetComposedTeam } from "./teamBuilderBuild.js";
+import { applyPickNames, builtLibraryTeam, registerBuiltTeam, resolveTeamBuilderBuildTarget, retargetComposedTeam } from "./teamBuilderBuild.js";
 import { teamBuilderInducementCatalog } from "./teamBuilderInducements.js";
 import { teamBuilderTierCatalog } from "./teamBuilderTiers.js";
 import { corsDecision, parseAllowedOrigins } from "./cors.js";
@@ -4218,7 +4218,7 @@ async function handleApi(
       // Secret League path (#52 A): off-dataset → compose + enforce roster-intrinsic legality here
       // (the dataset `validate()` can't run for a race the dataset doesn't carry). Same write+reload.
       if (body.rosterId && isSlRosterId(body.rosterId)) {
-        const composed = retargetComposedTeam(composeIntrinsicFromBody(cfg.teamsDir, body), target.teamId);
+        const composed = applyPickNames(retargetComposedTeam(composeIntrinsicFromBody(cfg.teamsDir, body), target.teamId), body.picks);
         if (!composed.legal) {
           return sendJson(res, 400, {
             error: "Team is not legal — fix the findings and rebuild.",
@@ -4275,7 +4275,7 @@ async function handleApi(
           throw error;
         }
       }
-      const composed = retargetComposedTeam(composeFromBody(cfg.teamsDir, body), target.teamId);
+      const composed = applyPickNames(retargetComposedTeam(composeFromBody(cfg.teamsDir, body), target.teamId), body.picks);
       const result = validate(composed.roster, resolvedPkg.pkg, bb2025);
       const packageInfo = packageResponseInfo(resolvedPkg, composed.roster.rosterName);
       // Custom UAT mode (owner 08-04): apply the choice, no validation gate — never reject.

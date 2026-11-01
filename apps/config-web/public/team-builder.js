@@ -215,11 +215,15 @@
         // The Team Captain rides its own count:1 pick: never merged with identical players (or another captain).
         const captain = withCaptain && slot.captain === true && !slot.isStar;
         const signature = `${slot.positionId}|${chosenSkills.join(",")}|${chosenStatIncreases.join(",")}|${statsKey}|${captain ? "captain" : ""}`;
+        // Roster Builder player names (owner 11-01): one entry per player of the pick ("" = unnamed); never on stars.
+        const name = !slot.isStar && typeof slot.name === "string" ? slot.name : "";
         if (last && !captain && last.signature === signature) {
           last.pick.count += 1;
+          if (name || last.pick.names) last.pick.names = [...(last.pick.names ?? Array(last.pick.count - 1).fill("")), name];
           continue;
         }
         const pick = { positionId: slot.positionId, count: 1 };
+        if (name) pick.names = [name];
         if (chosenSkills.length) pick.chosenSkills = chosenSkills;
         if (chosenStatIncreases.length) pick.chosenStatIncreases = chosenStatIncreases;
         if (statsKey) pick.chosenStats = chosenStats;
@@ -256,9 +260,11 @@
             slots.push({ positionId: position.positionId, isStar: true, chosenSkills: [], chosenStatIncreases: [] });
             continue;
           }
+          const name = Array.isArray(pick.names) && typeof pick.names[i] === "string" ? pick.names[i].trim().slice(0, 30) : "";
           slots.push({
             positionId: position.positionId,
             isStar: position.isStar === true,
+            ...(name ? { name } : {}),
             ...(pick.captain === true && i === 0 ? { captain: true } : {}),
             chosenSkills: Array.isArray(pick.chosenSkills) ? pick.chosenSkills.map(String) : [],
             chosenStatIncreases: Array.isArray(pick.chosenStatIncreases)
@@ -638,6 +644,8 @@
         const added = (star ? [] : player.chosenSkills ?? []).map((skill) => ({ name: skill, access: player.accessOf ? player.accessOf(skill) : "primary" }));
         const captain = !star && player.captain === true;
         const row = {
+          // The Roster Builder's player name (owner 11-01); the position becomes the subheader under it.
+          name: !star && typeof player.name === "string" ? player.name.trim() : "",
           position: position.name ? shortPositionName(position, nameRoster) : "Unknown position",
           positionFull: position.name ?? "Unknown position",
           stats,
@@ -734,7 +742,7 @@
         : '<p class="rs-none">None</p>';
       const rows = model.rows.map((row) => `<tr${row.isStar ? ' class="rs-star"' : ""}>
         <td class="num">${row.number}</td>
-        <td class="pos"${row.positionFull && row.positionFull !== row.position ? ` title="${esc(row.positionFull)}"` : ""}>${esc(row.position)}${row.isStar ? ' <small>(Star)</small>' : ""}${row.captain ? ' <span class="rs-captain" title="Team Captain" aria-label="Team Captain">C</span>' : ""}</td>
+        <td class="pos"${row.positionFull && row.positionFull !== row.position ? ` title="${esc(row.positionFull)}"` : ""}>${row.name ? `<span class="rs-pname">${esc(row.name)}</span><span class="rs-psub">` : ""}${esc(row.position)}${row.isStar ? ' <small>(Star)</small>' : ""}${row.captain ? ' <span class="rs-captain" title="Team Captain" aria-label="Team Captain">C</span>' : ""}${row.name ? "</span>" : ""}</td>
         ${["MA", "ST", "AG", "PA", "AV"].map((stat) => sheetStatCell(row.stats[stat])).join("")}
         <td class="skills">${sheetSkills(row)}</td>
         <td class="cost">${esc(row.cost != null ? gold(row.cost) : "—")}</td>
@@ -745,9 +753,9 @@
       return `<article class="roster-sheet">
   <header class="rs-top">
     <div class="rs-ident">
-      <div class="rs-race">${esc(model.raceName)}</div>
+      <div class="rs-race">${esc(model.teamName || model.raceName)}</div>
       <div class="rs-label-row"><span class="rs-label">COACH NAME</span><span class="rs-value">${esc(model.coach)}</span></div>
-      <div class="rs-label-row"><span class="rs-label">TEAM NAME</span><span class="rs-value">${esc(model.teamName)}</span></div>
+      <div class="rs-label-row"><span class="rs-label">RACE</span><span class="rs-value">${esc(model.raceName)}</span></div>
       ${model.rulesetName ? `<div class="rs-ruleset">${esc(model.rulesetName)}</div>` : ""}
     </div>
     ${sheetBox("SIDELINE", kvRows(model.sideline))}
@@ -756,7 +764,7 @@
     ${sheetBox("SUMMARY", kvRows(model.summary))}
   </header>
   <table class="rs-roster">
-    <thead><tr><th class="num">#</th><th class="pos">POSITION</th><th>MA</th><th>ST</th><th>AG</th><th>PA</th><th>AV</th><th class="skills">SKILLS</th><th class="cost">COST</th></tr></thead>
+    <thead><tr><th class="num">#</th><th class="pos">PLAYER</th><th>MA</th><th>ST</th><th>AG</th><th>PA</th><th>AV</th><th class="skills">SKILLS</th><th class="cost">COST</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>
   ${keywords}
@@ -786,6 +794,8 @@
 .rs-roster th{font-size:9pt;font-weight:700;text-align:center;background:#f1f1f1;}
 .rs-roster td.num{width:28px;text-align:center;}
 .rs-roster td.pos{white-space:nowrap;font-weight:400;}
+.rs-roster .rs-pname{display:block;font-weight:700;white-space:normal;overflow-wrap:anywhere;}
+.rs-roster .rs-psub{display:block;font-size:8pt;color:#444;}
 .rs-roster td.stat{width:34px;text-align:center;}
 .roster-sheet .rs-roster td.stat.improved{font-weight:700;color:#1a73c8;}
 .rs-roster td.cost{width:58px;text-align:right;white-space:nowrap;}

@@ -139,6 +139,15 @@
    * pdfmake document definition for one roster sheet. `options`:
    *   { gold(value) -> "100k" (defaults to the builder's format), generatedOn (Date | ISO string) }
    */
+  /** The Player cell (owner 11-01): the Roster Builder's player name on top, the position as a small subheader under it
+   *  ("(Star)" / "(C)" markers on the position line). A row without a name prints the position alone, as before. */
+  function playerCell(row) {
+    const marker = row.isStar ? [{ text: "  (Star)", color: MUTED, fontSize: 7.5 }] : row.captain ? [{ text: "  (C)", bold: true, fontSize: 7.5 }] : [];
+    const name = typeof row.name === "string" ? row.name.trim() : "";
+    if (!name) return { text: [{ text: row.position }, ...marker] };
+    return { stack: [{ text: softBreak(name), bold: true }, { text: [{ text: row.position, color: MUTED, fontSize: 7 }, ...marker], margin: [0, 0.5, 0, 0] }] };
+  }
+
   function buildSheetDocDefinition(model, options = {}) {
     const gold = typeof options.gold === "function" ? options.gold : fallbackGold;
     const date = isoDate(options.generatedOn);
@@ -147,13 +156,14 @@
 
     const header = {
       columns: [
-        { text: softBreak(model.raceName || "Team"), style: "race", width: "auto" },
+        // Owner 11-01: the team's name is the big title (the race when unnamed); the race moves to the small line.
+        { text: softBreak(model.teamName || model.raceName || "Team"), style: "race", width: "auto" },
         {
           width: "*",
           margin: [12, 3, 0, 0],
           stack: [
             { text: [{ text: "COACH  ", style: "label" }, { text: softBreak(model.coach || "—") }] },
-            { text: [{ text: "TEAM  ", style: "label" }, { text: softBreak(model.teamName || "—") }], margin: [0, 2, 0, 0] },
+            { text: [{ text: "RACE  ", style: "label" }, { text: softBreak(model.raceName || "—") }], margin: [0, 2, 0, 0] },
           ],
         },
         // Owner 10-30: the tournament ruleset, boxed, top right of page 1 (the header content sits left of it).
@@ -193,7 +203,7 @@
       margin: [0, 0, 0, 8],
     };
 
-    const head = ["#", "Position", ...STATS, "Skills", "Cost"].map((label, i) => ({
+    const head = ["#", "Player", ...STATS, "Skills", "Cost"].map((label, i) => ({
       text: label.toUpperCase(),
       style: "th",
       alignment: i === 1 || i === 7 ? "left" : "right",
@@ -202,8 +212,7 @@
     for (const row of rows) {
       body.push([
         { text: String(row.number ?? ""), alignment: "right" },
-        row.isStar ? { text: [{ text: row.position }, { text: "  (Star)", color: MUTED, fontSize: 7.5 }] }
-          : row.captain ? { text: [{ text: row.position }, { text: "  (C)", bold: true, fontSize: 7.5 }] } : { text: row.position },
+        playerCell(row),
         ...STATS.map((stat) => statCell(row.stats ? row.stats[stat] : null, row.isStar)),
         skillsCell(row),
         { text: row.cost != null ? gold(row.cost) : "—", alignment: "right", noWrap: true },
@@ -213,7 +222,8 @@
       table: {
         headerRows: 1, // repeated on every page
         dontBreakRows: true,
-        widths: [16, "auto", 20, 20, 20, 20, 22, "*", 38],
+        // The Player column is fixed so a long name wraps inside its row (rows grow; dontBreakRows keeps a player whole).
+        widths: [16, 112, 20, 20, 20, 20, 22, "*", 38],
         body,
       },
       layout: {

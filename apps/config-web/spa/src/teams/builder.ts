@@ -23,6 +23,8 @@ import {
   FREE_CREATE_DESCRIPTION, FREE_CREATE_LABEL, FREE_CREATE_PACKAGE, freeCreateSkillGold, freeCreateStatGold, statCapReason,
 } from "../../../src/freeCreate";
 import { TEAM_BUILDER_BODY_BOUNDS } from "../../../src/teamBuilderWire";
+import { cleanPlayerName, PLAYER_NAME_MAX, randomPlayerName } from "../../../src/playerNames";
+export { PLAYER_NAME_MAX };
 
 // ── wire shapes ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -300,6 +302,8 @@ export interface BuilderDeps {
   onSignedOut?: () => void;
   /** Debounce for the live preview (ms); tests pass 0 and call flushPreview(). */
   previewDelay?: number;
+  /** Random source for generated player names (tests pass a seeded one). */
+  random?: () => number;
   /** Lazy loader for /sheet-pdf.js (+ pdfmake); the browser default inserts the script once. */
   loadSheetPdf?: () => Promise<SheetPdfApi>;
   saveBlob?: (blob: Blob, fileName: string) => void;
@@ -1036,12 +1040,48 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     schedulePreview();
   }
   /** Add a player; false when the team is unnamed (the view shows the name prompt) or the position is full. */
+  // ── player names (owner 11-01): generated on hire from the race's name style (src/nameGenerate.ts, local, offline),
+  // editable, never on stars (a star already has a name); they ride the picks as names[i] ──
+  /** A generated name no other player on the roster has (when the pool allows), never `avoid`. */
+  function freshName(avoid = "", roster: Slot[] = state.slots): string {
+    const race = state.roster?.raceName ?? "";
+    const taken = new Set(roster.map((s) => s.name ?? "").filter(Boolean));
+    let name = randomPlayerName(race, avoid, deps.random);
+    for (let i = 0; i < 12 && (taken.has(name) || name === avoid); i++) name = randomPlayerName(race, avoid, deps.random);
+    return name || "Rookie";
+  }
+  /** Rename a player: plain text, trimmed, at most PLAYER_NAME_MAX characters. An empty name keeps the old one (false). */
+  function renameSlot(index: number, raw: string): boolean {
+    const slot = state.slots[index];
+    const name = cleanPlayerName(raw);
+    if (!slot || isStarSlot(slot) || !name) return false;
+    if (name === slot.name) return true;
+    state.slots = state.slots.map((s, i) => (i === index ? { ...s, name } : s));
+    changed();
+    return true;
+  }
+  /** The reroll button beside the name: another generated name. */
+  function rerollName(index: number): string {
+    const slot = state.slots[index];
+    if (!slot || isStarSlot(slot)) return "";
+    const name = freshName(slot.name ?? "");
+    state.slots = state.slots.map((s, i) => (i === index ? { ...s, name } : s));
+    changed();
+    return name;
+  }
+  /** Saves from before names: unnamed non-star players get one (shown, and kept on the next save). */
+  function nameUnnamed(slots: Slot[]): Slot[] {
+    const out = slots.slice();
+    out.forEach((s, i) => { if (!s.name && !positionById(s.positionId)?.isStar) out[i] = { ...s, name: freshName("", out) }; });
+    return out;
+  }
+
   function addPosition(positionId: string): boolean {
     if (!named()) return false;
     const p = positionById(positionId);
     if (!p || p.isStar || state.slots.length >= core.MAX_PLAYERS) return false;
     if (!ignoring() && (positionCount(positionId) >= p.max || core.positionGroupCapped(positionId, state.roster?.positionGroups, positionCounts()))) return false;
-    state.slots = [...state.slots, { positionId, chosenSkills: [], chosenStatIncreases: [] }];
+    state.slots = [...state.slots, { positionId, name: freshName(), chosenSkills: [], chosenStatIncreases: [] }];
     changed();
     return true;
   }
@@ -1300,7 +1340,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     state.ignoreLimits = packageName === FREE_CREATE_PACKAGE && body.ignoreLimits === true;
     state.league = core.reconcileLeagueSelection(leagueOptions(),
       typeof body.specialRule === "string" && body.specialRule ? { selectedLeague: body.specialRule, explicit: true } : { selectedLeague: "", explicit: false });
-    state.slots = core.reconcileCaptain(core.slotsFromPicks(body.picks, positionById), positionById, captainRules());
+    state.slots = nameUnnamed(core.reconcileCaptain(core.slotsFromPicks(body.picks, positionById), positionById, captainRules()));
     state.staff = {
       reRolls: Number(body.reRolls) || 0, assistantCoaches: Number(body.assistantCoaches) || 0, cheerleaders: Number(body.cheerleaders) || 0,
       dedicatedFans: Number(body.dedicatedFans) || 1, apothecary: body.apothecary ? 1 : 0,
@@ -1475,6 +1515,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
         const star = isStarSlot(s);
         return {
           position: positionById(s.positionId),
+          name: star ? "" : s.name ?? "",
           chosenSkills: star ? [] : s.chosenSkills,
           chosenStatIncreases: statRules() && !star ? s.chosenStatIncreases.filter((k) => allowedStats().includes(k)) : [],
           chosenStats: null,
@@ -1506,6 +1547,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
       ruleset: state.packageName ? { name: rulesetLabel(), tierLabel: raceRules()?.tierLabel ?? null } : null,
       specialRules: model.specialRules,
       players: model.rows.map((r) => ({
+        ...(r.name ? { name: r.name } : {}),
         number: r.number, position: r.position, positionFull: r.positionFull, isStar: r.isStar, captain: r.captain,
         stats: Object.fromEntries(core.STATS.map((k) => [k, r.stats[k].value])),
         printed: r.printed.map((name) => ({ name, category: cat(name) })),
@@ -1580,7 +1622,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     free, ignoring, capped, canShare, skillBlock, moreSkills, rulesetCards, rulesetLabel, freeRaces, canAddStar,
     // actions
     init, boot, choosePackage, chooseRace, setTeamName, selectLeague, setSkillPack, addPosition, removeSlot, addStar, removeStar, moveSlot,
-    toggleCaptain, openSkills, addSkill, removeSkill, addStat, removeStat, stepStaff, stepInducement, setIgnoreLimits, schedulePreview, flushPreview,
+    toggleCaptain, openSkills, addSkill, removeSkill, addStat, removeStat, renameSlot, rerollName, stepStaff, stepInducement, setIgnoreLimits, schedulePreview, flushPreview,
     loadSave, saveTeam, share, unshare, copyShare, build, exportPdf,
   };
 }

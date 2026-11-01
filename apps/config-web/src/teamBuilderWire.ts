@@ -1,3 +1,5 @@
+import { pickNamesError } from "./playerNames.js";
+
 const STAT_INCREASE_KEYS = new Set(["MA", "ST", "AG", "PA", "AV"]);
 
 /** Size limits on a builder body, checked BEFORE anything composes it (the composer expands each pick's
@@ -50,6 +52,8 @@ export function teamBuilderBoundsError(body: unknown): string | null {
         return `each pick count must be an integer between 0 and ${B.playersPerPick}.`;
       players += count;
       if (players > B.players) return `a team may have at most ${B.players} players.`;
+      const names = pickNamesError(p.names, count); // Roster Builder player names, one per player of the pick
+      if (names) return names;
       for (const list of ["chosenSkills", "chosenStatIncreases"] as const) {
         const v = p[list];
         if (v === undefined) continue;

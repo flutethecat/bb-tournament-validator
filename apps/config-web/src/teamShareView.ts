@@ -26,6 +26,7 @@ import { bb2025 } from "@bb/validator/dataset";
 import type { TeamBuilderSave } from "./teamBuilderSaves.js";
 import { shortPositionName } from "./positionNames.js";
 import { freeCreateSkillGold, freeCreateStatGold } from "./freeCreate.js";
+import { expandPickNames } from "./playerNames.js";
 
 export interface SharedSkill {
   name: string;
@@ -36,6 +37,8 @@ export interface SharedSkill {
 }
 
 export interface SharedPlayer {
+  /** The Roster Builder player name (owner 11-01), when the save carries one. */
+  name?: string;
   number: number;
   /** Coach-facing short name (shortPositionName: the race prefix dropped, "Dwarf Runner" → "Runner"). Display only. */
   position: string;
@@ -190,7 +193,12 @@ export function sharedTeamView(input: SharedViewInput): SharedTeamView {
   const crests = readManifest<CrestManifest>(input.publicDir, "crests/manifest.json");
   const icons = readManifest<IconManifest>(input.publicDir, "icons/inducements/manifest.json");
   const dsRoster = raceName ? findRoster(bb2025, raceName) : undefined;
-  const players: SharedPlayer[] = (roster?.players ?? []).map((p) => {
+  // Roster Builder player names (owner 11-01) ride the picks; the composed players follow pick order.
+  // Only when the composed players line up one-to-one with the picks (a display compose that dropped a player would
+  // shift every name after it).
+  const pickNames = expandPickNames((body as Record<string, unknown>).picks);
+  const names = pickNames.length === (roster?.players ?? []).length ? pickNames : [];
+  const players: SharedPlayer[] = (roster?.players ?? []).map((p, index) => {
     const star = isStarName(bb2025, p.positionName);
     const ds = dsRoster && !star ? findPosition(dsRoster, p.positionName) : undefined;
     // Classify over the WHOLE skill list: the Team Captain grants (the trait + its one free Pro) are their own group.
@@ -203,7 +211,9 @@ export function sharedTeamView(input: SharedViewInput): SharedTeamView {
       addedLeft.splice(at, 1);
       return false;
     });
+    const name = star ? "" : names[index] ?? "";
     return {
+      ...(name ? { name } : {}),
       number: int(p.number),
       position: shortPositionName({ name: String(p.positionName) }, { name: raceName }),
       positionFull: String(p.positionName),

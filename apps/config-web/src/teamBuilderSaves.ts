@@ -102,7 +102,7 @@ const BUILD_BODY_FIELDS = [
   "rosteredInducements", "inducements",
 ] as const;
 const INDUCEMENT_FIELDS = ["key", "count"] as const;
-const PICK_FIELDS = ["positionId", "count", "chosenSkills", "chosenStatIncreases", "chosenStats", "captain"] as const;
+const PICK_FIELDS = ["positionId", "count", "chosenSkills", "chosenStatIncreases", "chosenStats", "captain", "names"] as const;
 
 function pickFields<K extends string>(src: Record<string, unknown>, keys: readonly K[]): Record<string, unknown> {
   const out: Record<string, unknown> = {};

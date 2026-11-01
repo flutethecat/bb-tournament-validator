@@ -52,6 +52,10 @@
 .ps-roster th:first-child, .ps-roster td:first-child { width: 22px; }
 .ps-roster th:last-child, .ps-roster td:last-child { width: 50px; }
 .ps-pos { white-space: nowrap; }
+/* owner 11-01: the player's name over the position (the PDF's Player cell); a long name wraps inside its row */
+.ps-pos.ps-named { width: 150px; min-width: 150px; max-width: 150px; white-space: normal; }
+.ps-pname { display: block; font-weight: 700; overflow-wrap: anywhere; }
+.ps-psub { display: block; font-size: 9.5px; color: var(--ps-muted); white-space: nowrap; }
 .ps-mark-star { margin-left: 6px; font-size: 10px; color: var(--ps-muted); }
 .ps-mark-captain { margin-left: 6px; font-size: 10px; font-weight: 700; }
 .ps-paper .ps-improved { font-weight: 700; color: var(--ps-blue); }

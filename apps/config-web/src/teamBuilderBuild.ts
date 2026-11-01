@@ -2,6 +2,7 @@ import { readLibrary, upsertLibraryTeam, type LibraryTeam } from "@bb/fork-ops";
 import { findStar, isStarName, normName, type ComposeResult, type Roster } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 import { coachNamesEqual, storedTeamCoach, storedTeamFile, storedTeamHasHistory } from "./teamDetail.js";
+import { expandPickNames } from "./playerNames.js";
 
 export type TeamBuilderBuildTarget =
   | { ok: true; teamId?: string; path?: string }
@@ -46,6 +47,24 @@ export function retargetComposedTeam<T extends ComposeResult>(composed: T, teamI
   const root = `<team id="${composed.teamId}">`;
   if (!composed.xml.includes(root)) throw new Error("Composed team XML is missing its team id.");
   return { ...composed, teamId, xml: composed.xml.replace(root, `<team id="${teamId}">`) };
+}
+
+const xmlText = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+/** Roster Builder player names (owner 11-01): the composer writes "<Position> <n>" for every player; a name the coach
+ *  kept on the pick (`names[i]`, cleaned) replaces it in the team XML, matched by player order. Untouched when the
+ *  composed players don't line up one-to-one with the picks. */
+export function applyPickNames<T extends ComposeResult>(composed: T, picks: unknown): T {
+  const names = expandPickNames(picks);
+  if (!names.some(Boolean)) return composed;
+  const re = /(<player nr="\d+"[^>]*><name>)([^<]*)(<\/name>)/g;
+  const found = composed.xml.match(re)?.length ?? 0;
+  if (found !== names.length) return composed;
+  let i = 0;
+  const xml = composed.xml.replace(re, (whole, open: string, _old: string, close: string) => {
+    const name = names[i++] ?? "";
+    return name ? `${open}${xmlText(name)}${close}` : whole;
+  });
+  return { ...composed, xml };
 }
 
 export function registerBuiltTeam(

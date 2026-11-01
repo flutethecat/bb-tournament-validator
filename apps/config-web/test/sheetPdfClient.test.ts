@@ -35,7 +35,7 @@ const lineman = { positionId: "65746", name: "Dwarf Blocker Lineman", cost: 70_0
 const grim = { positionId: "s1", name: "Grim Ironjaw", cost: 190_000, MA: 5, ST: 4, AG: "3+", PA: "-", AV: "9+", skills: ["Block", "Dauntless", "Frenzy", "Multiple Block", "Thick Skull"], isStar: true };
 const access = (secondary: string[] = []) => (skill: string) => (secondary.includes(skill) ? "secondary" : "primary");
 
-function dwarfModel(extra: { linemen?: number; stars?: number; longSkills?: boolean } = {}) {
+function dwarfModel(extra: { linemen?: number; stars?: number; longSkills?: boolean; names?: boolean } = {}) {
   const players = [
     { position: blitzer, chosenSkills: ["Guard"], chosenStatIncreases: ["AV"], accessOf: access() },
     { position: blitzer, chosenSkills: ["Mighty Blow"], accessOf: access() },
@@ -47,12 +47,14 @@ function dwarfModel(extra: { linemen?: number; stars?: number; longSkills?: bool
     // A star row given added skills / stat increases anyway: the model (and the PDF) must ignore them.
     ...Array.from({ length: extra.stars ?? 1 }, () => ({ position: grim, chosenSkills: ["Guard"], chosenStatIncreases: ["ST"], accessOf: access() })),
   ];
+  // Roster Builder player names (owner 11-01): long ones (29-30 characters) on every non-star row.
+  const named = extra.names ? players.map((p, i) => ({ ...p, name: `${["Bartholomew", "Grimbold", "Thorgrim"][i % 3]} Thunderstrike ${i + 1}`.slice(0, 30) })) : players;
   return core.rosterSheetModel({
     raceName: "Dwarf",
     coach: "flutethecat",
     teamName: "Amorical Dwarves w/ Bribe",
     rulesetName: "Nut Cup — Tier 3",
-    players,
+    players: named,
     staff: { reRolls: 2, apothecary: 1, assistantCoaches: 0, cheerleaders: 0, dedicatedFans: 1 },
     apothecaryAllowed: true,
     inducements: [{ label: "Bribes", count: 1 }, { label: "Weather Mage", count: 0 }],
@@ -80,12 +82,13 @@ describe("buildSheetDocDefinition (pure)", () => {
     expect(doc.info).toMatchObject({ title: "Amorical Dwarves w/ Bribe roster sheet", author: "flutethecat", creator: "Super FUMBBL Tournament Builder" });
   });
 
-  it("header: race bold 18, coach and team", () => {
+  it("header: the team's name bold 18 as the title (owner 11-01), coach and race under it", () => {
     const header = doc.content[0];
-    expect(header.columns[0]).toMatchObject({ text: "Dwarf", style: "race" });
+    expect(header.columns[0]).toMatchObject({ text: "Amorical Dwarves w/ Bribe", style: "race" });
+    expect(textOf(header.columns[1].stack)).toContain("RACE  Dwarf");
+    expect(textOf(header.columns[1].stack)).not.toContain("TEAM  ");
     expect(doc.styles.race).toEqual({ fontSize: 18, bold: true });
     expect(textOf(header.columns[1].stack)).toContain("flutethecat");
-    expect(textOf(header.columns[1].stack)).toContain("Amorical Dwarves w/ Bribe");
   });
 
   it("top band: Sideline / Inducements / Leagues & special rules / Summary with totals vs cap", () => {
@@ -109,7 +112,7 @@ describe("buildSheetDocDefinition (pure)", () => {
     const table = roster(doc);
     expect(table.headerRows).toBe(1);
     expect(table.dontBreakRows).toBe(true);
-    expect(table.body[0].map(textOf)).toEqual(["#", "POSITION", "MA", "ST", "AG", "PA", "AV", "SKILLS", "COST"]);
+    expect(table.body[0].map(textOf)).toEqual(["#", "PLAYER", "MA", "ST", "AG", "PA", "AV", "SKILLS", "COST"]);
     const first = table.body[1];
     expect(textOf(first[1])).toBe("Blitzer"); // short position name; the full name stays on the keywords line
     expect(table.body.slice(1).map((row: any[]) => textOf(row[1]))).toContain("Blocker Lineman");
@@ -177,11 +180,33 @@ describe("rendered with the vendored pdfmake (real PDF, selectable text)", () =>
     const pages = await pdfText(bytes);
     expect(pages.length).toBeGreaterThan(1);
     pages.forEach((page, i) => {
-      expect(page).toMatch(/#\s+POSITION\s+MA\s+ST\s+AG\s+PA\s+AV\s+SKILLS\s+COST/);
+      expect(page).toMatch(/#\s+PLAYER\s+MA\s+ST\s+AG\s+PA\s+AV\s+SKILLS\s+COST/);
       expect(page).toContain(`Page ${i + 1} / ${pages.length}`);
     });
     const all = pages.join("\n");
     for (let n = 1; n <= 20; n++) expect(all).toMatch(new RegExp(`(^|\\n)${n} `));
+  });
+});
+
+describe("player names in the real PDF (owner 11-01)", () => {
+  const ctx = loadContext(true);
+  const render = (model: unknown) =>
+    ctx.pdfMake.createPdf(ctx.SheetPdf.buildSheetDocDefinition(model, { gold: ctx.TeamBuilderCore.gold, generatedOn: "2026-11-01" })).getBuffer();
+  it("long names with long skill lists: each name prints with its position under it on the same page; the header repeats; no row splits", async () => {
+    const model = dwarfModel({ linemen: 13, stars: 4, longSkills: true, names: true });
+    expect(model.rows.filter((r: any) => r.name).length).toBe(16); // stars carry no name
+    const pages = await pdfText(await render(model));
+    expect(pages.length).toBeGreaterThan(1);
+    pages.forEach((page) => expect(page).toMatch(/#\s+PLAYER\s+MA/));
+    for (const row of model.rows as any[]) {
+      if (!row.name) continue;
+      const first = row.name.split(" ")[0];
+      const hit = pages.findIndex((p) => p.includes(`${row.number} `) && p.includes(row.name.split(" ").slice(-1)[0]) && p.includes(first));
+      expect(hit, row.name).toBeGreaterThanOrEqual(0);
+      const page = pages[hit]!;
+      // the name and its position subheader land on the same page (dontBreakRows keeps the row whole)
+      expect(page).toContain(row.position);
+    }
   });
 });
 

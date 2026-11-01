@@ -189,8 +189,18 @@
 .tb-position.name-required { opacity: .8; }
 .tb-position > .tb-sprite { grid-area: sprite; }
 .tb-position-head { grid-area: head; display: grid; min-width: 0; }
-.tb-position-head strong, .tb-who strong { font-family: var(--font-heading, sans-serif); font-weight: 500; letter-spacing: .03em; color: var(--ui-position, var(--ui-text)); overflow-wrap: break-word; }
+.tb-position-head strong, .tb-who strong, .tb-who .tb-pname { font-family: var(--font-heading, sans-serif); font-weight: 500; letter-spacing: .03em; color: var(--ui-position, var(--ui-text)); overflow-wrap: break-word; }
 .tb-who small { color: var(--ui-muted); font-size: 13px; }
+/* the roster row's header block (owner 11-01): the player's name (header styling, a button that opens the inline rename),
+   a small reroll, and the position as a Silkscreen subheader under it */
+.tb-name-line { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.tb-who .tb-pname { min-width: 0; margin: 0; padding: 0; font-size: inherit; line-height: inherit; text-align: left; background: none; border: 0; border-radius: 2px; cursor: text; }
+.tb-who button.tb-pname:hover { text-decoration: underline dotted; text-underline-offset: 3px; }
+.tb-who .tb-psub { font: 10px/1.3 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); overflow-wrap: anywhere; }
+.tb-reroll { flex: none; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; font: 15px/1 system-ui, sans-serif; color: var(--ui-muted); background: none; border: 1px solid transparent; border-radius: 2px; cursor: pointer; }
+.tb-reroll:hover { color: var(--ui-text); border-color: var(--sf-panel-line); }
+.tb-name-input { width: 100%; max-width: 32ch; min-width: 0; box-sizing: border-box; padding: 2px 6px; font-family: var(--font-heading, sans-serif); font-weight: 500; font-size: inherit; line-height: 1.2; letter-spacing: .03em; color: var(--ui-position, var(--ui-text)); background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-radius: 2px; }
+.tb-pname:focus-visible, .tb-reroll:focus-visible, .tb-name-input:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .tb-position > .tb-corner { grid-area: cost; align-self: start; display: grid; justify-items: end; gap: 3px; }
 .tb-hired { color: var(--ui-muted); font-size: 11px; line-height: 1; letter-spacing: .08em; text-transform: uppercase; font-variant-caps: all-small-caps; white-space: nowrap; }
 .tb-position > .tb-stats { grid-area: stats; }
@@ -222,9 +232,9 @@
    red fire X in the top-right corner. Second line (beside the portrait): the stat strip with Add Skill / Add Stat at its right
    end. Then the skills. The slim gripper runs the full card height, flush against the left edge. */
 .tb-row {
-  position: relative; display: grid; grid-template-columns: 22px 34px auto minmax(0, 1fr) auto auto;
-  grid-template-areas: "grip num sprite who cost x" "grip num sprite line2 line2 line2" "grip num sprite skills skills skills";
-  column-gap: 10px; row-gap: 0; align-items: center; padding: 0 6px 4px 0; background: var(--ui-surface-2); border: 1px solid var(--sf-panel-line); border-radius: 2px;
+  position: relative; display: grid; grid-template-columns: 14px 34px auto minmax(0, 1fr) auto auto;
+  grid-template-areas: "grip num sprite who cost x" "grip num sprite line2 line2 line2" "grip num skills skills skills skills";
+  column-gap: 8px; row-gap: 0; align-items: center; padding: 0 6px 4px 0; background: var(--ui-surface-2); border: 1px solid var(--sf-panel-line); border-radius: 2px;
   scroll-margin-top: calc(var(--sf-top-h, 56px) + 12px); scroll-margin-bottom: 12px;
 }
 .tb-row.captain { border-color: var(--ui-gold); }
@@ -246,9 +256,9 @@
 .tb-page .sprite-frame.tb-sprite.tb-row-sprite { width: 56px; height: 56px; }
 .tb-page .tb-row-sprite .sprite-image { image-rendering: pixelated; }
 /* the gripper: a slim full-height handle with a light divider, flush against the card's left edge */
-.tb-grip { width: 22px; min-height: 24px; padding: 0; display: grid; place-items: center; cursor: grab; touch-action: none; color: var(--ui-muted); background: color-mix(in srgb, var(--ui-surface) 45%, transparent); border: 0; border-right: 1px solid color-mix(in srgb, var(--sf-panel-line) 60%, transparent); border-radius: 1px 0 0 1px; }
+.tb-grip { width: 14px; min-height: 24px; padding: 0; display: grid; place-items: center; cursor: grab; touch-action: none; color: var(--ui-muted); background: color-mix(in srgb, var(--ui-surface) 45%, transparent); border: 0; border-right: 1px solid color-mix(in srgb, var(--sf-panel-line) 60%, transparent); border-radius: 1px 0 0 1px; }
 .tb-grip:hover { color: var(--ui-text); background: color-mix(in srgb, var(--ui-surface) 80%, transparent); }
-.tb-grip i { width: 10px; height: 16px; background: radial-gradient(circle, currentColor 1.5px, transparent 2px) 0 0 / 5px 5px; }
+.tb-grip i { width: 8px; height: 16px; background: radial-gradient(circle, currentColor 1.5px, transparent 2px) 0 0 / 4px 5px; }
 .tb-grip:focus-visible, .tb-captain:focus-visible, .tb-fire-x:focus-visible, .tb-stepper button:focus-visible, .tb-chip:focus-visible, .tb-blade:focus-visible, .tb-chip-x:focus-visible, .tb-acc-btn:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 /* the Team Captain badge (the owner's painted art at 32 CSS px, normal smoothing, no box behind it; the "C" glyph if the
    image fails) */
@@ -490,7 +500,7 @@
 /* wide roster (660 px of panel and up, e.g. 1920): one line per player (name, captain, stats, Add Skill, cost, fire X) with
    the skills band beside the portrait under it, so more rows fit in the roster scroller */
 @container tbpanel (min-width: 660px) {
-  .tb-row { grid-template-columns: 22px 34px auto minmax(90px, 1fr) auto auto auto; grid-template-areas: "grip num sprite who line2 cost x" "grip num sprite skills skills skills skills"; column-gap: 8px; }
+  .tb-row { grid-template-columns: 14px 34px auto minmax(90px, 1fr) auto auto auto; grid-template-areas: "grip num sprite who line2 cost x" "grip num skills skills skills skills skills"; column-gap: 8px; }
   .tb-row > .tb-row-line2 { margin-top: 4px; flex-wrap: nowrap; }
   .tb-row-line2 > .tb-row-stats { flex: none; width: 216px; min-width: 0; }
   .tb-row > .tb-fire-x { margin-top: 4px; }
@@ -498,7 +508,9 @@
 /* narrow roster (under 520 px of panel: nav open at 1280, phones): the stat line starts under the number instead of beside
    the portrait; Add Skill / Add Stat stay at its right end while they fit, else wrap under the stats */
 @container tbpanel (max-width: 520px) {
-  .tb-row { grid-template-areas: "grip num sprite who cost x" "grip line2 line2 line2 line2 line2" "grip skills skills skills skills skills"; column-gap: 8px; }
+  /* the cost sits under the fire X so the name gets the width (owner 11-01: player names) */
+  .tb-row { grid-template-columns: 14px 34px auto minmax(0, 1fr) auto; grid-template-areas: "grip num sprite who x" "grip num sprite who cost" "grip line2 line2 line2 line2" "grip skills skills skills skills"; column-gap: 8px; }
+  .tb-row > .tb-cost { align-self: start; justify-self: end; padding-top: 2px; }
   .tb-row-line2 > .tb-row-stats { flex: 1 1 0; min-width: 200px; max-width: none; }
   .tb-page .sprite-frame.tb-sprite.tb-row-sprite { width: 48px; height: 48px; }
 }

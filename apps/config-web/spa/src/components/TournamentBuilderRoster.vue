@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // Tournament Builder, the Roster table (centre of the Roster pane, owner 10-30 / 10-31): the roster in builder order (drag
 // the slim gripper or Alt+Up / Alt+Down to reorder; numbers follow the order and the save keeps it). Each row is a player
-// card: top line = number, portrait, name, the Team Captain badge, cost and a red X that fires the player; second line = the
+// card: top line = number, portrait, the player's name (editable, with a reroll) over the position, cost and a red X that
+// fires the player; second line = the
 // stat strip with one square "+" at its right end (owner 11-01: it opens the Advance dialog, skills plus the stat bar where
 // increases are allowed; stars never take either); then the skills (elite ones wear the diamond at their top-left corner).
 // Added skills and stats wear a gold border and a red X badge that removes them. The
@@ -10,7 +11,7 @@ import { computed, inject, nextTick, onBeforeUnmount, onMounted, reactive, ref, 
 import { TOURNAMENT_BUILDER_KEY, TOURNAMENT_BUILDER_UI_KEY } from "../teams/builder";
 import { edgeStep, revealRow, REVEAL_FLASH_MS, rosterHeight, wideLayout } from "../teams/rosterReveal";
 import { core, type BuilderPosition, type Slot } from "../teams/builderCore";
-import { ELITE_ICON } from "../teams/builder";
+import { ELITE_ICON, PLAYER_NAME_MAX } from "../teams/builder";
 import TournamentBuilderStats from "./TournamentBuilderStats.vue";
 import TournamentBuilderSkillPicker from "./TournamentBuilderSkillPicker.vue";
 
@@ -63,6 +64,48 @@ onBeforeUnmount(() => { if (flashTimer) clearTimeout(flashTimer); });
 const picker = ref<InstanceType<typeof TournamentBuilderSkillPicker> | null>(null);
 const advance = (i: number) => builder.advanceLock(i);
 const openAdvance = (i: number, e: MouseEvent): void => void picker.value?.openSkill(i, e.currentTarget as HTMLElement);
+
+// ── player names (owner 11-01): click the name (or Enter / F2 on it) to rename inline; Enter or leaving the field saves,
+// Escape cancels; an empty name keeps the old one. The ↻ beside it rerolls a generated name. ──
+const editing = ref<number | null>(null);
+const draft = ref("");
+let nameInput: HTMLInputElement | null = null;
+/** The slot being renamed: a reorder or a fire while the field is open must never rename another player. */
+let editingSlot: Slot | null = null;
+function setNameInput(el: unknown): void { nameInput = (el as HTMLInputElement | null) ?? null; }
+async function startEdit(i: number): Promise<void> {
+  editing.value = i;
+  editingSlot = state.slots[i] ?? null;
+  draft.value = editingSlot?.name ?? "";
+  await nextTick();
+  nameInput?.focus?.();
+  nameInput?.select?.();
+}
+async function endEdit(i: number): Promise<void> {
+  editing.value = null;
+  await nextTick();
+  rowsEl.value?.querySelector?.<HTMLElement>(`[data-name="${i}"]`)?.focus();
+}
+function commitName(i: number): void {
+  if (editing.value !== i) return;
+  const at = editingSlot ? state.slots.indexOf(editingSlot) : -1;
+  editingSlot = null;
+  if (at < 0) { editing.value = null; return; } // the player left or moved: drop the edit
+  const ok = builder.renameSlot(at, draft.value);
+  live.value = ok ? `Renamed to ${state.slots[at]?.name ?? ""}` : "Name unchanged";
+  void endEdit(at);
+}
+function onNameKey(e: KeyboardEvent, i: number): void {
+  if (e.key === "Enter") { e.preventDefault(); commitName(i); }
+  else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); editingSlot = null; live.value = "Rename cancelled"; void endEdit(i); }
+}
+function onNameButtonKey(e: KeyboardEvent, i: number): void {
+  if (e.key === "F2") { e.preventDefault(); void startEdit(i); }
+}
+function reroll(i: number): void {
+  const name = builder.rerollName(i);
+  if (name) live.value = `New name: ${name}`;
+}
 
 // ── reorder: pointer drag on the gripper (mouse, touch, pen) and Alt+Arrow on it ──
 const live = ref("");
@@ -173,8 +216,17 @@ function onGripKey(e: KeyboardEvent, index: number): void {
         <span v-else class="tb-num">{{ i + 1 }}</span>
         <span class="sprite-frame tb-sprite tb-row-sprite" aria-hidden="true"><span class="sprite-fallback">{{ builder.shortName(position(s)).slice(0, 2).toUpperCase() }}</span><img v-if="builder.spritePath(position(s)?.name ?? '')" class="sprite-image" :src="builder.spritePath(position(s)?.name ?? '')" alt="" loading="lazy" /></span>
         <span class="tb-who">
-          <strong :title="position(s)?.name">{{ builder.shortName(position(s)) || "Unknown position" }}</strong>
-          <small v-if="role(s)">{{ role(s) }}</small>
+          <!-- the player's name in the header styling (owner 11-01), the position as the subheader under it; stars keep
+               their own name and say they take no added skills -->
+          <span class="tb-name-line">
+            <strong v-if="position(s)?.isStar" class="tb-pname" :title="position(s)?.name">{{ builder.shortName(position(s)) || "Unknown position" }}</strong>
+            <input v-else-if="editing === i" :ref="setNameInput" :value="draft" class="tb-name-input" type="text" :maxlength="PLAYER_NAME_MAX" autocomplete="off" spellcheck="false"
+              :aria-label="`Name for #${i + 1} ${builder.shortName(position(s))}`" @input="draft = ($event.target as HTMLInputElement).value" @keydown="onNameKey($event, i)" @blur="commitName(i)" />
+            <button v-else type="button" class="tb-pname" :data-name="i" :title="`Rename ${s.name || 'player'}`"
+              :aria-label="`${s.name || 'Unnamed player'}, #${i + 1} ${builder.shortName(position(s))}. Press Enter to rename.`" @click="startEdit(i)" @keydown="onNameButtonKey($event, i)">{{ s.name || builder.shortName(position(s)) }}</button>
+            <button v-if="!position(s)?.isStar && editing !== i" type="button" class="tb-reroll" :aria-label="`Reroll name for #${i + 1}`" title="Reroll name" @click="reroll(i)"><span aria-hidden="true">↻</span></button>
+          </span>
+          <small class="tb-psub" :title="position(s)?.name">{{ position(s)?.isStar ? role(s) : builder.shortName(position(s)) || "Unknown position" }}</small>
         </span>
         <span class="tb-cost">{{ core.gold(position(s)?.cost) }}</span>
         <button type="button" class="tb-fire-x" :aria-label="`Fire ${position(s)?.name ?? 'player'} #${i + 1}`" title="Fire" @click="builder.removeSlot(i)"><span aria-hidden="true">×</span></button>
