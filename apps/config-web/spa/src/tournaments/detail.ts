@@ -24,6 +24,7 @@ import {
   type TournamentSummary,
 } from "../shared/api";
 import type { Fetcher } from "../session";
+import type { ShareField } from "../account/sharing";
 
 export type DetailTab = "overview" | "entrants" | "rounds" | "standings" | "manage";
 export const DETAIL_TABS: ReadonlyArray<{ id: DetailTab; label: string }> = [
@@ -66,6 +67,26 @@ export interface TournamentDetailState {
   startOutcome: "" | "refused" | "started";
 }
 
+export interface RegistrationExtras { share?: ShareField[]; nafNumber?: string; notNafMember?: boolean }
+
+/** The POST /entrants body: teamId, share (always sent, [] = nothing), the NAF answer only when given. */
+export function registrationBody(teamId: string, entry: RegistrationExtras) {
+  return {
+    teamId,
+    share: entry.share ?? [],
+    ...(entry.notNafMember ? { notNafMember: true } : entry.nafNumber?.trim() ? { nafNumber: entry.nafNumber.trim() } : {}),
+  };
+}
+
+/** The NAF problem with a registration form ("" = fine): required on a sanctioned tournament unless not a member. */
+export function nafProblem(sanctioned: boolean, nafNumber: string, notNafMember: boolean): string {
+  const n = nafNumber.trim();
+  if (sanctioned && notNafMember) return "";
+  if (n && !/^\d{1,10}$/.test(n)) return "NAF number must be 1 to 10 digits.";
+  if (sanctioned && !n) return "NAF number required for this NAF-sanctioned tournament.";
+  return "";
+}
+
 export interface TournamentSettingsPatch {
   startsAt?: string;
   endsAt?: string;
@@ -74,6 +95,7 @@ export interface TournamentSettingsPatch {
   pairingSystem?: TournamentPairingSystem;
   seedingMode?: TournamentSeedingMode;
   primaryTiebreaker?: "buchholz" | "sonnebornBerger";
+  nafSanctioned?: boolean;
   /** Tournament page fields: null clears (location / deadlines replace as a whole). */
   location?: TournamentLocation | null;
   startTime?: string | null;
@@ -224,8 +246,10 @@ export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () =>
   }
 
   // ---- player actions ----
-  const register = (teamId: string) =>
-    run("register", () => deps.api(`${base()}/entrants`, { method: "POST", body: { teamId } }), "You are registered.");
+  /** Self-registration with the share picker (owner 10-31): `share` = what the organisers see beyond the coach name and
+   *  teams; on a NAF-sanctioned tournament a NAF number, or notNafMember. */
+  const register = (teamId: string, entry: RegistrationExtras = {}) =>
+    run("register", () => deps.api(`${base()}/entrants`, { method: "POST", body: registrationBody(teamId, entry) }), "You are registered.");
   const withdraw = () => {
     const mine = state.tournament?.myEntrantId;
     return mine

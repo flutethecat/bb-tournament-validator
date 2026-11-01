@@ -81,6 +81,10 @@ onUnmounted(() => {
             v-model:max-players="state.form.maxPlayers" v-model:round-count="state.form.roundCount" v-model:primary-tiebreaker="state.form.primaryTiebreaker"
             :swiss="state.form.format === 'swiss'" rounds-optional
           />
+          <label class="tn-field tn-check-field">
+            <span class="tn-fact-k">NAF</span>
+            <span class="tn-check-line"><input v-model="state.form.nafSanctioned" type="checkbox" /> NAF sanctioned</span>
+          </label>
           <p class="muted tc-full">The tournament starts as a draft. Dates, registration and the page are set on its Manage tab.</p>
           <p v-if="state.packagesStatus === 'error'" class="lobby-error tc-full" role="alert">
             Can't load the rulesets. <button class="lobby-btn small" type="button" @click="creator.loadPackages()">Try again</button>

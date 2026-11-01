@@ -5,6 +5,7 @@ import { computed, inject, onMounted, ref } from "vue";
 import "../account/onboarding.css";
 import { LEAGUE_SHARING_KEY, type LeagueSharingRow } from "../account/leagueSharing";
 import { dateOf } from "../account/contact";
+import ShareFieldsPicker from "./ShareFieldsPicker.vue";
 
 const props = defineProps<{ coach: string }>();
 const sharing = inject(LEAGUE_SHARING_KEY)!;
@@ -35,8 +36,12 @@ onMounted(() => { void sharing.load(props.coach); });
           <p class="hm-small">{{ l.text }}</p>
           <label class="ob-check">
             <input type="checkbox" required :checked="state.ticked === l.id" @change="sharing.tick(l.id, ($event.target as HTMLInputElement).checked)" />
-            <span>I agree that the organisers of {{ l.name }} can see my name and profile and send me league messages.</span>
+            <span>I agree to join {{ l.name }}: its organisers can see my coach name and teams and send me league messages.</span>
           </label>
+          <ShareFieldsPicker
+            :model-value="state.fields[l.id] ?? []" :phone-on-file="state.phoneOnFile" :disabled="Boolean(state.busy)"
+            :legend="`What else the organisers of ${l.name} can see`" @update:model-value="(v) => sharing.setFields(l.id, v)"
+          />
           <div class="ob-actions">
             <button class="lobby-btn primary small" type="button" :disabled="state.ticked !== l.id || Boolean(state.busy)" @click="share(l)">Share</button>
             <button class="lobby-btn small" type="button" @click="open = ''">Cancel</button>
@@ -44,7 +49,7 @@ onMounted(() => { void sharing.load(props.coach); });
         </div>
       </li>
     </ul>
-    <p class="muted hm-small">Organisers of a league you share with see your name and profile and can send you league messages through Super FUMBBL (only if you also allow league messages in Contact &amp; consent above). Your email address and phone numbers are never shown to them.</p>
+    <p class="muted hm-small">Organisers of a league you join see your coach name and teams and can send you league messages through Super FUMBBL (only if you also allow league messages in Contact &amp; consent above). They see your preferred name, email or phone only if you tick it, here or under Sharing.</p>
     <p v-if="state.error" class="lobby-error hm-small" role="alert">{{ state.error }}</p>
   </div>
 </template>

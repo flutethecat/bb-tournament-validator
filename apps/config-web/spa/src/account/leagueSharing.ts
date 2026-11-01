@@ -1,4 +1,6 @@
-// League data sharing (owner 10-31): GET/POST /api/me/leagues/sharing. Coaches reach leagues through an organiser
+// League data sharing = league registration (owner 10-31): GET/POST /api/me/leagues/sharing. The notice ends "Choose below
+// what else they can see." and carries the Preferred name / Email / Phone boxes (default off, pre-ticked from an earlier
+// choice); Share sends them as `fields` with the acknowledgement. Coaches reach leagues through an organiser
 // (import, Assign coach account), so each league they are on and have not answered shows a one-time, NON-blocking notice
 // in the shell (LeagueShareNotice.vue): "By joining <League>, you share your personal data ... with the league's
 // organisers"; sharing needs the required checkbox, declining keeps the coach on the team (organisers then see public
@@ -6,6 +8,7 @@
 
 import { reactive, type InjectionKey } from "vue";
 import type { Fetcher } from "../session";
+import { toggleField, type ShareField } from "./sharing";
 
 export const LEAGUE_SHARING_PATH = "/api/me/leagues/sharing";
 
@@ -16,6 +19,8 @@ export interface LeagueSharingRow {
   status: "pending" | "shared" | "declined";
   at?: string;
   onRoster: boolean;
+  /** The coach's earlier sharing choice for this league (the boxes start from it). */
+  fields?: ShareField[];
 }
 
 export interface LeagueSharingState {
@@ -26,10 +31,18 @@ export interface LeagueSharingState {
   error: string;
   /** The league id whose checkbox is ticked (one at a time). */
   ticked: string;
+  /** League id -> the share boxes as ticked. */
+  fields: Record<string, ShareField[]>;
+  phoneOnFile: boolean;
 }
 
 export function createLeagueSharing(deps: { api: Fetcher }) {
-  const state = reactive<LeagueSharingState>({ coach: "", leagues: [], loaded: false, busy: "", error: "", ticked: "" });
+  const state = reactive<LeagueSharingState>({ coach: "", leagues: [], loaded: false, busy: "", error: "", ticked: "", fields: {}, phoneOnFile: true });
+  const adopt = (view: { leagues?: LeagueSharingRow[]; phoneOnFile?: boolean }) => {
+    state.leagues = Array.isArray(view?.leagues) ? view.leagues : [];
+    state.phoneOnFile = view?.phoneOnFile !== false;
+    state.fields = Object.fromEntries(state.leagues.map((l) => [l.id, [...(l.fields ?? [])]]));
+  };
   let readFor = "";
 
   async function load(coach: string, force = false): Promise<void> {
@@ -40,9 +53,9 @@ export function createLeagueSharing(deps: { api: Fetcher }) {
     state.error = "";
     if (!coach) return;
     try {
-      const view = await deps.api<{ leagues: LeagueSharingRow[] }>(LEAGUE_SHARING_PATH);
+      const view = await deps.api<{ leagues: LeagueSharingRow[]; phoneOnFile?: boolean }>(LEAGUE_SHARING_PATH);
       if (readFor !== coach) return;
-      state.leagues = Array.isArray(view?.leagues) ? view.leagues : [];
+      adopt(view);
       state.loaded = true;
     } catch (e) {
       if (readFor === coach) { state.error = (e as Error).message || "Can't load your leagues."; if (!force) readFor = ""; }
@@ -55,10 +68,10 @@ export function createLeagueSharing(deps: { api: Fetcher }) {
     state.busy = leagueId;
     state.error = "";
     try {
-      const view = await deps.api<{ leagues: LeagueSharingRow[] }>(LEAGUE_SHARING_PATH, {
-        method: "POST", body: share ? { leagueId, share: true, acknowledged: true } : { leagueId, share: false },
+      const view = await deps.api<{ leagues: LeagueSharingRow[]; phoneOnFile?: boolean }>(LEAGUE_SHARING_PATH, {
+        method: "POST", body: share ? { leagueId, share: true, acknowledged: true, fields: state.fields[leagueId] ?? [] } : { leagueId, share: false },
       });
-      state.leagues = view.leagues;
+      adopt(view);
       state.ticked = "";
       return true;
     } catch (e) {
@@ -75,6 +88,9 @@ export function createLeagueSharing(deps: { api: Fetcher }) {
     /** The first league still waiting for an answer (the shell's notice shows one at a time). */
     pending: (): LeagueSharingRow | undefined => state.leagues.find((l) => l.status === "pending" && l.onRoster),
     tick(leagueId: string, on: boolean): void { state.ticked = on ? leagueId : state.ticked === leagueId ? "" : state.ticked; },
+    /** One share box for a league (Preferred name / Email / Phone). */
+    setField(leagueId: string, field: ShareField, on: boolean): void { state.fields[leagueId] = toggleField(state.fields[leagueId] ?? [], field, on); },
+    setFields(leagueId: string, fields: readonly ShareField[]): void { state.fields[leagueId] = [...fields]; },
     share: (leagueId: string) => answer(leagueId, true),
     decline: (leagueId: string) => answer(leagueId, false),
   };

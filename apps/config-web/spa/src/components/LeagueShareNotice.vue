@@ -1,10 +1,12 @@
 <script setup lang="ts">
 // League data-sharing notice (owner 10-31): one league at a time, shown in the shell after onboarding for each league
 // the coach is on and has not answered. NON-blocking: a panel above the page, not a modal; the rest of the site works.
-// Share needs the required checkbox; "Don't share" keeps the coach on the team (organisers then see public fields only).
+// This is the league registration step: Share needs the required checkbox and sends the Preferred name / Email / Phone
+// boxes (default off) with it; "Don't share" keeps the coach on the team (organisers then see public fields only).
 import { computed, inject } from "vue";
 import "../account/onboarding.css";
 import { LEAGUE_SHARING_KEY } from "../account/leagueSharing";
+import ShareFieldsPicker from "./ShareFieldsPicker.vue";
 
 const sharing = inject(LEAGUE_SHARING_KEY)!;
 const { state } = sharing;
@@ -21,8 +23,12 @@ const league = computed(() => sharing.pending());
           type="checkbox" required :checked="state.ticked === league.id" :disabled="Boolean(state.busy)"
           @change="sharing.tick(league.id, ($event.target as HTMLInputElement).checked)"
         />
-        <span>I agree that the organisers of {{ league.name }} can see my name and profile and send me league messages.</span>
+        <span>I agree to join {{ league.name }}: its organisers can see my coach name and teams and send me league messages.</span>
       </label>
+      <ShareFieldsPicker
+        :model-value="state.fields[league.id] ?? []" :phone-on-file="state.phoneOnFile" :disabled="Boolean(state.busy)"
+        :legend="`What else the organisers of ${league.name} can see`" @update:model-value="(v) => sharing.setFields(league!.id, v)"
+      />
       <p class="muted hm-small ls-notice-help">If you don't share, you stay on your team; the organisers see only your coach name and NAF details. You can change this on your Account page.</p>
       <p v-if="state.error" class="lobby-error hm-small" role="alert">{{ state.error }}</p>
       <div class="ob-actions">

@@ -149,6 +149,8 @@ export interface TournamentSummary {
   notes?: string;
   news?: TournamentNewsPost[];
   deadlines?: TournamentDeadlines;
+  /** NAF sanctioned (owner 10-31): registration needs a NAF number or "I am not a NAF member". */
+  nafSanctioned?: boolean;
 }
 
 export interface TournamentLocation { venue?: string; address?: string; mapUrl?: string }
@@ -196,7 +198,14 @@ export interface TournamentEntrant {
   flags?: TournamentEntrantFlags;
   rosterVerifiedOverride?: boolean;
   manualSeed?: number;
+  /** Coach and managers only: the NAF number given at registration, and the "not a NAF member" flag. */
+  nafNumber?: string;
+  notNafMember?: boolean;
+  /** Managers only: what the coach shares with this tournament's organisers (the coach name plus granted fields). */
+  shared?: TournamentSharedContact;
 }
+
+export interface TournamentSharedContact { coach: string; preferredName?: string; email?: string; phones?: Array<{ number: string; label?: string }> }
 
 export interface TournamentRound { id: string; number: number; status: "pending" | "active" | "completed"; scheduledMatchIds: string[] }
 

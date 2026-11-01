@@ -1,7 +1,9 @@
 <script setup lang="ts">
 // Organiser Participants table: seed (manual seed input), team + coach, roster chip (not submitted / valid / invalid,
 // "by hand" when an organiser verified it), the five status flags as toggles, and the next fixture. Filter chips pick
-// out the rows that need attention. Rows collapse to cards on a phone. The row menu has "Message coach" (notifications lane) and "NAF details" (organisers record a coach's NAF name and number).
+// out the rows that need attention. Rows collapse to cards on a phone. "Shared" shows what each coach chose to share with
+// this tournament's organisers (owner 10-31; "Not shared" otherwise), the NAF number given at registration, and a
+// "Not a NAF member" flag. The row menu has "Message coach" (notifications lane) and "NAF details" (organisers record a coach's NAF name and number).
 import { computed, inject, ref } from "vue";
 import type { TournamentEntrant, TournamentEntrantFlags } from "../shared/api";
 import Crest from "./Crest.vue";
@@ -46,6 +48,15 @@ const keep = (e: TournamentEntrant): boolean => {
     default: return true;
   }
 };
+const sharedLines = (e: TournamentEntrant): string[] => {
+  const s = e.shared;
+  if (!s) return [];
+  return [
+    ...(s.preferredName ? [s.preferredName] : []),
+    ...(s.email ? [s.email] : []),
+    ...(s.phones ?? []).map((p) => (p.label ? `${p.number} (${p.label})` : p.number)),
+  ];
+};
 const rows = computed(() => state.entrants.filter((e) => !e.droppedAt).filter(keep).map((e) => ({
   e, flags: flagsOf(e), roster: rosterState(e), next: nextFixtureFor(e.id, state),
 })));
@@ -73,7 +84,7 @@ function seed(e: TournamentEntrant, raw: string) {
   <div v-else class="table-wrap tn-table-wrap">
     <table class="tn-table tn-participants">
       <thead>
-        <tr><th>Seed</th><th>Team</th><th>Roster</th><th v-for="f in FLAGS" :key="f.key">{{ f.label }}</th><th>Next fixture</th><th v-if="canWrite"><span class="tn-sr">Actions</span></th></tr>
+        <tr><th>Seed</th><th>Team</th><th>Shared</th><th>Roster</th><th v-for="f in FLAGS" :key="f.key">{{ f.label }}</th><th>Next fixture</th><th v-if="canWrite"><span class="tn-sr">Actions</span></th></tr>
       </thead>
       <tbody>
         <tr v-for="r in rows" :key="r.e.id">
@@ -90,6 +101,12 @@ function seed(e: TournamentEntrant, raw: string) {
           <td data-label="Team" class="tn-team">
             <Crest :url="r.e.logoUrl" />
             <span class="tn-side-text"><strong>{{ r.e.submission?.teamName || r.e.teamName || r.e.teamId }}</strong><span class="muted">{{ r.e.coachId }}</span></span>
+          </td>
+          <td data-label="Shared" class="tn-shared">
+            <span v-for="(line, i) in sharedLines(r.e)" :key="i">{{ line }}</span>
+            <span v-if="!sharedLines(r.e).length" class="muted">Not shared</span>
+            <span v-if="r.e.nafNumber" class="muted">NAF #{{ r.e.nafNumber }}</span>
+            <span v-if="r.e.notNafMember"><span class="tn-chip" data-naf="not-member">Not a NAF member</span></span>
           </td>
           <td data-label="Roster">
             <span class="tn-chip" :data-roster="r.roster">{{ ROSTER_LABEL[r.roster] }}</span>

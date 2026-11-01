@@ -3,6 +3,7 @@
 // 380 px at >= 1280). Main: Identity (GET/PATCH /api/me/profile), Calendar (deadlines and fixtures from the nav tree's
 // GET /api/me/deadlines, availability shading, proposed times once that lane lands) with a "Set schedule" button in its
 // band: the availability editor (GET/PUT /api/me/scheduling) opens in a dialog, and /account#schedule opens it on load.
+// Sharing (owner 10-31, src/components/AccountSharing.vue): what each league's / tournament's organisers can see.
 // Side: Session, Email (league-email address and confirmation, src/components/AccountEmail.vue), Teams, Privacy (download
 // my data / delete my account), test sign-in.
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, onServerPrefetch, ref, watch } from "vue";
@@ -15,6 +16,7 @@ import AccountIdentity from "../components/AccountIdentity.vue";
 import AccountCalendar from "../components/AccountCalendar.vue";
 import AccountContact from "../components/AccountContact.vue";
 import AccountLeagueSharing from "../components/AccountLeagueSharing.vue";
+import AccountSharing from "../components/AccountSharing.vue";
 import { LEAGUE_SHARING_KEY } from "../account/leagueSharing";
 import { createContactEditor } from "../account/contact";
 import { ONBOARDING_KEY } from "../account/onboarding";
@@ -132,6 +134,11 @@ onServerPrefetch(() => (coach.value ? schedule.value.load() : undefined));
             <button ref="opener" class="lobby-btn ac-set-schedule" type="button" aria-haspopup="dialog" @click="scheduleDialog.show()">Set schedule</button>
           </header>
           <AccountCalendar :deadlines="deadlines" :proposals="proposals" :blocks="schedule.state.blocks" :timezone="zone" :now="now" :loading="tree?.state.loading" />
+        </section>
+
+        <section v-if="session.signedIn()" id="sharing" :key="`sharing-${coach}`" class="hm-panel" aria-labelledby="ac-sharing-h">
+          <header class="hm-band"><h2 id="ac-sharing-h">Sharing</h2><span class="hm-cap">Per league and tournament</span></header>
+          <AccountSharing />
         </section>
       </div>
 

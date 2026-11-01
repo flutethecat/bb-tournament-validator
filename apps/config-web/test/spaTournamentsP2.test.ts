@@ -88,7 +88,7 @@ describe("detail controller: player actions", () => {
     const d = createTournamentDetail({ api: f });
     await d.load("t1");
     await d.register("tm9");
-    expect(f.calls.find((c) => c.method === "POST" && c.path.endsWith("/entrants"))?.body).toEqual({ teamId: "tm9" });
+    expect(f.calls.find((c) => c.method === "POST" && c.path.endsWith("/entrants"))?.body).toEqual({ teamId: "tm9", share: [] });
     expect(d.state.notice).toBe("You are registered.");
     await d.submit("save:s2");
     expect(f.calls.find((c) => c.path.endsWith("/submissions"))?.body).toEqual({ saveId: "save:s2" });
@@ -322,6 +322,19 @@ describe("phase 2/3 views (server-rendered against a mocked API)", () => {
     expect(html).toContain(">Register</button>");
     expect(html).toContain("Spare Humans (Human");
     expect(html).not.toContain("Submit team");
+    // Share picker (owner 10-31): three boxes, none ticked; no NAF block on a tournament that is not NAF sanctioned.
+    expect(html).toContain("Share with the organiser");
+    for (const label of ["Preferred name", "Email", "Phone"]) expect(html).toContain(`<span>${label}`);
+    expect(html).not.toContain("NAF number (required");
+  });
+
+  it("NAF-sanctioned tournament: the chip, the required NAF number and the 'I am not a NAF member' box", async () => {
+    const body = detailBody({ tournament: tournament({ nafSanctioned: true }), entrants: [bob()] });
+    const { html } = await render("/tournaments/t1", { ...AS("Alice"), "/api/tournaments/t1": body, ...OPTIONS }, loaded("t1", "Alice"));
+    expect(html).toContain('data-naf="sanctioned">NAF sanctioned</span>');
+    expect(html).toContain("NAF number (required — this tournament is NAF sanctioned)");
+    expect(html).toContain("Not optional: your NAF number is shared with the organisers as part of your entry.");
+    expect(html).toContain("I am not a NAF member");
   });
 
   it("entrant: invalid chip with problems, Submit team from saves and library, Withdraw; opponent link on the next fixture", async () => {

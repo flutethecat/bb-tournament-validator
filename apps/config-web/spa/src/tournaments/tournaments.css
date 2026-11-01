@@ -317,3 +317,16 @@ a.tn-fact-sub { color: var(--ui-text); text-decoration: underline; }
 /* Create Tournament dialog (tn-modal frame) */
 .tn-modal.tc-modal { width: min(600px, 100%); }
 .tc-full { grid-column: 1 / -1; margin: 0; }
+
+/* ---- Registration (owner 10-31): NAF-sanctioned chip, the NAF block, "Share with the organiser" */
+.tn-chip[data-naf="sanctioned"] { border-color: var(--ui-info); color: var(--ui-info); white-space: nowrap; }
+.tn-chip[data-naf="not-member"] { border-color: var(--ui-warn, var(--ui-danger)); color: var(--ui-warn, var(--ui-danger)); white-space: nowrap; }
+.tn-reg-form { display: grid; gap: 12px; min-width: 0; }
+.tn-reg-chip { margin: 0; }
+.tn-reg-naf { display: grid; gap: 6px; min-width: 0; }
+.tn-reg-naf input[type="text"] { min-height: 44px; max-width: 16em; }
+.tn-reg-share { display: grid; gap: 6px; min-width: 0; }
+.tn-reg-share .tn-fact-k { margin: 0; }
+.tn-shared { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.tn-check-field .tn-check-line { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+.tn-check-field .tn-check-line input { width: 20px; height: 20px; min-height: 0; flex: none; accent-color: var(--ui-primary); }

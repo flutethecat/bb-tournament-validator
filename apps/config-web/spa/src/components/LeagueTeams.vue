@@ -1,13 +1,15 @@
 <script setup lang="ts">
 // League page, Teams tab: a tile per team; ?team=<name> opens that team's end-of-season roster (players, skills,
 // SPP and season stats) and the players who left the roster during the season. Organisers and admins (manage) get
-// Assign coach account in the roster header (LeagueTeamCoach). The Super FUMBBL result counters (blocks, rushing, ...)
+// Assign coach account in the roster header (LeagueTeamCoach) and what the team's coach shares with the organisers
+// (LeagueMemberContact). The Super FUMBBL result counters (blocks, rushing, ...)
 // get a column each only when a player in that table has a non-zero value.
 import { computed } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import { crestFor, initials, kValue, playerByRef, sharedTotalsFor, teamByRef, teamUnattributed, teamValueFigures } from "../leagues/league";
 import type { LeaguePlayer, PlayerSeasonStats, SeasonRecord } from "../leagues/types";
 import LeagueTeamCoach from "./LeagueTeamCoach.vue";
+import LeagueMemberContact from "./LeagueMemberContact.vue";
 
 const props = defineProps<{ season: SeasonRecord; team: string; player?: string; leagueId: string; crests: Record<string, string>; manage?: boolean }>();
 const route = useRoute();
@@ -56,6 +58,7 @@ const count = (p: { stats: PlayerSeasonStats }, key: Counter): number => p.stats
         <section class="hm-panel lg-roster" :aria-label="`${picked.name} roster`">
           <header class="hm-band"><h2>{{ picked.name }}</h2><span class="hm-cap">{{ picked.race }} · {{ picked.coach }}<template v-if="picked.coachId && picked.coachAssigned"> · {{ picked.coachId }}</template></span></header>
           <LeagueTeamCoach v-if="manage" :season="season" :team="picked" />
+          <LeagueMemberContact v-if="manage && picked.coachId" :league-id="leagueId" :coach="picked.coachId" />
           <dl class="lg-team-facts">
             <div v-if="pickedTv?.secondary" data-tv="ctv"><dt>Current team value</dt><dd>{{ kValue(pickedTv.main.value) }} <small class="lg-tv-secondary">TV {{ kValue(pickedTv.secondary.value) }}</small></dd></div>
             <div v-else data-tv="tv"><dt>Team value</dt><dd>{{ kValue(picked.teamValue) }}</dd></div>

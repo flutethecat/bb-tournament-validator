@@ -30,6 +30,8 @@ export interface CreateTournamentForm {
   /** Swiss only; blank = Auto (the server works it out from the field). */
   roundCount: number | "";
   primaryTiebreaker: TournamentPrimaryTiebreaker;
+  /** NAF sanctioned (owner 10-31): registration then needs a NAF number or "I am not a NAF member". */
+  nafSanctioned?: boolean;
 }
 
 /** The POST /api/tournaments body: name, packageName, maxPlayers, format, primaryTiebreaker, and roundCount for Swiss when set. */
@@ -40,9 +42,10 @@ export interface CreateTournamentBody {
   format: TournamentFormat;
   primaryTiebreaker: TournamentPrimaryTiebreaker;
   roundCount?: number;
+  nafSanctioned?: true;
 }
 
-const blankForm = (): CreateTournamentForm => ({ name: "", packageName: "", maxPlayers: 8, format: "swiss", roundCount: "", primaryTiebreaker: "buchholz" });
+const blankForm = (): CreateTournamentForm => ({ name: "", packageName: "", maxPlayers: 8, format: "swiss", roundCount: "", primaryTiebreaker: "buchholz", nafSanctioned: false });
 
 export function createBody(form: CreateTournamentForm): CreateTournamentBody {
   const body: CreateTournamentBody = {
@@ -53,6 +56,7 @@ export function createBody(form: CreateTournamentForm): CreateTournamentBody {
     primaryTiebreaker: form.primaryTiebreaker,
   };
   if (form.format === "swiss" && form.roundCount !== "" && form.roundCount !== null && form.roundCount !== undefined) body.roundCount = Number(form.roundCount);
+  if (form.nafSanctioned) body.nafSanctioned = true;
   return body;
 }
 

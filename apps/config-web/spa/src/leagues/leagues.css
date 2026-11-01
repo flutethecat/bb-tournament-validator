@@ -378,3 +378,4 @@
   .lg-spot-row { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: thin; padding-bottom: 8px; overscroll-behavior-x: contain; }
   .lg-spot { flex: 0 0 min(78%, 280px); scroll-snap-align: start; }
 }
+.lg-member-contact { margin: 0 0 10px; overflow-wrap: anywhere; }

@@ -2,12 +2,18 @@
 // Overview "My entry" card (signed-in coaches only): Register with a library team while registration is open; once
 // entered, the submitted team with its validity chip and problems, Submit team (Team Builder saves or library teams),
 // the next fixture with a link to the opponent's team, and Withdraw.
+// Registration (owner 10-31) carries "Share with the organiser" (Preferred name / Email / Phone, default off; phone only
+// with one on file) and, on a NAF-sanctioned tournament, the required NAF number (prefilled from a verified NAF link) or
+// "I am not a NAF member".
 import { computed, inject, onMounted, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 import TeamSelect from "./TeamSelect.vue";
+import ShareFieldsPicker from "./ShareFieldsPicker.vue";
+import { API_KEY } from "../app";
+import { createSharing, type ShareField } from "../account/sharing";
 import { SESSION_KEY, writesAllowed } from "../session";
 import {
-  isPageAction, myEntrant, nextFixtureFor, registrationOpen, ROSTER_LABEL, rosterState, submitChoices, TOURNAMENT_DETAIL_KEY,
+  isPageAction, myEntrant, nafProblem, nextFixtureFor, registrationOpen, ROSTER_LABEL, rosterState, submitChoices, TOURNAMENT_DETAIL_KEY,
 } from "../tournaments/detail";
 
 const detail = inject(TOURNAMENT_DETAIL_KEY)!;
@@ -37,12 +43,28 @@ watch(choices, (list) => {
   saveRef.value = current && list.some((c) => c.ref === current) ? current : list[0]?.ref ?? "";
 }, { immediate: true });
 
+// The coach's phone / verified NAF number, for the registration picker (GET /api/me/sharing).
+const fetcher = inject(API_KEY, null);
+const sharing = fetcher ? createSharing({ api: fetcher }) : null;
+const share = ref<ShareField[]>([]);
+const nafNumber = ref("");
+const notNafMember = ref(false);
+const sanctioned = computed(() => t.value.nafSanctioned === true);
+const nafError = computed(() => nafProblem(sanctioned.value, nafNumber.value, notNafMember.value));
+const nafTouched = ref(false);
+watch(() => sharing?.state.info?.nafNumber, (n) => { if (n && !nafNumber.value) nafNumber.value = n; });
+
 onMounted(() => {
   if (coach.value && state.teamOptions.status === "idle") void detail.loadTeamOptions(coach.value);
+  if (coach.value && !mine.value && sharing) void sharing.load();
 });
 
 const busy = computed(() => Boolean(state.busy));
-async function doRegister() { if (teamId.value) await detail.register(teamId.value); }
+async function doRegister() {
+  nafTouched.value = true;
+  if (!teamId.value || nafError.value) return;
+  await detail.register(teamId.value, { share: share.value, ...(sanctioned.value ? (notNafMember.value ? { notNafMember: true } : { nafNumber: nafNumber.value }) : {}) });
+}
 async function doSubmit() { if (saveRef.value) await detail.submit(saveRef.value); }
 async function doWithdraw() { await detail.withdraw(); }
 </script>
@@ -54,10 +76,31 @@ async function doWithdraw() { await detail.withdraw(); }
       <template v-if="!entered">
         <template v-if="open">
           <p class="muted">{{ mine?.droppedAt ? "You withdrew from this tournament." : "You are not entered yet." }}</p>
-          <form v-if="!mine && canWrite" class="tn-inline-form" @submit.prevent="doRegister">
-            <label for="tn-reg-team">Team</label>
-            <TeamSelect id="tn-reg-team" v-model="teamId" :teams="state.teamOptions.library" />
-            <button class="lobby-btn primary" type="submit" :disabled="!teamId || busy">Register</button>
+          <form v-if="!mine && canWrite" class="tn-reg-form" novalidate @submit.prevent="doRegister">
+            <p v-if="sanctioned" class="tn-reg-chip"><span class="tn-chip" data-naf="sanctioned">NAF sanctioned</span></p>
+            <div class="tn-inline-form">
+              <label for="tn-reg-team">Team</label>
+              <TeamSelect id="tn-reg-team" v-model="teamId" :teams="state.teamOptions.library" />
+            </div>
+            <div v-if="sanctioned" class="tn-reg-naf">
+              <label for="tn-reg-naf">NAF number (required — this tournament is NAF sanctioned)</label>
+              <input
+                id="tn-reg-naf" v-model="nafNumber" type="text" inputmode="numeric" maxlength="10" autocomplete="off" :disabled="notNafMember"
+                :aria-invalid="nafTouched && nafError ? 'true' : undefined" aria-describedby="tn-reg-naf-help" @blur="nafTouched = true"
+              />
+              <small id="tn-reg-naf-help" class="hm-small" :class="nafTouched && nafError ? 'lobby-error' : 'muted'">{{
+                nafTouched && nafError ? nafError : "Not optional: your NAF number is shared with the organisers as part of your entry."
+              }}</small>
+              <label class="ob-check"><input v-model="notNafMember" type="checkbox" /> <span>I am not a NAF member</span></label>
+            </div>
+            <div class="tn-reg-share">
+              <p class="tn-fact-k">Share with the organiser</p>
+              <ShareFieldsPicker v-model="share" :phone-on-file="sharing?.state.info?.phoneOnFile === true" legend="What the organisers of this tournament can see" />
+              <small class="muted hm-small">Organisers always see your coach name and team. Nothing else unless you tick it; change it later under Account, Sharing.</small>
+            </div>
+            <div class="tn-actions">
+              <button class="lobby-btn primary" type="submit" :disabled="!teamId || busy || (nafTouched && Boolean(nafError))">Register</button>
+            </div>
           </form>
           <p v-if="!mine && state.teamOptions.status === 'ok' && !state.teamOptions.library.length" class="muted">
             Your library is empty. Build a team in the Team Builder, then come back to register.

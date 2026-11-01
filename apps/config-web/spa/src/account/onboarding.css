@@ -50,3 +50,11 @@
 .ac-share-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .ac-share-head .lobby-btn { margin-left: auto; }
 .ac-share-form { display: grid; gap: 8px; }
+
+/* ---- Per-organiser sharing (owner 10-31): the Account "Sharing" rows (AccountSharing.vue), the share boxes on the league
+   notice, and the tournament registration picker (TournamentMyEntry.vue) */
+.ac-share-fields { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.ac-share-fields > .lobby-btn { margin-left: auto; }
+.ac-share-fields .ob-check { margin: 0; }
+.ac-share-fields legend.tn-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.ob-phone-open { justify-self: start; }

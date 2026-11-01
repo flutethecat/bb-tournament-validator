@@ -47,7 +47,8 @@ onServerPrefetch(() => props.editor.load());
           />
           <small id="acc-email-help" class="hm-small" :class="show('email', problems.email) ? 'lobby-error' : 'muted'">{{ show('email', problems.email) || emailNote }}</small>
         </div>
-        <fieldset class="ob-phones">
+        <button v-if="!state.form.phones.length" class="lobby-btn small ob-phone-open" type="button" @click="editor.addPhone()">Add a phone number (optional)</button>
+        <fieldset v-else class="ob-phones">
           <legend class="ob-legend">Phone numbers <span class="muted hm-small">(optional, up to {{ MAX_PHONES }})</span></legend>
           <p id="acc-phone-hint" class="muted hm-small ob-hint">{{ PHONE_HINT }}</p>
           <div v-for="(phone, i) in state.form.phones" :key="i" class="ob-phone-row">

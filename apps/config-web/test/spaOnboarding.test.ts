@@ -216,8 +216,9 @@ describe("views (server-rendered against a mocked API)", () => {
       expect(m).toContain('<span class="ob-email-value" aria-labelledby="ob-email-l">alice@example.test</span>');
       expect(m).toContain(">Edit</button>");
       expect(m).toContain("From your Discord account.");
-      expect(m).toContain("+1 555 123 4567");
-      expect(m).toContain(">Add phone number</button>");
+      // Phone is optional and collapsed (owner 10-31): one button, no phone rows until the coach adds one.
+      expect(m).toContain(">Add a phone number (optional)</button>");
+      expect(m).not.toContain('class="ob-phones"');
       expect(m).toContain("Organisers of leagues and tournaments I join may contact me");
       expect(checkboxes(m)).toHaveLength(2);
       expect(checkboxes(m).some((c) => /\schecked/.test(c))).toBe(false);
@@ -279,8 +280,12 @@ describe("views (server-rendered against a mocked API)", () => {
     expect(panel).toContain('role="region" aria-labelledby="ls-notice-h"');
     expect(panel).toContain("Your profile and Test League");
     expect(panel).toContain("You are joining Test League. Its organisers can see your coach name and your teams.");
-    expect(panel).toContain("I agree that the organisers of Test League can see my name and profile and send me league messages.");
-    expect(checkboxes(panel.slice(0, panel.indexOf("</section>")))).toHaveLength(1);
+    expect(panel).toContain("I agree to join Test League: its organisers can see my coach name and teams and send me league messages.");
+    // The agreement box plus the three share boxes (Preferred name / Email / Phone), none ticked.
+    const boxes = checkboxes(panel.slice(0, panel.indexOf("</section>")));
+    expect(boxes).toHaveLength(4);
+    expect(boxes.some((c) => /\schecked/.test(c))).toBe(false);
+    for (const label of ["Preferred name", "Email", "Phone"]) expect(panel).toContain(`<span>${label}`);
     expect(panel).toMatch(/<button class="lobby-btn primary" type="button" disabled[^>]*>Share<\/button>/);
     expect(panel).toContain(">Don&#39;t share</button>");
     expect(html).not.toContain('aria-modal="true"');
@@ -313,7 +318,7 @@ describe("views (server-rendered against a mocked API)", () => {
     expect(f.calls.some((c) => c.method === "POST")).toBe(false);
     ls.tick("lg", true);
     expect(await ls.share("lg")).toBe(true);
-    expect(f.calls.at(-1)).toEqual({ path: "/api/me/leagues/sharing", method: "POST", body: { leagueId: "lg", share: true, acknowledged: true } });
+    expect(f.calls.at(-1)).toEqual({ path: "/api/me/leagues/sharing", method: "POST", body: { leagueId: "lg", share: true, acknowledged: true, fields: [] } });
     expect(ls.pending()).toBeUndefined();
     expect(await ls.decline("lg")).toBe(true);
     expect(f.calls.at(-1)?.body).toEqual({ leagueId: "lg", share: false });

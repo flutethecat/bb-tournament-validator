@@ -207,7 +207,7 @@ describe("create views (server-rendered against a mocked API)", () => {
     expect(dlg).toContain('aria-labelledby="tc-modal-h"');
     expect(dlg).toMatch(/<h3 id="tc-modal-h" class="tn-band">\s*Create Tournament/);
     const labels = [...dlg.matchAll(/class="tn-fact-k">([^<]+)</g)].map((m) => m[1]);
-    expect(labels).toEqual(["Name", "Ruleset", "Type", "Max players", "Rounds", "First tiebreaker"]);
+    expect(labels).toEqual(["Name", "Ruleset", "Type", "Max players", "Rounds", "First tiebreaker", "NAF"]);
     expect(dlg).toContain('<option value="nut-cup" selected>nut-cup</option><option value="small-gods">small-gods</option>');
     expect(dlg).toContain('placeholder="Auto"');
     expect(dlg).toMatch(/<p class="lobby-error tc-full" role="alert">\s*A tournament with that name already exists\.\s*(<!---->)?<\/p>/);

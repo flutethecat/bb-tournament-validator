@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Edit Tournament: settings (start and end date, player cap, Swiss rounds, pairing system, seeding mode, first
-// tiebreaker) saved with one PATCH of the changed fields, and the roles block (owner and organisers; editable by the
+// tiebreaker, NAF sanctioned) saved with one PATCH of the changed fields, and the roles block (owner and organisers; editable by the
 // owner or an admin, read-only for other organisers).
 import { computed, inject, reactive, ref, watch } from "vue";
 import type { TournamentPairingSystem, TournamentSeedingMode } from "../shared/api";
@@ -21,6 +21,7 @@ const hasRounds = computed(() => state.rounds.length > 0);
 interface Form {
   startsAt: string; endsAt: string; maxPlayers: number | ""; roundCount: number | "";
   pairingSystem: TournamentPairingSystem; seedingMode: TournamentSeedingMode; primaryTiebreaker: "buchholz" | "sonnebornBerger";
+  nafSanctioned: boolean;
 }
 const fromRecord = (): Form => ({
   startsAt: toLocalInput(t.value.startsAt),
@@ -30,6 +31,7 @@ const fromRecord = (): Form => ({
   pairingSystem: t.value.pairingSystem ?? "eloSeeded",
   seedingMode: t.value.seedingMode ?? "elo",
   primaryTiebreaker: t.value.tiebreakers?.[0] === "sonnebornBerger" ? "sonnebornBerger" : "buchholz",
+  nafSanctioned: t.value.nafSanctioned === true,
 });
 const form = reactive<Form>(fromRecord());
 // A refetch after any write resets the form to what the server holds.
@@ -45,6 +47,7 @@ const patch = computed<TournamentSettingsPatch>(() => {
   if (form.pairingSystem !== before.pairingSystem) out.pairingSystem = form.pairingSystem;
   if (form.seedingMode !== before.seedingMode) out.seedingMode = form.seedingMode;
   if (form.primaryTiebreaker !== before.primaryTiebreaker) out.primaryTiebreaker = form.primaryTiebreaker;
+  if (form.nafSanctioned !== before.nafSanctioned) out.nafSanctioned = form.nafSanctioned;
   return out;
 });
 const dirty = computed(() => Object.keys(patch.value).length > 0);
@@ -73,6 +76,11 @@ async function addOrganizer() { if (newOrganizer.value.trim()) { await detail.ad
         <select v-model="form.seedingMode" :disabled="hasRounds"><option v-for="(label, key) in SEEDING_LABEL" :key="key" :value="key">{{ label }}</option></select>
       </label>
     </TournamentRulesFields>
+    <label class="tn-field tn-check-field">
+      <span class="tn-fact-k">NAF</span>
+      <span class="tn-check-line"><input v-model="form.nafSanctioned" type="checkbox" /> NAF sanctioned</span>
+      <small class="muted">Coaches must give a NAF number to register, or tick "I am not a NAF member".</small>
+    </label>
     <div class="tn-actions tn-form-actions">
       <button class="lobby-btn primary" type="submit" :disabled="!dirty || busy">Save settings</button>
       <button class="lobby-btn" type="button" :disabled="!dirty || busy" @click="Object.assign(form, fromRecord())">Reset</button>

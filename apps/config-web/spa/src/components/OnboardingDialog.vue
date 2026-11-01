@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // "Welcome to Super FUMBBL" (owner 10-31): the blocking new-user modal over the shell (App.vue makes the shell inert).
-// One form: preferred name, the email we hold (Discord's, with Edit), up to 3 phone numbers, the league-contact opt-in
+// One form: preferred name, the email we hold (Discord's, with Edit), optional phone numbers (collapsed behind "Add a phone
+// number (optional)", up to 3), the league-contact opt-in
 // (never pre-ticked) and the required privacy acceptance. Escape does nothing; Tab stays inside (onboardingKey); the only
 // ways out are "Save and continue" and "Sign out". Controller: src/account/onboarding.ts.
 import { computed, inject, nextTick, onMounted, onUnmounted, ref } from "vue";
@@ -88,7 +89,9 @@ onUnmounted(() => window.removeEventListener("keydown", onKey, true));
               }}</small>
             </div>
 
-            <fieldset class="ob-phones">
+            <!-- Phone is optional (owner 10-31): collapsed until the coach adds one; onboarding completes with none. -->
+            <button v-if="!state.form.phones.length" class="lobby-btn small ob-phone-open" type="button" @click="addPhone">Add a phone number (optional)</button>
+            <fieldset v-else class="ob-phones">
               <legend class="ob-legend">Phone numbers <span class="muted hm-small">(optional, up to {{ MAX_PHONES }})</span></legend>
               <p id="ob-phone-hint" class="muted hm-small ob-hint">{{ PHONE_HINT }}</p>
               <div v-for="(phone, i) in state.form.phones" :key="i" class="ob-phone-row">
