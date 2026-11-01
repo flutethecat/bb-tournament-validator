@@ -3,7 +3,7 @@
 // organisers), its tournaments with dates and status chips, and the aggregated standings the server computed. Series
 // organisers and admins get Edit, Delete, Add tournament (only ones they run; any for admins), Remove and New
 // tournament (the Create Tournament dialog, joined to this series).
-import { computed, inject, onMounted, ref, watch } from "vue";
+import { computed, inject, onMounted, provide, ref, watch } from "vue";
 import { RouterLink, useRouter } from "vue-router";
 import { API_KEY } from "../app";
 import { SESSION_KEY, writesAllowed } from "../session";
@@ -22,6 +22,7 @@ const fetcher = inject(API_KEY)!;
 const session = inject(SESSION_KEY)!;
 const router = useRouter();
 const detail = inject(SERIES_DETAIL_KEY, null) ?? createSeriesDetail({ api: fetcher, onSignedOut: () => void session.load(true) });
+provide(SERIES_DETAIL_KEY, detail);
 const { state } = detail;
 const creator = inject(TOURNAMENT_CREATOR_KEY, null);
 
@@ -155,7 +156,7 @@ onMounted(() => { if (state.id !== props.id || !state.loaded) void detail.load(p
       </div>
     </template>
 
-    <SeriesDialog v-if="editing && series" :series="series" @close="editing = false" />
+    <SeriesDialog v-if="editing && series" :series="series" :controller="detail" @close="editing = false" />
     <LeagueDialog
       v-if="confirmDelete && series" id="sr-delete-h" title="Delete series" role="alertdialog" :busy="state.busy === 'delete'"
       @close="confirmDelete = false"

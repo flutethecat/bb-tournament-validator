@@ -4,7 +4,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ViteDevServer } from "vite";
 import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
-import { createSeriesDetail, scoringLabel, seriesBody, seriesFormProblem, blankSeriesForm, type SeriesDetail } from "../spa/src/tournaments/series";
+import {
+  createSeriesDetail, formFromSeries, scoringLabel, seriesBody, seriesFormProblem, blankSeriesForm, submitSeriesForm, type SeriesDetail,
+} from "../spa/src/tournaments/series";
 import { createBody } from "../spa/src/tournaments/create";
 
 // Tournament Series pages (spec-main-landing-nav §3: /app/series/:id; the list at /app/series) and the dialog controller.
@@ -75,6 +77,33 @@ describe("series controller", () => {
     expect(d.state.actionError).toContain("changed since you opened it");
     await Promise.resolve();
     expect(reads).toBe(2);
+  });
+
+  it("Edit -> Save sends the update (PATCH with the revision) and never a create; no controller = no request", async () => {
+    const f = mockFetcher({
+      "GET /api/series/s1": DETAIL(),
+      "PATCH /api/series/s1": DETAIL({ series: SERIES({ name: "Valley Cup", revision: 5 }) }),
+      "POST /api/series": { series: { id: "dup" } },
+    });
+    const d = createSeriesDetail({ api: f });
+    await d.load("s1");
+    const form = { ...formFromSeries(d.state.view!.series), name: "Valley Cup" };
+    expect(await submitSeriesForm({ api: f, form, editing: d.state.view!.series, controller: d })).toEqual({ kind: "updated" });
+    expect(f.calls.filter((c) => c.method !== "GET")).toEqual([{ path: "/api/series/s1", method: "PATCH", body: expect.objectContaining({ name: "Valley Cup", revision: 4 }) }]);
+    expect(d.state.view!.series.name).toBe("Valley Cup");
+    const before = f.calls.length;
+    expect(await submitSeriesForm({ api: f, form, editing: { id: "s1" }, controller: null })).toMatchObject({ kind: "error" });
+    expect(await submitSeriesForm({ api: f, form, editing: { id: "other" }, controller: d })).toMatchObject({ kind: "error" });
+    expect(f.calls.length).toBe(before);
+    expect(f.calls.some((c) => c.method === "POST")).toBe(false);
+    // Create (no series being edited) is the only path that POSTs.
+    expect(await submitSeriesForm({ api: f, form: { ...blankSeriesForm(), name: "New" } })).toEqual({ kind: "created", id: "dup" });
+  });
+
+  it("the series page passes its controller to the edit dialog", () => {
+    const view = readFileSync(new URL("../spa/src/views/SeriesDetailView.vue", import.meta.url), "utf8");
+    expect(view).toContain("provide(SERIES_DETAIL_KEY, detail)");
+    expect(view).toMatch(/<SeriesDialog v-if="editing && series" :series="series" :controller="detail"/);
   });
 
   it("New tournament from a series page sends seriesId with the create body", () => {

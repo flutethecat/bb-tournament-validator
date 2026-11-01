@@ -26,6 +26,7 @@ import type {
   TournamentStatus,
 } from "./types.js";
 import { requestRevision } from "../leagues/http.js";
+import { assertNotFenced, DeletionFenceError } from "../privacy/fence.js";
 
 export const SERIES_NAME_MAX = 100;
 export const SERIES_DESCRIPTION_MAX = 2000;
@@ -112,7 +113,11 @@ export function computeSeriesStandings(series: TournamentSeriesRecord, data: Tou
       ...(tournament.endsAt ? { endsAt: tournament.endsAt } : {}),
     });
     if (!counted) continue;
-    const entrants = Object.values(data.entrants).filter((entrant) => entrant.tournamentId === id);
+    // Every game the tournament recorded counts, withdrawn entrants included: the standings engine drops a withdrawn
+    // entrant (and with them the points their opponents earned against them), so the series reads every entry as active.
+    const entrants = Object.values(data.entrants)
+      .filter((entrant) => entrant.tournamentId === id)
+      .map(({ droppedAt: _dropped, ...entrant }) => entrant);
     const matches = Object.values(data.scheduledMatches).filter((match) => match.tournamentId === id).sort((a, b) => a.id.localeCompare(b.id));
     const rows = calculateStandings(entrants, matches, tournament.points, tournament.tiebreakers);
     const teamOf = new Map(entrants.map((entrant) => [entrant.id, entrant.submission?.teamName]));
@@ -352,6 +357,9 @@ export function seriesApi(
         const creator = deps.registeredCoach?.(identity.coach) ?? identity.coach;
         const organisers = [creator, ...(input.organisers ?? []).filter((o) => coachKey(o) !== coachKey(creator))];
         if (organisers.length > SERIES_ORGANISERS_MAX) fail(400, `A series can have at most ${SERIES_ORGANISERS_MAX} organisers.`);
+        // Deletion fence, checked after the body was read and right before the write (no await in between): a coach
+        // whose account deletion is running is never written as creator or organiser.
+        for (const name of [identity.coach, ...organisers]) assertNotFenced(name);
         const series = deps.store.createSeries({
           name: input.name!, description: input.description ?? "", organisers, scoring: input.scoring!,
           ...(input.scoring === "bestN" ? { bestN: input.bestN } : {}), seeding: input.seeding!, createdBy: identity.coach,
@@ -371,6 +379,7 @@ export function seriesApi(
       const tournament = deps.store.tournament(tournamentId) ?? fail(404, "Tournament not found.");
       if (!canMoveTournament(tournament, identity)) fail(403, "You can only add or remove tournaments you organise.");
       const revision = revisionOf(jsonObject(body), deps, series.revision);
+      assertNotFenced(identity.coach);
       const updated = method === "POST"
         ? deps.store.attachToSeries(seriesId, tournamentId, revision, now)
         : deps.store.detachFromSeries(seriesId, tournamentId, revision, now);
@@ -398,18 +407,21 @@ export function seriesApi(
         if (!canEditSeries(series, identity)) fail(403, "You are not this series' organiser.");
         const input = jsonObject(body);
         const revision = revisionOf(input, deps, series.revision);
+        assertNotFenced(identity.coach);
         if (method === "DELETE") {
           deps.store.deleteSeries(seriesId, revision, now);
           return { status: 200, body: { ok: true } };
         }
         const patch = parseSeriesInput(input, deps, false);
         if (patch.organisers !== undefined && patch.organisers.length === 0) fail(400, "A series needs at least one organiser.");
+        for (const name of patch.organisers ?? []) assertNotFenced(name);
         const updated = deps.store.updateSeries(seriesId, revision, patch, now);
         return { status: 200, body: seriesDetail(updated, deps.store.snapshot(), identity) };
       }
     }
     return undefined;
   } catch (error) {
+    if (error instanceof DeletionFenceError) return { status: error.status, body: { error: error.message } };
     if (error instanceof TournamentStoreError) {
       const revision = (error as { revision?: number }).revision;
       return { status: error.status, body: { error: error.message, ...(revision === undefined ? {} : { revision }) } };

@@ -194,6 +194,31 @@ export function createSeriesDetail(deps: { api: Fetcher; onSignedOut?: () => voi
   };
 }
 export type SeriesDetailController = ReturnType<typeof createSeriesDetail>;
+
+export type SeriesSubmitOutcome = { kind: "updated" } | { kind: "created"; id: string } | { kind: "error"; error: string };
+
+/**
+ * The dialog's Save. Edit (`editing` = the series being edited) PATCHes through the series page controller with its
+ * revision and never creates: a missing controller, or one showing another series, is an error with no request sent.
+ * Create (no `editing`) POSTs /api/series.
+ */
+export async function submitSeriesForm(input: {
+  api: Fetcher; form: SeriesForm; editing?: Pick<SeriesRecord, "id"> | null; controller?: SeriesDetailController | null;
+}): Promise<SeriesSubmitOutcome> {
+  const problem = seriesFormProblem(input.form);
+  if (problem) return { kind: "error", error: problem };
+  if (input.editing) {
+    const ctl = input.controller;
+    if (!ctl || ctl.state.view?.series.id !== input.editing.id) return { kind: "error", error: "Reload the series page and try again." };
+    return (await ctl.save(input.form)) ? { kind: "updated" } : { kind: "error", error: ctl.state.actionError || "That didn't save." };
+  }
+  try {
+    const created = await createSeriesRecord(input.api, input.form);
+    return { kind: "created", id: created.id };
+  } catch (err) {
+    return { kind: "error", error: message(err, "Can't create the series.") };
+  }
+}
 export const SERIES_DETAIL_KEY: InjectionKey<SeriesDetailController> = Symbol("series-detail");
 
 /** "2026-11-01" or "2026-11-01 to 2026-11-02"; "Date not set". */

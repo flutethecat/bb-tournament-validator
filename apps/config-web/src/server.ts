@@ -2076,7 +2076,14 @@ async function handleApi(
     if (WRITE_METHODS.has(method) && getSession(sessionTokenFromRequest(req))?.test)
       return sendJson(res, 403, { error: "Test sign-in sessions cannot write tournament data." });
     const body = WRITE_METHODS.has(method) ? await readBody(req, 16 * 1024) : undefined;
-    const result = seriesApi(method, path, auth, body, {
+    // Re-resolve the identity after the body read: a session ended meanwhile (account deleted, signed out) writes nothing.
+    let writer = auth;
+    if (auth && WRITE_METHODS.has(method)) {
+      const current = requestIdentity(req);
+      if (!current || current.coach !== auth.coach) return sendJson(res, 401, { error: "Authentication required." });
+      writer = current;
+    }
+    const result = seriesApi(method, path, writer, body, {
       store: tournamentStore,
       registeredCoach: (coachId) => readIdentities().coaches[normalizeFfbCoachId(coachId)]?.ffbCoachId,
       ifMatch: typeof req.headers["if-match"] === "string" ? req.headers["if-match"] : undefined,

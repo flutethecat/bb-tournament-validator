@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { computeSeriesStandings, seriesApi, type SeriesApiDeps, type SeriesApiIdentity } from "../src/tournaments/series.js";
 import { tournamentApi } from "../src/tournaments/api.js";
 import { migrateTournamentData, TournamentStore } from "../src/tournaments/store.js";
+import { clearFences, coachKeyHash, fenceCoachHash } from "../src/privacy/fence.js";
 import type {
   ScheduledMatchRecord, TournamentDataFileV4, TournamentEntrantRecord, TournamentRecord, TournamentSeriesRecord,
 } from "../src/tournaments/types.js";
@@ -13,7 +14,7 @@ import type {
 // seeding is an option inside a series). Store + routes + standings maths. Fake coach names only.
 
 const roots: string[] = [];
-afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+afterEach(() => { clearFences(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 function newStore(): TournamentStore {
   const root = mkdtempSync(join(tmpdir(), "bbtv-series-"));
   roots.push(root);
@@ -116,6 +117,18 @@ describe("series standings maths", () => {
     expect(s.rows.slice(2).map((r) => r.rank)).toEqual([3, 3]);
   });
 
+  it("a withdrawn entrant's games still count: the opponent keeps the win, and the withdrawn coach keeps their own results", () => {
+    const d = data([tournament("t1", { roundCount: 2 })], [
+      game("t1", "Alice", "Bob", 2, 0), // Alice beats Bob, then Bob withdraws
+      game("t1", "Bob", "Cid", 1, 0), // Bob's own earlier win
+      game("t1", "Alice", "Cid", 0, 0),
+    ]);
+    d.entrants["t1:Bob"]!.droppedAt = "2026-10-02T00:00:00Z";
+    const s = computeSeriesStandings(series(["t1"]), d);
+    expect(s.rows.map((r) => [r.coach, r.total])).toEqual([["Alice", 4], ["Bob", 3], ["Cid", 1]]);
+    expect(s.rows.find((r) => r.coach === "Bob")!.eventsPlayed).toBe(1);
+  });
+
   it("drafts and cancelled tournaments don't count; an active one counts and is provisional; a missing id is skipped", () => {
     const d = data([tournament("t1"), tournament("t2", { status: "active" }), tournament("t3", { status: "draft" }), tournament("t5", { status: "cancelled" })], [
       game("t1", "Alice", "Bob", 1, 0), game("t2", "Bob", "Alice", 1, 0), game("t5", "Alice", "Bob", 5, 0),
@@ -191,6 +204,26 @@ describe("series routes: create / edit / delete", () => {
     expect(store.tournament("t1")).toBeDefined();
     expect(store.tournament("t1")!.seriesId).toBeUndefined();
     expect(seriesApi("GET", `/api/series/${id}`, undefined, undefined, deps(store))!.status).toBe(404);
+  });
+});
+
+describe("series writes respect the account-deletion fence", () => {
+  it("a coach whose deletion is running is never written as creator or organiser; their writes are refused", () => {
+    const store = newStore();
+    store.writeSnapshot(data([tournament("t1")], []));
+    const made = seriesApi("POST", "/api/series", organiser("Veers"), { name: "S", scoring: "sum", seeding: "dutch" }, deps(store))!;
+    const id = (made.body as { series: { id: string } }).series.id;
+    fenceCoachHash(coachKeyHash("Piett"));
+    const asOrganiser = seriesApi("POST", "/api/series", organiser("Veers"), { name: "S2", scoring: "sum", seeding: "dutch", organisers: ["Piett"] }, deps(store))!;
+    expect(asOrganiser.status).toBe(409);
+    expect(seriesApi("PATCH", `/api/series/${id}`, organiser("Veers"), { revision: 1, organisers: ["Veers", "piett"] }, deps(store))!.status).toBe(409);
+    fenceCoachHash(coachKeyHash("Veers"));
+    expect(seriesApi("POST", "/api/series", organiser("Veers"), { name: "S3", scoring: "sum", seeding: "dutch" }, deps(store))!.status).toBe(409);
+    expect(seriesApi("PATCH", `/api/series/${id}`, organiser("Veers"), { revision: 1, name: "X" }, deps(store))!.status).toBe(409);
+    expect(seriesApi("POST", `/api/series/${id}/tournaments/t1`, organiser("Veers"), { revision: 1 }, deps(store))!.status).toBe(409);
+    expect(seriesApi("DELETE", `/api/series/${id}`, organiser("Veers"), { revision: 1 }, deps(store))!.status).toBe(409);
+    expect(store.seriesList().map((s) => s.name)).toEqual(["S"]);
+    expect(store.seriesRecord(id)).toMatchObject({ organisers: ["Veers"], revision: 1, tournaments: [] });
   });
 });
 

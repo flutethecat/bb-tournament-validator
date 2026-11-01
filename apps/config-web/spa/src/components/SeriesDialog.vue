@@ -6,17 +6,19 @@ import { computed, inject, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import LeagueDialog from "./LeagueDialog.vue";
 import { API_KEY } from "../app";
-import { ApiError } from "../shared/api";
 import {
-  blankSeriesForm, createSeriesRecord, formFromSeries, SEEDING_OPTIONS, seriesFormProblem, seriesLink, SERIES_DETAIL_KEY,
-  type SeriesRecord,
+  blankSeriesForm, formFromSeries, SEEDING_OPTIONS, seriesLink, SERIES_DETAIL_KEY, submitSeriesForm,
+  type SeriesDetailController, type SeriesRecord,
 } from "../tournaments/series";
 import "../leagues/leagues.css";
 
-const props = withDefaults(defineProps<{ series?: SeriesRecord | null }>(), { series: null });
+// Edit mode = `series` plus the series page's controller (prop, or the provided SERIES_DETAIL_KEY): Save PATCHes the
+// series with its revision. Edit never creates: without a controller it says so instead of POSTing.
+const props = withDefaults(defineProps<{ series?: SeriesRecord | null; controller?: SeriesDetailController | null }>(), { series: null, controller: null });
 const emit = defineEmits<{ close: []; created: [id: string] }>();
 const fetcher = inject(API_KEY)!;
-const detail = inject(SERIES_DETAIL_KEY, null);
+const injected = inject(SERIES_DETAIL_KEY, null);
+const detail = computed(() => props.controller ?? injected);
 const router = useRouter();
 
 const editing = computed(() => Boolean(props.series));
@@ -26,21 +28,14 @@ const error = ref("");
 
 async function submit(): Promise<void> {
   if (busy.value) return;
-  const problem = seriesFormProblem(form);
-  if (problem) { error.value = problem; return; }
   error.value = "";
   busy.value = true;
   try {
-    if (editing.value && detail) {
-      if (await detail.save(form)) emit("close");
-      else error.value = detail.state.actionError;
-      return;
-    }
-    const created = await createSeriesRecord(fetcher, form);
-    emit("created", created.id);
-    await router.push(seriesLink(created.id));
-  } catch (err) {
-    error.value = err instanceof ApiError || err instanceof Error ? err.message : "Can't create the series.";
+    const outcome = await submitSeriesForm({ api: fetcher, form, editing: props.series, controller: detail.value });
+    if (outcome.kind === "error") { error.value = outcome.error; return; }
+    if (outcome.kind === "updated") { emit("close"); return; }
+    emit("created", outcome.id);
+    await router.push(seriesLink(outcome.id));
   } finally {
     busy.value = false;
   }
