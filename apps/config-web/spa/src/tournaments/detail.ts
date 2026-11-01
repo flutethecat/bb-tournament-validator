@@ -243,7 +243,9 @@ export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () =>
 
   /** Loads what a tab needs the first time it is shown. */
   async function ensureTab(tab: DetailTab): Promise<void> {
-    if (tab === "standings" && state.tournament && state.standingsStatus === "idle") await loadStandings();
+    // Statistics / Honours / Awards poll the standings too: their totals are the results signal (tournaments/honours.ts resultsStamp).
+    const results = tab === "standings" || tab === "statistics" || tab === "honours" || tab === "awards";
+    if (results && state.tournament && state.standingsStatus === "idle") await loadStandings();
   }
 
   const base = (): string => `/api/tournaments/${encodeURIComponent(state.id)}`;

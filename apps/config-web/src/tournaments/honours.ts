@@ -485,6 +485,10 @@ export const customViews = (t: TournamentRecord): TournamentAwardView[] => (t.aw
 export interface TournamentIdentity { coach: string; organizer: boolean; admin: boolean }
 const isManager = (t: TournamentRecord, auth: TournamentIdentity | undefined): boolean => Boolean(auth && (auth.admin || isTournamentManager(t, auth.coach)));
 
+/** Statuses anyone may read (the public fixture rule, server.ts PUBLIC_TOURNAMENT_STATUSES); a draft only its managers. */
+export const PUBLIC_TOURNAMENT_STATUSES: ReadonlySet<TournamentRecord["status"]> = new Set(["active", "completed", "cancelled"]);
+export const tournamentVisible = (t: TournamentRecord, auth: TournamentIdentity | undefined): boolean => PUBLIC_TOURNAMENT_STATUSES.has(t.status) || isManager(t, auth);
+
 export function awardRecipients(entrants: readonly TournamentEntrantRecord[], teamInfo: TeamInfo): TournamentAwardRecipients {
   const coaches = new Map<string, { id: string; name: string }>();
   const teams = entrants.map((e) => {
@@ -510,13 +514,14 @@ export function awardsView(data: TournamentDataFileV4, t: TournamentRecord, team
 }
 
 /** The signed-in coach's tournament awards (podium places in finished tournaments, custom awards to them), newest first. */
-export function myTournamentAwards(store: Pick<TournamentStore, "snapshot">, coach: string, teamInfo: TeamInfo): Array<TournamentAwardView & { tournamentName: string }> {
+export function myTournamentAwards(store: Pick<TournamentStore, "snapshot">, coach: string, teamInfo: TeamInfo, auth?: TournamentIdentity): Array<TournamentAwardView & { tournamentName: string }> {
   const me = key(coach);
+  const viewer: TournamentIdentity = auth ?? { coach, organizer: false, admin: false };
   if (!me) return [];
   const data = store.snapshot();
   const out: Array<TournamentAwardView & { tournamentName: string }> = [];
   for (const t of Object.values(data.tournaments)) {
-    if (t.status === "cancelled") continue;
+    if (!tournamentVisible(t, viewer)) continue;
     const custom = (t.awards ?? []).some((a) => key(a.toCoach) === me);
     const entered = t.status === "completed" && Object.values(data.entrants).some((e) => e.tournamentId === t.id && key(e.coach.ffbCoachId) === me);
     if (!custom && !entered) continue;
@@ -561,8 +566,8 @@ export function tournamentHonoursRoutes(method: string, path: string, query: URL
     if (m[3] !== undefined) return undefined;
     if (!read) return fail(405, "Use GET.");
     const data = deps.store.snapshot();
-    const t = data.tournaments[id];
-    if (!t) return fail(404, "Tournament not found.");
+    const t = Object.hasOwn(data.tournaments, id) ? data.tournaments[id] : undefined;
+    if (!t || !tournamentVisible(t, auth)) return fail(404, "Tournament not found.");
     let rows: StoredTournamentResult[] = [];
     try { rows = deps.results?.() ?? []; } catch { rows = []; }
     return ok(200, tournamentStatistics({
@@ -575,15 +580,15 @@ export function tournamentHonoursRoutes(method: string, path: string, query: URL
   }
   if (awardId === undefined && read) {
     const data = deps.store.snapshot();
-    const t = data.tournaments[id];
-    if (!t) return fail(404, "Tournament not found.");
+    const t = Object.hasOwn(data.tournaments, id) ? data.tournaments[id] : undefined;
+    if (!t || !tournamentVisible(t, auth)) return fail(404, "Tournament not found.");
     return ok(200, awardsView(data, t, deps.teamBuild, auth));
   }
   if (awardId === undefined && method !== "POST") return fail(405, "POST to /awards to give an award.");
   if (awardId !== undefined && method !== "DELETE") return fail(405, "Use DELETE.");
   if (!auth) return fail(401, "Sign in to manage this tournament's awards.");
-  const t = deps.store.tournament(id);
-  if (!t) return fail(404, "Tournament not found.");
+  const t = Object.hasOwn(deps.store.snapshot().tournaments, id) ? deps.store.tournament(id) : undefined;
+  if (!t || !tournamentVisible(t, auth)) return fail(404, "Tournament not found.");
   if (!isManager(t, auth)) return fail(403, "Only this tournament's organisers and site admins can give or remove its awards.");
   const input = body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : {};
   const revisionInput = input.revision !== undefined ? input : query.has("revision") ? { revision: /^\d{1,15}$/.test(query.get("revision")!) ? Number(query.get("revision")) : query.get("revision") } : {};

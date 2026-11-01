@@ -120,6 +120,23 @@ export function giverRecipients(tournamentId: string, r: TournamentAwardsView["r
   };
 }
 
+/**
+ * What the polled detail says about the results (the page polls GET /api/tournaments/:id and, with one of these tabs
+ * open, the standings): status, round, the record's updatedAt and awardsRevision, results recorded, and the standings
+ * totals. A change marks the loaded statistics and awards stale.
+ */
+export function resultsStamp(s: {
+  tournament: ({ status: string; currentRound: number } & { updatedAt?: string; awardsRevision?: number }) | null;
+  fixtures: ReadonlyArray<{ result?: unknown }>;
+  standings: ReadonlyArray<{ played: number; points: number; touchdownsFor: number; casualtiesFor: number }>;
+}): string {
+  const t = s.tournament;
+  if (!t) return "";
+  const results = s.fixtures.filter((f) => f.result !== undefined).length;
+  const totals = s.standings.reduce((a, r) => [a[0]! + r.played, a[1]! + r.points, a[2]! + r.touchdownsFor, a[3]! + r.casualtiesFor], [0, 0, 0, 0]);
+  return [t.status, t.currentRound, t.updatedAt ?? "", t.awardsRevision ?? 0, results, ...totals].join("|");
+}
+
 const errorText = (err: unknown, fallback: string): string => (err instanceof Error && err.message ? err.message : fallback);
 
 export function createTournamentHonours(deps: { api: Fetcher }) {
@@ -134,21 +151,37 @@ export function createTournamentHonours(deps: { api: Fetcher }) {
     /** The Give award dialog's view (recipients in the league shape). */
     view: null as { recipients?: HonoursRecipients } | null,
     busy: "", writeError: "", notice: "",
+    /** The latest results stamp seen (resultsStamp) and the stamp each view was loaded at. */
+    stamp: "", statsStamp: "", awardsStamp: "",
   });
   const base = (): string => `/api/tournaments/${encodeURIComponent(state.id)}`;
   function use(id: string): void {
     if (state.id === id) return;
-    Object.assign(state, { id, stats: null, statsStatus: "idle", statsError: "", awards: null, awardsStatus: "idle", awardsError: "", view: null, busy: "", writeError: "", notice: "" });
+    Object.assign(state, { id, stats: null, statsStatus: "idle", statsError: "", awards: null, awardsStatus: "idle", awardsError: "", view: null, busy: "", writeError: "", notice: "", statsStamp: "", awardsStamp: "" });
   }
+  /** The results changed (or not): loaded views from an older stamp are stale and refetch on the next load. */
+  function noteStamp(stamp: string): void { state.stamp = stamp; }
+  const statsFresh = (): boolean => state.statsStatus === "ok" && state.statsStamp === state.stamp;
+  const awardsFresh = (): boolean => state.awardsStatus === "ok" && state.awardsStamp === state.stamp;
+  let statsGen = 0;
+  let awardsGen = 0;
+  /** Loads the statistics unless they are fresh; a stale refetch keeps the old numbers on screen until it lands. */
   async function loadStats(id: string, force = false): Promise<void> {
     use(id);
-    if (!force && (state.statsStatus === "ok" || state.statsStatus === "loading")) return;
-    state.statsStatus = "loading";
+    if (!force && (statsFresh() || (state.statsStatus === "loading"))) return;
+    const mine = ++statsGen;
+    const stamp = state.stamp;
+    if (!state.stats) state.statsStatus = "loading";
     try {
-      state.stats = await deps.api<TournamentStatistics>(`${base()}/statistics`);
+      const stats = await deps.api<TournamentStatistics>(`${base()}/statistics`);
+      if (mine !== statsGen || state.id !== id) return;
+      state.stats = stats;
+      state.statsStamp = stamp;
       state.statsStatus = "ok";
       state.statsError = "";
     } catch (err) {
+      if (mine !== statsGen || state.id !== id) return;
+      if (state.stats) { state.statsStamp = stamp; return; } // keep what is shown; the next change retries
       state.statsStatus = "error";
       state.statsError = errorText(err, "Can't load the statistics.");
     }
@@ -159,13 +192,20 @@ export function createTournamentHonours(deps: { api: Fetcher }) {
   }
   async function loadAwards(id: string, force = false): Promise<void> {
     use(id);
-    if (!force && (state.awardsStatus === "ok" || state.awardsStatus === "loading")) return;
-    state.awardsStatus = "loading";
+    if (!force && (awardsFresh() || state.awardsStatus === "loading")) return;
+    const mine = ++awardsGen;
+    const stamp = state.stamp;
+    if (!state.awards) state.awardsStatus = "loading";
     try {
-      setAwards(await deps.api<TournamentAwardsView>(`${base()}/awards`));
+      const view = await deps.api<TournamentAwardsView>(`${base()}/awards`);
+      if (mine !== awardsGen || state.id !== id) return;
+      setAwards(view);
+      state.awardsStamp = stamp;
       state.awardsStatus = "ok";
       state.awardsError = "";
     } catch (err) {
+      if (mine !== awardsGen || state.id !== id) return;
+      if (state.awards) { state.awardsStamp = stamp; return; }
       state.awardsStatus = "error";
       state.awardsError = errorText(err, "Can't load the awards.");
     }
@@ -178,7 +218,7 @@ export function createTournamentHonours(deps: { api: Fetcher }) {
     state.notice = "";
     try {
       const res = await deps.api<{ awards?: TournamentAwardsView }>(`${base()}${path}`, init);
-      if (res?.awards) setAwards(res.awards);
+      if (res?.awards) { setAwards(res.awards); state.awardsStamp = state.stamp; }
       state.notice = notice;
       return true;
     } catch (err) {
@@ -200,7 +240,7 @@ export function createTournamentHonours(deps: { api: Fetcher }) {
   const removeAward = (id: string): Promise<boolean> => write(`award:${id}`, `/awards/${encodeURIComponent(id)}`, {
     method: "DELETE", headers: { "If-Match": `"${state.awards?.revision ?? 0}"` },
   }, "Award removed.");
-  return { state, loadStats, loadAwards, give, removeAward };
+  return { state, noteStamp, loadStats, loadAwards, give, removeAward };
 }
 export type TournamentHonours = ReturnType<typeof createTournamentHonours>;
 export const TOURNAMENT_HONOURS_KEY: InjectionKey<TournamentHonours> = Symbol("tournament-honours");

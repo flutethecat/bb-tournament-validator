@@ -782,7 +782,7 @@ export async function tournamentApi(
     const honours = tournamentHonoursRoutes(method, path, query, auth, body, deps);
     if (honours) return honours;
     if (path === "/api/tournaments" && method === "GET" && query.get("awards") === "mine") {
-      return { status: 200, headers: { "cache-control": "private, no-store" }, body: { awards: auth ? myTournamentAwards(deps.store, auth.coach, deps.teamBuild) : [] } };
+      return { status: 200, headers: { "cache-control": "private, no-store" }, body: { awards: auth ? myTournamentAwards(deps.store, auth.coach, deps.teamBuild, auth) : [] } };
     }
 
     if (path === "/api/tournaments" && method === "GET") {

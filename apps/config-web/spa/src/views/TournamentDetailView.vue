@@ -22,7 +22,7 @@ import TournamentStandings from "../components/TournamentStandings.vue";
 import TournamentStatistics from "../components/TournamentStatistics.vue";
 import TournamentHonours from "../components/TournamentHonours.vue";
 import TournamentAwards from "../components/TournamentAwards.vue";
-import { createTournamentHonours, TOURNAMENT_HONOURS_KEY } from "../tournaments/honours";
+import { createTournamentHonours, resultsStamp, TOURNAMENT_HONOURS_KEY } from "../tournaments/honours";
 import { createTournamentDetail, isDetailTab, tabsFor, TOURNAMENT_DETAIL_KEY, type DetailTab } from "../tournaments/detail";
 
 const props = defineProps<{ id: string }>();
@@ -44,6 +44,14 @@ const tab = computed<DetailTab>(() => {
 });
 
 watch(tab, (t) => void detail.ensureTab(t));
+// A polled change to the results marks Statistics / Honours / Awards stale; the open one refetches now, the others
+// when they are opened (their own load skips only a fresh view).
+watch(() => resultsStamp(state), (stamp, before) => {
+  honours.noteStamp(stamp);
+  if (before === undefined || !state.tournament || state.id !== props.id) return;
+  if (tab.value === "statistics" || tab.value === "honours") void honours.loadStats(props.id);
+  else if (tab.value === "awards") void honours.loadAwards(props.id);
+}, { immediate: true });
 let stopPolling = (): void => undefined;
 onMounted(async () => {
   stopPolling = startPolling(() => detail.refresh());

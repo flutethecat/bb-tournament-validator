@@ -165,6 +165,55 @@ describe("SPA: tournament Statistics, Honours and Awards", () => {
     expect(html).not.toContain("reached through their team");
   });
 
+  it("results stamp: a new result, status, round, updatedAt, awards revision or standings change moves it", () => {
+    const base = { tournament: { status: "active", currentRound: 1, updatedAt: "a", awardsRevision: 0 }, fixtures: [{ result: {} }, {}], standings: [{ played: 1, points: 3, touchdownsFor: 2, casualtiesFor: 0 }] };
+    const s0 = m.honours.resultsStamp(base);
+    expect(m.honours.resultsStamp({ ...base })).toBe(s0);
+    for (const changed of [
+      { ...base, fixtures: [{ result: {} }, { result: {} }] },
+      { ...base, tournament: { ...base.tournament, status: "completed" } },
+      { ...base, tournament: { ...base.tournament, currentRound: 2 } },
+      { ...base, tournament: { ...base.tournament, updatedAt: "b" } },
+      { ...base, tournament: { ...base.tournament, awardsRevision: 1 } },
+      { ...base, standings: [{ played: 2, points: 3, touchdownsFor: 2, casualtiesFor: 0 }] },
+    ]) expect(m.honours.resultsStamp(changed)).not.toBe(s0);
+    expect(m.honours.resultsStamp({ ...base, tournament: null })).toBe("");
+  });
+
+  it("controller: views load once per stamp; a new stamp refetches the next load and keeps the old view meanwhile", async () => {
+    const f = mockFetcher({ "/api/tournaments/t1/statistics": SCORES_ONLY(), "/api/tournaments/t1/awards": AWARDS() });
+    const ctl = m.honours.createTournamentHonours({ api: f });
+    ctl.noteStamp("s1");
+    await ctl.loadStats("t1");
+    await ctl.loadStats("t1");
+    await ctl.loadAwards("t1");
+    await ctl.loadAwards("t1");
+    const count = (p: string) => f.calls.filter((c) => c.path === p).length;
+    expect(count("/api/tournaments/t1/statistics")).toBe(1);
+    expect(count("/api/tournaments/t1/awards")).toBe(1);
+    ctl.noteStamp("s2");
+    const pending = ctl.loadStats("t1");
+    expect(ctl.state.statsStatus).toBe("ok"); // the stale numbers stay on screen while refetching
+    expect(ctl.state.stats).not.toBeNull();
+    await pending;
+    await ctl.loadAwards("t1");
+    expect(count("/api/tournaments/t1/statistics")).toBe(2);
+    expect(count("/api/tournaments/t1/awards")).toBe(2);
+    await ctl.loadStats("t1");
+    expect(count("/api/tournaments/t1/statistics")).toBe(2);
+  });
+
+  it("opening Statistics, Honours or Awards polls the standings too", async () => {
+    const f = mockFetcher({
+      "/api/tournaments/t1": { tournament: { id: "t1", name: "Spike Open", status: "active", format: "swiss", packageName: "Rules", maxPlayers: 8, roundCount: 3, currentRound: 1 }, entrants: [], rounds: [], scheduledMatches: [] },
+      "/api/tournaments/t1/standings": { standings: [] },
+    });
+    const d = m.detail.createTournamentDetail({ api: f });
+    await d.load("t1");
+    await d.ensureTab("awards");
+    expect(d.state.standingsStatus).toBe("ok");
+  });
+
   it("controller: give sends the revision and the entrant; remove sends If-Match; a 409 reloads", async () => {
     let posted: unknown;
     const after = { ...MANAGER(), revision: 3 };

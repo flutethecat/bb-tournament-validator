@@ -283,6 +283,33 @@ describe("custom awards", () => {
   });
 });
 
+describe("visibility: public statuses for anyone, a draft only to its managers", () => {
+  it("draft statistics and awards are 404 to anonymous and other coaches, readable by organisers and admins", async () => {
+    const store = setup({ t: { status: "draft" }, matches: [] });
+    for (const path of ["/api/tournaments/t1/statistics", "/api/tournaments/t1/awards"]) {
+      for (const who of [undefined, ann, otherOrganiser]) expect((await call(store, "GET", path, who))?.status, `${path} ${who?.coach}`).toBe(404);
+      for (const who of [owner, helper, admin]) expect((await call(store, "GET", path, who))?.status, `${path} ${who.coach}`).toBe(200);
+    }
+    // a non-manager's award write cannot tell a draft exists either
+    expect((await call(store, "POST", "/api/tournaments/t1/awards", ann, { revision: 0 }))?.status).toBe(404);
+    expect((await call(store, "GET", "/api/tournaments/__proto__/statistics", admin))?.status).toBe(404);
+  });
+  it("active, completed and cancelled tournaments are public", async () => {
+    for (const status of ["active", "completed", "cancelled"] as const) {
+      const store = setup({ t: { status }, matches: [] });
+      expect((await call(store, "GET", "/api/tournaments/t1/statistics"))?.status, status).toBe(200);
+      expect((await call(store, "GET", "/api/tournaments/t1/awards"))?.status, status).toBe(200);
+    }
+  });
+  it("the coach page leaves out awards from a draft the coach does not manage", async () => {
+    const store = setup({ t: { status: "draft" }, matches: [] });
+    expect((await call(store, "POST", "/api/tournaments/t1/awards", owner, { title: "Early bird", icon: "star", recipient: { kind: "coach", coachId: "Ann" }, revision: 0 }))?.status).toBe(201);
+    const mine = (who: TournamentApiIdentity) => call(store, "GET", "/api/tournaments", who, undefined, {}, "awards=mine").then((r) => (r!.body as { awards: unknown[] }).awards);
+    expect(await mine(ann)).toEqual([]);
+    expect(await mine({ coach: "Ann", organizer: true, admin: true })).toHaveLength(1);
+  });
+});
+
 describe("public reads under the session gate", () => {
   const req = (method: string) => ({ method, headers: {} }) as unknown as IncomingMessage;
   it("anonymous GETs of statistics and awards pass; award writes stay session-gated", () => {
