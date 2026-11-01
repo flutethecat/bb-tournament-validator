@@ -15,7 +15,7 @@ import { promises as fsp } from "node:fs";
 import type { IncomingMessage } from "node:http";
 import { join } from "node:path";
 import { parseTeamRef } from "./tabletop/teamFile.js";
-import { assertNotFenced } from "./privacy/fence.js";
+import { assertNotFenced, DeletionFenceError, isCoachFenced } from "./privacy/fence.js";
 
 export const AVATAR_MAX_BYTES = 512 * 1024;
 export const AVATAR_MIN_PX = 64;
@@ -187,6 +187,8 @@ export class AvatarStore {
     const temp = `${target}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
     try {
       await fsp.writeFile(temp, bytes, { flag: "wx", mode: 0o600 });
+      // Re-checked after the awaits, right before anything becomes visible: a delete may have started meanwhile.
+      assertNotFenced(coach);
       // Drop the previous copies (other extension / other owner folder) but never the file about to be replaced.
       for (const copy of this.copies.get(hash) ?? []) {
         if (copy.path === target) continue;
@@ -199,6 +201,8 @@ export class AvatarStore {
     }
     const st = await fsp.stat(target);
     this.copies.set(hash, [{ path: target, ext, mtimeMs: st.mtimeMs, folder }]);
+    // A delete that started during the last awaits: take the upload back out (the job's own pass may have run already).
+    if (isCoachFenced(coach)) { await this.prune(hash); throw new DeletionFenceError(); }
   }
 
   /** Remove every copy of the team's avatar (the route has already proven the caller owns the team). */

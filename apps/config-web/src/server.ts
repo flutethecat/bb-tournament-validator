@@ -39,6 +39,7 @@ import {
 } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 import {
+  removeLibraryTeam,
   adminCache,
   adminClose,
   adminConcede,
@@ -309,8 +310,11 @@ import { privacyContact } from "./privacy/contact.js";
 import { startLogRotation } from "./privacy/logRotation.js";
 import { organizersFile } from "./auth/organizers.js";
 import { PrivacyService, streamZip, ExportTooLargeError } from "./privacy/service.js";
-import { deletedPseudonymFor, isDiscordBlocked } from "./privacy/state.js";
-import { assertNotFenced, DeletionFenceError, isReservedCoachName, RESERVED_NAME_MESSAGE, ReservedNameError } from "./privacy/fence.js";
+import { deletedPseudonymFor, deletedPseudonymForNaf, isDiscordBlocked, isRecentlyDeleted, privacyMapKey } from "./privacy/state.js";
+import { setReplayCoachFilter } from "./replay/store.js";
+import { setNafIdFilter } from "./nafRecords.js";
+import { clearLeagueStatsCache } from "./leagues/api.js";
+import { assertNotFenced, DeletionFenceError, isCoachFenced, isReservedCoachName, RESERVED_NAME_MESSAGE, ReservedNameError } from "./privacy/fence.js";
 import { dropAllSnapshots, clockView, isTabletopApiPath, recoverTabletop, tabletopApi, type TabletopApiDeps } from "./tabletop/api.js";
 import { FileTabletopRepository } from "./tabletop/store.js";
 import { createRecorderWebhook, recorderAnnouncement } from "./tabletop/discord.js";
@@ -665,7 +669,9 @@ const TABLETOP_DIR = resolve(process.env.TABLETOP_DIR || join(dirname(LIBRARY_DI
 
 // Privacy (spec 2026-10-31 §2/§3): GET /api/me/export, POST /api/me/delete, POST /api/admin/coaches/:coach/delete.
 // State (delete journals, pseudonym counter, blocklist, audit) lives in <FORK_STATE_DIR>/privacy/.
+const PRIVACY_MAP_KEY = privacyMapKey();
 const privacyService = new PrivacyService({
+  mapKey: PRIVACY_MAP_KEY,
   stateDir: FORK_STATE_DIR,
   tournamentsDir: TOURNAMENTS_DIR,
   libraryDir: LIBRARY_DIR,
@@ -692,10 +698,19 @@ const privacyService = new PrivacyService({
     gameLoader.clear();
     dropAllSnapshots();
     leagueStore.invalidate();
+    clearLeagueStatsCache();
     void coachAvatars.identitiesWritten(readIdentities());
   },
 });
-setResultCoachFilter((coach) => deletedPseudonymFor(FORK_STATE_DIR, normalizeFfbCoachId(coach)));
+// Writers that store coach names from external sources (fork results, replay moments, NAF game lists) swap a deleted
+// coach for their pseudonym on every write. Off without PRIVACY_MAP_KEY (then deletion is off too).
+if (PRIVACY_MAP_KEY) {
+  const key = PRIVACY_MAP_KEY;
+  const byCoach = (coach: string) => deletedPseudonymFor(FORK_STATE_DIR, key, normalizeFfbCoachId(coach));
+  setResultCoachFilter(byCoach);
+  setReplayCoachFilter(byCoach);
+  setNafIdFilter((nafId) => deletedPseudonymForNaf(FORK_STATE_DIR, key, nafId));
+}
 const exportLimiter = new RateLimiter({ maxRequests: 3, maxChars: Number.MAX_SAFE_INTEGER, windowMs: 60 * 60_000, maxKeys: 5_000 });
 const deleteLimiter = new RateLimiter({ maxRequests: 1, maxChars: Number.MAX_SAFE_INTEGER, windowMs: 24 * 60 * 60_000, maxKeys: 5_000 });
 const ADMIN_COACH_DELETE_PATH = /^\/api\/admin\/coaches\/([^/]+)\/delete$/;
@@ -1694,6 +1709,7 @@ const nameKeyOf = (s: string): string => s.normalize("NFC").trim().toLowerCase()
 async function runCoachDelete(req: IncomingMessage, res: ServerResponse, coach: string, confirm: unknown, actor: string, signsOut: boolean): Promise<void> {
   if (typeof confirm !== "string" || nameKeyOf(confirm) !== nameKeyOf(coach))
     return sendJson(res, 400, { error: "Type the coach name exactly to confirm." });
+  if (!PRIVACY_MAP_KEY) return sendJson(res, 503, { error: "Account deletion is not configured on this host (PRIVACY_MAP_KEY)." });
   const owned = privacyService.owned(coach);
   if (owned.length) {
     const list = owned.map((o) => `${o.kind} "${o.name}"`).join(", ");
@@ -1706,6 +1722,8 @@ async function runCoachDelete(req: IncomingMessage, res: ServerResponse, coach: 
   }
   const outcome = await privacyService.deleteCoach(coach, confirm, actor);
   if (outcome.status === "mismatch") return sendJson(res, 400, { error: "Type the coach name exactly to confirm." });
+  if (outcome.status === "unavailable") return sendJson(res, 503, { error: "Account deletion is not configured on this host (PRIVACY_MAP_KEY)." });
+  if (outcome.status === "conflict") return sendJson(res, 409, { error: "Another account shares this coach name's avatar slot; an admin must resolve it before the delete." });
   if (outcome.status === "blocked") return sendJson(res, 409, { error: "Transfer ownership first.", owned: outcome.owned });
   if (signsOut) res.setHeader("set-cookie", buildClearSessionCookie(requestUsesTls(req)));
   return sendJson(res, 200, { ok: true, pending: outcome.pending ?? [], ...(actor.startsWith("admin:") ? { pseudonym: outcome.pseudonym } : {}) });
@@ -2112,6 +2130,11 @@ async function handleApi(
     }
     try {
       const identity = await fetchDiscordIdentity(config, code);
+      const linkedCoach = ffbCoachIdForDiscordId(identity.discordId);
+      if (isDiscordBlocked(FORK_STATE_DIR, identity.discordId) || isRecentlyDeleted(FORK_STATE_DIR, PRIVACY_MAP_KEY, identity.discordId) || (linkedCoach && isCoachFenced(linkedCoach))) {
+        res.setHeader("set-cookie", buildClearDiscordOauthStateCookie(secure));
+        return sendJson(res, 403, { error: BANNED_ACCOUNT_MESSAGE });
+      }
       const pendingToken = pendingDiscordSso.create({
         ...identity,
         next: oauthState.next,
@@ -2176,7 +2199,7 @@ async function handleApi(
     if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody))
       return sendJson(res, 400, { error: "A JSON object is required." });
     // A deleted banned coach's Discord account stays refused (privacy blocklist: salted hash only).
-    if (isDiscordBlocked(FORK_STATE_DIR, pending.discordId)) {
+    if (isDiscordBlocked(FORK_STATE_DIR, pending.discordId) || isRecentlyDeleted(FORK_STATE_DIR, PRIVACY_MAP_KEY, pending.discordId)) {
       pendingDiscordSso.delete(pendingToken);
       res.setHeader("set-cookie", buildClearDiscordPendingCookie(secure));
       return sendJson(res, 403, { error: BANNED_ACCOUNT_MESSAGE });
@@ -3039,6 +3062,11 @@ async function handleApi(
           } : undefined,
           reload: () => reloadFork(cfg, FORK_STATE_DIR),
         });
+        // The row write happens inside @bb/fork-ops after long awaits: re-check the fence right after it and undo it.
+        if (isCoachFenced(coach)) {
+          removeLibraryTeam(LIBRARY_DIR, coach, peek.teamId);
+          throw new DeletionFenceError();
+        }
         return sendJson(res, 200, { ok: true, ...result });
       } finally {
         nameLock.release();

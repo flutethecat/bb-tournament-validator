@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createSession } from "../src/auth/session.js";
 import { readIdentities } from "../src/auth/identitiesStore.js";
 import { readAudit } from "../src/privacy/state.js";
-import { ALICE_EMAIL, BOB_EMAIL, depsFor, filesContaining, seed, unzip } from "./privacyFixture.js";
+import { ALICE_EMAIL, BOB_EMAIL, depsFor, filesContaining, seed, TEST_MAP_KEY, unzip } from "./privacyFixture.js";
 
 // Privacy routes over HTTP: GET /api/me/export (ZIP), POST /api/me/delete, POST /api/admin/coaches/:coach/delete.
 // Auth, CSRF (X-CW-Auth + same-origin for cookie sessions), rate limits, the ownership block and the admin audit.
@@ -39,6 +39,7 @@ beforeAll(async () => {
     BUILD_LOG_FILE: join(root, "build-log.json"),
     FORK_ADMIN_PASSWORD: "",
     FORK_DB_HOST: "",
+    PRIVACY_MAP_KEY: TEST_MAP_KEY,
   })) {
     previousEnv.set(name, process.env[name]);
     process.env[name] = value;

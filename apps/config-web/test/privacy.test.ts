@@ -2,15 +2,17 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createAnonymiser } from "../src/privacy/anonymise.js";
+import { createAnonymiser, createTextReplacer, textAliases } from "../src/privacy/anonymise.js";
 import {
   buildPlan, collectExport, deleteContext, DELETE_STEPS, INVENTORY_ROWS, KNOWN_STORES, splitPlan, STORE_COLLECTORS,
 } from "../src/privacy/collectors.js";
 import { INVENTORY } from "../spa/src/privacy/inventory";
 import { JOB_RETRY_DAYS, PrivacyService } from "../src/privacy/service.js";
 import {
-  appendAudit, appendJournal, blocklistHash, deletedPseudonymFor, isDiscordBlocked, listJobs, readAudit, readJournal, sealForJob,
+  appendAudit, appendJournal, blocklistHash, deletedPseudonymFor, isDiscordBlocked, isRecentlyDeleted, listJobs, readAudit, readJournal, sealForJob,
 } from "../src/privacy/state.js";
+import { NafRecordStore, setNafIdFilter } from "../src/nafRecords.js";
+import { ReplayMomentStore, setReplayCoachFilter } from "../src/replay/store.js";
 import {
   clearFences, coachKey, DeletionFenceError, fenceCoachHash, coachKeyHash, isReservedCoachName, ReservedNameError,
 } from "../src/privacy/fence.js";
@@ -23,7 +25,7 @@ import { coachAvatarKey } from "../src/coachAvatars.js";
 import { setResultCoachFilter, TournamentResultStore } from "../src/tournamentResults.js";
 import { discordAvatarUrl, PendingSsoStore } from "../src/auth/discordSso.js";
 import {
-  ALICE_DISCORD, ALICE_EMAIL, BOB_DISCORD, BOB_EMAIL, depsFor, filesContaining, JOSE_NFC, JOSE_NFD, png, seed, SHARE, walkFiles,
+  ALICE_DISCORD, ALICE_EMAIL, BOB_DISCORD, BOB_EMAIL, depsFor, filesContaining, JOSE_NFC, JOSE_NFD, png, seed, SHARE, TEST_MAP_KEY, walkFiles,
 } from "./privacyFixture.js";
 
 // Privacy spec 2026-10-31 §2 (export) and §3 (delete, anonymise don't erase), and the Sol 6.1 review fixes: explicit
@@ -44,6 +46,8 @@ beforeEach(() => {
 afterEach(() => {
   if (prevIdentities === undefined) delete process.env.IDENTITIES_FILE; else process.env.IDENTITIES_FILE = prevIdentities;
   setResultCoachFilter(undefined);
+  setNafIdFilter(undefined);
+  setReplayCoachFilter(undefined);
   clearFences();
 });
 afterAll(() => { for (const r of roots) rmSync(r, { recursive: true, force: true }); });
@@ -102,8 +106,14 @@ describe("anonymiser", () => {
     expect(o).toEqual({ coach: "deleted coach #7", coachId: "Deleted coach #7", teamName: "Alice", map: { Alice: 1 } });
     expect(an.fields({ coach: "Bob" }, ["coach"])).toBe(false);
   });
-  it("text replacement respects word boundaries and prefers the longer name", () => {
-    expect(an.text("Alice Smith met Alicent and alice.")).toBe("Deleted coach #7 met Alicent and Deleted coach #7.");
+  it("free text: case-sensitive whole words, longer names first, pseudonyms never rewritten again (P3)", () => {
+    const tx = createTextReplacer(["Alice", "Alice Smith", "Deleted"], "Deleted coach #7");
+    const once = tx.text("Alice Smith met Alicent and alice; Alice too.");
+    expect(once).toBe("Deleted coach #7 met Alicent and alice; Deleted coach #7 too.");
+    expect(tx.text(once)).toBe(once);
+  });
+  it("free-text aliases: at least 3 characters, no common words, never another coach's name", () => {
+    expect(textAliases(["Alice", "Al", "version", "The", "Bob", "Alice Smith", "Deleted coach #2"], new Set(["bob"]))).toEqual(["Alice", "Alice Smith"]);
   });
   it("matches with the identity store's key only: a different Unicode form is a different coach", () => {
     const j = createAnonymiser([JOSE_NFC], "D");
@@ -143,7 +153,7 @@ describe("export", () => {
     expect(account.sessions.length).toBeGreaterThan(0);
     expect(JSON.stringify(account.sessions)).not.toMatch(/[a-f0-9]{64}/);
     expect(JSON.parse(text("builder-saves.json"))).toEqual([{ id: "s1", name: "Green Orcs", sharedAt: "2026-10-01T00:00:00Z", body: {}, shared: true }]);
-    expect(JSON.parse(text("team-library.json")).map((t: { teamId: string }) => t.teamId)).toEqual(["t1"]);
+    expect(JSON.parse(text("team-library.json")).map((t: { teamId: string }) => t.teamId).sort()).toEqual(["t1", "t7"]); // own rows of a shared file too
     const t = JSON.parse(text("tournament-entries.json"));
     expect(t.entries.map((e: { id: string }) => e.id)).toEqual(["e1"]);
     expect(t.matches).toHaveLength(1);
@@ -151,7 +161,7 @@ describe("export", () => {
     const leagues = JSON.parse(text("league-teams.json"));
     expect(leagues[0].role).toBe("organiser");
     expect(leagues[0].seasons[0].teams.map((x: { id: string }) => x.id)).toEqual(["green-orcs"]);
-    expect(JSON.parse(text("tabletop-matches.json")).matches[0].events).toHaveLength(2);
+    expect(JSON.parse(text("tabletop-matches.json")).matches[0].events).toHaveLength(3);
     const results = JSON.parse(text("results.json"));
     expect(results.results.map((r: { gameId: string }) => r.gameId)).toEqual(["g1"]);
     expect(results.title.title).toBe("Star");
@@ -251,7 +261,7 @@ describe("delete", () => {
     expect(season.teams[0].nafUser).toBeUndefined();
     expect(season.teams[1]).toMatchObject({ coach: "BobNaf", nafUser: "BobNaf" });
     expect(season.fixtures[0].home.coach).toBe(P);
-    expect(season.participants[0].coach).toBe(P); // "AliceNaf": the identity's NAF alias
+    expect(season.participants[0].coach).toBe(P); // linked through the coach's team
     expect(season.phases[0].standings[0].coach).toBe(P); // unlinked row: display name learned from the linked team row
     expect(season.honours[0].rows[0]).toMatchObject({ name: "Grub", coach: P });
     expect(season.honours[1].rows.map((r: { name: string }) => r.name)).toEqual([P, "BobNaf"]); // a coach honour's name is the coach
@@ -275,6 +285,21 @@ describe("delete", () => {
     expect(naf["2002"].games[0].coaches).toEqual(["BobNaf", P]);
     expect(readJ(join(deps.stateDir, "replay-moments", "g1.json")).teams.home.coach).toBe(P);
     expect(events).toBeGreaterThanOrEqual(1); // the "coach deleted" event for the derived caches
+    expect(season.fixtures[0].fork.teams.home.coach).toBe(P);
+    expect(season.fixtures[0].fork.generatedBy).toBe(P);
+    expect(season.fixtures[0].fork.log[0]).toMatchObject({ by: P, text: `${P} generated the game for Bob` });
+    expect(season.redraft.teams[0]).toMatchObject({ coach: P, coachId: P, submittedBy: P, rest: { by: P }, override: { by: "Bob" } });
+    expect(season.redraft.teams[0].draft.team.coach).toBe(P);
+    expect(season.redraft.log[0].text).toBe(`${P} submitted a draft`);
+    expect(readFileSync(join(deps.tabletopDir, "events", "tm1.ndjson"), "utf8").split("\n")[0]).toContain(`"home":{"coach":"${P}"}`);
+    expect(readJ(join(deps.tabletopDir, "journals", "tm1.json")).homeChain.target.coach).toBe(P);
+    expect(readJ(join(deps.libraryDir, "shared.json")).map((t: { teamId: string }) => t.teamId)).toEqual(["t8"]);
+
+    // running the anonymisation steps again changes nothing (idempotent; pseudonyms are never rewritten)
+    const snapshot = walkFiles(root).filter((f) => f.endsWith(".json") || f.endsWith(".ndjson")).map((f) => [f, readFileSync(f, "utf8")] as const);
+    const ctx = deleteContext(deps, { ...(await import("../src/privacy/collectors.js")).splitPlan({ jobId: "x".repeat(24), coachHash: "", coach: "Alice", coachNames: ["Alice"], displays: ["Alice Smith", "AliceNaf"], nafId: "1001", pseudonym: P, teamKeys: [], proxyKeys: [], actor: "self", at: "" } as never).stored, coach: "Alice", coachNames: ["Alice"], displays: ["Alice Smith", "AliceNaf"], nafId: "1001" } as never);
+    for (const step of DELETE_STEPS.filter((x) => x.id.startsWith("anonymise-"))) await step.run(ctx);
+    for (const [f, before] of snapshot) expect(readFileSync(f, "utf8"), f).toBe(before);
 
     // unlinkable: no file anywhere still names Alice, her NAF / display / league / Discord names, email or Discord id;
     // the journal and its key are gone and the audit carries the pseudonym only
@@ -309,20 +334,97 @@ describe("delete", () => {
     }
   });
 
-  it("two accounts that differ only by Unicode form stay apart (P1-4)", async () => {
+  it("two accounts that differ only by Unicode form: matching keeps them apart, and their shared avatar slot blocks the delete (P1-4)", async () => {
     await seed(root);
     const deps = depsFor(root);
+    expect((await new PrivacyService(deps).deleteCoach(JOSE_NFC, JOSE_NFC, "self")).status).toBe("conflict");
+    expect(readIdentities().coaches[JOSE_NFC.toLowerCase()]).toBeDefined();
+    expect((await collectExport(deps, JOSE_NFC)).some((f) => f.name.startsWith("avatar."))).toBe(false);
+    // without the colliding account the delete runs, and the other spelling's history is untouched
+    const raw = readJ(join(root, "identities.json"));
+    delete raw.coaches[JOSE_NFD.toLowerCase()];
+    (await import("node:fs")).writeFileSync(join(root, "identities.json"), JSON.stringify(raw));
     expect((await new PrivacyService(deps).deleteCoach(JOSE_NFC, JOSE_NFC, "self")).status).toBe("deleted");
     const g3 = readJ(join(deps.stateDir, "tournament-results.json")).results.g3;
     expect([g3.home.coach, g3.away.coach]).toEqual([P, JOSE_NFD]);
-    expect(readIdentities().coaches[JOSE_NFD.toLowerCase()]).toBeDefined();
   });
 
-  it("NAF games are matched per position, and ids only when the deleted coach had one (P2-7)", async () => {
+  it("NAF data is touched only through a VERIFIED NAF id; an editable nafId pointing at Bob deletes nothing of his", async () => {
     await seed(root);
     const deps = depsFor(root);
     await new PrivacyService(deps).deleteCoach("Carol", "Carol", "self"); // Carol has no NAF id
     expect(readJ(join(deps.stateDir, "naf-games.json")).coaches["2002"].games[0]).toMatchObject({ coaches: ["BobNaf", "AliceNaf"], coachIds: ["2002", "1001"] });
+    const raw = readJ(join(root, "identities.json"));
+    raw.coaches.alice.identities.nafId = "2002"; // edited, so the verified connection no longer matches
+    (await import("node:fs")).writeFileSync(join(root, "identities.json"), JSON.stringify(raw));
+    await new PrivacyService(deps).deleteCoach("Alice", "Alice", "self");
+    const naf = readJ(join(deps.stateDir, "naf-games.json")).coaches;
+    expect(naf["2002"]).toBeDefined();
+    expect(naf["1001"]).toBeDefined(); // no verified link: the NAF cache is left alone
+  });
+
+  it("a display / NAF name equal to another account never touches that account's records (P1)", async () => {
+    await seed(root, { aliceDisplayName: "Eve", aliceNafName: "Eve" });
+    const deps = depsFor(root);
+    const bobN = walkFiles(join(deps.stateDir, "notifications")).find((p) => p.endsWith("bob.json"))!;
+    const n = readJ(bobN);
+    n.notifications.push({ id: "n2", type: "organiser-message", title: "Eve beat Bob", body: "Eve won", link: "/app/", at: "2026-10-01T00:00:00.000Z", from: "Eve" });
+    (await import("node:fs")).writeFileSync(bobN, JSON.stringify(n));
+    await new PrivacyService(deps).deleteCoach("Alice", "Alice", "self");
+    expect(readJ(join(deps.stateDir, "tournament-results.json")).results.g4.home.coach).toBe("Eve");
+    expect(existsSync(join(deps.libraryDir, "eve.json"))).toBe(true);
+    expect(readJ(bobN).notifications[1]).toMatchObject({ from: "Eve", title: "Eve beat Bob", body: "Eve won" });
+  });
+
+  it("removing the identity keeps every other record exactly as stored, unknown fields included", async () => {
+    await seed(root);
+    await new PrivacyService(depsFor(root)).deleteCoach("Alice", "Alice", "self");
+    const raw = readJ(join(root, "identities.json"));
+    expect(raw.coaches.alice).toBeUndefined();
+    expect(raw.coaches.bob.contact).toEqual({ email: BOB_EMAIL, phones: ["+00 0000 0002"] });
+    expect(raw.coaches.bob.consent.privacy.acceptedVersion).toBe("1");
+  });
+
+  it("a shared library file loses only the coach's rows; a corrupt file or an unwritable sessions store fails the step", async () => {
+    await seed(root);
+    const deps = depsFor(root);
+    // a store file that cannot be parsed: the plan cannot tell whose it is, so the delete does not start
+    const fs = await import("node:fs");
+    fs.writeFileSync(join(deps.builderSavesDir, "corrupt.json"), "{ not json");
+    await expect(new PrivacyService(deps).deleteCoach("Alice", "Alice", "self")).rejects.toThrow();
+    expect(readIdentities().coaches.alice).toBeDefined();
+    fs.rmSync(join(deps.builderSavesDir, "corrupt.json"));
+    mkdirSync(join(root, "sessions.json"), { recursive: true }); // the sessions store cannot be written
+    const out = await new PrivacyService(deps).deleteCoach("Alice", "Alice", "self");
+    expect(out.pending).toEqual(expect.arrayContaining(["sessions", "final-sweep"]));
+    expect(readJ(join(deps.libraryDir, "shared.json")).map((t: { teamId: string }) => t.teamId)).toEqual(["t8"]);
+  });
+
+  it("a deleted Discord account is refused at sign-in for 24 h; the map is keyed by the operator key only", async () => {
+    await seed(root);
+    const deps = depsFor(root);
+    await new PrivacyService(deps).deleteCoach("Alice", "Alice", "self");
+    expect(isRecentlyDeleted(deps.stateDir, TEST_MAP_KEY, ALICE_DISCORD)).toBe(true);
+    expect(isRecentlyDeleted(deps.stateDir, TEST_MAP_KEY, BOB_DISCORD)).toBe(false);
+    expect(isRecentlyDeleted(deps.stateDir, TEST_MAP_KEY, ALICE_DISCORD, Date.now() + 25 * 3_600_000)).toBe(false);
+    expect(deletedPseudonymFor(deps.stateDir, "another-key-0123456789abcdef0123456789", "alice")).toBeUndefined();
+    expect((await new PrivacyService({ ...deps, mapKey: undefined }).deleteCoach("Bob", "Bob", "self")).status).toBe("unavailable");
+  });
+
+  it("NAF and replay writers store a deleted coach under the pseudonym", async () => {
+    await seed(root);
+    const deps = depsFor(root);
+    await new PrivacyService(deps).deleteCoach("Alice", "Alice", "self");
+    const { deletedPseudonymForNaf } = await import("../src/privacy/state.js");
+    setNafIdFilter((id) => deletedPseudonymForNaf(deps.stateDir, TEST_MAP_KEY, id));
+    new NafRecordStore(deps.stateDir).put("2002", "BobNaf", [{ date: "2026-02-01", tournament: "Y", variant: "BB", coaches: ["BobNaf", "AliceNaf"], coachIds: ["2002", "1001"], races: ["Elf", "Orc"], score: [0, 1] }]);
+    new NafRecordStore(deps.stateDir).put("1001", "AliceNaf", []);
+    const naf = readJ(join(deps.stateDir, "naf-games.json")).coaches;
+    expect(naf["2002"].games[0].coaches).toEqual(["BobNaf", P]);
+    expect(naf["1001"]).toBeUndefined();
+    setReplayCoachFilter((c) => deletedPseudonymFor(deps.stateDir, TEST_MAP_KEY, normalizeFfbCoachId(c)));
+    new ReplayMomentStore(deps.stateDir).put({ gameId: "77", status: "ready", readAt: "", commands: 0, truncated: false, teams: { home: { teamId: "t1", name: "Green Orcs", coach: "Alice" }, away: { teamId: "t2", name: "Blue Elves", coach: "Bob" } }, moments: [] } as never);
+    expect(readJ(join(deps.stateDir, "replay-moments", "77.json")).teams.home.coach).toBe(P);
   });
 
   it("the deletion fence refuses writes that would recreate the coach (P2-6)", async () => {
@@ -347,9 +449,9 @@ describe("delete", () => {
     await seed(root);
     const deps = depsFor(root);
     await new PrivacyService(deps).deleteCoach("Alice", "Alice", "self");
-    expect(deletedPseudonymFor(deps.stateDir, "alice")).toBe(P);
-    expect(deletedPseudonymFor(deps.stateDir, "bob")).toBeUndefined();
-    setResultCoachFilter((c) => deletedPseudonymFor(deps.stateDir, normalizeFfbCoachId(c)));
+    expect(deletedPseudonymFor(deps.stateDir, TEST_MAP_KEY, "alice")).toBe(P);
+    expect(deletedPseudonymFor(deps.stateDir, TEST_MAP_KEY, "bob")).toBeUndefined();
+    setResultCoachFilter((c) => deletedPseudonymFor(deps.stateDir, TEST_MAP_KEY, normalizeFfbCoachId(c)));
     const store = new TournamentResultStore(deps.stateDir);
     store.put({ gameId: "g9", pulledAt: "", home: { teamId: "t1", teamName: "Green Orcs", coach: "Alice" }, away: { teamId: "t2", teamName: "Blue Elves", coach: "Bob" }, teams: [] });
     expect(store.get("g9")).toMatchObject({ home: { coach: P }, away: { coach: "Bob" } });
@@ -365,7 +467,7 @@ describe("delete", () => {
     rmSync(f);
     mkdirSync(f);
     const out = await new PrivacyService(deps).deleteCoach("Alice", "Alice", "self");
-    expect(out.pending).toEqual(["notifications"]);
+    expect(out.pending).toEqual(expect.arrayContaining(["notifications", "final-sweep"]));
     expect(listJobs(deps.stateDir)).toHaveLength(1);
   });
 
@@ -414,7 +516,7 @@ describe("delete", () => {
     await seed(root);
     const deps = depsFor(root);
     const plan = buildPlan(deps, {
-      sessionCoach: "Alice", jobId: "0123456789abcdef01234567", pseudonym: "Deleted coach #9", actor: "self", now: new Date(),
+      sessionCoach: "Alice", jobId: "0123456789abcdef01234567", pseudonym: "Deleted coach #9", actor: "self", now: new Date(), mapKey: TEST_MAP_KEY,
       blockHashOf: (id) => blocklistHash(deps.stateDir, id), discordAvatarUrl,
     });
     const { stored, secrets } = splitPlan(plan);

@@ -14,8 +14,11 @@
  *                          on startup: a step with no "done"/"skipped" line runs again (every step is idempotent).
  *   keys/<jobId>.key       the job's sealing key (destroyed with the job).
  *   pseudonym-counter.json {"next": n}: the next "Deleted coach #<n>".
- *   deleted-coaches.json   {"version":1,"entries":{HMAC(salt,"coach:"+identity key): pseudonym}}: fork results pulled
- *                          again later are anonymised on write.
+ *   deleted-coaches.json   {"version":2,"entries":{HMAC(PRIVACY_MAP_KEY, "coach:"+identity key | "naf:"+verified NAF id):
+ *                          pseudonym}}: results, replay moments and NAF games written later are anonymised on write.
+ *                          The key lives in the operator's environment, never here.
+ *   recent-deletions.json  {"version":1,"markers":{HMAC(PRIVACY_MAP_KEY,"discord:"+id): expiry}}: a deleted account's
+ *                          Discord sign-in is refused for 24 h.
  *   blocklist.json         {"version":1,"hashes":[...]}: HMAC-SHA256(salt, Discord user id) of deleted BANNED coaches.
  *   blocklist-salt         the salt when PRIVACY_BLOCKLIST_SALT is unset (generated on first use, mode 0600).
  *   audit.jsonl            one line per completed deletion: {"at","actor":"self"|"admin:<coach>","pseudonym","jobId"}.
@@ -54,7 +57,7 @@ export function allocatePseudonym(stateDir: string): string {
 
 // ---- salt + blocklist -------------------------------------------------------------------------------------------
 
-/** The site's privacy salt (blocklist and deleted-coach map). */
+/** The blocklist salt. */
 export function privacySalt(stateDir: string, env: NodeJS.ProcessEnv = process.env): string {
   const fromEnv = env.PRIVACY_BLOCKLIST_SALT?.trim();
   if (fromEnv) return fromEnv;
@@ -95,7 +98,16 @@ export function isDiscordBlocked(stateDir: string, discordUserId: string, env?: 
   return hashes.length > 0 && hashes.includes(blocklistHash(stateDir, discordUserId, env));
 }
 
-// ---- deleted-coach map ------------------------------------------------------------------------------------------
+// ---- deleted-coach map + recent-deletion markers --------------------------------------------------------------------
+// Keyed hashes whose key (PRIVACY_MAP_KEY) lives in the operator's environment, never in the state dir, so the file alone
+// cannot be checked against a dictionary of coach names, NAF ids or Discord ids. Without the key the delete feature is
+// off (src/server.ts answers 503) and no write filter runs.
+
+/** The operator key for the deleted-coach map, or undefined (feature off). At least 32 characters. */
+export function privacyMapKey(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const k = env.PRIVACY_MAP_KEY?.trim();
+  return k && k.length >= 32 ? k : undefined;
+}
 
 const mapFile = (stateDir: string): string => join(privacyDir(stateDir), "deleted-coaches.json");
 let mapCache: { file: string; stamp: string; entries: Record<string, string> } | undefined;
@@ -114,23 +126,58 @@ function readDeletedMap(stateDir: string): Record<string, string> {
   return entries;
 }
 
-const coachMapHash = (stateDir: string, coachKey: string, env?: NodeJS.ProcessEnv): string =>
-  createHmac("sha256", privacySalt(stateDir, env)).update(`coach:${coachKey}`, "utf8").digest("hex");
+export const mapHash = (mapKey: string, kind: "coach" | "naf" | "discord", value: string): string =>
+  createHmac("sha256", mapKey).update(`${kind}:${value}`, "utf8").digest("hex");
 
-/** `coachKeys` are identity-store keys (normalizeFfbCoachId). */
-export function recordDeletedCoach(stateDir: string, coachKeys: readonly string[], pseudonym: string, env?: NodeJS.ProcessEnv): void {
-  const entries = { ...readDeletedMap(stateDir) };
-  for (const k of coachKeys) entries[coachMapHash(stateDir, k, env)] = pseudonym;
+function writeDeletedMap(stateDir: string, entries: Record<string, string>): void {
   mkdirSync(privacyDir(stateDir), { recursive: true });
-  atomicWriteTextFile(mapFile(stateDir), `${JSON.stringify({ version: 1, entries }, null, 2)}\n`);
+  atomicWriteTextFile(mapFile(stateDir), `${JSON.stringify({ version: 2, entries }, null, 2)}\n`);
+}
+
+/** `coachKeys` are identity-store keys (normalizeFfbCoachId); `nafId` only when verified as the coach's. */
+export function recordDeletedCoach(stateDir: string, mapKey: string, coachKeys: readonly string[], pseudonym: string, nafId?: string): void {
+  const entries = { ...readDeletedMap(stateDir) };
+  for (const k of coachKeys) entries[mapHash(mapKey, "coach", k)] = pseudonym;
+  if (nafId) entries[mapHash(mapKey, "naf", nafId)] = pseudonym;
+  writeDeletedMap(stateDir, entries);
 }
 
 /** The pseudonym of a deleted coach by identity-store key, or undefined. */
-export function deletedPseudonymFor(stateDir: string, coachKey: string, env?: NodeJS.ProcessEnv): string | undefined {
+export function deletedPseudonymFor(stateDir: string, mapKey: string, coachKey: string): string | undefined {
   if (!coachKey) return undefined;
   const entries = readDeletedMap(stateDir);
-  if (!Object.keys(entries).length) return undefined;
-  return entries[coachMapHash(stateDir, coachKey, env)];
+  return Object.keys(entries).length ? entries[mapHash(mapKey, "coach", coachKey)] : undefined;
+}
+
+/** The pseudonym of a deleted coach by their verified NAF id, or undefined. */
+export function deletedPseudonymForNaf(stateDir: string, mapKey: string, nafId: string): string | undefined {
+  if (!nafId) return undefined;
+  const entries = readDeletedMap(stateDir);
+  return Object.keys(entries).length ? entries[mapHash(mapKey, "naf", nafId)] : undefined;
+}
+
+export const RECENT_DELETION_MS = 24 * 60 * 60_000;
+const markerFile = (stateDir: string): string => join(privacyDir(stateDir), "recent-deletions.json");
+
+function readMarkers(stateDir: string, now: number): Record<string, number> {
+  try {
+    const raw = JSON.parse(readFileSync(markerFile(stateDir), "utf8")) as { markers?: Record<string, unknown> };
+    return Object.fromEntries(Object.entries(raw.markers ?? {}).filter((e): e is [string, number] => typeof e[1] === "number" && e[1] > now));
+  } catch {
+    return {};
+  }
+}
+
+/** A deleted account's Discord id (as a keyed hash) is refused at sign-in for 24 h (late OAuth callbacks). */
+export function markRecentDeletion(stateDir: string, discordMark: string, now = Date.now()): void {
+  const markers = { ...readMarkers(stateDir, now), [discordMark]: now + RECENT_DELETION_MS };
+  mkdirSync(privacyDir(stateDir), { recursive: true });
+  atomicWriteTextFile(markerFile(stateDir), `${JSON.stringify({ version: 1, markers }, null, 2)}\n`);
+}
+
+export function isRecentlyDeleted(stateDir: string, mapKey: string | undefined, discordUserId: string, now = Date.now()): boolean {
+  if (!mapKey || !discordUserId) return false;
+  return Object.hasOwn(readMarkers(stateDir, now), mapHash(mapKey, "discord", discordUserId.trim()));
 }
 
 // ---- audit ------------------------------------------------------------------------------------------------------

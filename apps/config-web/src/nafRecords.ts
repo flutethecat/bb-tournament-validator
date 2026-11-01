@@ -204,6 +204,28 @@ function validRecord(key: string, value: unknown): NafCoachRecord | undefined {
 
 interface NafStoreFile { version: 1; coaches: Record<string, unknown> }
 
+let nafIdFilter: ((nafId: string) => string | undefined) | undefined;
+/** Account deletion: a NAF id -> pseudonym (deleted coaches with a verified NAF link), applied to every write. */
+export function setNafIdFilter(fn: ((nafId: string) => string | undefined) | undefined): void { nafIdFilter = fn; }
+function filteredCoaches(coaches: Record<string, unknown>): Record<string, unknown> {
+  if (!nafIdFilter) return coaches;
+  const out: Record<string, unknown> = {};
+  for (const [id, rec] of Object.entries(coaches)) {
+    if (nafIdFilter(id)) continue; // a deleted coach's own record is never stored again
+    if (!rec || typeof rec !== "object" || !Array.isArray((rec as { games?: unknown }).games)) { out[id] = rec; continue; }
+    const games = ((rec as { games: unknown[] }).games).map((g) => {
+      const game = g as { coaches?: unknown; coachIds?: unknown };
+      if (!Array.isArray(game?.coaches) || !Array.isArray(game.coachIds)) return g;
+      const swapped = (game.coachIds as unknown[]).map((cid) => (typeof cid === "string" ? nafIdFilter!(cid) : undefined));
+      if (!swapped.some(Boolean)) return g;
+      const { coachIds: _drop, ...rest } = game as Record<string, unknown>;
+      return { ...rest, coaches: (game.coaches as unknown[]).map((c, i) => swapped[i] ?? c) };
+    });
+    out[id] = { ...(rec as object), games };
+  }
+  return out;
+}
+
 export class NafRecordStore {
   private readonly file: string;
   private writes = 0;
@@ -238,7 +260,7 @@ export class NafRecordStore {
 
   private write(coaches: Record<string, unknown>): void {
     this.writes += 1;
-    atomicWriteTextFile(this.file, `${JSON.stringify({ version: 1, coaches }, null, 2)}\n`);
+    atomicWriteTextFile(this.file, `${JSON.stringify({ version: 1, coaches: filteredCoaches(coaches) }, null, 2)}\n`);
   }
 
   /** Store a successful fetch (capped at 1000 games). With `keep`, records of nafIds not in it (a coach unlinked since) are dropped. */

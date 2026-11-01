@@ -78,7 +78,8 @@ function sessionsFile(): string | undefined {
   return process.env.VITEST ? undefined : DEFAULT_SESSIONS_FILE;
 }
 
-function persist(): void {
+/** `strict`: rethrow a failed write (account deletion must know the revocation reached the disk). */
+function persist(strict = false): void {
   const file = sessionsFile();
   if (!file) return;
   const out: Record<string, { coach: string; expiry: number; method: SessionMethod; created: number; test?: true }> = {};
@@ -92,6 +93,7 @@ function persist(): void {
   } catch (error) {
     try { if (existsSync(temp)) unlinkSync(temp); } catch { /* best effort */ }
     console.error(`[sessions] could not persist sessions: ${(error as Error).message}`);
+    if (strict) throw error;
   }
 }
 
@@ -212,7 +214,8 @@ export function deleteSessionsForCoach(coach: string, now = Date.now()): number 
   const gone: string[] = [];
   for (const [hash, e] of sessions) if (e.coach.trim().toLowerCase() === key) gone.push(hash);
   for (const hash of gone) sessions.delete(hash);
-  if (gone.length) persist();
+  // Always written, strictly: a retry after a failed write rewrites the disk from memory (which no longer has them).
+  persist(true);
   for (const hash of gone) ended(hash);
   return gone.length;
 }

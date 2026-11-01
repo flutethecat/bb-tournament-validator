@@ -1,16 +1,17 @@
 /**
  * Anonymisation of public history (privacy spec §3.5, owner 10-31: "anonymise, don't erase").
  *
- * The anonymiser never walks a document blindly and never renames object keys on its own: each store's step
- * (src/privacy/collectors.ts) names the exact fields that hold a coach (coach, coachId, by, owner, home/away coach, ...),
- * and only those values are compared and replaced. Free text that a step names (news, logs, notification titles) gets
- * whole-word replacement of the coach's names.
+ * ALIASES ARE NOT OWNERSHIP AND NOT FREE-TEXT TARGETS (privacy review round 2):
+ * - A record is anonymised only when it is LINKED to the coach: one of its identity fields (fork coach account, the
+ *   identity-store key, a league row's coachId) names the coach. `matches` compares identity keys only.
+ * - Self-chosen names (display name, NAF name, Discord username) never select records. A display-name column is
+ *   rewritten only on a record that is already linked (the step rewrites it whatever it says).
+ * - Free text (news, logs, notification titles) gets the coach's identity name and the display names found on LINKED
+ *   records, each only when it is at least 3 characters, not a common English word, and not the name of another coach
+ *   or fork account; case-sensitive whole words; text already carrying a pseudonym is never rewritten again.
  *
- * Matching uses EXACTLY the identity store's key function (trim + lower case; src/privacy/fence.ts coachKey), never a
- * broader normalisation, so two accounts the identity store keeps apart are never merged here.
- *
- * A value written all in lower case (a normalised key such as a coach id) gets the lower-case pseudonym, so lookups that
- * fold case keep matching each other.
+ * Matching uses EXACTLY the identity store's key function (trim + lower case; src/privacy/fence.ts coachKey).
+ * A value written all in lower case (a normalised key) gets the lower-case pseudonym.
  */
 import { coachKey } from "./fence.js";
 
@@ -19,43 +20,51 @@ export const nameKey = coachKey;
 /** Dropped from an object once one of its coach fields was anonymised (they would re-identify the person). */
 export const RE_IDENTIFYING = ["discordUserId", "discordUsername", "discordAvatarHash", "email", "secondaryEmail", "nafUser"];
 
+/** Common English words never used as a free-text alias (a display name like "the" or "version" must not eat text). */
+export const TEXT_STOP_WORDS = new Set(`
+a about above after again against all also am an and any are around as at back be because been before being below
+best between big both but by came can come could day did do does done down each even every few first for from game
+get go goes going good got great had has have he her here him his how i if in into is it its just last let like little
+long look made make man many may me more most much must my name never new next no not now of off old on once one only
+or other our out over own part play played player players please put really right round said same saw say see she
+should show side since so some still such take team teams than that the their them then there these they thing think
+this those through time to today too two under up us use used very version want was way we well went were what when
+where which while who why will win with won would year yes yet you your coach coaches league match matches season
+id ids admin test name names new user users guest home away final cup open
+`.split(/\s+/).filter(Boolean));
+
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => Boolean(v) && typeof v === "object" && !Array.isArray(v);
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** Text already anonymised: never rewritten again (idempotent steps). */
+const PSEUDONYM_RE = /Deleted coach #\d+/g;
 
 export interface Anonymiser {
   readonly pseudonym: string;
-  readonly aliases: readonly string[];
-  /** The value is a string naming the coach. */
+  /** Identity keys of the coach (linkage). */
+  readonly ids: ReadonlySet<string>;
+  /** The value is a string naming the coach by an identity key. */
   matches(value: unknown): boolean;
   /** The pseudonym in the case convention of `original`. */
   swap(original: string): string;
-  /** Replace the named fields of `obj` that name the coach; on any change drop the re-identifying siblings. */
+  /** Replace the named identity fields of `obj` that name the coach; on any change drop `drop`. */
   fields(obj: unknown, names: readonly string[], drop?: readonly string[]): boolean;
+  /** Set the named fields of a LINKED record to the pseudonym whatever they say (display-name columns). */
+  overwrite(obj: unknown, names: readonly string[], drop?: readonly string[]): boolean;
   /** Replace matching strings of a string array in place. */
   list(arr: unknown): boolean;
-  /** Rebuild a map keyed by coach (explicitly known maps only, e.g. tabletop confirmations, coach titles). */
+  /** Rebuild a map keyed by coach id (explicitly known maps only, e.g. tabletop confirmations, coach titles). */
   keyedMap(map: unknown): boolean;
-  /** Whole-word, case-insensitive replacement of the coach's names inside free text. */
-  text(value: unknown): unknown;
-  /** Replace the named free-text fields of `obj`. */
-  texts(obj: unknown, names: readonly string[]): boolean;
-  /** The same pseudonym with more names (e.g. display names found on rows linked to the coach's account). */
-  withAliases(extra: readonly string[]): Anonymiser;
 }
 
-export function createAnonymiser(aliases: readonly string[], pseudonym: string): Anonymiser {
-  const list = [...new Map(aliases.filter((a) => typeof a === "string" && nameKey(a)).map((a) => [nameKey(a), a.trim()])).values()];
-  const keys = new Set(list.map(nameKey));
+export function createAnonymiser(identityNames: readonly string[], pseudonym: string): Anonymiser {
+  const ids = new Set(identityNames.filter((a) => typeof a === "string" && nameKey(a)).map(nameKey));
   const lower = pseudonym.toLowerCase();
   const swap = (original: string): string => (original === original.toLowerCase() && original !== original.toUpperCase() ? lower : pseudonym);
-  const matches = (v: unknown): boolean => typeof v === "string" && keys.has(nameKey(v));
-  // Longest first so "Bob Smith" wins over "Bob".
-  const textRes = [...list].sort((a, b) => b.length - a.length).map((k) => new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRe(k)}(?![\\p{L}\\p{N}_])`, "giu"));
-
+  const matches = (v: unknown): boolean => typeof v === "string" && ids.has(nameKey(v));
   const an: Anonymiser = {
     pseudonym,
-    aliases: list,
+    ids,
     matches,
     swap,
     fields(obj, names, drop = RE_IDENTIFYING) {
@@ -63,6 +72,18 @@ export function createAnonymiser(aliases: readonly string[], pseudonym: string):
       let changed = false;
       for (const n of names) if (matches(obj[n])) { obj[n] = swap(obj[n] as string); changed = true; }
       if (changed) for (const d of drop) delete obj[d];
+      return changed;
+    },
+    overwrite(obj, names, drop = RE_IDENTIFYING) {
+      if (!isObj(obj)) return false;
+      let changed = false;
+      for (const n of names) {
+        const v = obj[n];
+        if (typeof v !== "string" || !v.trim()) continue;
+        const next = matches(v) ? swap(v) : pseudonym;
+        if (v !== next) { obj[n] = next; changed = true; }
+      }
+      for (const d of drop) if (Object.hasOwn(obj, d)) { delete obj[d]; changed = true; }
       return changed;
     },
     list(arr) {
@@ -73,7 +94,7 @@ export function createAnonymiser(aliases: readonly string[], pseudonym: string):
     },
     keyedMap(map) {
       if (!isObj(map)) return false;
-      const hits = Object.keys(map).filter((k) => keys.has(nameKey(k)));
+      const hits = Object.keys(map).filter((k) => ids.has(nameKey(k)));
       for (const k of hits) {
         const v = map[k];
         delete map[k];
@@ -81,22 +102,53 @@ export function createAnonymiser(aliases: readonly string[], pseudonym: string):
       }
       return hits.length > 0;
     },
-    text(value) {
-      if (typeof value !== "string") return value;
-      let out = value;
-      for (const re of textRes) out = out.replace(re, pseudonym);
-      return out;
-    },
+  };
+  return an;
+}
+
+/** Which names may be replaced inside free text (see the header). `others` are identity keys of other coaches / accounts. */
+export function textAliases(candidates: readonly string[], others: ReadonlySet<string>): string[] {
+  const out = new Map<string, string>();
+  for (const c of candidates) {
+    if (typeof c !== "string") continue;
+    const v = c.trim();
+    if (v.length < 3 || TEXT_STOP_WORDS.has(v.toLowerCase()) || others.has(nameKey(v)) || /deleted coach/i.test(v)) continue;
+    out.set(v, v);
+  }
+  return [...out.values()];
+}
+
+export interface TextReplacer {
+  text(value: unknown): unknown;
+  texts(obj: unknown, names: readonly string[]): boolean;
+}
+
+/** Case-sensitive whole-word replacement of `aliases` (already filtered by textAliases); pseudonyms are left alone. */
+export function createTextReplacer(aliases: readonly string[], pseudonym: string): TextReplacer {
+  // ONE alternation, longest first, applied once: a replacement is never matched again by a shorter alias.
+  const sorted = [...aliases].sort((a, b) => b.length - a.length);
+  const re = sorted.length ? new RegExp(`(?<![\\p{L}\\p{N}_#])(?:${sorted.map(escapeRe).join("|")})(?![\\p{L}\\p{N}_])`, "gu") : undefined;
+  const replaceSegment = (s: string): string => (re ? s.replace(re, pseudonym) : s);
+  const text = (value: unknown): unknown => {
+    if (typeof value !== "string" || !re) return value;
+    let out = "";
+    let last = 0;
+    for (const m of value.matchAll(PSEUDONYM_RE)) {
+      out += replaceSegment(value.slice(last, m.index)) + m[0];
+      last = m.index! + m[0].length;
+    }
+    return out + replaceSegment(value.slice(last));
+  };
+  return {
+    text,
     texts(obj, names) {
       if (!isObj(obj)) return false;
       let changed = false;
       for (const n of names) {
-        const next = an.text(obj[n]);
+        const next = text(obj[n]);
         if (next !== obj[n]) { obj[n] = next; changed = true; }
       }
       return changed;
     },
-    withAliases(extra) { return createAnonymiser([...list, ...extra], pseudonym); },
   };
-  return an;
 }

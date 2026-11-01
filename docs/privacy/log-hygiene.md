@@ -53,3 +53,20 @@ truncated where Windows holds the redirected file open; dated files older than 1
 kept, are outside this and must be rotated separately.
 
 Bug-report folders are pruned the same way after 12 months (`pruneBugReports` in `src/bugReports.ts`, daily).
+
+## Account deletion state (`<FORK_STATE_DIR>/privacy/`)
+
+Deleting an account leaves no name in the state dir. Delete journals hold hashes and file keys only; the names a running job
+needs are sealed (AES-256-GCM) under a per-job key that is destroyed when the job completes, or after 7 days of retries
+(the job is then listed for an admin as "failed").
+
+The deleted-coach map (`deleted-coaches.json`) and the 24-hour sign-in markers (`recent-deletions.json`) are keyed hashes
+(HMAC-SHA256) under `PRIVACY_MAP_KEY`, which the operator sets in the live `.env` (at least 32 random characters) and which is
+never written to the state dir. Without it, deletion answers 503 and no write filter runs. They let later writes of fork
+results, replay moments and NAF games be stored under the pseudonym instead of the old name.
+
+Residual risk: anyone holding both the state dir and `PRIVACY_MAP_KEY` can test a guessed coach name, NAF id or Discord id
+against the map and learn that coach's pseudonym (and so their anonymised history). Keep the key out of backups of the
+state dir and rotate it only together with an emptied map (a rotated key stops the filters matching earlier deletions).
+The banned-coach blocklist uses its own salt (`PRIVACY_BLOCKLIST_SALT`, or a generated file in the state dir), so a
+copy of the state dir alone can test guessed Discord ids against it.

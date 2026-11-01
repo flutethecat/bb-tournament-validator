@@ -38,6 +38,18 @@ export type ReplayEntry = ReplayReady | ReplayUnavailable;
 
 const SAFE_ID = /^[0-9]{1,18}$/;
 
+let replayCoachFilter: ((coach: string) => string | undefined) | undefined;
+/** Account deletion: a coach name -> pseudonym (deleted coaches only), applied to the teams of every stored replay. */
+export function setReplayCoachFilter(fn: ((coach: string) => string | undefined) | undefined): void { replayCoachFilter = fn; }
+function filteredTeams<T extends Record<string, { coach: string }>>(teams: T): T {
+  const out = { ...teams } as Record<string, { coach: string }>;
+  for (const [side, team] of Object.entries(teams)) {
+    const swapped = team && typeof team.coach === "string" ? replayCoachFilter?.(team.coach) : undefined;
+    if (swapped) out[side] = { ...team, coach: swapped };
+  }
+  return out as T;
+}
+
 export class ReplayMomentStore {
   readonly dir: string;
   private writes = 0;
@@ -69,7 +81,8 @@ export class ReplayMomentStore {
     return this.get(gameId) !== undefined;
   }
 
-  put(entry: Omit<ReplayReady, "schema" | "reader"> | Omit<ReplayUnavailable, "schema" | "reader">): ReplayEntry {
+  put(raw: Omit<ReplayReady, "schema" | "reader"> | Omit<ReplayUnavailable, "schema" | "reader">): ReplayEntry {
+    const entry = replayCoachFilter && "teams" in raw && raw.teams ? { ...raw, teams: filteredTeams(raw.teams) } : raw;
     const file = this.file(entry.gameId);
     if (!file) throw new Error(`not a fork game id: ${entry.gameId}`);
     const full = { schema: REPLAY_SCHEMA, reader: REPLAY_READER_VERSION, ...entry } as ReplayEntry;

@@ -3,27 +3,28 @@
  * data says what the export takes from it and what deletion does to it. A store added to the site must register here;
  * test/privacy.test.ts fails when a known store has no collector.
  *
- * Ownership (which files and rows are the coach's, for the export and for deletion) is decided ONLY by the identity
- * store key of the coach (the session coach and the identity record's spelling, compared with the identity store's own
- * key function) and by verified links (an organiser-assigned / fork account coachId on league rows). Display names and
- * NAF names are aliases: they are used to anonymise public history, never to pick files to export or delete.
+ * Ownership and linkage: a file or record is the coach's ONLY through the identity-store key of the coach (the session
+ * coach and the identity record's spelling, compared with the identity store's own key function) or a verified link
+ * (a league row's coachId, a fork coach account field, the verified NAF link, the verified Discord link). Self-chosen
+ * names (display name, NAF name, Discord username, an unverified NAF id) never select a record; a display column is
+ * rewritten only on a record that is already linked. See src/privacy/anonymise.ts for the free-text rule.
  *
- * Every function reads the store files directly under the configured paths (no in-memory copies), so the export and the
- * delete job behave the same inside the server and in tests. Only "already gone" (ENOENT) counts as a successful delete;
- * any other filesystem error fails the step so the journal retries it.
+ * Every function reads the store files directly under the configured paths (no in-memory copies). In the delete path
+ * only "nothing there" (ENOENT) counts as empty; any other read, parse or delete error fails the step so the journal
+ * retries it. The export path is lenient (an unreadable unrelated file never blocks a download).
  */
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync, rmSync, rmdirSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
-import { atomicWriteTextFile } from "@bb/fork-ops";
-import { normalizeFfbCoachId, rawIdentityRecord, readIdentities, removeIdentityRecord } from "../auth/identitiesStore.js";
+import { readFileSync, readdirSync, rmSync, rmdirSync, unlinkSync } from "node:fs";
+import { basename, join } from "node:path";
+import { acquireFileWriteLock, atomicWriteTextFile, libraryWriteLockPath } from "@bb/fork-ops";
+import { normalizeFfbCoachId, rawIdentityRecord, readIdentities, removeIdentityRecord, type CoachIdentityRecord } from "../auth/identitiesStore.js";
 import { deleteSessionsForCoach, sessionsForCoach } from "../auth/session.js";
-import { coachAvatarKey, coachProxyCacheKeys, deleteCoachAvatarData } from "../coachAvatars.js";
+import { coachAvatarId, coachAvatarKey, coachProxyCacheKeys, deleteCoachAvatarData } from "../coachAvatars.js";
 import { avatarStoreFor } from "../teamAvatars.js";
 import { notificationCoachKey, notificationFileName } from "../notifications.js";
-import { createAnonymiser, nameKey, type Anonymiser } from "./anonymise.js";
+import { createAnonymiser, createTextReplacer, nameKey, textAliases, type Anonymiser, type TextReplacer } from "./anonymise.js";
 import { coachKeyHash } from "./fence.js";
-import { addToBlocklist, recordDeletedCoach, type StepStatus } from "./state.js";
+import { addToBlocklist, mapHash, markRecentDeletion, recordDeletedCoach, type StepStatus } from "./state.js";
 
 // ---- deps / contexts --------------------------------------------------------------------------------------------
 
@@ -40,6 +41,8 @@ export interface PrivacyDeps {
   tabletopDir: string;
   /** organizers.json (legacy organiser list). */
   organizersFile?: string;
+  /** PRIVACY_MAP_KEY: keys the deleted-coach map and the recent-deletion markers. Without it deletion is refused. */
+  mapKey?: string;
   /** The server's Discord SSO pending store. */
   pendingSso?: { deleteWhere(match: (discordId: string) => boolean): number };
   /** Disables the coach's fork (game server) account. Undefined = no fork on this host (the step is skipped). Throws when
@@ -64,11 +67,11 @@ export interface ExportCtx {
 /** The names a job needs: stored only sealed in the journal (src/privacy/state.ts). */
 export interface PlanSecrets {
   coach: string;
-  /** Identity-store spellings that OWN files (the session name and the identity record's spelling). */
+  /** Identity-store spellings that own files and link records (the session name and the identity record's spelling). */
   coachNames: string[];
-  /** Names replaced by the pseudonym in public history (coach names, display / NAF / Discord names unless another coach
-   *  is called that). Never used to select files. */
-  aliases: string[];
+  /** Display names found on records LINKED to the coach (league rows by coachId), for free text and coach honours. */
+  displays: string[];
+  /** The coach's NAF id, only when VERIFIED (identity connections.naf). */
   nafId?: string;
 }
 
@@ -80,6 +83,8 @@ export interface StoredPlan {
   pseudonym: string;
   /** sha256 of the Discord user id (matches pending SSO entries without storing the id). */
   discordHash?: string;
+  /** HMAC(PRIVACY_MAP_KEY, Discord id): the 24 h recent-deletion marker. */
+  discordMark?: string;
   /** Blocklist entry for a banned coach (HMAC of the Discord id). */
   blockHash?: string;
   /** Uploaded team logos to delete ("library:<id>" | "save:<id>"). */
@@ -93,88 +98,105 @@ export interface StoredPlan {
 
 export type DeletePlan = Omit<StoredPlan, "sealed"> & PlanSecrets;
 
-export interface DeleteCtx { deps: PrivacyDeps; plan: DeletePlan; an: Anonymiser; names: Set<string> }
+export interface DeleteCtx {
+  deps: PrivacyDeps;
+  plan: DeletePlan;
+  an: Anonymiser;
+  names: Set<string>;
+  /** Free-text replacement (built on first use: needs the other coaches' names). */
+  text: () => TextReplacer;
+}
 
-// ---- small fs helpers -------------------------------------------------------------------------------------------
+// ---- fs helpers -------------------------------------------------------------------------------------------------
 
-const readJson = <T>(path: string): T | undefined => {
-  try { return JSON.parse(readFileSync(path, "utf8")) as T; } catch { return undefined; }
-};
-const listFiles = (dir: string, ext: string): string[] => {
-  try { return readdirSync(dir).filter((n) => n.endsWith(ext)).map((n) => join(dir, n)); } catch { return []; }
-};
-const listDirs = (dir: string): string[] => {
-  try { return readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => join(dir, d.name)); } catch { return []; }
-};
-/** Only "already gone" is success; EACCES / EPERM / EBUSY fail the step. */
-const unlinkIfExists = (path: string): void => {
-  try { unlinkSync(path); } catch (e) { if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e; }
-};
-const json = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
-const sha256 = (s: string): string => createHash("sha256").update(s, "utf8").digest("hex");
-const isMine = (keys: Set<string>, value: unknown): boolean => typeof value === "string" && keys.has(nameKey(value));
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => Boolean(v) && typeof v === "object" && !Array.isArray(v);
 const objs = (v: unknown): Obj[] => (Array.isArray(v) ? v.filter(isObj) : []);
 const vals = (v: unknown): Obj[] => (isObj(v) ? Object.values(v).filter(isObj) : []);
+const isEnoent = (e: unknown): boolean => (e as NodeJS.ErrnoException)?.code === "ENOENT";
+
+/** Strict: undefined only when the file does not exist; unreadable or unparsable throws. */
+function readJson<T>(path: string): T | undefined {
+  let text: string;
+  try { text = readFileSync(path, "utf8"); } catch (e) { if (isEnoent(e)) return undefined; throw e; }
+  return JSON.parse(text) as T;
+}
+/** Lenient (export only). */
+const readJsonLoose = <T>(path: string): T | undefined => { try { return readJson<T>(path); } catch { return undefined; } };
+function listFiles(dir: string, ext: string): string[] {
+  try { return readdirSync(dir).filter((n) => n.endsWith(ext)).map((n) => join(dir, n)); } catch (e) { if (isEnoent(e)) return []; throw e; }
+}
+function listDirs(dir: string): string[] {
+  try { return readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => join(dir, d.name)); } catch (e) { if (isEnoent(e)) return []; throw e; }
+}
+/** Only "already gone" is success; EACCES / EPERM / EBUSY fail the step. */
+const unlinkIfExists = (path: string): void => {
+  try { unlinkSync(path); } catch (e) { if (!isEnoent(e)) throw e; }
+};
+const json = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
+const sha256 = (s: string): string => createHash("sha256").update(s, "utf8").digest("hex");
+const isMine = (keys: ReadonlySet<string>, value: unknown): boolean => typeof value === "string" && keys.has(nameKey(value));
 
 /** Rewrite one JSON file through a store-specific anonymiser (atomic; untouched when nothing matched). */
 function rewriteJson(path: string, fn: (data: Obj) => boolean): void {
-  if (!existsSync(path)) return;
   const data = readJson<unknown>(path);
-  if (!isObj(data)) return;
+  if (data === undefined) return;
+  if (!isObj(data)) throw new Error(`not a JSON object: ${basename(path)}`);
   if (fn(data)) atomicWriteTextFile(path, json(data));
 }
 
 /** Same for an append-only NDJSON file (each line on its own; torn lines kept as they are). */
 function rewriteNdjson(path: string, fn: (line: Obj) => boolean): void {
   let text = "";
-  try { text = readFileSync(path, "utf8"); } catch { return; }
+  try { text = readFileSync(path, "utf8"); } catch (e) { if (isEnoent(e)) return; throw e; }
   let changed = false;
   const lines = text.split("\n").map((line) => {
     if (!line.trim()) return line;
-    try {
-      const obj = JSON.parse(line) as unknown;
-      if (!isObj(obj) || !fn(obj)) return line;
-      changed = true;
-      return JSON.stringify(obj);
-    } catch { return line; }
+    let obj: unknown;
+    try { obj = JSON.parse(line); } catch { return line; }
+    if (!isObj(obj) || !fn(obj)) return line;
+    changed = true;
+    return JSON.stringify(obj);
   });
   if (changed) atomicWriteTextFile(path, lines.join("\n"));
 }
 
-// ---- store readers shared by export and plan (ownership by identity key only) -----------------------------------
+// ---- store readers (ownership by identity key only) ---------------------------------------------------------------
 
 interface SaveFile { coach?: string; saves?: Array<Obj & { id?: string; shareToken?: string }> }
 
-function ownSaveFiles(dir: string, names: Set<string>): Array<{ path: string; data: SaveFile }> {
-  return listFiles(dir, ".json")
-    .map((path) => ({ path, data: readJson<SaveFile>(path) }))
+function ownSaveFiles(dir: string, names: ReadonlySet<string>, strict = true): Array<{ path: string; data: SaveFile }> {
+  const read = strict ? readJson : readJsonLoose;
+  return (strict ? listFiles(dir, ".json") : (() => { try { return listFiles(dir, ".json"); } catch { return []; } })())
+    .map((path) => ({ path, data: read<SaveFile>(path) }))
     .filter((f): f is { path: string; data: SaveFile } => Boolean(f.data && isMine(names, f.data.coach)));
 }
 
-/** A library file is the coach's only when it has rows and EVERY row's owner field is the coach (the file name is a
- *  sanitised hint that two coaches can share, so it never decides). */
-function ownLibraryFiles(dir: string, names: Set<string>): Array<{ path: string; teams: Array<Obj & { teamId?: string }> }> {
-  const out: Array<{ path: string; teams: Array<Obj & { teamId?: string }> }> = [];
-  for (const path of listFiles(dir, ".json")) {
-    const teams = readJson<unknown>(path);
-    if (!Array.isArray(teams) || teams.length === 0) continue;
-    const rows = teams as Array<Obj & { teamId?: string }>;
-    if (rows.every((t) => isObj(t) && isMine(names, t.coach))) out.push({ path, teams: rows });
+/** The coach's library rows, file by file: rows are the coach's by their owner field, never by the file name. */
+function ownLibraryRows(dir: string, names: ReadonlySet<string>, strict = true): Array<{ path: string; mine: Obj[]; others: unknown[] }> {
+  const read = strict ? readJson : readJsonLoose;
+  const files = strict ? listFiles(dir, ".json") : (() => { try { return listFiles(dir, ".json"); } catch { return []; } })();
+  const out: Array<{ path: string; mine: Obj[]; others: unknown[] }> = [];
+  for (const path of files) {
+    const teams = read<unknown>(path);
+    if (!Array.isArray(teams)) continue;
+    const mine = teams.filter((t): t is Obj => isObj(t) && isMine(names, t.coach));
+    if (mine.length) out.push({ path, mine, others: teams.filter((t) => !(isObj(t) && isMine(names, t.coach))) });
   }
   return out;
 }
 
-function bugReportDirs(dir: string, names: Set<string>): Array<{ path: string; report: Obj }> {
-  return listDirs(dir)
-    .map((path) => ({ path, report: readJson<Obj>(join(path, "report.json")) }))
+function bugReportDirs(dir: string, names: ReadonlySet<string>, strict = true): Array<{ path: string; report: Obj }> {
+  const read = strict ? readJson : readJsonLoose;
+  const dirs = strict ? listDirs(dir) : (() => { try { return listDirs(dir); } catch { return []; } })();
+  return dirs
+    .map((path) => ({ path, report: read<Obj>(join(path, "report.json")) }))
     .filter((r): r is { path: string; report: Obj } => Boolean(r.report && isMine(names, r.report.coach)));
 }
 
-function readOrganizers(file: string | undefined): string[] | undefined {
+function readOrganizers(file: string | undefined, strict = true): string[] | undefined {
   if (!file) return undefined;
-  const raw = readJson<{ organizers?: unknown }>(file);
+  const raw = (strict ? readJson : readJsonLoose)<{ organizers?: unknown }>(file);
   return Array.isArray(raw?.organizers) ? raw!.organizers.filter((x): x is string => typeof x === "string") : undefined;
 }
 
@@ -184,21 +206,70 @@ type TournamentFile = {
   scheduledMatches?: Record<string, Obj & { tournamentId?: string; home?: { coach?: { ffbCoachId?: string } }; away?: { coach?: { ffbCoachId?: string } } }>;
 };
 const tournamentsFile = (deps: PrivacyDeps): string => join(deps.tournamentsDir, "tournaments.json");
-const leagueDirs = (deps: PrivacyDeps): string[] => listDirs(join(deps.stateDir, "leagues"));
+const leagueDirs = (deps: PrivacyDeps, strict = true): string[] => (strict ? listDirs(join(deps.stateDir, "leagues")) : (() => { try { return listDirs(join(deps.stateDir, "leagues")); } catch { return []; } })());
 
-/** A league row is the coach's by its verified account link (coachId); a row with no link only by an exact coach id. */
-const leagueRowMine = (keys: Set<string>, o: unknown): boolean => {
+/** A league row is linked to the coach by its account link (coachId); a row without one only by an exact coach id. */
+const leagueRowLinked = (keys: ReadonlySet<string>, o: unknown): boolean => {
   if (!isObj(o)) return false;
   if (typeof o.coachId === "string" && o.coachId.trim()) return isMine(keys, o.coachId);
   return isMine(keys, o.coach);
 };
+
+/** Within one season: the coach's teams (linked rows) and the rows linked to them through the team. */
+function seasonLinks(keys: ReadonlySet<string>, s: Obj): { teamIds: Set<string>; teamNames: Set<string>; linked: (o: unknown) => boolean } {
+  const teams = objs(s.teams).filter((t) => leagueRowLinked(keys, t));
+  const teamIds = new Set(teams.map((t) => t.id).filter((x): x is string => typeof x === "string"));
+  const teamNames = new Set(teams.map((t) => t.name).filter((x): x is string => typeof x === "string" && x.trim().length > 0));
+  const linked = (o: unknown): boolean => {
+    if (!isObj(o)) return false;
+    if (typeof o.coachId === "string" && o.coachId.trim()) return isMine(keys, o.coachId); // an explicit link always wins
+    if (isMine(keys, o.coach)) return true;
+    if (typeof o.teamId === "string" && o.teamId) return teamIds.has(o.teamId);
+    return typeof o.team === "string" && teamNames.has(o.team);
+  };
+  return { teamIds, teamNames, linked };
+}
+
+/** Display names on rows linked to the coach (league coach / NAF user columns). Data, not self-chosen. */
+export function linkedDisplays(deps: PrivacyDeps, keys: ReadonlySet<string>): string[] {
+  const out = new Set<string>();
+  const take = (o: unknown) => { if (isObj(o)) for (const f of ["coach", "nafUser"]) if (typeof o[f] === "string" && (o[f] as string).trim()) out.add((o[f] as string).trim()); };
+  for (const dir of leagueDirs(deps)) {
+    for (const p of listFiles(join(dir, "seasons"), ".json")) {
+      const s = readJson<unknown>(p);
+      if (!isObj(s)) continue;
+      const { linked } = seasonLinks(keys, s);
+      for (const t of objs(s.teams)) if (linked(t)) take(t);
+      for (const f of objs(s.fixtures)) { if (linked(f.home)) take(f.home); if (linked(f.away)) take(f.away); }
+      for (const p2 of objs(s.participants)) if (linked(p2)) take(p2);
+      for (const a of objs(s.awards)) if (linked(a)) take(a);
+    }
+  }
+  for (const k of keys) out.delete(k);
+  return [...out].filter((d) => !keys.has(nameKey(d)));
+}
+
+/** Identity keys of everyone else the site knows as a coach or account: other identities, library owners, result coaches,
+ *  tournament seats, tabletop coaches, league account links. A name of theirs is never a text alias. */
+export function otherCoachKeys(deps: PrivacyDeps, keys: ReadonlySet<string>): Set<string> {
+  const out = new Set<string>();
+  const add = (v: unknown) => { if (typeof v === "string" && v.trim()) out.add(nameKey(v)); };
+  for (const r of Object.values(readIdentities().coaches)) add(r.ffbCoachId);
+  for (const p of listFiles(deps.libraryDir, ".json")) for (const t of objs(readJson<unknown>(p))) add(t.coach);
+  for (const r of vals(readJson<Obj>(join(deps.stateDir, "tournament-results.json"))?.results)) { if (isObj(r.home)) add(r.home.coach); if (isObj(r.away)) add(r.away.coach); }
+  for (const e of vals(readJson<TournamentFile>(tournamentsFile(deps))?.entrants)) if (isObj(e.coach)) add(e.coach.ffbCoachId);
+  for (const p of listFiles(join(deps.tabletopDir, "matches"), ".json")) { const m = readJson<Obj>(p); if (m) { if (isObj(m.home)) add(m.home.coach); if (isObj(m.away)) add(m.away.coach); } }
+  for (const dir of leagueDirs(deps)) for (const p of listFiles(join(dir, "seasons"), ".json")) for (const t of objs(readJson<Obj>(p)?.teams)) add(t.coachId);
+  for (const k of keys) out.delete(k);
+  return out;
+}
 
 // ---- ownership (delete is blocked while the coach owns a tournament or a league) ---------------------------------
 
 export interface OwnedItem { kind: "tournament" | "league"; id: string; name: string }
 
 /** Draft/active tournaments and leagues the coach OWNS (an organiser seat is removed instead, never blocks). */
-export function ownedItems(deps: PrivacyDeps, names: Set<string>): OwnedItem[] {
+export function ownedItems(deps: PrivacyDeps, names: ReadonlySet<string>): OwnedItem[] {
   const out: OwnedItem[] = [];
   const data = readJson<TournamentFile>(tournamentsFile(deps));
   for (const [id, t] of Object.entries(data?.tournaments ?? {})) {
@@ -213,6 +284,13 @@ export function ownedItems(deps: PrivacyDeps, names: Set<string>): OwnedItem[] {
     if (isMine(names, owner)) out.push({ kind: "league", id: String(league.id ?? ""), name: String(league.name ?? league.id ?? "") });
   }
   return out;
+}
+
+/** The avatar store folds names with NFC on top of the identity key; two identities that collide there share one slot. */
+export function avatarSlotCollision(coach: string): boolean {
+  const key = normalizeFfbCoachId(coach);
+  const slot = coachAvatarId(coach);
+  return Object.values(readIdentities().coaches).some((r) => normalizeFfbCoachId(r.ffbCoachId) !== key && coachAvatarId(r.ffbCoachId) === slot);
 }
 
 // ---- the registry -----------------------------------------------------------------------------------------------
@@ -241,7 +319,7 @@ export const STORE_COLLECTORS: StoreCollector[] = [
     location: "IDENTITIES_FILE (identities.json)",
     // The whole stored record (also fields this build does not know yet), plus roles; never session ids or secrets.
     export: (ctx) => {
-      const organisers = readOrganizers(ctx.deps.organizersFile) ?? [];
+      const organisers = readOrganizers(ctx.deps.organizersFile, false) ?? [];
       const account = {
         ...(ctx.record ?? { ffbCoachId: ctx.coach }),
         legacyOrganiser: organisers.some((o) => nameKey(o) === nameKey(ctx.coach)),
@@ -251,18 +329,19 @@ export const STORE_COLLECTORS: StoreCollector[] = [
     },
     erase: ["identity"],
   },
-  { id: "sessions", location: "SESSIONS_FILE (sessions.json)", export: { none: "Listed in account.json without the session ids." }, erase: ["sessions"] },
-  { id: "discord-sso", location: "data-store/discord-sso-{state,pending}.json", export: { none: "Ten-minute sign-in handshakes only." }, erase: ["sso-pending"] },
+  { id: "sessions", location: "SESSIONS_FILE (sessions.json)", export: { none: "Listed in account.json without the session ids." }, erase: ["sessions", "final-sweep"] },
+  { id: "discord-sso", location: "data-store/discord-sso-{state,pending}.json", export: { none: "Ten-minute sign-in handshakes only." }, erase: ["sso-pending", "final-sweep"] },
   { id: "organizers", location: "ORGANIZERS_FILE (organizers.json)", export: { none: "Shown as legacyOrganiser in account.json." }, erase: ["organiser-roles"] },
   {
     id: "coach-avatars",
     location: "COACH_AVATARS_DIR (uploads + proxy-cache/)",
     export: (ctx) => {
+      if (avatarSlotCollision(ctx.coach)) return []; // the slot is shared with another account: never hand it out
       const found = avatarStoreFor(ctx.deps.coachAvatarsDir).find(coachAvatarKey(ctx.coach));
       if (!found) return [];
       try { return [{ name: `avatar.${found.ext}`, content: readFileSync(found.path) }]; } catch { return []; }
     },
-    erase: ["coach-avatar"],
+    erase: ["coach-avatar", "final-sweep"],
   },
   {
     id: "team-avatars",
@@ -270,7 +349,7 @@ export const STORE_COLLECTORS: StoreCollector[] = [
     export: (ctx) => {
       const store = avatarStoreFor(ctx.deps.teamAvatarsDir);
       const out: ExportFile[] = [];
-      for (const key of teamKeysFor(ctx.deps, ctx.keys)) {
+      for (const key of teamKeysFor(ctx.deps, ctx.keys, false)) {
         const found = store.find(key);
         if (!found) continue;
         try { out.push({ name: `team-logos/${key.replace(/[^\w-]/g, "_")}.${found.ext}`, content: readFileSync(found.path) }); } catch { /* gone */ }
@@ -284,17 +363,17 @@ export const STORE_COLLECTORS: StoreCollector[] = [
     location: "FORK_BUILDER_SAVES_DIR (+ shares/)",
     // Share tokens are capabilities: the export says a save is shared, never the token.
     export: (ctx) => {
-      const saves = ownSaveFiles(ctx.deps.builderSavesDir, ctx.keys).flatMap((f) => f.data.saves ?? [])
+      const saves = ownSaveFiles(ctx.deps.builderSavesDir, ctx.keys, false).flatMap((f) => f.data.saves ?? [])
         .map((s) => ({ ...strip(s, "shareToken"), ...(s.shareToken ? { shared: true } : {}) }));
       return [{ name: "builder-saves.json", content: json(saves) }];
     },
-    erase: ["builder-saves"],
+    erase: ["builder-saves", "final-sweep"],
   },
   {
     id: "team-library",
     location: "FORK_LIBRARY_DIR",
-    export: (ctx) => [{ name: "team-library.json", content: json(ownLibraryFiles(ctx.deps.libraryDir, ctx.keys).flatMap((f) => f.teams)) }],
-    erase: ["library"],
+    export: (ctx) => [{ name: "team-library.json", content: json(ownLibraryRows(ctx.deps.libraryDir, ctx.keys, false).flatMap((f) => f.mine)) }],
+    erase: ["library", "final-sweep"],
   },
   {
     id: "fork-db",
@@ -306,7 +385,7 @@ export const STORE_COLLECTORS: StoreCollector[] = [
     id: "tournaments",
     location: "TOURNAMENTS_DIR/tournaments.json",
     export: (ctx) => {
-      const data = readJson<TournamentFile>(tournamentsFile(ctx.deps));
+      const data = readJsonLoose<TournamentFile>(tournamentsFile(ctx.deps));
       const tName = (id?: string) => (id && data?.tournaments?.[id]?.name) || id || "";
       const entries = Object.values(data?.entrants ?? {}).filter((e) => isMine(ctx.keys, e.coach?.ffbCoachId))
         .map((e) => ({ tournament: tName(e.tournamentId), ...e }));
@@ -326,20 +405,23 @@ export const STORE_COLLECTORS: StoreCollector[] = [
     id: "leagues",
     location: "FORK_STATE_DIR/leagues/<id>/ (league.json, seasons/; secrets.json never read)",
     export: (ctx) => {
-      const mine = (o: unknown) => leagueRowMine(ctx.keys, o);
       const leagues: unknown[] = [];
-      for (const dir of leagueDirs(ctx.deps)) {
-        const league = readJson<{ id?: string; name?: string; owner?: string; organisers?: string[] }>(join(dir, "league.json"));
+      for (const dir of leagueDirs(ctx.deps, false)) {
+        const league = readJsonLoose<{ id?: string; name?: string; owner?: string; organisers?: string[] }>(join(dir, "league.json"));
         if (!league) continue;
-        const seasons = listFiles(join(dir, "seasons"), ".json").map((p) => readJson<Obj>(p)).filter(isObj);
-        const rows = seasons.map((s) => ({
-          season: s.name, number: s.number,
-          teams: objs(s.teams).filter(mine),
-          fixtures: objs(s.fixtures).filter((f) => mine(f.home) || mine(f.away)),
-          participants: objs(s.participants).filter(mine),
-          standings: objs(s.phases).flatMap((p) => objs(p.standings).filter(mine)),
-          awards: objs(s.awards).filter(mine),
-        })).filter((r) => r.teams.length + r.fixtures.length + r.participants.length + r.standings.length + r.awards.length > 0);
+        let files: string[] = [];
+        try { files = listFiles(join(dir, "seasons"), ".json"); } catch { /* none */ }
+        const rows = files.map((p) => readJsonLoose<Obj>(p)).filter(isObj).map((s) => {
+          const { linked } = seasonLinks(ctx.keys, s);
+          return {
+            season: s.name, number: s.number,
+            teams: objs(s.teams).filter(linked),
+            fixtures: objs(s.fixtures).filter((f) => linked(f.home) || linked(f.away)),
+            participants: objs(s.participants).filter(linked),
+            standings: objs(s.phases).flatMap((p) => objs(p.standings).filter(linked)),
+            awards: objs(s.awards).filter(linked),
+          };
+        }).filter((r) => r.teams.length + r.fixtures.length + r.participants.length + r.standings.length + r.awards.length > 0);
         const role = isMine(ctx.keys, league.owner) ? "owner" : (league.organisers ?? []).some((o) => isMine(ctx.keys, o)) ? "organiser" : undefined;
         if (rows.length || role) leagues.push({ league: league.name ?? league.id, id: league.id, ...(role ? { role } : {}), seasons: rows });
       }
@@ -352,8 +434,10 @@ export const STORE_COLLECTORS: StoreCollector[] = [
     location: "TABLETOP_DIR (matches/, events/, journals/)",
     export: (ctx) => {
       const out: unknown[] = [];
-      for (const path of listFiles(join(ctx.deps.tabletopDir, "matches"), ".json")) {
-        const m = readJson<Obj & { id?: string; home?: { coach?: string }; away?: { coach?: string }; createdBy?: string }>(path);
+      let matchFiles: string[] = [];
+      try { matchFiles = listFiles(join(ctx.deps.tabletopDir, "matches"), ".json"); } catch { /* none */ }
+      for (const path of matchFiles) {
+        const m = readJsonLoose<Obj & { id?: string; home?: { coach?: string }; away?: { coach?: string }; createdBy?: string }>(path);
         if (!m || !(isMine(ctx.keys, m.home?.coach) || isMine(ctx.keys, m.away?.coach) || isMine(ctx.keys, m.createdBy))) continue;
         let events: unknown[] = [];
         try {
@@ -362,7 +446,9 @@ export const STORE_COLLECTORS: StoreCollector[] = [
         } catch { /* no events */ }
         out.push({ ...m, events });
       }
-      const teams = listFiles(join(ctx.deps.tabletopDir, "teams"), ".json").map((p) => readJson<{ coach?: string }>(p)).filter((c) => c && isMine(ctx.keys, c.coach));
+      let teamFiles: string[] = [];
+      try { teamFiles = listFiles(join(ctx.deps.tabletopDir, "teams"), ".json"); } catch { /* none */ }
+      const teams = teamFiles.map((p) => readJsonLoose<{ coach?: string }>(p)).filter((c) => c && isMine(ctx.keys, c.coach));
       return [{ name: "tabletop-matches.json", content: json({ matches: out, teamRevisions: teams }) }];
     },
     erase: ["anonymise-tabletop"],
@@ -371,35 +457,35 @@ export const STORE_COLLECTORS: StoreCollector[] = [
     id: "tournament-results",
     location: "FORK_STATE_DIR/tournament-results.json",
     export: (ctx) => {
-      const store = readJson<{ results?: Record<string, { home?: { coach?: string }; away?: { coach?: string } }> }>(join(ctx.deps.stateDir, "tournament-results.json"));
+      const store = readJsonLoose<{ results?: Record<string, { home?: { coach?: string }; away?: { coach?: string } }> }>(join(ctx.deps.stateDir, "tournament-results.json"));
       const rows = Object.values(store?.results ?? {}).filter((r) => isMine(ctx.keys, r.home?.coach) || isMine(ctx.keys, r.away?.coach));
-      const titles = readJson<{ titles?: Record<string, unknown> }>(join(ctx.deps.stateDir, "coach-titles.json"))?.titles ?? {};
+      const titles = readJsonLoose<{ titles?: Record<string, unknown> }>(join(ctx.deps.stateDir, "coach-titles.json"))?.titles ?? {};
       const title = Object.entries(titles).find(([k]) => ctx.keys.has(nameKey(k)))?.[1];
-      const nafId = typeof (ctx.record?.identities as Obj | undefined)?.nafId === "string" ? String((ctx.record!.identities as Obj).nafId) : "";
-      const naf = nafId ? readJson<{ coaches?: Record<string, unknown> }>(join(ctx.deps.stateDir, "naf-games.json"))?.coaches?.[nafId] : undefined;
+      const nafId = verifiedNafId(ctx.record as Partial<CoachIdentityRecord> | undefined);
+      const naf = nafId ? readJsonLoose<{ coaches?: Record<string, unknown> }>(join(ctx.deps.stateDir, "naf-games.json"))?.coaches?.[nafId] : undefined;
       return [{ name: "results.json", content: json({ results: rows, ...(title ? { title } : {}), ...(naf ? { nafRecord: naf } : {}) }) }];
     },
     erase: ["anonymise-results", "deleted-map"],
   },
   { id: "tournament-matches", location: "FORK_STATE_DIR/tournament-matches.json", export: { none: "Match metadata only; the games are in results.json." }, erase: ["anonymise-results"] },
-  { id: "naf-games", location: "FORK_STATE_DIR/naf-games.json", export: { none: "Included in results.json (nafRecord)." }, erase: ["anonymise-naf"] },
+  { id: "naf-games", location: "FORK_STATE_DIR/naf-games.json", export: { none: "Included in results.json (nafRecord, verified NAF link only)." }, erase: ["anonymise-naf"] },
   { id: "coach-titles", location: "FORK_STATE_DIR/coach-titles.json", export: { none: "Included in results.json (title)." }, erase: ["anonymise-ratings"] },
   { id: "replay-moments", location: "FORK_STATE_DIR/replay-moments/", export: { none: "Public game highlights derived from the game server; no data beyond results.json." }, erase: ["anonymise-replays"] },
   {
     id: "notifications",
     location: "FORK_STATE_DIR/notifications/<coach>.json",
     export: (ctx) => {
-      const file = readJson<{ notifications?: unknown[] }>(join(ctx.deps.stateDir, "notifications", notificationFileName(notificationCoachKey(ctx.coach))));
+      const file = readJsonLoose<{ notifications?: unknown[] }>(join(ctx.deps.stateDir, "notifications", notificationFileName(notificationCoachKey(ctx.coach))));
       return [{ name: "notifications.json", content: json(file?.notifications ?? []) }];
     },
-    erase: ["notifications", "anonymise-notifications"],
+    erase: ["notifications", "anonymise-notifications", "final-sweep"],
   },
   {
     id: "bug-reports",
     location: "BUG_REPORTS_DIR",
     export: (ctx) => [{
       name: "bug-reports-index.json",
-      content: json(bugReportDirs(ctx.deps.bugReportsDir, ctx.keys).map(({ path, report }) => ({
+      content: json(bugReportDirs(ctx.deps.bugReportsDir, ctx.keys, false).map(({ path, report }) => ({
         id: path.split(/[\\/]/).pop(), submittedAt: report.submittedAt, kind: report.kind, gameId: report.gameId ?? null, description: report.description ?? "",
       }))),
     }],
@@ -454,11 +540,18 @@ export const INVENTORY_ROWS: Record<(typeof KNOWN_STORES)[number], string[]> = {
 };
 
 /** Team keys whose logos belong to the coach: their builder saves and library teams. */
-export function teamKeysFor(deps: PrivacyDeps, names: Set<string>): string[] {
+export function teamKeysFor(deps: PrivacyDeps, names: ReadonlySet<string>, strict = true): string[] {
   const keys = new Set<string>();
-  for (const f of ownSaveFiles(deps.builderSavesDir, names)) for (const s of f.data.saves ?? []) if (typeof s.id === "string") keys.add(`save:${s.id}`);
-  for (const f of ownLibraryFiles(deps.libraryDir, names)) for (const t of f.teams) if (typeof t.teamId === "string") keys.add(`library:${t.teamId}`);
+  for (const f of ownSaveFiles(deps.builderSavesDir, names, strict)) for (const s of f.data.saves ?? []) if (typeof s.id === "string") keys.add(`save:${s.id}`);
+  for (const f of ownLibraryRows(deps.libraryDir, names, strict)) for (const t of f.mine) if (typeof t.teamId === "string") keys.add(`library:${t.teamId}`);
   return [...keys];
+}
+
+/** The NAF id only while the identity's verified NAF connection still names it (an editable nafId alone is not enough). */
+export function verifiedNafId(record: Partial<CoachIdentityRecord> | undefined): string | undefined {
+  const id = record?.identities?.nafId;
+  const naf = record?.connections?.naf;
+  return id && naf && naf.nafId === id && naf.nafName === record?.identities?.nafName ? id : undefined;
 }
 
 // ---- export -----------------------------------------------------------------------------------------------------
@@ -478,7 +571,8 @@ team-logos/             Team logos you uploaded.
 tournament-entries.json Your tournament entries, fixtures, and the tournaments you run.
 league-teams.json       League teams, fixtures, standings and awards linked to your account, and leagues you run.
 tabletop-matches.json   Tabletop matches you played or recorded, with their event logs, and your tabletop team history.
-results.json            Game results with you as home or away coach, your rating title, and your cached NAF games.
+results.json            Game results with you as home or away coach, your rating title, and your cached NAF games
+                        (when your NAF link is verified).
 notifications.json      Your notifications.
 bug-reports-index.json  The bug reports and feedback you sent (id, date, description).
 
@@ -511,6 +605,7 @@ export interface PlanInput {
   pseudonym: string;
   actor: string;
   now: Date;
+  mapKey: string;
   blockHashOf: (discordId: string) => string;
   discordAvatarUrl: (id: string, hash: string | undefined) => string | null | undefined;
 }
@@ -519,23 +614,21 @@ export function buildPlan(deps: PrivacyDeps, input: PlanInput): DeletePlan {
   const store = readIdentities();
   const record = store.coaches[normalizeFfbCoachId(input.sessionCoach)];
   const coach = record?.ffbCoachId ?? input.sessionCoach.trim();
-  const coachNames = [...new Map([coach, input.sessionCoach.trim()].map((n) => [nameKey(n), n])).values()];
-  const others = new Set(Object.values(store.coaches).map((r) => nameKey(r.ffbCoachId)).filter((k) => k !== nameKey(coach)));
-  const extra = [record?.profile?.displayName, record?.identities?.nafName, record?.identities?.discordUsername]
-    .filter((n): n is string => typeof n === "string" && n.trim().length >= 2 && !others.has(nameKey(n)));
-  const aliases = [...new Map([...coachNames, ...extra].map((n) => [nameKey(n), n])).values()];
-  const discordId = record?.identities?.discordUserId;
+  // the identity record's spelling first (free text is matched case-sensitively on it); the session spelling only when it differs
+  const coachNames = [coach, input.sessionCoach.trim()].filter((n, i, all) => all.findIndex((m) => nameKey(m) === nameKey(n)) === i);
   const names = new Set(coachNames.map(nameKey));
+  const discordId = record?.identities?.discordUserId;
+  const nafId = verifiedNafId(record);
   return {
     jobId: input.jobId,
     coachHash: coachKeyHash(coach),
     coach,
     coachNames,
-    aliases,
+    displays: linkedDisplays(deps, names),
     pseudonym: input.pseudonym,
-    ...(discordId ? { discordHash: sha256(discordId) } : {}),
+    ...(discordId ? { discordHash: sha256(discordId), discordMark: mapHash(input.mapKey, "discord", discordId.trim()) } : {}),
     ...(discordId && record?.banned ? { blockHash: input.blockHashOf(discordId) } : {}),
-    ...(record?.identities?.nafId ? { nafId: record.identities.nafId } : {}),
+    ...(nafId ? { nafId } : {}),
     teamKeys: teamKeysFor(deps, names),
     proxyKeys: coachProxyCacheKeys(record, input.discordAvatarUrl),
     actor: input.actor,
@@ -544,13 +637,11 @@ export function buildPlan(deps: PrivacyDeps, input: PlanInput): DeletePlan {
 }
 
 export const splitPlan = (plan: DeletePlan): { stored: Omit<StoredPlan, "sealed">; secrets: PlanSecrets } => {
-  const { coach, coachNames, aliases, nafId, ...stored } = plan;
-  return { stored, secrets: { coach, coachNames, aliases, ...(nafId ? { nafId } : {}) } };
+  const { coach, coachNames, displays, nafId, ...stored } = plan;
+  return { stored, secrets: { coach, coachNames, displays, ...(nafId ? { nafId } : {}) } };
 };
 
-// ---- per-store anonymisation (explicit coach fields only) --------------------------------------------------------
-
-const SIDE = ["coach", "coachId"];
+// ---- per-store anonymisation (linked records, explicit fields) ---------------------------------------------------
 
 function anonymiseResultRow(an: Anonymiser, row: unknown): boolean {
   if (!isObj(row)) return false;
@@ -559,21 +650,21 @@ function anonymiseResultRow(an: Anonymiser, row: unknown): boolean {
   return a || b;
 }
 
-function anonymiseTournaments(an: Anonymiser, data: Obj): boolean {
+function anonymiseTournaments(an: Anonymiser, tx: TextReplacer, data: Obj): boolean {
   let changed = false;
   const mark = (v: boolean) => { if (v) changed = true; };
   for (const t of vals(data.tournaments)) {
-    mark(an.fields(t, ["ownerCoachId", "organizerCoachId"]));
+    mark(an.fields(t, ["ownerCoachId", "organizerCoachId"], []));
     mark(an.list(t.organizerCoachIds));
-    for (const n of objs(t.news)) { mark(an.fields(n, ["by"])); mark(an.texts(n, ["title", "body"])); }
+    for (const n of objs(t.news)) { mark(an.fields(n, ["by"], [])); mark(tx.texts(n, ["title", "body"])); }
   }
   const identity = ["coachId", "ffbCoachId"];
   for (const e of vals(data.entrants)) mark(an.fields(e.coach, identity, ["discordUserId"]));
   for (const m of vals(data.scheduledMatches)) {
     for (const s of [m.home, m.away]) if (isObj(s)) mark(an.fields(s.coach, identity, ["discordUserId"]));
-    mark(an.fields(m.edited, ["byCoachId"]));
+    mark(an.fields(m.edited, ["byCoachId"], []));
   }
-  for (const st of vals(data.standings)) for (const r of objs(st.rows)) mark(an.fields(r, ["coachId"]));
+  for (const st of vals(data.standings)) for (const r of objs(st.rows)) mark(an.fields(r, ["coachId"], []));
   // Waiting-room leases are keyed "<matchId>\0<coach>" and short-lived: drop the coach's, never rename them.
   if (isObj(data.waitingPresence)) {
     for (const [k, lease] of Object.entries(data.waitingPresence)) {
@@ -583,49 +674,58 @@ function anonymiseTournaments(an: Anonymiser, data: Obj): boolean {
   return changed;
 }
 
-/** League display names: rows linked to the coach's account (coachId) name their display coach and NAF user; those become
- *  aliases for the league's unlinked rows (imported standings, honours, awards). */
-function leagueAliases(names: Set<string>, seasons: Obj[]): string[] {
-  const out = new Set<string>();
-  const take = (o: unknown) => {
-    if (!isObj(o) || typeof o.coachId !== "string" || !names.has(nameKey(o.coachId))) return;
-    for (const f of ["coach", "nafUser"]) if (typeof o[f] === "string" && (o[f] as string).trim().length >= 2) out.add(o[f] as string);
-  };
-  for (const s of seasons) {
-    for (const t of objs(s.teams)) take(t);
-    for (const f of objs(s.fixtures)) { take(f.home); take(f.away); }
-    for (const p of objs(s.participants)) take(p);
-    for (const a of objs(s.awards)) take(a);
-    if (isObj(s.redraft)) for (const t of objs(s.redraft.teams)) take(t);
-  }
-  return [...out];
-}
+/** A linked league row: coach display and account link become the pseudonym, the NAF user goes. */
+const LINKED_ROW = (an: Anonymiser, o: Obj): boolean => {
+  const a = an.overwrite(o, ["coach"]);
+  const b = typeof o.coachId === "string" && o.coachId ? (o.coachId = an.swap(o.coachId as string), true) : false;
+  return a || b;
+};
 
-function anonymiseSeason(an: Anonymiser, s: Obj): boolean {
+function anonymiseSeason(an: Anonymiser, tx: TextReplacer, displays: ReadonlySet<string>, s: Obj): boolean {
   let changed = false;
   const mark = (v: boolean) => { if (v) changed = true; };
-  for (const t of objs(s.teams)) { mark(an.fields(t, SIDE)); if (isObj(t.coachAssigned)) mark(an.fields(t.coachAssigned, ["by"], [])); }
-  for (const f of objs(s.fixtures)) { mark(an.fields(f.home, SIDE)); mark(an.fields(f.away, SIDE)); }
-  for (const p of objs(s.participants)) mark(an.fields(p, SIDE));
-  for (const ph of objs(s.phases)) for (const r of objs(ph.standings)) mark(an.fields(r, SIDE));
-  for (const h of objs(s.honours)) {
-    for (const r of objs(h.rows)) {
-      mark(an.fields(r, ["coach"], []));
-      if (h.kind === "coach") mark(an.fields(r, ["name"], [])); // a coach honour's row name IS the coach
+  const { linked } = seasonLinks(an.ids, s);
+  for (const t of objs(s.teams)) {
+    if (linked(t)) mark(LINKED_ROW(an, t));
+    if (isObj(t.coachAssigned)) mark(an.fields(t.coachAssigned, ["by"], []));
+  }
+  for (const f of objs(s.fixtures)) {
+    for (const side of [f.home, f.away]) if (linked(side)) mark(LINKED_ROW(an, side as Obj));
+    if (isObj(f.fork)) {
+      for (const ft of vals(f.fork.teams)) mark(an.fields(ft, ["coach"], []));
+      mark(an.fields(f.fork, ["generatedBy"], []));
+      for (const l of objs(f.fork.log)) { mark(an.fields(l, ["by"], [])); mark(tx.texts(l, ["text"])); }
     }
   }
-  for (const a of objs(s.awards)) mark(an.fields(a, SIDE));
-  for (const n of objs(s.news)) { mark(an.fields(n, ["by"], [])); mark(an.texts(n, ["title", "body"])); }
-  for (const l of objs(s.log)) { mark(an.fields(l, ["by"], [])); mark(an.texts(l, ["text"])); }
+  for (const p of objs(s.participants)) if (linked(p)) mark(LINKED_ROW(an, p));
+  for (const ph of objs(s.phases)) for (const r of objs(ph.standings)) if (linked(r)) mark(LINKED_ROW(an, r));
+  for (const h of objs(s.honours)) {
+    for (const r of objs(h.rows)) {
+      if (h.kind === "coach") {
+        // a coach honour's row name IS the coach: linked by the display names found on the coach's linked rows
+        if (typeof r.name === "string" && (displays.has(r.name.trim()) || an.matches(r.name))) mark(an.overwrite(r, ["name", "coach"], []));
+      } else if (linked(r)) mark(an.overwrite(r, ["coach"], []));
+    }
+  }
+  for (const a of objs(s.awards)) if (linked(a)) mark(LINKED_ROW(an, a));
+  for (const n of objs(s.news)) { mark(an.fields(n, ["by"], [])); mark(tx.texts(n, ["title", "body"])); }
+  for (const l of objs(s.log)) { mark(an.fields(l, ["by"], [])); mark(tx.texts(l, ["text"])); }
   if (isObj(s.redraft)) {
     mark(an.fields(s.redraft, ["byCoach", "closedBy"], []));
-    for (const t of objs(s.redraft.teams)) mark(an.fields(t, SIDE));
-    for (const l of objs(s.redraft.log)) { mark(an.fields(l, ["by"], [])); mark(an.texts(l, ["text"])); }
+    for (const t of objs(s.redraft.teams)) {
+      const mine = leagueRowLinked(an.ids, t);
+      if (mine) mark(LINKED_ROW(an, t));
+      mark(an.fields(t, ["submittedBy"], []));
+      if (isObj(t.rest)) mark(an.fields(t.rest, ["by"], []));
+      if (isObj(t.override)) mark(an.fields(t.override, ["by"], []));
+      if (mine && isObj(t.draft) && isObj(t.draft.team)) mark(LINKED_ROW(an, t.draft.team));
+    }
+    for (const l of objs(s.redraft.log)) { mark(an.fields(l, ["by"], [])); mark(tx.texts(l, ["text"])); }
   }
   return changed;
 }
 
-function anonymiseTabletopMatch(an: Anonymiser, m: Obj): boolean {
+function anonymiseTabletopMatch(an: Anonymiser, tx: TextReplacer, m: Obj): boolean {
   let changed = false;
   const mark = (v: boolean) => { if (v) changed = true; };
   mark(an.fields(m.home, ["coach"], []));
@@ -633,13 +733,60 @@ function anonymiseTabletopMatch(an: Anonymiser, m: Obj): boolean {
   mark(an.fields(m, ["createdBy", "publishedBy"], []));
   mark(an.fields(m.confirmedBy, ["by"], []));
   mark(an.keyedMap(m.confirmations)); // coach -> confirmation time: a known coach-keyed map
-  mark(an.texts(m, ["note"]));
+  mark(tx.texts(m, ["note"]));
+  return changed;
+}
+
+function anonymiseTabletopEvent(an: Anonymiser, e: Obj): boolean {
+  let changed = an.fields(e, ["by"], []);
+  if (isObj(e.payload)) {
+    // seats / coin events carry the coaches of both sides
+    if (an.fields(e.payload, ["caller", "coach"], [])) changed = true;
+    for (const side of [e.payload.home, e.payload.away]) if (an.fields(side, ["coach"], [])) changed = true;
+  }
   return changed;
 }
 
 // ---- delete steps (run in this order; each idempotent) -----------------------------------------------------------
 
 export interface DeleteStep { id: string; run: (ctx: DeleteCtx) => Promise<StepStatus> | StepStatus }
+
+const removeLibraryRows = (deps: PrivacyDeps, names: ReadonlySet<string>): void => {
+  for (const f of ownLibraryRows(deps.libraryDir, names)) {
+    const lock = acquireFileWriteLock(libraryWriteLockPath(deps.libraryDir, basename(f.path, ".json")));
+    if (!lock) throw new Error("library file is locked");
+    try {
+      // re-read under the lock: only the coach's rows go, other owners' rows in the same file stay
+      const rows = readJson<unknown>(f.path);
+      if (!Array.isArray(rows)) continue;
+      const keep = rows.filter((t) => !(isObj(t) && isMine(names, t.coach)));
+      if (keep.length === rows.length) continue;
+      if (keep.length === 0) unlinkIfExists(f.path); else atomicWriteTextFile(f.path, JSON.stringify(keep, null, 2));
+    } finally {
+      lock.release();
+    }
+  }
+};
+
+const removeSaves = (deps: PrivacyDeps, names: ReadonlySet<string>): void => {
+  for (const f of ownSaveFiles(deps.builderSavesDir, names)) {
+    for (const s of f.data.saves ?? []) if (typeof s.shareToken === "string" && /^[0-9a-f]{32}$/.test(s.shareToken)) unlinkIfExists(join(deps.builderSavesDir, "shares", `${s.shareToken}.json`));
+    unlinkIfExists(f.path);
+    unlinkIfExists(join(deps.builderSavesDir, ".locks", `${basename(f.path, ".json")}.lock`));
+  }
+  // share index entries that still point at the coach (a crash between the unlinks above)
+  for (const p of listFiles(join(deps.builderSavesDir, "shares"), ".json")) if (isMine(names, readJson<{ coach?: string }>(p)?.coach)) unlinkIfExists(p);
+};
+
+const removeNotifications = (deps: PrivacyDeps, plan: DeletePlan): void => {
+  for (const n of plan.coachNames) unlinkIfExists(join(deps.stateDir, "notifications", notificationFileName(notificationCoachKey(n))));
+};
+
+const removeSsoPending = (deps: PrivacyDeps, plan: DeletePlan): StepStatus => {
+  if (!plan.discordHash || !deps.pendingSso) return "skipped";
+  deps.pendingSso.deleteWhere((id) => sha256(id) === plan.discordHash);
+  return "done";
+};
 
 export const DELETE_STEPS: DeleteStep[] = [
   {
@@ -651,18 +798,17 @@ export const DELETE_STEPS: DeleteStep[] = [
     run: ({ deps, plan }) => { if (!plan.blockHash) return "skipped"; addToBlocklist(deps.stateDir, plan.blockHash); return "done"; },
   },
   {
-    // Fork results pulled again later (the fork keeps the original names) are anonymised on write.
+    // Results, replays and NAF games written later (the fork keeps the original names) are anonymised on write; a late
+    // Discord callback for this account is refused for 24 h.
     id: "deleted-map",
-    run: ({ deps, plan }) => { recordDeletedCoach(deps.stateDir, plan.coachNames.map(nameKey), plan.pseudonym, deps.env); return "done"; },
-  },
-  {
-    id: "sso-pending",
     run: ({ deps, plan }) => {
-      if (!plan.discordHash || !deps.pendingSso) return "skipped";
-      deps.pendingSso.deleteWhere((id) => sha256(id) === plan.discordHash);
+      if (!deps.mapKey) throw new Error("PRIVACY_MAP_KEY missing");
+      recordDeletedCoach(deps.stateDir, deps.mapKey, plan.coachNames.map(nameKey), plan.pseudonym, plan.nafId);
+      if (plan.discordMark) markRecentDeletion(deps.stateDir, plan.discordMark);
       return "done";
     },
   },
+  { id: "sso-pending", run: ({ deps, plan }) => removeSsoPending(deps, plan) },
   {
     id: "coach-avatar",
     run: async ({ deps, plan }): Promise<StepStatus> => { for (const n of plan.coachNames) await deleteCoachAvatarData(deps.coachAvatarsDir, n, plan.proxyKeys); return "done"; },
@@ -681,23 +827,8 @@ export const DELETE_STEPS: DeleteStep[] = [
       return "done";
     },
   },
-  {
-    id: "builder-saves",
-    run: ({ deps, names }) => {
-      for (const f of ownSaveFiles(deps.builderSavesDir, names)) {
-        for (const s of f.data.saves ?? []) if (typeof s.shareToken === "string" && /^[0-9a-f]{32}$/.test(s.shareToken)) unlinkIfExists(join(deps.builderSavesDir, "shares", `${s.shareToken}.json`));
-        unlinkIfExists(f.path);
-        unlinkIfExists(join(deps.builderSavesDir, ".locks", `${f.path.split(/[\\/]/).pop()!.replace(/\.json$/, "")}.lock`));
-      }
-      // share index entries that still point at the coach (a crash between the unlinks above)
-      for (const p of listFiles(join(deps.builderSavesDir, "shares"), ".json")) if (isMine(names, readJson<{ coach?: string }>(p)?.coach)) unlinkIfExists(p);
-      return "done";
-    },
-  },
-  {
-    id: "library",
-    run: ({ deps, names }) => { for (const f of ownLibraryFiles(deps.libraryDir, names)) unlinkIfExists(f.path); return "done"; },
-  },
+  { id: "builder-saves", run: ({ deps, names }) => { removeSaves(deps, names); return "done"; } },
+  { id: "library", run: ({ deps, names }) => { removeLibraryRows(deps, names); return "done"; } },
   {
     id: "fork-account",
     run: async ({ deps, plan }): Promise<StepStatus> => {
@@ -706,13 +837,7 @@ export const DELETE_STEPS: DeleteStep[] = [
       return "done";
     },
   },
-  {
-    id: "notifications",
-    run: ({ deps, plan }) => {
-      for (const n of plan.coachNames) unlinkIfExists(join(deps.stateDir, "notifications", notificationFileName(notificationCoachKey(n))));
-      return "done";
-    },
-  },
+  { id: "notifications", run: ({ deps, plan }) => { removeNotifications(deps, plan); return "done"; } },
   {
     id: "bug-reports",
     run: ({ deps, names }) => { for (const r of bugReportDirs(deps.bugReportsDir, names)) rmSync(r.path, { recursive: true, force: true }); return "done"; },
@@ -768,34 +893,37 @@ export const DELETE_STEPS: DeleteStep[] = [
       return "done";
     },
   },
-  { id: "anonymise-tournaments", run: ({ deps, an }) => { rewriteJson(tournamentsFile(deps), (d) => anonymiseTournaments(an, d)); return "done"; } },
+  { id: "anonymise-tournaments", run: ({ deps, an, text }) => { rewriteJson(tournamentsFile(deps), (d) => anonymiseTournaments(an, text(), d)); return "done"; } },
   {
     id: "anonymise-leagues",
-    run: ({ deps, an, names }) => {
+    run: ({ deps, an, text, plan }) => {
+      const tx = text();
+      const others = otherCoachKeys(deps, an.ids);
+      const displays = new Set(plan.displays.map((d) => d.trim()).filter((d) => d && !others.has(nameKey(d))));
       for (const dir of leagueDirs(deps)) {
-        const seasonFiles = listFiles(join(dir, "seasons"), ".json");
-        const seasons = seasonFiles.map((p) => readJson<Obj>(p)).filter(isObj);
-        const others = new Set(Object.values(readIdentities().coaches).map((r) => nameKey(r.ffbCoachId)));
-        const local = an.withAliases(leagueAliases(names, seasons).filter((a) => !others.has(nameKey(a)) || names.has(nameKey(a))));
-        rewriteJson(join(dir, "league.json"), (l) => [local.fields(l, ["owner"], []), local.list(l.organisers)].some(Boolean));
-        for (const p of seasonFiles) rewriteJson(p, (s) => anonymiseSeason(local, s));
+        rewriteJson(join(dir, "league.json"), (l) => [an.fields(l, ["owner"], []), an.list(l.organisers)].some(Boolean));
+        for (const p of listFiles(join(dir, "seasons"), ".json")) rewriteJson(p, (s) => anonymiseSeason(an, tx, displays, s));
       }
       return "done";
     },
   },
   {
     id: "anonymise-tabletop",
-    run: ({ deps, an }) => {
-      for (const p of listFiles(join(deps.tabletopDir, "matches"), ".json")) rewriteJson(p, (m) => anonymiseTabletopMatch(an, m));
+    run: ({ deps, an, text }) => {
+      const tx = text();
+      for (const p of listFiles(join(deps.tabletopDir, "matches"), ".json")) rewriteJson(p, (m) => anonymiseTabletopMatch(an, tx, m));
       for (const p of listFiles(join(deps.tabletopDir, "journals"), ".json")) {
         rewriteJson(p, (j) => {
-          const a = an.fields(j, ["by"], []);
-          const b = isObj(j.match) ? anonymiseTabletopMatch(an, j.match) : false;
-          const c = isObj(j.result) ? anonymiseResultRow(an, j.result.put) : false;
-          return a || b || c;
+          const parts = [
+            an.fields(j, ["by"], []),
+            isObj(j.match) ? anonymiseTabletopMatch(an, tx, j.match) : false,
+            isObj(j.result) ? anonymiseResultRow(an, j.result.put) : false,
+            ...[j.homeChain, j.awayChain].map((c) => (isObj(c) ? an.fields(c.target, ["coach"], []) : false)),
+          ];
+          return parts.some(Boolean);
         });
       }
-      for (const p of listFiles(join(deps.tabletopDir, "events"), ".ndjson")) rewriteNdjson(p, (e) => an.fields(e, ["by"], []));
+      for (const p of listFiles(join(deps.tabletopDir, "events"), ".ndjson")) rewriteNdjson(p, (e) => anonymiseTabletopEvent(an, e));
       return "done";
     },
   },
@@ -806,19 +934,20 @@ export const DELETE_STEPS: DeleteStep[] = [
   {
     id: "anonymise-naf",
     run: ({ deps, plan, an }) => {
+      // Only a VERIFIED NAF id links NAF data to the coach; names never do. Without one the cache is left alone.
+      const nafId = plan.nafId;
+      if (!nafId) return "skipped";
       const path = join(deps.stateDir, "naf-games.json");
       const data = readJson<{ version?: number; coaches?: Record<string, Obj & { games?: Obj[] }> }>(path);
       if (!data?.coaches) return "skipped";
       let changed = false;
-      const nafId = plan.nafId; // only compared when defined
-      if (nafId && Object.hasOwn(data.coaches, nafId)) { delete data.coaches[nafId]; changed = true; }
+      if (Object.hasOwn(data.coaches, nafId)) { delete data.coaches[nafId]; changed = true; }
       for (const rec of Object.values(data.coaches)) {
         for (const g of objs(rec.games)) {
           const coaches = Array.isArray(g.coaches) ? (g.coaches as unknown[]) : [];
           const ids = Array.isArray(g.coachIds) ? (g.coachIds as unknown[]) : [];
-          const hitAt = (i: number) => an.matches(coaches[i]) || (nafId !== undefined && ids[i] === nafId);
-          if (!coaches.some((_, i) => hitAt(i))) continue;
-          g.coaches = coaches.map((c, i) => (hitAt(i) ? an.pseudonym : c));
+          if (!ids.includes(nafId)) continue;
+          g.coaches = coaches.map((c, i) => (ids[i] === nafId ? an.pseudonym : c));
           delete g.coachIds;
           changed = true;
         }
@@ -838,10 +967,11 @@ export const DELETE_STEPS: DeleteStep[] = [
   },
   {
     id: "anonymise-notifications",
-    run: ({ deps, an }) => {
+    run: ({ deps, an, text }) => {
+      const tx = text();
       // Other coaches' notifications that mention the deleted coach keep the event, with the name swapped.
       for (const path of listFiles(join(deps.stateDir, "notifications"), ".json")) {
-        rewriteJson(path, (file) => objs(file.notifications).map((n) => [an.fields(n, ["from"], []), an.texts(n, ["title", "body"])].some(Boolean)).some(Boolean));
+        rewriteJson(path, (file) => objs(file.notifications).map((n) => [an.fields(n, ["from"], []), tx.texts(n, ["title", "body"])].some(Boolean)).some(Boolean));
       }
       deps.onCoachDeleted?.();
       return "done";
@@ -856,8 +986,27 @@ export const DELETE_STEPS: DeleteStep[] = [
       return "done";
     },
   },
+  {
+    // Writes authorised before the fence that landed during the job: the private stores are swept once more.
+    id: "final-sweep",
+    run: async ({ deps, plan, names }): Promise<StepStatus> => {
+      for (const n of plan.coachNames) deleteSessionsForCoach(n);
+      removeSsoPending(deps, plan);
+      removeSaves(deps, names);
+      removeLibraryRows(deps, names);
+      removeNotifications(deps, plan);
+      for (const n of plan.coachNames) await deleteCoachAvatarData(deps.coachAvatarsDir, n, plan.proxyKeys);
+      return "done";
+    },
+  },
 ];
 
-export const deleteContext = (deps: PrivacyDeps, plan: DeletePlan): DeleteCtx => ({
-  deps, plan, an: createAnonymiser(plan.aliases, plan.pseudonym), names: new Set(plan.coachNames.map(nameKey)),
-});
+export const deleteContext = (deps: PrivacyDeps, plan: DeletePlan): DeleteCtx => {
+  const an = createAnonymiser(plan.coachNames, plan.pseudonym);
+  const names = new Set(plan.coachNames.map(nameKey));
+  let tx: TextReplacer | undefined;
+  return {
+    deps, plan, an, names,
+    text: () => (tx ??= createTextReplacer(textAliases([...plan.coachNames, ...plan.displays], otherCoachKeys(deps, names)), plan.pseudonym)),
+  };
+};

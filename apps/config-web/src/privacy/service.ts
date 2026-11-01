@@ -16,7 +16,7 @@ import { crc32 } from "../leagues/exportZip.js";
 import { discordAvatarUrl } from "../auth/discordSso.js";
 import { normalizeFfbCoachId, readIdentities } from "../auth/identitiesStore.js";
 import {
-  buildPlan, collectExport, deleteContext, DELETE_STEPS, EXPORT_MAX_BYTES, ownedItems, splitPlan,
+  avatarSlotCollision, buildPlan, collectExport, deleteContext, DELETE_STEPS, EXPORT_MAX_BYTES, ownedItems, splitPlan,
   type DeletePlan, type ExportFile, type OwnedItem, type PlanSecrets, type PrivacyDeps, type StoredPlan,
 } from "./collectors.js";
 import { nameKey } from "./anonymise.js";
@@ -29,7 +29,7 @@ import {
 export const JOB_RETRY_DAYS = 7;
 
 export interface DeleteOutcome {
-  status: "deleted" | "blocked" | "mismatch";
+  status: "deleted" | "blocked" | "mismatch" | "unavailable" | "conflict";
   owned?: OwnedItem[];
   /** Steps still pending (the fork account when the game server was unreachable). */
   pending?: string[];
@@ -84,8 +84,10 @@ export class PrivacyService {
       const canonical = this.canonicalCoach(coach);
       if (typeof confirm !== "string" || !confirm.trim() || (nameKey(confirm) !== nameKey(canonical) && nameKey(confirm) !== nameKey(coach)))
         return { status: "mismatch" };
+      if (!this.deps.mapKey) return { status: "unavailable" };
       const owned = this.owned(coach);
       if (owned.length) return { status: "blocked", owned };
+      if (avatarSlotCollision(canonical)) return { status: "conflict" };
       const jobId = newJobId();
       const plan = buildPlan(this.deps, {
         sessionCoach: coach,
@@ -93,6 +95,7 @@ export class PrivacyService {
         pseudonym: allocatePseudonym(this.deps.stateDir),
         actor,
         now,
+        mapKey: this.deps.mapKey,
         blockHashOf: (id) => blocklistHash(this.deps.stateDir, id, this.deps.env),
         discordAvatarUrl,
       });

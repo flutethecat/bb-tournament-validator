@@ -250,6 +250,8 @@ function withArtLock<T>(id: string, task: () => Promise<T>): Promise<T> {
 }
 
 const statsCache = new Map<string, { key: string; stats: LeagueStats }>();
+/** Account deletion rewrote league files: drop the derived statistics. */
+export function clearLeagueStatsCache(): void { statsCache.clear(); }
 
 function statsFor(store: LeagueStore, leagueId: string, scope: StatsScope): LeagueStats {
   const seasons = store.seasons(leagueId);

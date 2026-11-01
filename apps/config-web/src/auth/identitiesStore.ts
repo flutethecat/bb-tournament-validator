@@ -623,16 +623,49 @@ export function mergeIdentityRecords(
  * Returns false when there was nothing to remove (idempotent on a resumed job).
  */
 export function removeIdentityRecord(coach: string, discordUserId?: string): boolean {
+  // Raw edit: every other record (and every field this build does not know, e.g. contact / consent) is written back
+  // exactly as stored; only the coach's entries and their provisional signups go.
   const key = normalizeFfbCoachId(coach);
-  const current = readIdentities();
-  const section = readProvisionalSection();
-  const hadRecord = Object.hasOwn(current.coaches, key);
-  const provisional = Object.entries(section).filter(([id, rec]) => id === discordUserId || normalizeFfbCoachId(rec.coachName) === key).map(([id]) => id);
-  if (!hadRecord && provisional.length === 0) return false;
-  const coaches = { ...current.coaches };
-  delete coaches[key];
-  for (const id of provisional) delete section[id];
-  writeIdentityStore({ version: 1, coaches, provisionalSignups: section });
+  const target = identitiesFile();
+  let raw: Record<string, unknown>;
+  try {
+    raw = JSON.parse(readFileSync(target, "utf8")) as Record<string, unknown>;
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw e; // unreadable: never rewrite (the step fails and is retried)
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("identities store is not an object.");
+  let changed = false;
+  const coaches = raw.coaches && typeof raw.coaches === "object" && !Array.isArray(raw.coaches) ? { ...(raw.coaches as Record<string, unknown>) } : undefined;
+  if (coaches) {
+    for (const [k, v] of Object.entries(coaches)) {
+      const rec = v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+      const id = typeof rec.ffbCoachId === "string" ? rec.ffbCoachId : typeof rec.forkName === "string" ? rec.forkName : "";
+      if (normalizeFfbCoachId(k) === key || (id && normalizeFfbCoachId(id) === key)) { delete coaches[k]; changed = true; }
+    }
+  }
+  const prov = raw.provisionalSignups && typeof raw.provisionalSignups === "object" && !Array.isArray(raw.provisionalSignups) ? { ...(raw.provisionalSignups as Record<string, unknown>) } : undefined;
+  if (prov) {
+    for (const [k, v] of Object.entries(prov)) {
+      const rec = v && typeof v === "object" ? (v as Record<string, unknown>) : {};
+      if (k === discordUserId || (typeof rec.coachName === "string" && normalizeFfbCoachId(rec.coachName) === key)) { delete prov[k]; changed = true; }
+    }
+  }
+  if (!changed) return false;
+  const next = { ...raw, ...(coaches ? { coaches } : {}), ...(prov ? { provisionalSignups: prov } : {}) };
+  mkdirSync(dirname(target), { recursive: true });
+  const temp = `${target}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`;
+  try {
+    writeFileSync(temp, `${JSON.stringify(next, null, 2)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
+    renameSync(temp, target);
+  } catch (error) {
+    if (existsSync(temp)) unlinkSync(temp);
+    throw error;
+  }
+  const store = readIdentities();
+  for (const listener of writeListeners) {
+    try { listener(store); } catch { /* a cache listener never fails a write */ }
+  }
   return true;
 }
 
