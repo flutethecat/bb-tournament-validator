@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { tournamentApi, type TournamentApiIdentity, type TournamentApiResult } from "../src/tournaments/api.js";
+import { NAF_EXPORT_UNSANCTIONED_MESSAGE, tournamentApi, type TournamentApiIdentity, type TournamentApiResult } from "../src/tournaments/api.js";
 import { migrateTournamentData, TournamentStore } from "../src/tournaments/store.js";
 import type { TournamentRecord } from "../src/tournaments/types.js";
 
@@ -172,8 +172,13 @@ describe("per-tournament organizer permissions", () => {
 });
 
 describe("NAF submission export", () => {
-  function completedTournament(store: TournamentStore): TournamentRecord {
+  function completedTournament(store: TournamentStore, sanctioned = true): TournamentRecord {
     const record = tournament(store, "active");
+    if (sanctioned) {
+      const snapshot = store.snapshot();
+      snapshot.tournaments[record.id]!.nafSanctioned = true;
+      store.writeSnapshot(snapshot);
+    }
     addEntrants(store, record.id);
     const round = store.generateNextRound(record.id, now);
     const match = store.match(round.scheduledMatchIds[0]!)!;
@@ -204,6 +209,31 @@ describe("NAF submission export", () => {
     expect(result?.body).toContain("<teamRating>1250</teamRating>");
     expect(result?.body).toContain("<touchDowns>2</touchDowns>");
     expect(result?.body).toContain("<badlyHurt>3</badlyHurt>");
+  });
+
+  it("is refused on a tournament that is not NAF sanctioned (profile NAF details are not shared there)", async () => {
+    const store = newStore();
+    const record = completedTournament(store, false);
+    const result = await call(store, "GET", `/api/tournaments/${record.id}/export`, owner, undefined, "format=naf");
+    expect(result).toEqual({ status: 409, body: { error: NAF_EXPORT_UNSANCTIONED_MESSAGE } });
+    expect(JSON.stringify(result)).not.toContain("Alice <Ace>");
+  });
+
+  it("lists active entrants only: a withdrawn coach and the games they played are left out", async () => {
+    const store = newStore();
+    const record = completedTournament(store);
+    // A withdrawn Carol who played (and lost) one completed game against Alice before leaving.
+    const snapshot = store.snapshot();
+    const alice = Object.values(snapshot.entrants).find((e) => e.tournamentId === record.id && e.coach.ffbCoachId === "Alice")!;
+    snapshot.entrants["carol-entry"] = { ...alice, id: "carol-entry", seed: 3, coach: { ...alice.coach, coachId: "Carol", ffbCoachId: "Carol" }, teamId: "team-carol", droppedAt: now.toISOString() };
+    const played = Object.values(snapshot.scheduledMatches).find((m) => m.tournamentId === record.id && m.status === "completed")!;
+    snapshot.scheduledMatches["carol-game"] = { ...played, id: "carol-game", home: { ...played.home, entrantId: alice.id }, away: { ...played.away!, entrantId: "carol-entry", coach: { ...played.away!.coach, coachId: "Carol", ffbCoachId: "Carol" } } };
+    store.writeSnapshot(snapshot);
+    const identities = { ...identityRows, carol: { ffbCoachId: "Carol", identities: { nafName: "Carol Fake", nafId: "303" } } };
+    const result = await call(store, "GET", `/api/tournaments/${record.id}/export`, owner, undefined, "format=naf", identities);
+    expect(result?.status).toBe(200);
+    expect(result?.body).not.toContain("Carol Fake");
+    expect(result?.body).toContain("<name>Alice &lt;Ace&gt;</name>");
   });
 
   it("returns 400 with the full missing-number problems list verbatim", async () => {

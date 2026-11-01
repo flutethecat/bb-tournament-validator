@@ -76,7 +76,10 @@ export function renderNafTournamentXml(input: NafExportInput): string {
   const organizer = input.identityRecord(input.organizerCoachId);
   const organizerName = organizer?.identities.nafName?.trim();
   if (!organizerName) problems.push(`${input.organizerCoachId}: exporting organizer is missing a NAF name`);
-  const completed = input.matches.filter((match) => match.tournamentId === input.tournament.id && match.away && match.status === "completed" && match.result);
+  // Games between the listed entrants only (the caller passes the active ones; a withdrawn coach's games are left out).
+  const listed = new Set(relevantEntrants.map((entrant) => entrant.id));
+  const completed = input.matches.filter((match) => match.tournamentId === input.tournament.id && match.away && match.status === "completed" && match.result
+    && listed.has(match.home.entrantId) && listed.has(match.away.entrantId));
   if (!completed.length) problems.push("tournament has no completed two-coach matches");
   if (problems.length) throw new NafExportError([...new Set(problems)]);
 

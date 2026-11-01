@@ -654,3 +654,49 @@ describe("NAF from the coach's profile (owner 10-31)", () => {
     expect(sharingView(stored("Kim"), sources).nafNumber).toBeUndefined();
   });
 });
+
+describe("profile NAF reaches organisers only for active entrants, and coaches are told (review P2 on 593777d)", () => {
+  type Row = { coachId: string; droppedAt?: string; nafNumber?: string; nafName?: string };
+  const rowsAs = async (h: ReturnType<typeof harness>, id: string, viewer?: TournamentApiIdentity) =>
+    ((await h.call("GET", `/api/tournaments/${id}`, viewer))!.body as { entrants: Row[] }).entrants;
+
+  it("a withdrawn entrant's live profile NAF is not shown; only a number stored on the entry", async () => {
+    const h = harness();
+    const t = await createTournament(h, true);
+    h.naf.alice = { nafName: "Alice Fake", nafId: "77" };
+    h.naf.bob = { nafName: "Bob Fake", nafId: "88" };
+    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamId: "team-alice" });
+    h.store.registerEntrant(t.id, { coachId: "Bob", ffbCoachId: "Bob", verifiedAt: NOW.toISOString() }, "team-bob", NOW, { nafNumber: "12" });
+    for (const coach of ["Alice", "Bob"]) {
+      const e = h.store.entrants(t.id).find((x) => x.coach.ffbCoachId === coach)!;
+      await h.call("DELETE", `/api/tournaments/${t.id}/entrants/${encodeURIComponent(e.id)}`, player(coach));
+    }
+    const rows = await rowsAs(h, t.id, co);
+    const alice = rows.find((r) => r.coachId === "Alice")!;
+    expect(alice.droppedAt).toBeDefined();
+    expect(alice.nafNumber).toBeUndefined();
+    expect(JSON.stringify(rows)).not.toMatch(/Alice Fake|Bob Fake|"88"/);
+    expect(rows.find((r) => r.coachId === "Bob")).toMatchObject({ nafNumber: "12" }); // stored on the entry at the time
+  });
+
+  it("made sanctioned: every active entrant whose profile NAF becomes visible is told once, even with a stored number", async () => {
+    const h = harness();
+    const t = await createTournament(h);
+    h.naf.bob = { nafName: "Bob Fake", nafId: "42" };
+    h.naf.carol = { nafName: "Carol Fake", nafId: "43" };
+    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamId: "team-alice" });
+    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Bob"), { teamId: "team-bob", nafNumber: "12" });
+    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Carol"), { teamId: "team-carol" });
+    await h.call("DELETE", `/api/tournaments/${t.id}/entrants/${encodeURIComponent(h.store.entrants(t.id)[2]!.id)}`, player("Carol"));
+    const before = h.inbox.length;
+    await h.call("PATCH", `/api/tournaments/${t.id}`, owner, { nafSanctioned: true });
+    expect(h.inbox.slice(before).map((n) => [n.coach, n.title])).toEqual([
+      ["Alice", "Veers Open is NAF sanctioned — add your NAF details"],
+      ["Bob", "Veers Open is NAF sanctioned — your NAF details are shared"],
+    ]);
+    expect((await rowsAs(h, t.id, co)).find((r) => r.coachId === "Bob")).toMatchObject({ nafNumber: "42", nafName: "Bob Fake" });
+    // Saving it sanctioned again tells nobody again.
+    await h.call("PATCH", `/api/tournaments/${t.id}`, owner, { nafSanctioned: true });
+    expect(h.inbox.length).toBe(before + 2);
+  });
+});

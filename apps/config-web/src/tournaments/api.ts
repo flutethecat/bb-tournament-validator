@@ -595,6 +595,7 @@ function nafAnswer(input: Record<string, unknown>, profile: ProfileNaf | undefin
 }
 
 export const NAF_REQUIRED_MESSAGE = "NAF number required for this NAF-sanctioned tournament.";
+export const NAF_EXPORT_UNSANCTIONED_MESSAGE = "The NAF export is only for NAF-sanctioned tournaments. Mark the tournament NAF sanctioned in Settings first.";
 
 /** A coach's NAF details from their profile (identities.nafName / nafId): owner 10-31, the source of an entry's NAF
  *  name and number on a NAF-sanctioned tournament. nafChecked: the NAF coach page check still matches. undefined = no
@@ -958,7 +959,7 @@ export async function tournamentApi(
         ...(input.manualSeed === undefined ? {} : { manualSeed: input.manualSeed as number | null }),
       }, now);
       notifyFlagChanges(deps, tournament, before, updated, identity.coach);
-      return { status: 200, body: { entrant: clientEntrant(updated, deps, true, undefined, tournament, tournament.nafSanctioned ? profileNaf(deps, updated.coach.ffbCoachId) : undefined) } };
+      return { status: 200, body: { entrant: clientEntrant(updated, deps, true, undefined, tournament, tournament.nafSanctioned && updated.droppedAt === undefined ? profileNaf(deps, updated.coach.ffbCoachId) : undefined) } };
     }
 
     const entrantCollectionMatch = path.match(/^\/api\/tournaments\/([^/]+)\/entrants$/);
@@ -1160,15 +1161,18 @@ export async function tournamentApi(
       }
       const coreKeys = Object.keys(input).filter((key) => !(PAGE_FIELDS as readonly string[]).includes(key));
       const pendingBefore = new Set(deps.store.entrants(tournamentId).filter((e) => e.nafPending).map((e) => e.id));
+      const wasSanctioned = existing.nafSanctioned === true;
       let tournament = coreKeys.length || !hasPage ? deps.store.updateTournament(tournamentId, patch, now) : existing;
-      if (patch.nafSanctioned === true) {
-        // Made NAF sanctioned with entries already in: one notice per coach, none to organisers. A coach with NAF details
-        // on their profile is told they are now shared; one without is asked to add them (or say "not a NAF member").
-        const marked = deps.store.entrants(tournamentId).filter((e) => e.nafPending && !pendingBefore.has(e.id));
-        const profiles = profileNafs(deps, marked.map((e) => e.coach.ffbCoachId));
-        for (const e of marked) {
-          if (profiles.has(coachKey(e.coach.ffbCoachId))) notifyNafShared(deps, tournament, e.coach.ffbCoachId, identity.coach);
-          else notifyNafRequest(deps, tournament, e.coach.ffbCoachId, identity.coach, false);
+      if (patch.nafSanctioned === true && !wasSanctioned) {
+        // Made NAF sanctioned with entries already in: one notice per coach, none to organisers. Every active entrant
+        // whose profile NAF details now reach the organisers is told so (whatever the entry stored before); a newly
+        // marked entry without them is asked to add them (or say "not a NAF member").
+        const entries = deps.store.entrants(tournamentId).filter((e) => e.droppedAt === undefined);
+        const profiles = profileNafs(deps, entries.map((e) => e.coach.ffbCoachId));
+        for (const e of entries) {
+          const shared = entryNaf(tournament, e, profiles.get(coachKey(e.coach.ffbCoachId)));
+          if (shared && profiles.get(coachKey(e.coach.ffbCoachId)) === shared) notifyNafShared(deps, tournament, e.coach.ffbCoachId, identity.coach);
+          else if (e.nafPending && !pendingBefore.has(e.id)) notifyNafRequest(deps, tournament, e.coach.ffbCoachId, identity.coach, false);
         }
       }
       if (hasPage) tournament = deps.store.updatePage(tournamentId, pagePatch, now);
@@ -1218,6 +1222,10 @@ export async function tournamentApi(
         };
       }
       if (format === "naf") {
+        // The NAF report carries coaches' profile NAF details: only a NAF-sanctioned tournament has them shared, and
+        // only its active entrants (withdrawn coaches, and the games they played, are left out).
+        if (!tournament.nafSanctioned)
+          return { status: 409, body: { error: NAF_EXPORT_UNSANCTIONED_MESSAGE } };
         if (!deps.identityRecord)
           return { status: 503, body: { error: "Canonical identity storage is unavailable." } };
         try {
@@ -1228,7 +1236,7 @@ export async function tournamentApi(
             body: renderNafTournamentXml({
               tournament,
               organizerCoachId: tournament.organizerCoachId ?? identity.coach,
-              entrants: deps.store.entrants(tournament.id),
+              entrants: deps.store.entrants(tournament.id).filter((e) => e.droppedAt === undefined),
               matches: deps.store.matches(tournament.id),
               identityRecord: deps.identityRecord,
               teamBuild: deps.teamBuild,
@@ -1270,9 +1278,11 @@ export async function tournamentApi(
       const entrants = deps.store.entrants(tournament.id);
       const manager = canManage(tournament, auth);
       const shared = manager && auth ? sharedMap(deps, auth, entrants.filter((e) => e.droppedAt === undefined), tournament.id) : new Map<string, SharedContact>();
-      // Profile NAF details (sanctioned only): every entrant for a manager, the coach's own otherwise; never public.
+      // Profile NAF details (sanctioned only, active entries only, like /contact): every active entrant for a manager,
+      // the coach's own otherwise; never public. A withdrawn entry shows only a number stored on the entry itself.
+      const active = entrants.filter((e) => e.droppedAt === undefined);
       const profiles = tournament.nafSanctioned && auth
-        ? profileNafs(deps, (manager ? entrants : entrants.filter((e) => coachKey(e.coach.ffbCoachId) === coachKey(auth.coach))).map((e) => e.coach.ffbCoachId))
+        ? profileNafs(deps, (manager ? active : active.filter((e) => coachKey(e.coach.ffbCoachId) === coachKey(auth.coach))).map((e) => e.coach.ffbCoachId))
         : new Map<string, ProfileNaf>();
       // Fixtures: organisers and this tournament's managers see all; an entrant sees every fixture of the event
       // (mine + all); another signed-in coach sees only fixtures they play in; anonymous visitors none.
@@ -1294,7 +1304,7 @@ export async function tournamentApi(
             manager || (auth !== undefined && coachKey(auth.coach) === coachKey(entrant.coach.ffbCoachId)),
             shared.get(entrant.id),
             tournament,
-            profiles.get(coachKey(entrant.coach.ffbCoachId)),
+            entrant.droppedAt === undefined ? profiles.get(coachKey(entrant.coach.ffbCoachId)) : undefined,
           )),
           rounds: deps.store.rounds(tournament.id),
           standings: deps.store.standings(tournament.id),
