@@ -45,7 +45,7 @@ export function leagueCsvFiles(league: LeagueRecord, seasons: SeasonRecord[]): R
       for (const r of p.standings)
         standings.push([...tag, p.category, p.name, r.group, r.rank, r.team, r.race, r.coach, r.points, r.played, r.wins, r.draws, r.losses, r.tdFor, r.tdAgainst, r.casFor, r.casAgainst]);
     for (const p of s.participants)
-      participants.push([...tag, p.coach, p.nafUser, p.country, p.race, p.team, p.registeredAt, p.active]);
+      participants.push([...tag, p.coach, p.nafUser, p.country, p.race, p.team, p.registeredAt, p.active, p.paid === true, p.rosterVerified === true, p.frozen === true, p.checkedIn === true]);
     for (const h of s.honours)
       for (const r of h.rows) honours.push([...tag, h.category, h.stat, h.kind, r.rank, r.name, r.team, r.coach, r.position, honour(r.value)]);
     for (const a of s.awards) awards.push([...tag, a.category, a.type, a.name, a.description, a.coach, a.team, a.race, a.goldenStar]);
@@ -57,7 +57,7 @@ export function leagueCsvFiles(league: LeagueRecord, seasons: SeasonRecord[]): R
     [`${slug}-fixtures.csv`]: csv([...S, "fixture_id", "category", "phase", "group", "round", "table", "home_team", "home_coach", "home_race", "home_score", "home_cas", "home_conceded",
       "away_team", "away_coach", "away_race", "away_score", "away_cas", "away_conceded", "home_result", "suspended", "super_fumbbl", "played_at"], fixtures),
     [`${slug}-standings.csv`]: csv([...S, "category", "phase", "group", "rank", "team", "race", "coach", "points", "played", "wins", "draws", "losses", "td_for", "td_against", "cas_for", "cas_against"], standings),
-    [`${slug}-participants.csv`]: csv([...S, "coach", "naf_user", "country", "race", "team", "registered_at", "active"], participants),
+    [`${slug}-participants.csv`]: csv([...S, "coach", "naf_user", "country", "race", "team", "registered_at", "active", "paid", "roster_verified", "frozen", "checked_in"], participants),
     [`${slug}-honours.csv`]: csv([...S, "category", "stat", "kind", "rank", "name", "team", "coach", "position", "value"], honours),
     [`${slug}-awards.csv`]: csv([...S, "category", "type", "name", "description", "coach", "team", "race", "golden_star"], awards),
   };

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // League page (/app/leagues/:id?season=&tab=&team=&player=): public read. The league front (header bar, logo, name), the
 // Season field (every season, newest first, with its rules edition), then the season's tabs: Overview, Standings,
-// Fixtures, Teams (a team's roster via ?team=, a player via ?player=<playerId>), Honours. Organisers and admins get the artwork controls on Overview,
+// Fixtures, Teams (a team's roster via ?team=, a player via ?player=<playerId>), Honours, and Participants (organisers and admins). Organisers and admins get the artwork controls on Overview,
 // the League settings cog and the Announcement megaphone (News post / Message members, newest season) at the right end of
 // the header strip, the per-fixture Super FUMBBL switch, Pin / Edit / Delete on published news and the fixtures editor (Fixtures). A fixture's summary (?tab=fixtures&fixture=<id>) replaces
 // the fixtures list: the match, its result, and Play on Super FUMBBL.
@@ -18,6 +18,7 @@ import LeagueHonours from "../components/LeagueHonours.vue";
 import LeagueAnnounce from "../components/LeagueAnnounce.vue";
 import LeagueNews from "../components/LeagueNews.vue";
 import LeagueOverview from "../components/LeagueOverview.vue";
+import LeagueParticipants from "../components/LeagueParticipants.vue";
 import LeagueTabs from "../components/LeagueTabs.vue";
 import LeagueStandings from "../components/LeagueStandings.vue";
 import LeagueTeams from "../components/LeagueTeams.vue";
@@ -39,11 +40,15 @@ const { state } = detail;
 
 const current = computed(() => pickSeason(state.seasons, route.query.season));
 const season = computed(() => (current.value ? state.season[current.value.id] : undefined));
-const tab = computed<LeagueTab>(() => (isLeagueTab(route.query.tab) ? route.query.tab : "overview"));
+const manage = computed(() => writesAllowed(session) && canManageLeague(state.league, session.coach(), session.state.info?.admin === true));
+// Participants is organisers' and admins' only: anyone else asking for it gets Overview.
+const tab = computed<LeagueTab>(() => {
+  const t = isLeagueTab(route.query.tab) ? route.query.tab : "overview";
+  return LEAGUE_TABS.find((x) => x.id === t)?.manage && !manage.value ? "overview" : t;
+});
 const teamName = computed(() => (typeof route.query.team === "string" ? route.query.team : ""));
 const playerRef = computed(() => (typeof route.query.player === "string" ? route.query.player : ""));
 const fixtureRef = computed(() => (typeof route.query.fixture === "string" ? route.query.fixture : ""));
-const manage = computed(() => writesAllowed(session) && canManageLeague(state.league, session.coach(), session.state.info?.admin === true));
 
 const seasonQuery = (id: string): Record<string, string> => {
   const q: Record<string, string> = {};
@@ -140,7 +145,7 @@ watch(() => route.fullPath, () => announce.moved(scopeKey.value));
         </div>
       </section>
 
-      <LeagueTabs :id="id" :active="tab" :query="tabQuery" :stats-query="statsQuery" />
+      <LeagueTabs :id="id" :active="tab" :query="tabQuery" :stats-query="statsQuery" :manage="manage" />
 
       <p v-if="current && !season && state.seasonError" class="lobby-error" role="alert">{{ state.seasonError }}</p>
       <p v-else-if="current && !season" class="hm-empty" role="status">Loading {{ current.name }}...</p>
@@ -154,6 +159,7 @@ watch(() => route.fullPath, () => announce.moved(scopeKey.value));
         <LeagueFixtureSummary v-else-if="tab === 'fixtures' && fixtureRef" :league-id="id" :season-id="season.id" :fixture-id="fixtureRef" :back="tabQuery('fixtures')" />
         <LeagueFixtures v-else-if="tab === 'fixtures'" :league="state.league" :season="season" :crests="state.crests" :manage="manage" />
         <LeagueTeams v-else-if="tab === 'teams'" :season="season" :team="teamName" :player="playerRef" :league-id="id" :crests="state.crests" :manage="manage" />
+        <LeagueParticipants v-else-if="tab === 'participants'" :league-id="id" :season-id="season.id" :season-name="season.name" />
         <LeagueHonours v-else :season="season" />
       </template>
     </template>

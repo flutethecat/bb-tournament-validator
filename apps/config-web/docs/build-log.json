@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-01",
+    "title": "League Participants tab for organisers",
+    "body": "League organisers and admins now have a Participants tab on each season: every team with Paid, Verified, Frozen, Checked in and Active (or standby) switches, plus Mark all paid, Mark all verified, Check in all and clearing in one go, for all teams or the ones you tick. Coaches get a notification when their flags change, and the table shows only the contact details a coach chose to share with the league.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-01",
     "title": "League standings update live and seasons crown a champion",
     "body": "The league Standings tab now builds its tables from the results as they come in (fixtures editor and Super FUMBBL results): points (win 3, draw 1, loss 0), games, wins, draws, losses, touchdowns, casualties, the stats the results recorded, the last six results as coloured dots, and your own team highlighted. Ties go to touchdown difference, casualty difference, then head-to-head. Finish season now proposes a podium (Champion, Runner-up, Consolation) from the playoff final or the final standings; organisers can change it before confirming, and the champion shows on the league Overview, Honours and the statistics page. A season finished here can be reopened, which clears its podium.",
     "links": [

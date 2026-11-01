@@ -328,7 +328,15 @@ export interface LeagueParticipant {
   race: string;
   team: string;
   registeredAt?: string;
+  /** Active (true) or standby: the TourPlay export's value, then the organiser's (Participants tab, participants.ts). */
   active: boolean;
+  /** Participants tab flags set by an organiser (participants.ts; absent = false). Organiser-only: the public read drops them. */
+  paid?: true;
+  rosterVerified?: true;
+  frozen?: true;
+  checkedIn?: true;
+  /** Who changed the participant flags last, and when (anonymised on account deletion). */
+  flagsUpdated?: { by: string; at: string };
 }
 
 /** Season totals for one player, from the TourPlay player honours (absent = 0). */

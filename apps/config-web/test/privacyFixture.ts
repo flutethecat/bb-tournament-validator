@@ -150,7 +150,7 @@ export async function seed(root: string, opts: SeedOptions = {}): Promise<void> 
       startedAt: "", byCoach: "Bob", capEnabled: false, cap: 0, revision: 1, log: [{ at: "", by: "Alice", text: "Alice submitted a draft" }],
       teams: [{ coach: "Alice Smith", coachId: "Alice", submittedBy: "Alice", rest: { at: "", by: "Alice", rolls: [] }, override: { budget: 1, reason: "r", by: "Bob", at: "" }, draft: { team: { id: "green-orcs-2", name: "Green Orcs", coach: "Alice Smith", coachId: "Alice" } } }],
     },
-    participants: [{ coach: "AliceNaf", nafUser: "AliceNaf", team: "Green Orcs" }, { coach: "BobNaf", nafUser: "BobNaf", team: "Blue Elves" }],
+    participants: [{ coach: "AliceNaf", nafUser: "AliceNaf", team: "Green Orcs" }, { coach: "BobNaf", nafUser: "BobNaf", team: "Blue Elves", paid: true, flagsUpdated: { by: "Alice", at: "" } }],
     phases: [{ name: "Regular", standings: [{ rank: 1, team: "Green Orcs", coach: "Alice Smith" }, { rank: 2, team: "Blue Elves", coach: "BobNaf" }] }],
     honours: [
       { category: "c", stat: "td", kind: "player", rows: [{ rank: 1, name: "Grub", team: "Green Orcs", coach: "Alice Smith" }] },

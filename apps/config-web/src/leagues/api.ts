@@ -20,6 +20,7 @@
  *   PATCH  /api/leagues/:id/seasons/:seasonId/phases/:phaseId     { revision, format: "table" | "knockout" } mark a phase (standings / podium)
  *   PATCH  /api/leagues/:id/seasons/:seasonId/teams/:teamId       { revision, coachId, allSeasons? } assign a coach account (teamCoach.ts)
  *   PATCH  /api/leagues/:id/seasons/:seasonId/fixtures/:fixtureId { forkEnabled?, forkAllowLate?, forkCancelled? } Super FUMBBL per fixture
+ *   GET|POST /api/leagues/:id/seasons/:seasonId/participants, PATCH .../participants/:teamId  Participants tab flags: see participants.ts
  *                                                                 { date?, round?, result? } fixtures editor (events.ts)
  * News and the fixtures editor (create / delete): see events.ts.
  *   POST   /api/leagues/:id/discord/test                          send a small test embed to the webhook
@@ -48,6 +49,7 @@ import { applyForkSettings, leagueForkRoutes, publicForkState, updateForkSetting
 import { applyPendingDrafts } from "./redraft.js";
 import { assignTeamCoach } from "./teamCoach.js";
 import { myRedraftTasks, redraftRoutes } from "./redraftApi.js";
+import { leagueParticipantRoutes, participantsForPublic } from "./participants.js";
 import {
   parseConnections, parseInformation, parseRegistrations, parseTeamBuilding, registrationsOf, settingsView, SettingsError, teamBuildingTable,
 } from "./settings.js";
@@ -308,6 +310,8 @@ export async function leagueApi(
   if (redraft) return redraft;
   const events = await leagueEventRoutes(method, route.rest, league, auth, deps);
   if (events) return events;
+  const participants = await leagueParticipantRoutes(method, route.rest, league, auth, deps);
+  if (participants) return participants;
   const managed = await settingsRoutes(method, route.rest, query, league, auth, deps);
   if (managed) return managed;
   if (!read) return { status: 405, body: { error: "Use GET." } };
@@ -894,6 +898,9 @@ export function seasonForViewer(league: LeagueRecord, full: SeasonRecord, auth: 
   const fixtures = season.fixtures.map((f) => (f.forkNotice || f.fork ? publicForkState(f) : f));
   // Organiser-only log entries (team value diff / not recomputed) stay with organisers and admins.
   const manager = Boolean(auth && (auth.admin || isLeagueOrganiser(league, auth.coach)));
-  if (manager || !season.log) return { ...season, fixtures };
-  return { ...season, fixtures, log: season.log.filter((e) => !ORGANISER_LOG_KINDS.has(e.kind)) };
+  if (manager) return { ...season, fixtures };
+  // Participants tab flags (paid, verified...) are organiser data (participants.ts).
+  const participants = participantsForPublic(season.participants);
+  if (!season.log) return { ...season, fixtures, participants };
+  return { ...season, fixtures, participants, log: season.log.filter((e) => !ORGANISER_LOG_KINDS.has(e.kind)) };
 }

@@ -716,7 +716,11 @@ function anonymiseSeason(an: Anonymiser, tx: TextReplacer, displays: ReadonlySet
       for (const l of objs(f.fork.log)) { mark(an.fields(l, ["by"], [])); mark(tx.texts(l, ["text"])); }
     }
   }
-  for (const p of objs(s.participants)) if (linked(p)) mark(LINKED_ROW(an, p));
+  for (const p of objs(s.participants)) {
+    if (linked(p)) mark(LINKED_ROW(an, p));
+    // Participants tab: the organiser who last changed the row's flags.
+    if (isObj(p.flagsUpdated)) mark(an.fields(p.flagsUpdated, ["by"], []));
+  }
   for (const ph of objs(s.phases)) for (const r of objs(ph.standings)) if (linked(r)) mark(LINKED_ROW(an, r));
   for (const h of objs(s.honours)) {
     for (const r of objs(h.rows)) {

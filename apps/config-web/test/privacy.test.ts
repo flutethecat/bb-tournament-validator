@@ -478,6 +478,7 @@ describe("delete", () => {
     expect(season.honours[0].rows[0]).toMatchObject({ name: "Grub", coach: P });
     expect(season.honours[1].rows.map((r: { name: string }) => r.name)).toEqual([P, "BobNaf"]); // a coach honour's name is the coach
     expect(season.news[0].by).toBe(P);
+    expect(season.participants[1]).toMatchObject({ coach: "BobNaf", paid: true, flagsUpdated: { by: P } }); // Participants tab: who set the flags
     expect(season.podium).toMatchObject({ by: P, final: { champion: "green-orcs" } }); // who finished the season; team refs stay
     expect(season.log[0].text).toBe(`Bob assigned ${P} to Green Orcs`);
     expect(readJ(join(deps.stateDir, "leagues", "l1", "secrets.json")).webhookUrl).toMatch(/secret$/);

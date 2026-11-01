@@ -21,6 +21,7 @@ import { assertUniquePlayerIds, linkPlayerCareers } from "../src/leagues/playerI
 import { LeagueStore } from "../src/leagues/store.js";
 import { buildSeason, fixturePlayed, readTourplayDir, type CoachMapper } from "../src/leagues/tourplay.js";
 import { carryCoachAssignments } from "../src/leagues/teamCoach.js";
+import { carryParticipantFlags } from "../src/leagues/participants.js";
 import type { LeagueRuleset, SeasonRecord } from "../src/leagues/types.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -140,6 +141,8 @@ export async function importLeague(opts: ImportOptions): Promise<SeasonReport[]>
     // Organiser overrides survive a re-import: coach accounts assigned / cleared on the season this replaces.
     const prior = store.seasons(opts.league).find((x) => x.sourceSlug === s.sourceSlug || x.id === s.id);
     const carried = carryCoachAssignments(prior, s);
+    // ...and the Participants tab flags (paid, verified, frozen, checked in, active).
+    carryParticipantFlags(prior, s);
     const put = opts.dryRun ? {} : store.putSeason(s);
     const report: SeasonReport = {
       number: s.number,

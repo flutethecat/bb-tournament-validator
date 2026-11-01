@@ -174,10 +174,11 @@ describe("sidebar Leagues section (SSR)", () => {
     expect(dead).toEqual([]);
   });
 
-  it("league registration settings no longer point at a Participants tab that does not exist", () => {
+  it("league registration settings point at the Participants tab (flags) and the Teams tab (coach accounts)", () => {
     const src = readFileSync(join(SPA_SRC, "components", "LeagueSettingsRegistrations.vue"), "utf8");
     const template = src.slice(src.indexOf("<template>"));
-    expect(template).not.toContain("Participants tab");
+    expect(template).toContain("query: { tab: 'participants' }");
+    expect(template).toContain("Participants tab</RouterLink>");
     expect(template).toContain("Teams tab");
   });
 });

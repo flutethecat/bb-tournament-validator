@@ -9,7 +9,8 @@ import { API_KEY } from "../app";
 import LeagueTabs from "../components/LeagueTabs.vue";
 import LeagueFront from "../components/LeagueFront.vue";
 import LeagueStatsCards from "../components/LeagueStatsCards.vue";
-import { carriedSeason, createLeagueDetail, createLeagueStats, LEAGUE_DETAIL_KEY, isStatsScope, LEAGUE_STATS_KEY, pct, phaseLabel, playerQuery, RULESET_TONE, seasonsLine, STATS_SCOPES } from "../leagues/league";
+import { SESSION_KEY, writesAllowed } from "../session";
+import { canManageLeague, carriedSeason, createLeagueDetail, createLeagueStats, LEAGUE_DETAIL_KEY, isStatsScope, LEAGUE_STATS_KEY, pct, phaseLabel, playerQuery, RULESET_TONE, seasonsLine, STATS_SCOPES } from "../leagues/league";
 import type { LeagueTab } from "../leagues/league";
 import type { LeaderStat, StatsScope } from "../leagues/types";
 import "../leagues/leagues.css";
@@ -23,6 +24,8 @@ const { state } = ctl;
 // The league front and tab bar are the league page's own: the league and its seasons come from the detail controller.
 const detail = inject(LEAGUE_DETAIL_KEY, null) ?? createLeagueDetail({ api: fetcher });
 const head = detail.state;
+const session = inject(SESSION_KEY, null);
+const manage = computed(() => Boolean(session && writesAllowed(session) && canManageLeague(head.league, session.coach(), session.state.info?.admin === true)));
 // The league page's season rides through every link (and the scope divider) so the round trip lands on the same season.
 const season = computed(() => carriedSeason(head.seasons, route.query.season));
 const withSeason = (q: Record<string, string>): Record<string, string> => (season.value ? { season: season.value, ...q } : q);
@@ -65,7 +68,7 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} statistics` : "")
   <div class="hm-page lg-page">
     <RouterLink class="tn-back lg-back" :to="{ name: 'league-detail', params: { id }, query: withSeason({}) }">{{ state.league?.name ?? "League" }}</RouterLink>
     <LeagueFront v-if="head.loaded && head.league && head.id === id" :id="id" :league="head.league" :seasons="head.seasons" />
-    <LeagueTabs :id="id" active="stats" :query="tabQuery" :stats-query="withSeason({})" />
+    <LeagueTabs :id="id" active="stats" :query="tabQuery" :stats-query="withSeason({})" :manage="manage" />
     <div ref="seg" class="tl-seg lg-scope" role="radiogroup" aria-label="Rules edition" @keydown="onSegKey">
       <button
         v-for="s in STATS_SCOPES" :key="s.id" type="button" role="radio" class="tl-seg-btn"

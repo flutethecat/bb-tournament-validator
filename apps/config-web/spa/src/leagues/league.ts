@@ -37,15 +37,17 @@ export const LEAGUE_LIST_KEY: InjectionKey<LeagueList> = Symbol("league-list");
 
 // ---- detail ----
 
-export type LeagueTab = "overview" | "standings" | "fixtures" | "teams" | "honours";
+export type LeagueTab = "overview" | "standings" | "fixtures" | "teams" | "honours" | "participants";
 /** The Statistics tab is a route of its own (/leagues/:id/stats), shown at the end of the same tab bar. */
 export const LEAGUE_STATS_TAB_LABEL = "Statistics";
-export const LEAGUE_TABS: ReadonlyArray<{ id: LeagueTab; label: string }> = [
+/** `manage`: shown to the league's organisers and site admins only (LeagueTabs filters; the page falls back to Overview). */
+export const LEAGUE_TABS: ReadonlyArray<{ id: LeagueTab; label: string; manage?: true }> = [
   { id: "overview", label: "Overview" },
   { id: "standings", label: "Standings" },
   { id: "fixtures", label: "Fixtures" },
   { id: "teams", label: "Teams" },
   { id: "honours", label: "Honours" },
+  { id: "participants", label: "Participants", manage: true },
 ];
 export const isLeagueTab = (v: unknown): v is LeagueTab => typeof v === "string" && LEAGUE_TABS.some((t) => t.id === v);
 
