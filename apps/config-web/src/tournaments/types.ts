@@ -73,7 +73,8 @@ export interface TournamentRecord {
   rostersLockedAt?: string;
   /** v4: set when the tournament moved draft -> active through POST /start. */
   startedAt?: string;
-  /** v4: reserved for Tournament Series (phase 5). */
+  /** Tournament Series (phase 5): the series this tournament belongs to (at most one). Kept equal to the series'
+   *  `tournaments` list by the store (attach / detach / delete write both in one mutation). */
   seriesId?: string;
   /** Tournament page (lane 6, additive, no version bump): `tournament-banners/<sha256>.<png|jpg|webp>` relative to the
    *  tournaments data dir. Never sent to clients; the read model carries `bannerUrl` instead. */
@@ -292,4 +293,37 @@ export interface TournamentDataFileV3 extends Omit<TournamentDataFileV2, "versio
 
 export interface TournamentDataFileV4 extends Omit<TournamentDataFileV2, "version"> {
   version: 4;
+  /** Tournament Series (phase 5, additive, no version bump): absent on files written before series existed. */
+  series?: Record<string, TournamentSeriesRecord>;
+}
+
+/** How a series totals each coach's event points: every event, or each coach's N best events. */
+export type SeriesScoring = "sum" | "bestN";
+export const SERIES_SCORING: readonly SeriesScoring[] = ["sum", "bestN"];
+/** The series' default pairing for new sub-tournaments (owner 10-28: Elo seeding is an option inside a series). */
+export type SeriesSeeding = "dutch" | "monrad" | "elo";
+export const SERIES_SEEDINGS: readonly SeriesSeeding[] = ["dutch", "monrad", "elo"];
+/** Series seeding -> the tournament pairing system it defaults new sub-tournaments to ("elo" = the Elo-seeded matcher). */
+export const SERIES_SEEDING_PAIRING: Readonly<Record<SeriesSeeding, TournamentPairingSystem>> = { dutch: "dutch", monrad: "monrad", elo: "eloSeeded" };
+
+/** Tournament Series (owner 10-28: "sub-tournaments that all contribute to the standings"). No entrants or rounds of its
+ *  own: coaches appear in the series standings by playing its sub-tournaments. Stored in tournaments.json `series`. */
+export interface TournamentSeriesRecord {
+  id: string;
+  name: string;
+  /** Organiser-written plain text. */
+  description: string;
+  /** Coach ids that manage the series (the creator first). Admins manage every series. */
+  organisers: string[];
+  scoring: SeriesScoring;
+  /** scoring "bestN" only: how many of each coach's best events count. */
+  bestN?: number;
+  seeding: SeriesSeeding;
+  /** Sub-tournament ids in the order they were added. */
+  tournaments: string[];
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  /** Bumped by every write; writes send the revision they loaded (body `revision` or If-Match): 428 missing, 409 stale. */
+  revision: number;
 }

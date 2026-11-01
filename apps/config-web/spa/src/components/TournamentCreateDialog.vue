@@ -85,6 +85,7 @@ onUnmounted(() => {
             <span class="tn-fact-k">NAF</span>
             <span class="tn-check-line"><input v-model="state.form.nafSanctioned" type="checkbox" /> NAF sanctioned</span>
           </label>
+          <p v-if="state.form.seriesId" class="muted tc-full" data-series="true">Part of the series <strong>{{ state.form.seriesName }}</strong>: pairing starts as the series seeding, and you can change it on the Manage tab.</p>
           <p class="muted tc-full">The tournament starts as a draft. Dates, registration and the page are set on its Manage tab.</p>
           <p v-if="state.packagesStatus === 'error'" class="lobby-error tc-full" role="alert">
             Can't load the rulesets. <button class="lobby-btn small" type="button" @click="creator.loadPackages()">Try again</button>

@@ -41,6 +41,8 @@ export const tabsFor = (manage: boolean): ReadonlyArray<{ id: DetailTab; label: 
 export interface TournamentDetailState {
   id: string;
   tournament: TournamentSummary | null;
+  /** The Tournament Series it belongs to (the front block's chip links to /series/:id). */
+  series: { id: string; name: string } | null;
   entrants: TournamentEntrant[];
   rounds: TournamentRound[];
   fixtures: TournamentFixture[];
@@ -160,7 +162,7 @@ export function safeCrestUrl(url: string | undefined | null): string {
  *  deadlines refetch through it. */
 export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () => void; onChanged?: () => void; upload?: RawUploader }) {
   const state = reactive<TournamentDetailState>({
-    id: "", tournament: null, entrants: [], rounds: [], fixtures: [], standings: [], standingsStatus: "idle", standingsError: "",
+    id: "", tournament: null, series: null, entrants: [], rounds: [], fixtures: [], standings: [], standingsStatus: "idle", standingsError: "",
     loaded: false, loading: false, notFound: false, error: "",
     capabilities: { manage: false, assignRoles: false }, busy: "", actionError: "", notice: "", lastAction: "",
     teamOptions: { status: "idle", library: [], saves: [] }, preview: null, startOutcome: "",
@@ -177,7 +179,7 @@ export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () =>
   /** `silent` = a background refresh: a failure other than 404 keeps what is on screen. */
   async function load(id: string, silent = false): Promise<void> {
     if (state.id !== id) {
-      state.tournament = null; state.entrants = []; state.rounds = []; state.fixtures = [];
+      state.tournament = null; state.series = null; state.entrants = []; state.rounds = []; state.fixtures = [];
       state.standings = []; state.standingsStatus = "idle"; state.standingsError = "";
       state.capabilities = { manage: false, assignRoles: false }; state.preview = null; state.startOutcome = "";
       state.actionError = ""; state.notice = "";
@@ -190,6 +192,7 @@ export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () =>
       const res = await deps.api<TournamentDetailResponse>(`/api/tournaments/${encodeURIComponent(id)}`);
       if (mine !== loadGen) return;
       state.tournament = res.tournament;
+      state.series = res.series && typeof res.series.id === "string" && typeof res.series.name === "string" ? { id: res.series.id, name: res.series.name } : null;
       state.entrants = res.entrants ?? [];
       state.rounds = [...(res.rounds ?? [])].sort((a, b) => a.number - b.number);
       state.fixtures = res.scheduledMatches ?? [];

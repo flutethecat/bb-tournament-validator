@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { atomicWriteTextFile } from "@bb/fork-ops";
 import { calculateStandings, generateTournamentPairings, stableTieFlip } from "./pairing.js";
-import { DEFAULT_ENTRANT_FLAGS, TOURNAMENT_PAIRING_SYSTEMS, TOURNAMENT_SEEDING_MODES } from "./types.js";
+import { DEFAULT_ENTRANT_FLAGS, SERIES_SEEDING_PAIRING, TOURNAMENT_PAIRING_SYSTEMS, TOURNAMENT_SEEDING_MODES } from "./types.js";
 import type { NewsInput, TournamentPagePatch } from "./page.js";
 import type {
   ScheduledMatchRecord,
@@ -19,9 +19,13 @@ import type {
   TournamentPrimaryTiebreaker,
   TournamentRecord,
   TournamentRoundRecord,
+  TournamentSeriesRecord,
   VerifiedCoachIdentity,
   WaitingPresenceLease,
 } from "./types.js";
+
+/** The editable series fields (organisers already validated and de-duplicated by the caller). */
+export type SeriesInput = Pick<TournamentSeriesRecord, "name" | "description" | "organisers" | "scoring" | "bestN" | "seeding">;
 
 export const DEFAULT_WAITING_LEASE_MS = 45_000;
 export const MIN_WAITING_LEASE_MS = 15_000;
@@ -291,7 +295,7 @@ function planRound(
 }
 
 export class TournamentStoreError extends Error {
-  constructor(readonly status: 400 | 401 | 403 | 404 | 409 | 503, message: string) {
+  constructor(readonly status: 400 | 401 | 403 | 404 | 409 | 428 | 503, message: string) {
     super(message);
   }
 }
@@ -341,10 +345,14 @@ export class TournamentStore {
       primaryTiebreaker?: TournamentPrimaryTiebreaker;
       roundCount?: number;
       nafSanctioned?: boolean;
+      /** Create inside a series: the tournament joins it and takes the series seeding as its pairing default. */
+      seriesId?: string;
     },
     now = new Date(),
   ): TournamentRecord {
     return this.mutate((data) => {
+      const series = input.seriesId === undefined ? undefined : data.series?.[input.seriesId];
+      if (input.seriesId !== undefined && !series) throw new TournamentStoreError(404, "Series not found.");
       if (input.roundCount !== undefined &&
         (input.format !== "swiss" || input.roundCount < 1 || input.roundCount > 50)) {
         throw new TournamentStoreError(400, input.format !== "swiss"
@@ -378,6 +386,16 @@ export class TournamentStore {
         createdAt: timestamp,
         updatedAt: timestamp,
       };
+      if (series) {
+        // The series default (owner 10-28): Dutch / Monrad pairing, or the Elo-seeded matcher with Elo seeding. The
+        // organiser can still change it per tournament (PATCH pairingSystem / seedingMode).
+        record.pairingSystem = SERIES_SEEDING_PAIRING[series.seeding];
+        record.seedingMode = "elo";
+        record.seriesId = series.id;
+        series.tournaments = [...series.tournaments, record.id];
+        series.revision += 1;
+        series.updatedAt = timestamp;
+      }
       data.tournaments[record.id] = record;
       return record;
     });
@@ -1189,5 +1207,119 @@ export class TournamentStore {
       }
       return updated;
     });
+  }
+
+  // ---- Tournament Series (phase 5): stored in the same file, so a series and its tournaments' seriesId change together ----
+
+  seriesList(): TournamentSeriesRecord[] {
+    return Object.values(this.snapshot().series ?? {})
+      .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id));
+  }
+
+  seriesRecord(seriesId: string): TournamentSeriesRecord | undefined {
+    return this.snapshot().series?.[seriesId];
+  }
+
+  createSeries(input: SeriesInput & { createdBy: string }, now = new Date()): TournamentSeriesRecord {
+    return this.mutate((data) => {
+      const timestamp = now.toISOString();
+      const record: TournamentSeriesRecord = {
+        id: randomUUID(),
+        name: input.name,
+        description: input.description,
+        organisers: [...input.organisers],
+        scoring: input.scoring,
+        ...(input.scoring === "bestN" && input.bestN !== undefined ? { bestN: input.bestN } : {}),
+        seeding: input.seeding,
+        tournaments: [],
+        createdBy: input.createdBy,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        revision: 1,
+      };
+      data.series = { ...(data.series ?? {}), [record.id]: record };
+      return record;
+    });
+  }
+
+  /** Revision-checked series write: 404 unknown, 409 when `expectedRevision` is not the stored one. */
+  private seriesWrite<T>(
+    seriesId: string,
+    expectedRevision: number,
+    change: (series: TournamentSeriesRecord, data: TournamentDataFileV4, timestamp: string) => T,
+    now: Date,
+  ): T {
+    return this.mutate((data) => {
+      const series = data.series?.[seriesId];
+      if (!series) throw new TournamentStoreError(404, "Series not found.");
+      if (series.revision !== expectedRevision)
+        throw new TournamentStoreError(409, `This series changed since you opened it; current revision is ${series.revision}.`);
+      const timestamp = now.toISOString();
+      const result = change(series, data, timestamp);
+      if (data.series?.[seriesId]) {
+        series.revision += 1;
+        series.updatedAt = timestamp;
+      }
+      return result;
+    });
+  }
+
+  updateSeries(seriesId: string, expectedRevision: number, patch: Partial<SeriesInput>, now = new Date()): TournamentSeriesRecord {
+    return this.seriesWrite(seriesId, expectedRevision, (series) => {
+      if (patch.name !== undefined) series.name = patch.name;
+      if (patch.description !== undefined) series.description = patch.description;
+      if (patch.organisers !== undefined) series.organisers = [...patch.organisers];
+      if (patch.seeding !== undefined) series.seeding = patch.seeding;
+      if (patch.scoring !== undefined) series.scoring = patch.scoring;
+      if (patch.bestN !== undefined) series.bestN = patch.bestN;
+      if (series.scoring === "sum") delete series.bestN;
+      else if (series.bestN === undefined) throw new TournamentStoreError(400, "bestN is required when scoring is bestN.");
+      return series;
+    }, now);
+  }
+
+  /** Deletes the series; its tournaments stay and leave the series (seriesId cleared). */
+  deleteSeries(seriesId: string, expectedRevision: number, now = new Date()): void {
+    this.seriesWrite(seriesId, expectedRevision, (series, data, timestamp) => {
+      for (const id of series.tournaments) {
+        const tournament = data.tournaments[id];
+        if (tournament?.seriesId === seriesId) {
+          delete tournament.seriesId;
+          tournament.updatedAt = timestamp;
+        }
+      }
+      delete data.series![seriesId];
+    }, now);
+  }
+
+  /** Adds a tournament to the series. A tournament belongs to at most one series (409 when it is in another). Its
+   *  pairing settings stay as the organiser set them (the series seeding is the default for NEW tournaments only). */
+  attachToSeries(seriesId: string, tournamentId: string, expectedRevision: number, now = new Date()): TournamentSeriesRecord {
+    return this.seriesWrite(seriesId, expectedRevision, (series, data, timestamp) => {
+      const tournament = data.tournaments[tournamentId];
+      if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
+      if (tournament.seriesId === seriesId || series.tournaments.includes(tournamentId))
+        throw new TournamentStoreError(409, "That tournament is already in this series.");
+      if (tournament.seriesId && data.series?.[tournament.seriesId])
+        throw new TournamentStoreError(409, "That tournament is already in another series.");
+      if (series.tournaments.length >= 100) throw new TournamentStoreError(400, "A series can hold at most 100 tournaments.");
+      tournament.seriesId = seriesId;
+      tournament.updatedAt = timestamp;
+      series.tournaments = [...series.tournaments, tournamentId];
+      return series;
+    }, now);
+  }
+
+  detachFromSeries(seriesId: string, tournamentId: string, expectedRevision: number, now = new Date()): TournamentSeriesRecord {
+    return this.seriesWrite(seriesId, expectedRevision, (series, data, timestamp) => {
+      if (!series.tournaments.includes(tournamentId)) throw new TournamentStoreError(404, "That tournament is not in this series.");
+      series.tournaments = series.tournaments.filter((id) => id !== tournamentId);
+      const tournament = data.tournaments[tournamentId];
+      if (tournament?.seriesId === seriesId) {
+        delete tournament.seriesId;
+        tournament.updatedAt = timestamp;
+      }
+      return series;
+    }, now);
   }
 }

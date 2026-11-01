@@ -208,6 +208,8 @@ type TournamentFile = {
   tournaments?: Record<string, Obj & { name?: string; status?: string; ownerCoachId?: string; organizerCoachId?: string; organizerCoachIds?: string[] }>;
   entrants?: Record<string, Obj & { tournamentId?: string; coach?: { ffbCoachId?: string; coachId?: string } }>;
   scheduledMatches?: Record<string, Obj & { tournamentId?: string; home?: { coach?: { ffbCoachId?: string } }; away?: { coach?: { ffbCoachId?: string } } }>;
+  /** Tournament Series (phase 5): creator and organisers are coach ids. */
+  series?: Record<string, Obj & { name?: string; createdBy?: string; organisers?: string[]; tournaments?: string[] }>;
 };
 const tournamentsFile = (deps: PrivacyDeps): string => join(deps.tournamentsDir, "tournaments.json");
 const leagueDirs = (deps: PrivacyDeps, strict = true): string[] => (strict ? listDirs(join(deps.stateDir, "leagues")) : (() => { try { return listDirs(join(deps.stateDir, "leagues")); } catch { return []; } })());
@@ -410,7 +412,16 @@ export const STORE_COLLECTORS: StoreCollector[] = [
       const managed = Object.entries(data?.tournaments ?? {})
         .filter(([, t]) => isMine(ctx.keys, t.ownerCoachId ?? t.organizerCoachId) || (t.organizerCoachIds ?? []).some((o) => isMine(ctx.keys, o)))
         .map(([id, t]) => ({ id, name: t.name, status: t.status, role: isMine(ctx.keys, t.ownerCoachId ?? t.organizerCoachId) ? "owner" : "organiser" }));
-      return [{ name: "tournament-entries.json", content: json({ entries, matches, managed }) }];
+      // Tournament Series the coach created or organises (owner 10-31: exports cover every store).
+      const series = Object.entries(data?.series ?? {})
+        .filter(([, s]) => isMine(ctx.keys, s.createdBy) || (Array.isArray(s.organisers) ? s.organisers : []).some((o) => isMine(ctx.keys, o)))
+        .map(([id, s]) => ({
+          id, name: s.name, description: s.description, scoring: s.scoring, bestN: s.bestN, seeding: s.seeding,
+          tournaments: (Array.isArray(s.tournaments) ? s.tournaments : []).map((t) => ({ id: t, name: tName(t) })),
+          createdAt: s.createdAt,
+          role: isMine(ctx.keys, s.createdBy) ? "creator" : "organiser",
+        }));
+      return [{ name: "tournament-entries.json", content: json({ entries, matches, managed, series }) }];
     },
     erase: ["organiser-roles", "anonymise-tournaments"],
   },
@@ -698,6 +709,13 @@ function anonymiseTournaments(an: Anonymiser, tx: TextReplacer, data: Obj): bool
     mark(an.fields(m.edited, ["byCoachId"], []));
   }
   for (const st of vals(data.standings)) for (const r of objs(st.rows)) mark(an.fields(r, ["coachId"], []));
+  // Tournament Series: the creator becomes the pseudonym (organiser seats were removed by organiser-roles; any left over
+  // are renamed), and the organisers' free text loses the coach's names. Standings are derived, never stored.
+  for (const s of vals(data.series)) {
+    mark(an.fields(s, ["createdBy"], []));
+    mark(an.list(s.organisers));
+    mark(tx.texts(s, ["name", "description"]));
+  }
   // Waiting-room leases are keyed "<matchId>\0<coach>" and short-lived: drop the coach's, never rename them.
   if (isObj(data.waitingPresence)) {
     for (const [k, lease] of Object.entries(data.waitingPresence)) {
@@ -917,6 +935,12 @@ export const DELETE_STEPS: DeleteStep[] = [
         for (const t of Object.values(data.tournaments)) {
           if (Array.isArray(t.organizerCoachIds) && t.organizerCoachIds.some((o) => isMine(names, o))) {
             t.organizerCoachIds = t.organizerCoachIds.filter((o) => !isMine(names, o));
+            changed = true;
+          }
+        }
+        for (const series of Object.values(data.series ?? {})) {
+          if (Array.isArray(series.organisers) && series.organisers.some((o) => isMine(names, o))) {
+            series.organisers = series.organisers.filter((o) => !isMine(names, o));
             changed = true;
           }
         }

@@ -326,6 +326,7 @@ import { parseTeamRef, saveCaptainError, teamFileFromLibraryDetail, teamFileFrom
 import { settleNafOwedEntries, tournamentApi } from "./tournaments/api.js";
 import { tournamentBannerApi, tournamentBannerPath } from "./tournaments/page.js";
 import { leagueApi, leaguePath } from "./leagues/api.js";
+import { seriesApi, seriesPath } from "./tournaments/series.js";
 import { LeagueStore } from "./leagues/store.js";
 import { myLeagues } from "./leagues/myLeagues.js";
 import { createLeagueForkClient } from "./leagues/forkClient.js";
@@ -1360,6 +1361,7 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
   ) return true;
   // Leagues: public reads; artwork writes are session + organiser/admin gated in-handler (src/leagues/api.ts).
   if (leaguePath(pathname) !== undefined) return true;
+  if (seriesPath(pathname) !== undefined) return true; // Tournament Series: public reads, writes gated in-handler
   // Dynamic coach-scoped route: bypass legacy Basic auth, then enforce the proven session in-handler.
   if (tournamentInstructionsGameId(pathname)) return true;
   if (tournamentResultGameId(pathname)) return true;
@@ -1609,6 +1611,7 @@ function isStateChangingApiWrite(method: string, pathname: string): boolean {
     pathname.startsWith("/api/fork/tournaments/") ||
     pathname.startsWith("/api/scheduled-matches/") ||
     leaguePath(pathname) !== undefined ||
+    seriesPath(pathname) !== undefined ||
     /^\/api\/teams\/[^/]+\/advancement$/.test(pathname)
   );
 }
@@ -2065,6 +2068,20 @@ async function handleApi(
       }
       return sendJson(res, result.status, result.body);
     }
+  }
+
+  // Tournament Series (src/tournaments/series.ts): public reads; writes are organiser / series-organiser gated in-handler,
+  // need the CSRF header (isStateChangingApiWrite) and onboarding (the 428 gate above), and never come from a test session.
+  if (seriesPath(path) !== undefined) {
+    if (WRITE_METHODS.has(method) && getSession(sessionTokenFromRequest(req))?.test)
+      return sendJson(res, 403, { error: "Test sign-in sessions cannot write tournament data." });
+    const body = WRITE_METHODS.has(method) ? await readBody(req, 16 * 1024) : undefined;
+    const result = seriesApi(method, path, auth, body, {
+      store: tournamentStore,
+      registeredCoach: (coachId) => readIdentities().coaches[normalizeFfbCoachId(coachId)]?.ffbCoachId,
+      ifMatch: typeof req.headers["if-match"] === "string" ? req.headers["if-match"] : undefined,
+    });
+    if (result) return sendJson(res, result.status, result.body);
   }
 
   if (path === "/api/auth/desktop/start" && method === "POST") {
@@ -4640,7 +4657,8 @@ export const server = createServer((req, res) => {
           /^\/api\/admin\/privacy\/jobs\/[a-f0-9]{24}\/(retry|close)$/.test(url.pathname) ||
           tournamentInstructionsGameId(url.pathname) !== undefined ||
           tournamentResultGameId(url.pathname) !== undefined ||
-          leaguePath(url.pathname) !== undefined
+          leaguePath(url.pathname) !== undefined ||
+          seriesPath(url.pathname) !== undefined
         );
         if (!authorized(req, url.pathname) && !accountSession) {
           res.writeHead(401, { "www-authenticate": 'Basic realm="BB Config"' }).end("auth required");

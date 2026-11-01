@@ -34,7 +34,7 @@ const ui = inject(SHELL_UI_KEY)!;
 const route = useRoute();
 const router = useRouter();
 // Header title colour follows the section (owner 10-31): Tournaments and Leagues pages carry gold, every other page red.
-const titleArea = computed(() => (/^\/(tournaments|tournament-creator|admin\/tournaments|leagues)(\/|$|\?)/.test(route.path) ? "gold" : "red"));
+const titleArea = computed(() => (/^\/(tournaments|series|tournament-creator|admin\/tournaments|leagues)(\/|$|\?)/.test(route.path) ? "gold" : "red"));
 const pageTitle = useShellTitle();
 const creator = inject(TOURNAMENT_CREATOR_KEY, null);
 // "Create tournament" in the account menu: organisers only, the server's POST /api/tournaments rule. The rule gates

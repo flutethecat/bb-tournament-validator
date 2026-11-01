@@ -32,6 +32,9 @@ export interface CreateTournamentForm {
   primaryTiebreaker: TournamentPrimaryTiebreaker;
   /** NAF sanctioned (owner 10-31): registration then needs a NAF number or "I am not a NAF member". */
   nafSanctioned?: boolean;
+  /** Created from a series page: the tournament joins that series and takes its seeding as the pairing default. */
+  seriesId?: string;
+  seriesName?: string;
 }
 
 /** The POST /api/tournaments body: name, packageName, maxPlayers, format, primaryTiebreaker, and roundCount for Swiss when set. */
@@ -43,6 +46,7 @@ export interface CreateTournamentBody {
   primaryTiebreaker: TournamentPrimaryTiebreaker;
   roundCount?: number;
   nafSanctioned?: true;
+  seriesId?: string;
 }
 
 const blankForm = (): CreateTournamentForm => ({ name: "", packageName: "", maxPlayers: 8, format: "swiss", roundCount: "", primaryTiebreaker: "buchholz", nafSanctioned: false });
@@ -57,6 +61,7 @@ export function createBody(form: CreateTournamentForm): CreateTournamentBody {
   };
   if (form.format === "swiss" && form.roundCount !== "" && form.roundCount !== null && form.roundCount !== undefined) body.roundCount = Number(form.roundCount);
   if (form.nafSanctioned) body.nafSanctioned = true;
+  if (form.seriesId) body.seriesId = form.seriesId;
   return body;
 }
 
@@ -115,8 +120,10 @@ export function createTournamentCreator(deps: { api: Fetcher; onSignedOut?: () =
 
   return {
     state,
-    show(): void {
+    /** Opens the dialog; `series` = create inside that series (from the series page). */
+    show(series?: { id: string; name: string }): void {
       state.form = blankForm();
+      if (series) { state.form.seriesId = series.id; state.form.seriesName = series.name; }
       state.form.packageName = state.packages[0] ?? "";
       state.error = "";
       state.signedOut = false;

@@ -367,6 +367,9 @@ describe("export", () => {
     expect(account.consent.sharing).toEqual({ "tournament:t1": { fields: ["email"], at: "2026-10-01T00:00:00Z", version: "2026-10-31" } });
     expect(t.matches).toHaveLength(1);
     expect(t.managed.map((m: { id: string; role: string }) => `${m.id}:${m.role}`).sort()).toEqual(["t1:organiser", "t2:owner"]);
+    // Tournament Series she created or co-organises (never another coach's series)
+    expect(t.series.map((s: { id: string; role: string }) => `${s.id}:${s.role}`).sort()).toEqual(["sr1:creator", "sr2:organiser"]);
+    expect(t.series[0].tournaments).toEqual([{ id: "t1", name: "Autumn Open" }]);
     const leagues = JSON.parse(text("league-teams.json"));
     expect(leagues[0].role).toBe("organiser");
     expect(leagues[0].seasons[0].teams.map((x: { id: string }) => x.id)).toEqual(["green-orcs"]);
@@ -458,6 +461,10 @@ describe("delete", () => {
     const tf = readJ(join(deps.tournamentsDir, "tournaments.json"));
     expect(tf.version).toBe(4);
     expect(tf.tournaments.t1.organizerCoachIds).toEqual([]);
+    // Tournament Series: her organiser seats go, the creator becomes the pseudonym, free text loses her name
+    expect(tf.series.sr1).toMatchObject({ createdBy: P, organisers: ["Bob"], name: `${P} Cup Series`, description: `Run by ${P} for the valley.` });
+    expect(tf.series.sr2).toMatchObject({ createdBy: "Bob", organisers: ["Bob"] });
+    expect(tf.series.sr3).toMatchObject({ createdBy: "Carol", organisers: ["Carol"], name: "Carol Circuit" });
     expect(readJ(join(deps.stateDir, "leagues", "l1", "league.json")).organisers).toEqual(["Bob"]);
     // league awards and Hall of Fame pins: recipient account + display and the giver become the pseudonym; free text too
     const lgFile = readJ(join(deps.stateDir, "leagues", "l1", "league.json"));

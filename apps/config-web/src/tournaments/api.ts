@@ -2,6 +2,7 @@ import { bb2025 } from "@bb/validator/dataset";
 import { generateTournamentPairings } from "./pairing.js";
 import { NafExportError, renderNafTournamentReport } from "./nafExport.js";
 import { isTournamentManager, tournamentOwner, TournamentStore, TournamentStoreError, type TournamentUpdate } from "./store.js";
+import { canEditSeries, seriesChip } from "./series.js";
 import { bannerUrl, NEWS_MAX_POSTS, newNewsPost, orderedNews, PAGE_FIELDS, parseNewsInput, parsePagePatch } from "./page.js";
 import { DEFAULT_ENTRANT_FLAGS, DEFAULT_TOURNAMENT_TURN_TIMER, TOURNAMENT_PAIRING_SYSTEMS, TOURNAMENT_SEEDING_MODES } from "./types.js";
 import type {
@@ -743,6 +744,16 @@ export async function tournamentApi(
         : primaryTiebreaker(input.primaryTiebreaker);
       if (input.nafSanctioned !== undefined && typeof input.nafSanctioned !== "boolean")
         return { status: 400, body: { error: "nafSanctioned must be true or false." } };
+      // Create inside a Tournament Series (phase 5): only that series' organisers (or an admin); the new tournament takes
+      // the series seeding as its pairing default (store.createTournament).
+      let seriesId: string | undefined;
+      if (input.seriesId !== undefined && input.seriesId !== null && input.seriesId !== "") {
+        if (typeof input.seriesId !== "string") return { status: 400, body: { error: "seriesId must be a series id." } };
+        const series = deps.store.seriesRecord(input.seriesId);
+        if (!series) return { status: 404, body: { error: "Series not found." } };
+        if (!canEditSeries(series, identity)) return { status: 403, body: { error: "You are not this series' organiser." } };
+        seriesId = series.id;
+      }
       return {
         status: 201,
         body: {
@@ -755,6 +766,7 @@ export async function tournamentApi(
             primaryTiebreaker: chosenTiebreaker,
             ...(roundCount === undefined ? {} : { roundCount }),
             ...(input.nafSanctioned === true ? { nafSanctioned: true } : {}),
+            ...(seriesId ? { seriesId } : {}),
           }, now),
         },
       };
@@ -1309,10 +1321,12 @@ export async function tournamentApi(
             ? clientMatch(deps.store, match, auth, now, deps.teamBuild)
             : publicMatch(match))
         : [];
+      const series = seriesChip(deps.store, tournament);
       return {
         status: 200,
         body: {
           tournament: clientTournament(tournament, entrants, auth),
+          ...(series ? { series } : {}),
           entrants: entrants.map((entrant) => clientEntrant(
             entrant,
             deps,

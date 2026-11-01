@@ -21,6 +21,8 @@ import LobbyRoomView from "./views/LobbyRoomView.vue";
 import LobbyStartView from "./views/LobbyStartView.vue";
 import NotFoundView from "./views/NotFoundView.vue";
 import PrivacyView from "./views/PrivacyView.vue";
+import SeriesDetailView from "./views/SeriesDetailView.vue";
+import SeriesListView from "./views/SeriesListView.vue";
 import StandingsView from "./views/StandingsView.vue";
 import TabletopListView from "./views/TabletopListView.vue";
 import TabletopOrganiserView from "./views/TabletopOrganiserView.vue";
@@ -89,6 +91,9 @@ export const routes: RouteRecordRaw[] = [
     props: true,
     meta: { title: "Tournament" },
   },
+  // Tournament Series (phase 5): public read; organisers and admins create, the series' organisers edit in place.
+  { path: "/series", name: "series", component: SeriesListView, meta: { title: "Tournament series" } },
+  { path: "/series/:id([\\w-]{1,64})", name: "series-detail", component: SeriesDetailView, props: true, meta: { title: "Series" } },
   // Opponent's team: the server answers the coach, their current-round opponent and the managers only.
   {
     path: "/tournaments/:id([\\w-]{1,64})/team/:eid([\\w:.-]{1,160})",

@@ -238,6 +238,8 @@ export interface TournamentStandingRow {
 
 export interface TournamentDetailResponse {
   tournament: TournamentSummary;
+  /** The Tournament Series it belongs to, when any. */
+  series?: { id: string; name: string };
   entrants: TournamentEntrant[];
   rounds: TournamentRound[];
   standings?: TournamentStandingRow[];

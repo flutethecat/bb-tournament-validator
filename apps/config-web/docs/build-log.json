@@ -1,6 +1,21 @@
 [
   {
     "date": "2026-11-01",
+    "title": "Tournament Series",
+    "body": "Organisers and admins can now group tournaments into a series with its own page: the tournaments with dates and status, and combined standings across them (every event counts, or each coach's best N). A series also sets the starting pairing (Dutch, Monrad or Elo seeded) for new tournaments created in it, and the tournament page's Series chip links to the series.",
+    "links": [
+      {
+        "label": "Series",
+        "href": "/app/series"
+      },
+      {
+        "label": "Tournaments",
+        "href": "/app/tournaments"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-01",
     "title": "League awards and a Hall of Fame",
     "body": "League organisers and admins can now give awards from the league Honours tab: a title, an icon, a team or coach of the league (for one season or league-wide) and a note. The coach is notified, and the award shows on their coach page and on the team's page. The Honours tab also has a Hall of Fame with one card per finished season (champion, runner-up and dates) and entries organisers pin: a season champion, an award or a record.",
     "links": [

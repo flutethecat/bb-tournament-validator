@@ -89,6 +89,7 @@ onUnmounted(() => stopPolling());
         >{{ t.label }}</button>
       </div>
       <div class="tl-tools">
+        <RouterLink class="tl-action" to="/series" data-action="series">Series</RouterLink>
         <form class="tl-search" role="search" @submit.prevent="find">
           <label class="tn-sr" for="tn-q">Search tournaments</label>
           <input id="tn-q" v-model="q" type="search" maxlength="60" autocomplete="off" placeholder="Search by name" />

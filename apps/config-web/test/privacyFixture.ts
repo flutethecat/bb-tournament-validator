@@ -131,6 +131,12 @@ export async function seed(root: string, opts: SeedOptions = {}): Promise<void> 
       m1: { id: "m1", tournamentId: "t1", home: { entrantId: "e1", coach: id("Alice", ALICE_DISCORD), teamId: "save:s1" }, away: { entrantId: "e2", coach: id("Bob", BOB_DISCORD), teamId: "save:b1" }, status: "completed" },
     },
     waitingPresence: { "m1\u0000alice": { scheduledMatchId: "m1", coachId: "Alice", renewedAt: "", expiresAt: "" }, "m1\u0000bob": { scheduledMatchId: "m1", coachId: "Bob", renewedAt: "", expiresAt: "" } },
+    // Tournament Series: one Alice created (Bob co-organises), one Bob runs with Alice as co-organiser, one of others only.
+    series: {
+      sr1: { id: "sr1", name: "Alice Cup Series", description: "Run by Alice for the valley.", organisers: ["Alice", "Bob"], scoring: "sum", seeding: "dutch", tournaments: ["t1"], createdBy: "Alice", createdAt: "2026-10-01T00:00:00Z", updatedAt: "", revision: 1 },
+      sr2: { id: "sr2", name: "Bob Tour", description: "", organisers: ["Bob", "Alice"], scoring: "bestN", bestN: 2, seeding: "elo", tournaments: [], createdBy: "Bob", createdAt: "2026-10-01T00:00:00Z", updatedAt: "", revision: 1 },
+      sr3: { id: "sr3", name: "Carol Circuit", description: "", organisers: ["Carol"], scoring: "sum", seeding: "monrad", tournaments: [], createdBy: "Carol", createdAt: "2026-10-01T00:00:00Z", updatedAt: "", revision: 1 },
+    },
   });
 
   // leagues

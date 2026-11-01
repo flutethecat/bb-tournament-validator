@@ -195,13 +195,12 @@ describe("tournament page views (server-rendered against a mocked API)", () => {
     expect(html).not.toContain(">Edit ruleset</a>");
   });
 
-  it("with a banner: the image renders (same-origin URL only) and the Series chip is plain text until a series page exists", async () => {
-    const body = detailBody({ tournament: tournament({ bannerUrl: "/api/tournaments/t1/banner?v=abcdef123456", seriesId: "s1" }) });
+  it("with a banner: the image renders (same-origin URL only) and the Series chip links to the series page with its name", async () => {
+    const body = { ...detailBody({ tournament: tournament({ bannerUrl: "/api/tournaments/t1/banner?v=abcdef123456", seriesId: "s1" }) }), series: { id: "s1", name: "Valley Series" } };
     const html = await render("/tournaments/t1", { "/api/tournaments/t1": body });
     expect(html).toContain('data-banner="image"');
     expect(html).toContain('src="/api/tournaments/t1/banner?v=abcdef123456"');
-    expect(html).toContain('data-series="true"');
-    expect(html).not.toContain("/app/series/");
+    expect(html).toMatch(/<a href="\/app\/series\/s1" class="sf-chip tn-series-chip"[^>]*data-series="true"[^>]*>Series: Valley Series<\/a>/);
     const evil = detailBody({ tournament: tournament({ bannerUrl: "javascript:alert(1)" }) });
     expect(await render("/tournaments/t1", { "/api/tournaments/t1": evil })).toContain('data-banner="crest"');
   });

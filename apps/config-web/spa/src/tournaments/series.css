@@ -1,0 +1,63 @@
+/* Tournament Series: list cards, the series page (header, tournaments, standings) and the create / edit dialog form.
+   Panels, bands, chips, buttons and the table are the shared ones (home.css .hm-panel / .hm-band / .sf-*); tokens only. */
+
+.sr-page { display: grid; gap: 16px; align-content: start; min-width: 0; }
+
+/* List cards */
+.sr-card > .hm-band { margin-bottom: 8px; }
+.sr-card-name, .sr-name { margin: 0 0 6px; font: 500 22px/1.2 var(--font-heading); letter-spacing: .02em; overflow-wrap: anywhere; }
+.sr-card-name a { color: var(--ui-text); text-decoration: none; }
+.sr-card-name a:hover { color: var(--ui-heading); text-decoration: underline; }
+.sr-card-name a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.sr-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+
+/* Series page header */
+.sr-head-body { display: grid; gap: 6px; }
+.sr-name { font-size: 28px; margin: 0; }
+.sr-chips:last-child { margin-bottom: 0; }
+.sr-desc { margin: 0; white-space: pre-line; max-width: 72ch; }
+.sr-meta { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font-size: 15px; }
+.sr-actions { margin-top: 6px; }
+
+.sr-grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); align-items: start; }
+@media (max-width: 1100px) { .sr-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* Tournaments list */
+.sr-event-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
+.sr-event { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto auto; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--sf-panel-line); }
+.sr-event:last-child { border-bottom: 0; }
+.sr-event-no { font: 12px/1 var(--sf-band-font); color: var(--sf-gold); text-align: center; }
+.sr-event[data-counted="false"] .sr-event-no { color: var(--ui-muted); }
+.sr-event-main { display: grid; min-width: 0; }
+.sr-event-name { color: var(--ui-text); font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
+.sr-event-name:hover { color: var(--ui-heading); text-decoration: underline; }
+.sr-event-name:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.sr-event-date { font-size: 13px; color: var(--ui-muted); }
+.sr-attach { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--sf-panel-line); }
+.sr-attach select { min-width: 0; flex: 1 1 180px; }
+@media (max-width: 480px) {
+  .sr-event { grid-template-columns: 24px minmax(0, 1fr) auto; }
+  .sr-remove { grid-column: 2 / -1; justify-self: start; }
+}
+
+/* Standings */
+.sr-table-wrap { position: relative; overflow-x: auto; min-width: 0; }
+.sr-table .num { text-align: right; }
+.sr-table th.sr-coach { font-weight: 600; text-align: left; overflow-wrap: anywhere; }
+.sr-th-event { color: var(--sf-gold); }
+.sr-total { font: 15px/1 var(--sf-band-font); color: var(--sf-gold); }
+.sr-pts[data-counted="false"] { color: var(--ui-muted); text-decoration: line-through; }
+.sr-pts[data-provisional="true"] { font-style: italic; }
+.sr-none { color: var(--ui-text-dim); }
+.sr-note { margin: 10px 0 0; font-size: 13px; color: var(--ui-muted); }
+
+/* Create / edit dialog */
+.sr-form { display: grid; gap: 10px; }
+.sr-form .sf-field { display: grid; gap: 2px; }
+.sr-form .sf-field textarea { resize: vertical; }
+.sr-fieldset { display: grid; gap: 6px; padding: 0; margin: 0; border: 0; }
+.sr-fieldset legend { padding: 0; margin-bottom: 4px; }
+.sr-fieldset .sf-check { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.sr-fieldset input[type="radio"] { accent-color: var(--ui-primary); }
+.sr-n.sf-input { width: 72px; }
+.sr-help { margin: 0; font-size: 13px; color: var(--ui-muted); }
