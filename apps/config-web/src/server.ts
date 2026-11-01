@@ -307,6 +307,9 @@ import { createTournamentNotifier, isNotificationApiPath, NotificationStore, not
 import { clientIp } from "./translate/route.js";
 import { privacyContact } from "./privacy/contact.js";
 import { startLogRotation } from "./privacy/logRotation.js";
+import { organizersFile } from "./auth/organizers.js";
+import { PrivacyService, streamZip, ExportTooLargeError } from "./privacy/service.js";
+import { isDiscordBlocked } from "./privacy/state.js";
 import { clockView, isTabletopApiPath, recoverTabletop, tabletopApi, type TabletopApiDeps } from "./tabletop/api.js";
 import { FileTabletopRepository } from "./tabletop/store.js";
 import { createRecorderWebhook, recorderAnnouncement } from "./tabletop/discord.js";
@@ -658,6 +661,47 @@ function lobbyAuthFor(req: IncomingMessage): { coach: string; method: string; te
 
 // Tabletop match recorder store (env TABLETOP_DIR), created lazily on first use, beside the builder saves by default.
 const TABLETOP_DIR = resolve(process.env.TABLETOP_DIR || join(dirname(LIBRARY_DIR), "tabletop"));
+
+// Privacy (spec 2026-10-31 §2/§3): GET /api/me/export, POST /api/me/delete, POST /api/admin/coaches/:coach/delete.
+// State (delete journals, pseudonym counter, blocklist, audit) lives in <FORK_STATE_DIR>/privacy/.
+const privacyService = new PrivacyService({
+  stateDir: FORK_STATE_DIR,
+  tournamentsDir: TOURNAMENTS_DIR,
+  libraryDir: LIBRARY_DIR,
+  builderSavesDir: BUILDER_SAVES_DIR,
+  teamAvatarsDir: TEAM_AVATARS_DIR,
+  coachAvatarsDir: COACH_AVATARS_DIR,
+  bugReportsDir: BUG_REPORTS_DIR,
+  tabletopDir: TABLETOP_DIR,
+  organizersFile: organizersFile(),
+  pendingSso: pendingDiscordSso,
+  // No admin-exchange command disables a coach, so the fork account is disabled the way a password reset works: the
+  // stored join digest becomes a random one nobody knows (only when the account exists; never creates one).
+  disableForkAccount: forkDbConfigFromEnv()
+    ? async (coach) => {
+        const dbCfg = forkDbConfigFromEnv()!;
+        if (await coachExists(dbCfg, coach)) await createForkAccountDigest(dbCfg, coach, randomBytes(16).toString("hex"));
+      }
+    : undefined,
+  afterAnonymise: () => { coachTitles.reload(); recentCache = undefined; },
+});
+const exportLimiter = new RateLimiter({ maxRequests: 3, maxChars: Number.MAX_SAFE_INTEGER, windowMs: 60 * 60_000, maxKeys: 5_000 });
+const deleteLimiter = new RateLimiter({ maxRequests: 1, maxChars: Number.MAX_SAFE_INTEGER, windowMs: 24 * 60 * 60_000, maxKeys: 5_000 });
+const ADMIN_COACH_DELETE_PATH = /^\/api\/admin\/coaches\/([^/]+)\/delete$/;
+const PRIVACY_RETRY_MS = 10 * 60_000;
+// A job a crash left open resumes at startup; one with a pending step (fork unreachable) retries on a timer.
+void privacyService.resumeAll().catch((e) => console.error(`[privacy] resume failed: ${(e as Error).message}`));
+setInterval(() => { void privacyService.resumeAll().catch(() => undefined); }, PRIVACY_RETRY_MS).unref();
+
+/** Cookie sessions only: the request must come from this site (no foreign Origin / cross-site fetch). */
+function sameOriginRequest(req: IncomingMessage): boolean {
+  if (bearerTokenFromRequest(req)) return true;
+  const site = req.headers["sec-fetch-site"];
+  if (typeof site === "string" && site !== "same-origin" && site !== "none") return false;
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  try { return new URL(origin).host === req.headers.host; } catch { return false; }
+}
 let tabletopRepo: FileTabletopRepository | undefined;
 /** Optional Discord webhook for the recorder's pre-game milestones (env DISCORD_RECORDER_WEBHOOK_URL; the URL is never logged). */
 const recorderWebhook = createRecorderWebhook({ url: process.env.DISCORD_RECORDER_WEBHOOK_URL });
@@ -1512,6 +1556,7 @@ function isStateChangingApiWrite(method: string, pathname: string): boolean {
     pathname === CONTACT_PATH ||
     pathname === LEAGUE_SHARING_PATH ||
     pathname.startsWith("/api/me/email") ||
+    pathname === "/api/me/delete" ||
     isTeamMutationWritePath(pathname) ||
     pathname.startsWith("/api/tournaments/") ||
     pathname.startsWith("/api/fork/tournaments/") ||
@@ -1631,6 +1676,28 @@ function ffbCoachIdForDiscordId(discordId: string): string | undefined {
   return Object.values(readIdentities().coaches).find(
     (record) => record.identities?.discordUserId === discordId,
   )?.ffbCoachId;
+}
+
+const nameKeyOf = (s: string): string => s.normalize("NFC").trim().toLowerCase();
+
+async function runCoachDelete(req: IncomingMessage, res: ServerResponse, coach: string, confirm: unknown, actor: string, signsOut: boolean): Promise<void> {
+  if (typeof confirm !== "string" || nameKeyOf(confirm) !== nameKeyOf(coach))
+    return sendJson(res, 400, { error: "Type the coach name exactly to confirm." });
+  const owned = privacyService.owned(coach);
+  if (owned.length) {
+    const list = owned.map((o) => `${o.kind} "${o.name}"`).join(", ");
+    return sendJson(res, 409, { error: `Transfer ownership first: ${list}. An admin can transfer it for you.`, owned });
+  }
+  const wait = deleteLimiter.take([`coach:${nameKeyOf(coach)}`], 0);
+  if (wait > 0) {
+    res.setHeader("retry-after", String(wait));
+    return sendJson(res, 429, { error: "One delete request a day. Try again later." });
+  }
+  const outcome = await privacyService.deleteCoach(coach, confirm, actor);
+  if (outcome.status === "mismatch") return sendJson(res, 400, { error: "Type the coach name exactly to confirm." });
+  if (outcome.status === "blocked") return sendJson(res, 409, { error: "Transfer ownership first.", owned: outcome.owned });
+  if (signsOut) res.setHeader("set-cookie", buildClearSessionCookie(requestUsesTls(req)));
+  return sendJson(res, 200, { ok: true, pending: outcome.pending ?? [], ...(actor.startsWith("admin:") ? { pseudonym: outcome.pseudonym } : {}) });
 }
 
 async function handleApi(
@@ -2097,6 +2164,15 @@ async function handleApi(
     }
     if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody))
       return sendJson(res, 400, { error: "A JSON object is required." });
+    // A deleted banned coach's Discord account stays refused (privacy blocklist: salted hash only).
+    if (isDiscordBlocked(FORK_STATE_DIR, pending.discordId)) {
+      pendingDiscordSso.delete(pendingToken);
+      res.setHeader("set-cookie", buildClearDiscordPendingCookie(secure));
+      return sendJson(res, 403, { error: BANNED_ACCOUNT_MESSAGE });
+    }
+    // "Deleted coach #<n>" names the anonymised history of deleted accounts: never a new coach name.
+    if (typeof (rawBody as { ffbCoachId?: unknown }).ffbCoachId === "string" && /^\s*deleted\s+coach\b/i.test((rawBody as { ffbCoachId: string }).ffbCoachId))
+      return sendJson(res, 400, { error: "That coach name is reserved." });
     const existingFfbCoachId = ffbCoachIdForDiscordId(pending.discordId);
     const requiredFfbCoachId = pending.desktopFlowId
       ? desktopClaims.expectedCoach(pending.desktopFlowId)
@@ -2220,6 +2296,54 @@ async function handleApi(
       return sendJson(res, 200, updateOwnAccount(auth.coach, rawBody));
     } catch (error) {
       return sendJson(res, 400, { error: (error as Error).message });
+    }
+  }
+
+  // Privacy: download my data (ZIP). Signed-in coach only; cookie sessions need same-origin + X-CW-Auth even on GET.
+  if (path === "/api/me/export" && method === "GET") {
+    if (!auth) return sendJson(res, 401, { error: "Authentication required." });
+    if (!bearerTokenFromRequest(req) && (req.headers["x-cw-auth"] !== "1" || !sameOriginRequest(req)))
+      return sendJson(res, 403, { error: "Missing required X-CW-Auth header." });
+    const wait = exportLimiter.take([`coach:${nameKeyOf(auth.coach)}`], 0);
+    if (wait > 0) {
+      res.setHeader("retry-after", String(wait));
+      return sendJson(res, 429, { error: "You can download your data 3 times an hour. Try again later." });
+    }
+    try {
+      const files = await privacyService.exportFiles(auth.coach);
+      await streamZip(res, files, `super-fumbbl-data-${new Date().toISOString().slice(0, 10)}.zip`);
+      return;
+    } catch (error) {
+      if (res.headersSent) { res.destroy(); return; }
+      if (error instanceof ExportTooLargeError) return sendJson(res, 413, { error: `${error.message} Contact the site to receive it another way.` });
+      return sendJson(res, 500, { error: "The export failed." });
+    }
+  }
+
+  // Privacy: delete my account. Body { confirm: "<coach name>" }; once a day; blocked while the coach owns a tournament
+  // or league. Identity, sessions, uploads, saves, library, notifications and bug reports go; public history is anonymised.
+  if (path === "/api/me/delete" && method === "POST") {
+    if (!auth) return sendJson(res, 401, { error: "Authentication required." });
+    if (!sameOriginRequest(req)) return sendJson(res, 403, { error: "Cross-site request refused." });
+    let rawBody: unknown;
+    try { rawBody = await readBody(req, 4 * 1024); } catch { return sendJson(res, 400, { error: "Invalid JSON request body." }); }
+    const confirm = rawBody && typeof rawBody === "object" ? (rawBody as { confirm?: unknown }).confirm : undefined;
+    return runCoachDelete(req, res, auth.coach, confirm, "self", true);
+  }
+
+  // Admin: the same delete for a named coach (email requests). Site admins only; audited with the pseudonym only.
+  {
+    const m = ADMIN_COACH_DELETE_PATH.exec(path);
+    if (m && method === "POST") {
+      const adminActor = auth?.admin ? auth.coach : !AUTH_SIDECAR && isAdminAuthed(req) ? "admin-password" : undefined;
+      if (!adminActor) return sendJson(res, auth ? 403 : 401, { error: auth ? "Admin access required." : "Authentication required." });
+      let target: string;
+      try { target = decodeURIComponent(m[1]!).trim(); } catch { return sendJson(res, 400, { error: "Bad coach name." }); }
+      if (!target || target.length > 40) return sendJson(res, 400, { error: "Bad coach name." });
+      let rawBody: unknown;
+      try { rawBody = await readBody(req, 4 * 1024); } catch { return sendJson(res, 400, { error: "Invalid JSON request body." }); }
+      const confirm = rawBody && typeof rawBody === "object" ? (rawBody as { confirm?: unknown }).confirm : undefined;
+      return runCoachDelete(req, res, target, confirm, `admin:${adminActor}`, auth !== undefined && nameKeyOf(auth.coach) === nameKeyOf(target));
     }
   }
 
@@ -4385,6 +4509,7 @@ export const server = createServer((req, res) => {
           isLobbyApiPath(url.pathname) ||
           isTabletopApiPath(url.pathname) ||
           isAdminTestingPath(url.pathname) ||
+          ADMIN_COACH_DELETE_PATH.test(url.pathname) ||
           tournamentInstructionsGameId(url.pathname) !== undefined ||
           tournamentResultGameId(url.pathname) !== undefined ||
           leaguePath(url.pathname) !== undefined

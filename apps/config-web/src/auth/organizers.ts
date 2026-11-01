@@ -8,7 +8,7 @@ function normalizeCoach(coach: string): string {
   return coach.trim().toLowerCase();
 }
 
-function organizersFile(): string {
+export function organizersFile(): string {
   return process.env.ORGANIZERS_FILE ? resolve(process.env.ORGANIZERS_FILE) : DEFAULT_ORGANIZERS_FILE;
 }
 

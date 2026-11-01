@@ -277,6 +277,15 @@ export class PendingSsoStore {
     return copy;
   }
 
+  /** Account deletion: drop every pending entry whose Discord id matches. Returns how many went. */
+  deleteWhere(match: (discordId: string) => boolean, now = Date.now()): number {
+    this.loadAndPrune(now);
+    let n = 0;
+    for (const [token, record] of this.pending) if (match(record.discordId)) { this.pending.delete(token); n += 1; }
+    if (n) this.persist();
+    return n;
+  }
+
   delete(token: string | undefined, now = Date.now()): boolean {
     this.loadAndPrune(now);
     const deleted = token ? this.pending.delete(token) : false;

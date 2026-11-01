@@ -193,6 +193,27 @@ export function deleteSession(token: string | undefined): boolean {
   return true;
 }
 
+/** The coach's live sessions (no tokens or hashes): method and times only, for the data export. */
+export function sessionsForCoach(coach: string, now = Date.now()): Array<{ method: SessionMethod; createdAt: string; expiresAt: string }> {
+  pruneExpired(now);
+  const key = coach.trim().toLowerCase();
+  return [...sessions.values()]
+    .filter((e) => e.coach.trim().toLowerCase() === key)
+    .map((e) => ({ method: e.method, createdAt: new Date(e.created).toISOString(), expiresAt: new Date(e.expiry).toISOString() }));
+}
+
+/** Revoke every session of a coach (account deletion). Case-insensitive on the coach name. Returns how many ended. */
+export function deleteSessionsForCoach(coach: string, now = Date.now()): number {
+  ensureLoaded(now);
+  const key = coach.trim().toLowerCase();
+  const gone: string[] = [];
+  for (const [hash, e] of sessions) if (e.coach.trim().toLowerCase() === key) gone.push(hash);
+  for (const hash of gone) sessions.delete(hash);
+  if (gone.length) persist();
+  for (const hash of gone) ended(hash);
+  return gone.length;
+}
+
 /**
  * Refresh the browser cookie's Max-Age for a cookie-authenticated request (the cookie must slide with the server
  * expiry or the browser would drop it). Throttled like the disk write-back; Bearer clients hold a token, not a cookie.

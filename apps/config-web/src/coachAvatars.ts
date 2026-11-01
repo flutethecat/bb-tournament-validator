@@ -335,3 +335,28 @@ export function uploadedCoachAvatarUrl(dir: string | undefined, coach: string): 
   const found = avatarStoreFor(dir).find(coachAvatarKey(coach));
   return found ? coachAvatarRouteUrl(coachAvatarId(coach), "upload", String(Math.floor(found.mtimeMs))) : undefined;
 }
+
+/** The proxy-cache keys (sha256 of the fetched URL) of a coach's admin-set and Discord avatars: what deletion removes. */
+export function coachProxyCacheKeys(
+  record: { profile?: { avatar?: string }; identities?: { discordUserId?: string; discordAvatarHash?: string } } | undefined,
+  discordAvatarUrl: (discordUserId: string, hash: string | undefined) => string | null | undefined,
+): string[] {
+  if (!record) return [];
+  const urls = new Set<string>();
+  if (isProxyableAvatarUrl(record.profile?.avatar)) urls.add(record.profile!.avatar!);
+  const discord = smallDiscordAvatar(discordAvatarUrl(record.identities?.discordUserId ?? "", record.identities?.discordAvatarHash) || undefined);
+  if (discord) urls.add(discord);
+  return [...urls].map(sha);
+}
+
+/**
+ * Account deletion: the coach's uploaded avatar (the same store and key the resolver drops when an identity goes away) and
+ * the proxy-cache copies of their admin-set / Discord images. Idempotent.
+ */
+export async function deleteCoachAvatarData(dir: string, coach: string, proxyKeys: readonly string[]): Promise<void> {
+  await avatarStoreFor(dir).remove(coachAvatarKey(coach));
+  for (const key of proxyKeys) {
+    if (!/^[a-f0-9]{64}$/.test(key)) continue;
+    for (const ext of ["png", "jpg", "webp"]) await fsp.unlink(join(dir, "proxy-cache", `${key}.${ext}`)).catch(() => undefined);
+  }
+}

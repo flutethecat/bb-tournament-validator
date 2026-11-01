@@ -606,3 +606,37 @@ export function mergeIdentityRecords(
   writeIdentityStore({ version: 1, coaches });
   return { sourceFfbCoachId: source.ffbCoachId, coach };
 }
+
+/**
+ * Account deletion (src/privacy): remove a coach's identity record and any provisional signup of the given Discord id,
+ * in one durable write. The write listeners run as for every other write (the avatar resolver drops the coach's upload).
+ * Returns false when there was nothing to remove (idempotent on a resumed job).
+ */
+export function removeIdentityRecord(coach: string, discordUserId?: string): boolean {
+  const key = normalizeFfbCoachId(coach);
+  const current = readIdentities();
+  const section = readProvisionalSection();
+  const hadRecord = Object.hasOwn(current.coaches, key);
+  const provisional = Object.entries(section).filter(([id, rec]) => id === discordUserId || normalizeFfbCoachId(rec.coachName) === key).map(([id]) => id);
+  if (!hadRecord && provisional.length === 0) return false;
+  const coaches = { ...current.coaches };
+  delete coaches[key];
+  for (const id of provisional) delete section[id];
+  writeIdentityStore({ version: 1, coaches, provisionalSignups: section });
+  return true;
+}
+
+/** The coach's identity record exactly as stored (every field, also ones this build does not know yet), or undefined. */
+export function rawIdentityRecord(coach: string): Record<string, unknown> | undefined {
+  try {
+    const parsed = JSON.parse(readFileSync(identitiesFile(), "utf8")) as { coaches?: Record<string, unknown> };
+    const key = normalizeFfbCoachId(coach);
+    for (const value of Object.values(parsed?.coaches ?? {})) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+      const v = value as Record<string, unknown>;
+      const id = typeof v.ffbCoachId === "string" ? v.ffbCoachId : typeof v.forkName === "string" ? v.forkName : "";
+      if (id && normalizeFfbCoachId(id) === key) return structuredClone(v);
+    }
+  } catch { /* no store */ }
+  return undefined;
+}

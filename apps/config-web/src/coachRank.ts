@@ -177,6 +177,9 @@ export class CoachTitleStore {
   private dirty = false;
   constructor(private readonly file?: string) {}
 
+  /** Drop the in-memory copy (the file was rewritten outside this store, e.g. by account deletion); the next use re-reads. */
+  reload(): void { this.data = undefined; this.dirty = false; }
+
   private load(): TitleFile {
     if (this.data) return this.data;
     let d: TitleFile = { version: 1, titles: {} };
