@@ -11,6 +11,7 @@ import { NotificationStore, notificationsApi, setOrganiserThreadSink, type Notif
 import { appendOrganiserMessage } from "../src/social/api.js";
 import { clearFences, coachKeyHash, fenceCoachHash } from "../src/privacy/fence.js";
 import { SenderRateLimiter } from "../src/notifications.js";
+import { requireSession } from "../src/auth/requireSession.js";
 
 // Friends, private messages and the block list (landing spec §4.3-4.5): the store, the routes' auth, block effects,
 // the friend request lifecycle, message send / read / unread counts, the rate limit, escaping and the deletion fence.
@@ -81,6 +82,17 @@ describe("routes: auth and paths", () => {
     const all = JSON.stringify([json(call(h, "GET", "/api/me/friends", as("Alice"))), json(call(h, "GET", "/api/me/threads", as("Alice")))]);
     expect(all).not.toMatch(/email|phone|discord/i);
     expect(json(call(h, "GET", "/api/me/friends", as("Alice"))).known[0]).toEqual({ coach: "Bob", avatar: "/api/coach-avatars/Bob?v=0123456789abcdef", lastPlayed: "2026-10-20T00:00:00Z", games: 1 });
+  });
+});
+
+describe("session gate (live host, src/auth/requireSession.ts)", () => {
+  it("every social route is signed-in only: anonymous API calls are 401, the /app/messages page itself is public (the SPA shows Sign in)", () => {
+    const req = (method: string) => ({ method, headers: {} }) as never;
+    for (const [m, p] of [["GET", "/api/me/friends"], ["GET", "/api/me/threads"], ["GET", "/api/me/threads/unread"], ["GET", "/api/me/blocks"],
+      ["POST", "/api/me/threads"], ["POST", "/api/me/friends/request"], ["DELETE", "/api/me/blocks/Bob"]] as const)
+      expect(requireSession(req(m), p, "").kind, `${m} ${p}`).toBe("unauthorized");
+    expect(requireSession(req("GET"), "/app/messages", "").kind).toBe("allow");
+    expect(requireSession(req("GET"), "/app/messages/t0123456789abcdef", "").kind).toBe("allow");
   });
 });
 

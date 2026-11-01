@@ -897,6 +897,18 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(html).not.toContain("Welcome to Super FUMBBL League Manager!");
   });
 
+  it("signed out /messages (list or a thread) is the Sign in card, never a crash; signed in it renders the page", async () => {
+    for (const path of ["/messages", "/messages/t0123456789abcdef", "/messages?to=Bob"]) {
+      const { html } = await render(path, { "/api/auth/session": { authenticated: false, discordSsoEnabled: true } });
+      expect(html, path).toContain("<h2>Sign in</h2>");
+      expect(html, path).not.toContain("so-page");
+    }
+    const { html } = await render("/messages", { "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord", discordSsoEnabled: true } });
+    expect(html).toContain('class="so-page"');
+    expect(html).toContain('id="so-threads-h"');
+    expect(html).toContain('id="so-blocked-h"');
+  });
+
   it("signed out: the Coach page tree is gone, /home shows the prompt, and the trees still link", async () => {
     const { html } = await render("/home", { "/api/auth/session": { authenticated: false, discordSsoEnabled: true } });
     expect(html).toContain("Login with Discord");
