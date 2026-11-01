@@ -87,24 +87,5 @@ export function countryByName(value: string): Country | undefined {
   return COUNTRIES.find((c) => c.name.toLowerCase() === v) ?? countryByCode(v);
 }
 
-/**
- * National significant number length (digits after the calling code, trunk 0 removed) where known; every other country
- * takes 6 to 12 digits. NANP is exactly 10 (area code + 7). Approximate published ranges; generous where plans vary.
- */
-const NANP_LENGTH: readonly [number, number] = [10, 10];
-const NATIONAL_LENGTHS: Readonly<Record<string, readonly [number, number]>> = {
-  GB: [9, 10], GG: [9, 10], JE: [9, 10], IM: [9, 10], IE: [7, 9], FR: [9, 9], DE: [6, 13], AT: [4, 13], CH: [9, 9],
-  NL: [9, 9], BE: [8, 9], LU: [4, 11], ES: [9, 9], PT: [9, 9], IT: [6, 11], SM: [6, 10], VA: [6, 11], DK: [8, 8],
-  NO: [8, 8], SE: [7, 13], FI: [5, 12], IS: [7, 9], PL: [9, 9], CZ: [9, 9], SK: [9, 9], HU: [8, 9], GR: [10, 10],
-  RO: [9, 9], BG: [8, 9], HR: [8, 9], SI: [8, 8], EE: [7, 8], LV: [8, 8], LT: [8, 8], UA: [9, 9], BY: [9, 10],
-  RU: [10, 10], KZ: [10, 10], TR: [10, 10], IL: [8, 9], AU: [9, 9], NZ: [8, 10], JP: [9, 10], KR: [8, 10], CN: [7, 11],
-  HK: [8, 8], SG: [8, 8], IN: [10, 10], BR: [10, 11], MX: [10, 10], AR: [10, 10], CL: [9, 9], CO: [10, 10], ZA: [9, 9],
-};
-
-/** [min, max] national digits for a country. */
-export function nationalLength(country: Country): readonly [number, number] {
-  return country.dial === "1" ? NANP_LENGTH : NATIONAL_LENGTHS[country.code] ?? [6, 12];
-}
-
 /** Countries whose numbers keep their leading 0 inside the international number (no trunk prefix to drop). */
 export const KEEPS_LEADING_ZERO: ReadonlySet<string> = new Set(["IT", "SM", "VA"]);

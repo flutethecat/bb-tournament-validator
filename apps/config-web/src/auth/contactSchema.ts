@@ -21,7 +21,7 @@
  *  (spa/src/privacy/version.ts). Bumping it there asks every coach again at their next visit (accepted versions are ISO
  *  dates and compare as strings). */
 import { PRIVACY_VERSION } from "../../spa/src/privacy/version.js";
-import { countryByCode, KEEPS_LEADING_ZERO, nationalLength } from "./countries.js";
+import { countryByCode, KEEPS_LEADING_ZERO } from "./countries.js";
 export { PRIVACY_VERSION };
 /** The wording version of the league-contact consent. */
 export const LEAGUE_CONTACT_VERSION = "2026-10-31b";
@@ -119,6 +119,8 @@ const CONTROL = /[\u0000-\u001F\u007F-\u009F]/;
 const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s.]+$/;
 /** "+", a country code that never starts with 0, then digits: 8 to 15 digits in all. */
 const E164 = /^\+[1-9]\d{7,14}$/;
+/** What a stored number may look like (a short national number of a small country builds a short E.164 number). */
+const STORED_E164 = /^\+[1-9]\d{4,14}$/;
 const ISO_MAX = 64;
 
 const isObject = (v: unknown): v is Record<string, unknown> => Boolean(v) && typeof v === "object" && !Array.isArray(v);
@@ -174,17 +176,18 @@ export function normalizePhoneNumber(value: unknown, country?: string): string {
   if (!c) throw new ContactValidationError("Choose your country first.");
   if (!/^\d+$/.test(compact)) throw new ContactValidationError(PHONE_NATIONAL_MESSAGE);
   const national = KEEPS_LEADING_ZERO.has(c.code) ? compact : compact.replace(/^0/, "");
-  const [min, max] = nationalLength(c);
-  if (national.length < min || national.length > max) {
-    // The calling code typed in front of the national number ("1 212 555 0123" for the US): REJECTED with a pointed
-    // message, never stripped (a number that merely starts with those digits must not be silently cut).
-    const rest = national.slice(c.dial.length);
-    if (national.startsWith(c.dial) && rest.length >= min && rest.length <= max)
-      throw new ContactValidationError(`Leave out the country code (+${c.dial}): it is added for you. ${PHONE_NATIONAL_MESSAGE}`);
+  // No per-country tables (owner 10-31): NANP (+1) is exactly 10 digits; every other country 4 to 14 national digits
+  // with at most 15 digits in all. Only for NANP is a typed calling code recognised ("1 212 555 0123": 11 digits
+  // starting with 1) and REJECTED with a pointed message, never stripped; for other countries nothing is guessed.
+  if (c.dial === "1") {
+    if (national.length === 11 && national.startsWith("1"))
+      throw new ContactValidationError(`Leave out the country code (+1): it is added for you. ${PHONE_NATIONAL_MESSAGE}`);
+    if (national.length !== 10) throw new ContactValidationError(PHONE_NATIONAL_MESSAGE);
+  } else if (national.length < 4 || national.length > 14 || c.dial.length + national.length > 15) {
     throw new ContactValidationError(PHONE_NATIONAL_MESSAGE);
   }
   const e164 = `+${c.dial}${national}`;
-  if (!E164.test(e164)) throw new ContactValidationError(PHONE_NATIONAL_MESSAGE);
+  if (!/^\+[1-9]\d{1,14}$/.test(e164)) throw new ContactValidationError(PHONE_NATIONAL_MESSAGE);
   return e164;
 }
 
@@ -219,7 +222,7 @@ export function parsePhones(value: unknown, country?: string): CoachPhone[] {
 function parseStoredPhones(value: unknown): CoachPhone[] {
   if (!Array.isArray(value) || value.length > STORED_MAX_PHONES) throw new ContactValidationError("bad stored phones");
   return value.map((item) => {
-    if (!isObject(item) || typeof item.number !== "string" || !E164.test(item.number)) throw new ContactValidationError("bad stored phone");
+    if (!isObject(item) || typeof item.number !== "string" || !STORED_E164.test(item.number)) throw new ContactValidationError("bad stored phone");
     const country = countryByCode(item.country)?.code;
     const label = PHONE_LABELS.includes(item.label as PhoneLabel) ? item.label as PhoneLabel : undefined;
     return { number: item.number, ...(country ? { country } : {}), ...(label ? { label } : {}) };

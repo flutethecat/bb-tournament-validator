@@ -128,3 +128,35 @@ describe("Country field text (review P3 on a7dad19)", () => {
     expect(countryTextAfterModel("France", "DE")).toBe("Germany");
   });
 });
+
+describe("stored phone checked only when changed (review P2 on 1c506f7)", () => {
+  it("an unchanged stored number that fails today's rules does not block a name edit; editing it is checked", async () => {
+    const { createContactEditor } = await import("../spa/src/account/contact");
+    const view = {
+      preferredName: "Alice", email: "alice@example.test", emailSource: "discord", emailVerified: true, country: "US",
+      phones: [{ number: "+15551234", country: "US" }], leagueContact: null, privacy: null, privacyVersion: "2026-10-31", leagueContactText: "x",
+    };
+    const f = mockFetcher({ "/api/me/contact": view, "PATCH /api/me/contact": { ...view, preferredName: "Alicia" } });
+    const e = createContactEditor({ api: f });
+    await e.load();
+    expect(e.state.form.phones).toEqual([{ number: "5551234", country: "US" }]); // still displayed
+    expect(e.problems().phones).toEqual([""]);
+    e.state.form.preferredName = "Alicia";
+    expect(await e.save()).toBe(true);
+    expect(f.calls.at(-1)).toEqual({ path: "/api/me/contact", method: "PATCH", body: { preferredName: "Alicia" } });
+    e.state.form.phones[0]!.number = "555 12345";
+    expect(e.problems().phones[0]).toBe("Enter the number without the country code, for example 555 123 4567.");
+  });
+
+  it("onboarding re-acceptance keeps an unchanged stored phone out of the body and out of the checks", async () => {
+    const { createOnboarding } = await import("../spa/src/account/onboarding");
+    const info = { needed: true, privacyVersion: "2026-10-31", leagueContactText: "x", prefill: { preferredName: "a", email: "a@b.cd", emailSource: "discord", country: "US", phones: [{ number: "+15551234", country: "US" }] } };
+    const f = mockFetcher({ "/api/me/onboarding": info, "POST /api/me/onboarding": { ...info, needed: false } });
+    const o = createOnboarding({ api: f });
+    await o.load("Alice");
+    o.state.form.privacyAccepted = true;
+    expect(o.canSubmit()).toBe(true);
+    expect(await o.submit()).toBe(true);
+    expect(f.calls.at(-1)!.body).not.toHaveProperty("phones");
+  });
+});

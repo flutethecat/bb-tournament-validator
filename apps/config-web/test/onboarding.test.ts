@@ -503,16 +503,28 @@ describe("country and the one phone number (owner 10-31)", () => {
   });
 });
 
-describe("national number length (review P2 on a7dad19)", () => {
-  it("NANP is exactly 10 digits; the calling code typed in front is rejected (never stripped); other countries by range", () => {
+describe("national number rules without per-country tables (review P2 on 1c506f7)", () => {
+  it("NANP exactly 10 digits, the +1 code typed again rejected; elsewhere 4 to 14 national digits; trunk 0 as before", () => {
     expect(normalizePhoneNumber("212 555 0123", "US")).toBe("+12125550123");
+    expect(() => normalizePhoneNumber("555 1234", "US")).toThrow("Enter the number without the country code, for example 555 123 4567."); // 7 digits
     expect(() => normalizePhoneNumber("1 212 555 0123", "US")).toThrow(/Leave out the country code \(\+1\)/); // would be +112125550123
-    expect(() => normalizePhoneNumber("212 5550", "US")).toThrow("Enter the number without the country code, for example 555 123 4567."); // would be +12125550
-    expect(() => normalizePhoneNumber("44 7700 900555", "GB")).toThrow(/Leave out the country code \(\+44\)/);
-    expect(() => normalizePhoneNumber("7700 9005", "GB")).toThrow(/without the country code/); // 8 digits: too short for the UK
-    expect(normalizePhoneNumber("030 5551234", "DE")).toBe("+49305551234");
-    expect(() => normalizePhoneNumber("12345", "XK")).toThrow(/without the country code/); // default 6 to 12
-    expect(normalizePhoneNumber("123456", "XK")).toBe("+383123456");
+    expect(() => normalizePhoneNumber("212 5550", "US")).toThrow(/without the country code/); // would be +12125550
+    expect(normalizePhoneNumber("9 11 2345 6789", "AR")).toBe("+5491123456789"); // Argentina mobile (9 prefix)
+    expect(normalizePhoneNumber("21234", "CK")).toBe("+68221234"); // Cook Islands, 5 digits
+    expect(normalizePhoneNumber("07700 900555", "GB")).toBe("+447700900555"); // UK trunk 0 dropped
+    expect(normalizePhoneNumber("06 5551234", "IT")).toBe("+39065551234"); // Italy keeps its leading 0
+    expect(() => normalizePhoneNumber("123", "DE")).toThrow(/without the country code/); // under 4 digits
+    expect(() => normalizePhoneNumber("1".repeat(15), "DE")).toThrow(/without the country code/); // over 14 digits
+    expect(() => normalizePhoneNumber("1".repeat(14), "ZW")).toThrow(/without the country code/); // 263 + 14 = 17 digits in all
     expect(() => parsePhones([{ number: "1 212 555 0123" }], "US")).toThrow(/Leave out the country code/);
+  });
+
+  it("a stored number that fails today's rules still reads back and does not block an unrelated contact edit", () => {
+    const old = { number: "+15551234", country: "US" }; // 7 national digits: refused if typed today
+    seed(record("OldPh", { contact: { email: null, emailSource: "discord", emailVerified: false, country: "US", phones: [old] }, consent: { privacy: { acceptedVersion: PRIVACY_VERSION, at: NOW.toISOString() } } }));
+    expect(contactView(stored("OldPh")).phones).toEqual([old]);
+    updateOwnContact("OldPh", { preferredName: "Old Phone" }, LATER);
+    expect(stored("OldPh")).toMatchObject({ profile: { preferredName: "Old Phone" }, contact: { phones: [old] } });
+    expect(() => updateOwnContact("OldPh", { phones: [{ number: "555 1234" }] }, LATER)).toThrow(/without the country code/); // checked once changed
   });
 });

@@ -81,12 +81,21 @@ export interface OnboardingState {
 const msg = (fn: () => unknown): string => { try { fn(); return ""; } catch (e) { return (e as Error).message; } };
 
 /** Per-field problems ("" = fine). An empty phone row is a problem too (remove it or fill it in). */
-export function onboardingProblems(form: OnboardingForm): OnboardingProblems {
+/** The phone row as it was loaded, unchanged (a stored number is checked only when the coach edits it). */
+export const samePhone = (a: PhoneRow | undefined, b: PhoneRow | undefined): boolean =>
+  Boolean(a && b) && a!.number.trim() === b!.number.trim() && a!.country === b!.country;
+export const phonesChanged = (now: readonly PhoneRow[], initial: readonly PhoneRow[]): boolean =>
+  now.length !== initial.length || now.some((p, i) => !samePhone(p, initial[i]));
+
+/** Per-field problems ("" = fine). `initialPhones` = the rows as loaded: an unchanged stored phone is not re-checked, so
+ *  a number saved under older rules still displays and never blocks an unrelated edit. */
+export function onboardingProblems(form: OnboardingForm, initialPhones: readonly PhoneRow[] = []): OnboardingProblems {
   return {
     preferredName: msg(() => parsePreferredName(form.preferredName)),
     email: msg(() => parseEmail(form.email)),
     country: countryByCode(form.country) ? "" : COUNTRY_REQUIRED,
-    phones: form.phones.map((p) => {
+    phones: form.phones.map((p, i) => {
+      if (samePhone(p, initialPhones[i])) return "";
       if (!p.number.trim()) return "Enter a number or remove it.";
       return msg(() => normalizePhoneNumber(p.number, p.country || form.country));
     }),
@@ -94,17 +103,18 @@ export function onboardingProblems(form: OnboardingForm): OnboardingProblems {
 }
 
 /** "Save and continue" is enabled only with a valid form and the privacy notice accepted. */
-export function canSubmit(form: OnboardingForm): boolean {
-  const p = onboardingProblems(form);
+export function canSubmit(form: OnboardingForm, initialPhones: readonly PhoneRow[] = []): boolean {
+  const p = onboardingProblems(form, initialPhones);
   return form.privacyAccepted && !p.preferredName && !p.email && !p.country && p.phones.every((x) => !x);
 }
 
-export function onboardingBody(form: OnboardingForm, privacyVersion: string) {
+/** The POST body; phones only when the coach changed them (absent = the server keeps the stored number). */
+export function onboardingBody(form: OnboardingForm, privacyVersion: string, initialPhones: readonly PhoneRow[] = []) {
   return {
     preferredName: form.preferredName.trim(),
     email: form.email.trim() || null,
     country: form.country,
-    phones: form.phones.slice(0, MAX_PHONES).map((p) => phoneBody(p, form.country)),
+    ...(phonesChanged(form.phones, initialPhones) ? { phones: form.phones.slice(0, MAX_PHONES).map((p) => phoneBody(p, form.country)) } : {}),
     leagueContact: form.leagueContact,
     privacyAccepted: form.privacyAccepted,
     privacyVersion,
@@ -121,6 +131,8 @@ const blankForm = (): OnboardingForm => ({ preferredName: "", email: "", editing
 export function createOnboarding(deps: { api: Fetcher; onSignedOut?: () => void }) {
   const state = reactive<OnboardingState>({ coach: "", info: null, form: blankForm(), busy: false, error: "" });
   let readFor = "";
+  /** The phone rows as loaded (unchanged = not re-checked, not re-sent). */
+  let initialPhones: PhoneRow[] = [];
 
   /** Reads GET /api/me/onboarding for the coach (once per coach; "" clears). A failed read leaves no modal: the
    *  server's 428 gate still holds every /api/me write, and the next sign-in or reload asks again. */
@@ -131,6 +143,7 @@ export function createOnboarding(deps: { api: Fetcher; onSignedOut?: () => void 
     state.info = null;
     state.error = "";
     state.form = blankForm();
+    initialPhones = [];
     if (!coach) return;
     try {
       const info = await deps.api<OnboardingInfo>("/api/me/onboarding");
@@ -146,6 +159,7 @@ export function createOnboarding(deps: { api: Fetcher; onSignedOut?: () => void 
         phones: (info.prefill.phones ?? []).slice(0, MAX_PHONES).map(phoneRowOf),
         leagueContact: info.prefill.leagueContact === true,
       };
+      initialPhones = state.form.phones.map((p) => ({ ...p }));
     } catch {
       if (readFor === coach) readFor = ""; // retry on the next call
     }
@@ -155,17 +169,17 @@ export function createOnboarding(deps: { api: Fetcher; onSignedOut?: () => void 
     state,
     load,
     open: (): boolean => Boolean(state.coach && state.info?.needed),
-    problems: (): OnboardingProblems => onboardingProblems(state.form),
-    canSubmit: (): boolean => !state.busy && canSubmit(state.form),
+    problems: (): OnboardingProblems => onboardingProblems(state.form, initialPhones),
+    canSubmit: (): boolean => !state.busy && canSubmit(state.form, initialPhones),
     editEmail(): void { state.form.editingEmail = true; },
     addPhone(): void { if (state.form.phones.length < MAX_PHONES) state.form.phones.push({ number: "", country: "" }); },
     removePhone(i: number): void { state.form.phones.splice(i, 1); },
     async submit(): Promise<boolean> {
-      if (!state.info || state.busy || !canSubmit(state.form)) return false;
+      if (!state.info || state.busy || !canSubmit(state.form, initialPhones)) return false;
       state.busy = true;
       state.error = "";
       try {
-        const info = await deps.api<OnboardingInfo>("/api/me/onboarding", { method: "POST", body: onboardingBody(state.form, state.info.privacyVersion) });
+        const info = await deps.api<OnboardingInfo>("/api/me/onboarding", { method: "POST", body: onboardingBody(state.form, state.info.privacyVersion, initialPhones) });
         state.info = info;
         return !info.needed;
       } catch (e) {

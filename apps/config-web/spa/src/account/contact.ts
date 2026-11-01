@@ -6,7 +6,7 @@ import { reactive } from "vue";
 import type { Fetcher } from "../session";
 import { ApiError } from "../shared/api";
 import { MAX_PHONES } from "../../../src/auth/contactSchema";
-import { onboardingProblems, phoneBody, phoneRowOf, type OnboardingProblems, type PhoneLabel, type PhoneRow } from "./onboarding";
+import { onboardingProblems, phoneBody, phonesChanged, phoneRowOf, type OnboardingProblems, type PhoneLabel, type PhoneRow } from "./onboarding";
 
 export interface ContactInfo {
   preferredName: string;
@@ -45,9 +45,11 @@ const formOf = (v: ContactInfo): ContactForm => ({
 export const dateOf = (iso: string | undefined | null): string => (iso ? iso.slice(0, 10) : "");
 
 /** Country is not required here (coaches onboarded before it existed are not re-gated), except to add a phone. */
-export function contactProblems(form: ContactForm): OnboardingProblems {
-  const p = onboardingProblems({ ...form, editingEmail: true, privacyAccepted: true });
-  const country = form.country ? p.country : form.phones.length ? "Choose your country first." : "";
+export function contactProblems(form: ContactForm, view?: ContactInfo | null): OnboardingProblems {
+  // The stored phone is checked only when the coach changes it (an old number never blocks a name edit).
+  const initial = view ? formOf(view).phones : [];
+  const p = onboardingProblems({ ...form, editingEmail: true, privacyAccepted: true }, initial);
+  const country = form.country ? p.country : phonesChanged(form.phones, initial) && form.phones.length ? "Choose your country first." : "";
   return { ...p, country };
 }
 
@@ -77,7 +79,7 @@ export function createContactEditor(deps: { api: Fetcher }) {
   const state = reactive<ContactState>({
     view: null, form: { preferredName: "", email: "", country: "", phones: [], leagueContact: false }, loaded: false, loadFailed: false, saving: false, error: "", notice: "",
   });
-  const problems = () => contactProblems(state.form);
+  const problems = () => contactProblems(state.form, state.view);
   const valid = () => { const p = problems(); return !p.preferredName && !p.email && !p.country && p.phones.every((x) => !x); };
   const dirty = () => {
     if (!state.view) return false;
