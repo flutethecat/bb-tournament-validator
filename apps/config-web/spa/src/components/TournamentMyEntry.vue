@@ -3,17 +3,21 @@
 // entered, the submitted team with its validity chip and problems, Submit team (Team Builder saves or library teams),
 // the next fixture with a link to the opponent's team, and Withdraw.
 // Registration (owner 10-31) carries "Share with the organiser" (Preferred name / Email / Phone, default off; phone only
-// with one on file) and, on a NAF-sanctioned tournament, the required NAF number (prefilled from a verified NAF link) or
-// "I am not a NAF member".
+// with one on file) and, on a NAF-sanctioned tournament, the NAF block (NafProfileField): the NAF name and number on the
+// coach's profile are shared with the organiser (one read-only line, no typing), or a coach without them adds them here
+// (saved to the profile through the Account NAF link) or ticks "I am not a NAF member". The NAF answer form of an entry
+// that owes it (organiser-made, or the tournament became sanctioned) works the same way.
 import { computed, inject, onMounted, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 import TeamSelect from "./TeamSelect.vue";
 import ShareFieldsPicker from "./ShareFieldsPicker.vue";
+import NafProfileField from "./NafProfileField.vue";
 import { API_KEY } from "../app";
 import { createSharing, type ShareField } from "../account/sharing";
 import { SESSION_KEY, writesAllowed } from "../session";
 import {
-  isPageAction, myEntrant, nafProblem, nextFixtureFor, registrationOpen, ROSTER_LABEL, rosterState, submitChoices, TOURNAMENT_DETAIL_KEY,
+  isPageAction, linkProfileNaf, myEntrant, nafProblem, nextFixtureFor, registrationOpen, ROSTER_LABEL, rosterState, submitChoices,
+  TOURNAMENT_DETAIL_KEY, type NafLinkDraft, type ProfileNafView,
 } from "../tournaments/detail";
 
 const detail = inject(TOURNAMENT_DETAIL_KEY)!;
@@ -43,35 +47,69 @@ watch(choices, (list) => {
   saveRef.value = current && list.some((c) => c.ref === current) ? current : list[0]?.ref ?? "";
 }, { immediate: true });
 
-// The coach's phone / verified NAF number, for the registration picker (GET /api/me/sharing).
+// The coach's phone and profile NAF details, for the registration form (GET /api/me/sharing).
 const fetcher = inject(API_KEY, null);
 const sharing = fetcher ? createSharing({ api: fetcher }) : null;
 const share = ref<ShareField[]>([]);
-const nafNumber = ref("");
 const notNafMember = ref(false);
+const nafDraft = ref<NafLinkDraft>({ nafName: "", nafId: "" });
 const sanctioned = computed(() => t.value.nafSanctioned === true);
-const nafError = computed(() => nafProblem(sanctioned.value, nafNumber.value, notNafMember.value));
+/** Set by a save from the inline form, so the line shows at once (the sharing view reloads behind it). */
+const linkedNow = ref<ProfileNafView | null>(null);
+const profileNaf = computed<ProfileNafView | null>(() => {
+  if (linkedNow.value?.nafNumber) return linkedNow.value;
+  const info = sharing?.state.info;
+  return info?.nafNumber ? { nafNumber: info.nafNumber, ...(info.nafName ? { nafName: info.nafName } : {}) } : null;
+});
+const nafLoading = computed(() => Boolean(sharing && !sharing.state.loaded && !sharing.state.loadFailed));
+const nafError = computed(() => nafProblem(sanctioned.value, profileNaf.value, notNafMember.value, nafDraft.value));
 const nafTouched = ref(false);
-watch(() => sharing?.state.info?.nafNumber, (n) => { if (n && !nafNumber.value) nafNumber.value = n; });
+const nafLinkError = ref("");
+const nafLinking = ref(false);
+const nafShown = computed(() => nafLinkError.value || (nafTouched.value ? nafError.value : ""));
+watch(nafDraft, () => { nafLinkError.value = ""; });
 
+// An entry still owing its NAF answer (organiser-made, or the tournament became NAF sanctioned): derived by the server.
+const nafPending = computed(() => Boolean(mine.value?.nafPending && sanctioned.value));
 onMounted(() => {
   if (coach.value && state.teamOptions.status === "idle") void detail.loadTeamOptions(coach.value);
-  if (coach.value && (!mine.value || mine.value.nafPending) && sharing) void sharing.load();
+  if (coach.value && (!mine.value || nafPending.value) && sharing) void sharing.load();
 });
+watch(nafPending, (owed) => { if (owed && coach.value && sharing && !sharing.state.loaded) void sharing.load(); });
 
-const busy = computed(() => Boolean(state.busy));
+/** Saves the inline NAF name and number to the profile when the form needs it; false = stop (the error is shown). */
+async function ensureProfileNaf(): Promise<boolean> {
+  if (!sanctioned.value || notNafMember.value || profileNaf.value?.nafNumber) return true;
+  if (!fetcher) { nafLinkError.value = "Add your NAF name and number on your Account page."; return false; }
+  nafLinking.value = true;
+  nafLinkError.value = "";
+  try {
+    const saved = await linkProfileNaf(fetcher, nafDraft.value);
+    linkedNow.value = saved;
+    if (sharing) void sharing.load();
+    return Boolean(saved.nafNumber);
+  } catch (err) {
+    nafLinkError.value = err instanceof Error && err.message ? err.message : "Can't save your NAF details. Try again.";
+    return false;
+  } finally {
+    nafLinking.value = false;
+  }
+}
+
+const busy = computed(() => Boolean(state.busy) || nafLinking.value);
 async function doRegister() {
   nafTouched.value = true;
   if (!teamId.value || nafError.value) return;
-  await detail.register(teamId.value, { share: share.value, ...(sanctioned.value ? (notNafMember.value ? { notNafMember: true } : { nafNumber: nafNumber.value }) : {}) });
+  if (!(await ensureProfileNaf())) return;
+  const declared = sanctioned.value && notNafMember.value && !profileNaf.value;
+  await detail.register(teamId.value, { share: share.value, ...(declared ? { notNafMember: true } : {}) });
 }
 async function doSubmit() { if (saveRef.value) await detail.submit(saveRef.value); }
-// An entry still owing its NAF answer (organiser-made, or the tournament became NAF sanctioned).
-const nafPending = computed(() => Boolean(mine.value?.nafPending && sanctioned.value));
 async function doAnswerNaf() {
   nafTouched.value = true;
   if (!mine.value || nafError.value) return;
-  await detail.answerNaf(mine.value.id, notNafMember.value ? { notNafMember: true } : { nafNumber: nafNumber.value });
+  if (!(await ensureProfileNaf())) return;
+  await detail.answerNaf(mine.value.id, notNafMember.value && !profileNaf.value ? { notNafMember: true } : {});
 }
 async function doWithdraw() { await detail.withdraw(); }
 </script>
@@ -89,24 +127,17 @@ async function doWithdraw() { await detail.withdraw(); }
               <label for="tn-reg-team">Team</label>
               <TeamSelect id="tn-reg-team" v-model="teamId" :teams="state.teamOptions.library" />
             </div>
-            <div v-if="sanctioned" class="tn-reg-naf">
-              <label for="tn-reg-naf">NAF number (required — this tournament is NAF sanctioned)</label>
-              <input
-                id="tn-reg-naf" v-model="nafNumber" type="text" inputmode="numeric" maxlength="10" autocomplete="off" :disabled="notNafMember"
-                :aria-invalid="nafTouched && nafError ? 'true' : undefined" aria-describedby="tn-reg-naf-help" @blur="nafTouched = true"
-              />
-              <small id="tn-reg-naf-help" class="hm-small" :class="nafTouched && nafError ? 'lobby-error' : 'muted'">{{
-                nafTouched && nafError ? nafError : "Not optional: your NAF number is shared with the organisers as part of your entry."
-              }}</small>
-              <label class="ob-check"><input v-model="notNafMember" type="checkbox" /> <span>I am not a NAF member</span></label>
-            </div>
+            <NafProfileField
+              v-if="sanctioned" v-model:not-naf-member="notNafMember" v-model:draft="nafDraft" id-prefix="tn-reg-naf"
+              :profile="profileNaf" :loading="nafLoading" :disabled="busy" :error="nafShown"
+            />
             <div class="tn-reg-share">
               <p class="tn-fact-k">Share with the organiser</p>
               <ShareFieldsPicker v-model="share" :phone-on-file="sharing?.state.info?.phoneOnFile === true" legend="What the organisers of this tournament can see" />
               <small class="muted hm-small">Organisers always see your coach name and team. Nothing else unless you tick it; change it later under Account, Sharing.</small>
             </div>
             <div class="tn-actions">
-              <button class="lobby-btn primary" type="submit" :disabled="!teamId || busy || (nafTouched && Boolean(nafError))">Register</button>
+              <button class="lobby-btn primary" type="submit" :disabled="!teamId || busy || (nafTouched && Boolean(nafError))">{{ nafLinking ? "Saving NAF details..." : "Register" }}</button>
             </div>
           </form>
           <p v-if="!mine && state.teamOptions.status === 'ok' && !state.teamOptions.library.length" class="muted">
@@ -124,17 +155,12 @@ async function doWithdraw() { await detail.withdraw(); }
           <span class="tn-chip" :data-roster="roster">{{ ROSTER_LABEL[roster] }}</span>
         </div>
         <form v-if="nafPending && canWrite" class="tn-reg-naf tn-naf-pending" novalidate @submit.prevent="doAnswerNaf">
-          <p class="lobby-error hm-small">This tournament is NAF sanctioned. Give your NAF number, or say you are not a NAF member, before you submit a roster.</p>
-          <label for="tn-entry-naf">NAF number (required — this tournament is NAF sanctioned)</label>
-          <input
-            id="tn-entry-naf" v-model="nafNumber" type="text" inputmode="numeric" maxlength="10" autocomplete="off" :disabled="notNafMember"
-            :aria-invalid="nafTouched && nafError ? 'true' : undefined" aria-describedby="tn-entry-naf-help" @blur="nafTouched = true"
+          <p class="lobby-error hm-small">This tournament is NAF sanctioned. Add your NAF name and number to your profile, or say you are not a NAF member, before you submit a roster.</p>
+          <NafProfileField
+            v-model:not-naf-member="notNafMember" v-model:draft="nafDraft" id-prefix="tn-entry-naf"
+            :profile="profileNaf" :loading="nafLoading" :disabled="busy" :error="nafShown"
           />
-          <small id="tn-entry-naf-help" class="hm-small" :class="nafTouched && nafError ? 'lobby-error' : 'muted'">{{
-            nafTouched && nafError ? nafError : "Not optional: your NAF number is shared with the organisers as part of your entry."
-          }}</small>
-          <label class="ob-check"><input v-model="notNafMember" type="checkbox" /> <span>I am not a NAF member</span></label>
-          <div class="tn-actions"><button class="lobby-btn primary" type="submit" :disabled="busy || (nafTouched && Boolean(nafError))">Save NAF answer</button></div>
+          <div class="tn-actions"><button class="lobby-btn primary" type="submit" :disabled="busy || (nafTouched && Boolean(nafError))">{{ nafLinking ? "Saving NAF details..." : "Save NAF answer" }}</button></div>
         </form>
         <ul v-if="problems.length" class="tn-problems" aria-label="Roster problems">
           <li v-for="(p, i) in problems" :key="i">{{ p }}</li>

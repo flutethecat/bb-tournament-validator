@@ -55,7 +55,7 @@ export const INVENTORY: readonly InventoryRow[] = [
     id: "contact-details", store: "identities.json (profile and contact fields)",
     data: "The name you prefer to be called, a contact email you enter (it can differ from your Discord email, and we note whether it is verified), your country (it sets the prefix for your phone number), and one phone number if you add one (a phone number is optional).",
     purpose: "So Super FUMBBL can send you league messages from the organisers of leagues you join, if you allow it, and so you can choose to show your details to the organisers of a league or tournament you join.",
-    public: "no", publicNote: "Organisers of a league or tournament you join see your coach name and teams. Anything else (your preferred name, email or phone number) they see only if you chose to share it with that league or tournament, and only while you are in it; you choose per league and per tournament, and can change it on the Account page under Sharing. Your NAF number is shared with the organisers of NAF-sanctioned tournaments you enter. Nothing here is made public. League messages are sent by Super FUMBBL through our email delivery provider, so organisers can message you without seeing your address. Tournament organisers can also record NAF details for the coaches entered in their tournament.",
+    public: "no", publicNote: "Organisers of a league or tournament you join see your coach name and teams. Anything else (your preferred name, email or phone number) they see only if you chose to share it with that league or tournament, and only while you are in it; you choose per league and per tournament, and can change it on the Account page under Sharing. NAF name and number from your profile are shared with organisers of NAF-sanctioned tournaments you enter. Nothing here is made public. League messages are sent by Super FUMBBL through our email delivery provider, so organisers can message you without seeing your address. Tournament organisers can also record NAF details for the coaches entered in their tournament.",
     retention: ACCOUNT_LIFETIME,
   },
   {
@@ -112,7 +112,7 @@ export const INVENTORY: readonly InventoryRow[] = [
   },
   {
     id: "tournaments", store: "data-store/tournaments.json and tournament folders",
-    data: "Your tournament entries, rosters, fixtures, results and organiser news; for an entry, the NAF number you gave or that you said you are not a NAF member (seen by you and the tournament's organisers only).",
+    data: "Your tournament entries, rosters, fixtures, results and organiser news; for an entry, that you said you are not a NAF member, or a NAF number stored with an older entry (seen by you and the tournament's organisers only). On a NAF-sanctioned tournament the organisers see the NAF name and number on your profile.",
     purpose: "Running tournaments.",
     public: "yes", publicNote: "On the public tournament pages.",
     retention: HISTORY_RETENTION,

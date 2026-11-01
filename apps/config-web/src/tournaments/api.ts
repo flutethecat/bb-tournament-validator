@@ -29,10 +29,9 @@ export interface TournamentApiIdentity {
 export interface TournamentApiDeps {
   store: TournamentStore;
   teamBuild(teamId: string, coachId?: string): unknown | undefined;
-  identityRecord?(coachId: string): {
-    ffbCoachId: string;
-    identities: { nafName?: string; nafId?: string };
-  } | undefined;
+  identityRecord?(coachId: string): TournamentIdentityRecord | undefined;
+  /** The same for many coaches at once (one identities read; the detail page). Absent = identityRecord() per coach. */
+  identityRecords?(coachIds: readonly string[]): Array<TournamentIdentityRecord | undefined>;
   packageExists?(packageName: string): boolean;
   teamOwner?(teamId: string): string | undefined;
   coachRating?(coach: string): number | undefined;
@@ -56,6 +55,14 @@ export interface TournamentApiDeps {
     contacts?(viewer: TournamentApiIdentity, coaches: readonly string[], tournamentId: string): Array<SharedContact | undefined>;
   };
   now?: () => Date;
+}
+
+/** The slice of a coach's identity record the tournament routes read: the profile NAF details (owner 10-31: the
+ *  source of an entry's NAF name and number on a NAF-sanctioned tournament) and the NAF page check. */
+export interface TournamentIdentityRecord {
+  ffbCoachId: string;
+  identities: { nafName?: string; nafId?: string };
+  connections?: { naf?: { nafId: string; nafName: string } };
 }
 
 export interface TournamentApiResult {
@@ -201,9 +208,10 @@ function submissionView(entrant: TournamentEntrantRecord, private_: boolean) {
 }
 
 /** An entrant for the page; `private_` (the coach themselves or a manager) adds flags, manual seed and problems. */
-/** shared: the coach's granted fields, for a manager's view only (sharedContactFor). tournament: when given, nafPending is
- *  derived (an unanswered entry of a sanctioned tournament shows pending even before it is marked). */
-function clientEntrant(entrant: TournamentEntrantRecord, deps: Pick<TournamentApiDeps, "teamBuild">, private_: boolean, shared?: SharedContact, tournament?: TournamentRecord) {
+/** shared: the coach's granted fields, for a manager's view only (sharedContactFor). tournament: when given, the NAF
+ *  details and nafPending are derived from it and the coach's current profile NAF (`profile`): a sanctioned entry shows
+ *  the profile's NAF name and number, and owes its answer when there is none (reads never write). */
+function clientEntrant(entrant: TournamentEntrantRecord, deps: Pick<TournamentApiDeps, "teamBuild">, private_: boolean, shared?: SharedContact, tournament?: TournamentRecord, profile?: ProfileNaf) {
   const { coach, submission: _submission, flags, rosterVerifiedOverride, manualSeed, nafNumber, notNafMember, nafPending, ...rest } = entrant;
   const team = deps.teamBuild(entrant.teamId);
   const submission = submissionView(entrant, private_);
@@ -220,9 +228,9 @@ function clientEntrant(entrant: TournamentEntrantRecord, deps: Pick<TournamentAp
       flags: { ...DEFAULT_ENTRANT_FLAGS, ...(flags ?? {}) },
       ...(rosterVerifiedOverride === undefined ? {} : { rosterVerifiedOverride }),
       ...(manualSeed === undefined ? {} : { manualSeed }),
-      ...(nafNumber ? { nafNumber } : {}),
+      ...(tournament ? nafFields(entryNaf(tournament, entrant, profile)) : nafNumber ? { nafNumber } : {}),
       ...(notNafMember ? { notNafMember } : {}),
-      ...(nafPending || (tournament && nafOwed(tournament, entrant)) ? { nafPending: true as const } : {}),
+      ...((tournament ? nafOwed(tournament, entrant, profile) : nafPending) ? { nafPending: true as const } : {}),
     } : {}),
     ...(shared ? { shared } : {}),
   };
@@ -523,29 +531,46 @@ function notifyRegistration(deps: TournamentApiDeps, tournament: TournamentRecor
   });
   if (coachKey(entrant.coach.ffbCoachId) !== coachKey(actor)) {
     if (entrant.nafPending) notifyNafRequest(deps, tournament, entrant.coach.ffbCoachId, actor, true);
-    else notifyShareRequest(deps, tournament, entrant.coach.ffbCoachId, actor);
+    else notifyShareRequest(deps, tournament, entrant.coach.ffbCoachId, actor, tournament.nafSanctioned === true && !entrant.nafNumber);
   }
 }
 
-function notifyShareRequest(deps: TournamentApiDeps, tournament: TournamentRecord, coach: string, actor: string): void {
+/** nafShared: the entry's NAF details come from the coach's profile (NAF sanctioned), and the coach is told so. */
+function notifyShareRequest(deps: TournamentApiDeps, tournament: TournamentRecord, coach: string, actor: string, nafShared = false): void {
   quietly(() => deps.notify?.coach(coach, {
     type: "share-request",
     title: `You were entered in ${tournament.name} — choose what to share`,
-    body: "Choose what its organisers can see on your Account page, under Sharing.",
+    body: "Choose what its organisers can see on your Account page, under Sharing."
+      + (nafShared ? ` ${tournament.name} is NAF sanctioned: ${NAF_SHARED_SENTENCE}` : ""),
     link: "/app/account#sharing",
     from: actor,
   }));
 }
 
-/** The coach owes a NAF answer (organiser-made entry, or the tournament became NAF sanctioned): one notice. */
+/** What a coach is told when their profile NAF details go to a tournament's organisers (owner 10-31). */
+export const NAF_SHARED_SENTENCE = "the NAF name and number on your profile are shared with its organisers.";
+
+/** The coach owes a NAF answer (organiser-made entry, or the tournament became NAF sanctioned) and has no NAF details
+ *  on their profile: add them (they then go to the organisers), or say "not a NAF member". One notice. */
 function notifyNafRequest(deps: TournamentApiDeps, tournament: TournamentRecord, coach: string, actor: string, entered: boolean): void {
   quietly(() => deps.notify?.coach(coach, {
     type: "naf-request",
-    title: entered ? `You were entered in ${tournament.name} — give your NAF number` : `${tournament.name} is NAF sanctioned — give your NAF number`,
-    body: `${tournament.name} is NAF sanctioned. On the tournament page, give your NAF number or say you are not a NAF member; `
-      + "you cannot submit a roster until you do."
+    title: entered ? `You were entered in ${tournament.name} — add your NAF details` : `${tournament.name} is NAF sanctioned — add your NAF details`,
+    body: `${tournament.name} is NAF sanctioned. On the tournament page, add your NAF name and number to your profile `
+      + "(they are shared with its organisers) or say you are not a NAF member; you cannot submit a roster until you do."
       + (entered ? " You can also choose what its organisers see under Account, Sharing." : ""),
     link: tournamentLink(tournament.id, "overview"),
+    from: actor,
+  }));
+}
+
+/** The tournament became NAF sanctioned and the coach's profile has NAF details: they now go to its organisers. */
+function notifyNafShared(deps: TournamentApiDeps, tournament: TournamentRecord, coach: string, actor: string): void {
+  quietly(() => deps.notify?.coach(coach, {
+    type: "naf-request",
+    title: `${tournament.name} is NAF sanctioned — your NAF details are shared`,
+    body: `${tournament.name} is NAF sanctioned: ${NAF_SHARED_SENTENCE} Change them on your Account page.`,
+    link: "/app/account#identity",
     from: actor,
   }));
 }
@@ -561,23 +586,68 @@ function notifyNotNafMember(deps: TournamentApiDeps, tournament: TournamentRecor
   });
 }
 
-/** A NAF answer from a request body: a NAF number (1 to 10 digits, leading zeros dropped) or notNafMember: true. */
-function nafAnswer(input: Record<string, unknown>): { nafNumber: string } | { notNafMember: true } | { error: string } {
+/** The coach's NAF answer from a request body (profile-first, owner 10-31): notNafMember: true, or the NAF details on
+ *  their profile. A typed number is no longer taken from the coach: it goes on the profile (Account, or the inline form). */
+function nafAnswer(input: Record<string, unknown>, profile: ProfileNaf | undefined): { notNafMember: true } | { fromProfile: true } | { error: string } {
   if (input.notNafMember !== undefined && typeof input.notNafMember !== "boolean") return { error: "notNafMember must be true or false." };
   if (input.notNafMember === true) return { notNafMember: true };
-  if (input.nafNumber !== undefined && input.nafNumber !== null && typeof input.nafNumber !== "string") return { error: "NAF number must be 1 to 10 digits." };
-  const typed = typeof input.nafNumber === "string" ? input.nafNumber.trim() : "";
-  if (!typed) return { error: NAF_REQUIRED_MESSAGE };
-  const nafNumber = canonicalNafId(typed);
-  return nafNumber ? { nafNumber } : { error: "NAF number must be 1 to 10 digits." };
+  return profile ? { fromProfile: true } : { error: NAF_REQUIRED_MESSAGE };
 }
 
 export const NAF_REQUIRED_MESSAGE = "NAF number required for this NAF-sanctioned tournament.";
 
-/** Derived, not just the stored flag (review P2): an active entry of a NAF-sanctioned tournament with neither a NAF
- *  number nor "not a NAF member" owes its NAF answer, however it got that way. */
-export function nafOwed(tournament: Pick<TournamentRecord, "nafSanctioned">, entrant: TournamentEntrantRecord): boolean {
-  return tournament.nafSanctioned === true && entrant.droppedAt === undefined && !entrant.nafNumber && !entrant.notNafMember;
+/** A coach's NAF details from their profile (identities.nafName / nafId): owner 10-31, the source of an entry's NAF
+ *  name and number on a NAF-sanctioned tournament. nafChecked: the NAF coach page check still matches. undefined = no
+ *  NAF number on the profile. */
+export interface ProfileNaf { nafNumber: string; nafName?: string; nafChecked?: true }
+
+export function profileNafOf(record: TournamentIdentityRecord | undefined): ProfileNaf | undefined {
+  const nafNumber = canonicalNafId(record?.identities.nafId);
+  if (!record || !nafNumber) return undefined;
+  const nafName = record.identities.nafName?.trim();
+  const check = record.connections?.naf;
+  const checked = check !== undefined && check.nafId === record.identities.nafId && check.nafName === record.identities.nafName;
+  return { nafNumber, ...(nafName ? { nafName } : {}), ...(checked ? { nafChecked: true as const } : {}) };
+}
+
+/** The profile NAF details of one coach (undefined when there is no lookup, no record or no number). */
+function profileNaf(deps: Pick<TournamentApiDeps, "identityRecord">, coach: string): ProfileNaf | undefined {
+  try { return profileNafOf(deps.identityRecord?.(coach)); } catch { return undefined; }
+}
+
+/** The same for many coaches, keyed by coachKey (one identities read when the host offers identityRecords). */
+function profileNafs(deps: Pick<TournamentApiDeps, "identityRecord" | "identityRecords">, coaches: readonly string[]): Map<string, ProfileNaf> {
+  const out = new Map<string, ProfileNaf>();
+  const unique = [...new Map(coaches.map((c) => [coachKey(c), c])).values()];
+  if (!unique.length) return out;
+  let records: Array<TournamentIdentityRecord | undefined>;
+  try {
+    records = deps.identityRecords
+      ? deps.identityRecords(unique)
+      : unique.map((c) => { try { return deps.identityRecord?.(c); } catch { return undefined; } });
+  } catch { return out; }
+  unique.forEach((c, i) => { const naf = profileNafOf(records[i]); if (naf) out.set(coachKey(c), naf); });
+  return out;
+}
+
+/** What an entry tells the coach and the managers about NAF: on a sanctioned tournament the coach's current profile
+ *  details win (a change or unlink shows at once); otherwise, or with none on the profile, the number stored with the
+ *  entry (older self-entries, organiser-made entries). "Not a NAF member" shows none. */
+export function entryNaf(tournament: Pick<TournamentRecord, "nafSanctioned">, entrant: TournamentEntrantRecord, profile: ProfileNaf | undefined): ProfileNaf | undefined {
+  if (entrant.notNafMember) return undefined;
+  if (tournament.nafSanctioned === true && profile) return profile;
+  return entrant.nafNumber ? { nafNumber: entrant.nafNumber } : undefined;
+}
+
+const nafFields = (naf: ProfileNaf | undefined) => (naf
+  ? { nafNumber: naf.nafNumber, ...(naf.nafName ? { nafName: naf.nafName } : {}), ...(naf.nafChecked ? { nafChecked: true as const } : {}) }
+  : {});
+
+/** Derived, not just the stored flag (review P2): an active entry of a NAF-sanctioned tournament with no NAF details on
+ *  the coach's profile, no number stored with the entry and no "not a NAF member" owes its NAF answer, however it got
+ *  that way (including a coach who later removed their profile NAF details). */
+export function nafOwed(tournament: Pick<TournamentRecord, "nafSanctioned">, entrant: TournamentEntrantRecord, profile?: ProfileNaf): boolean {
+  return tournament.nafSanctioned === true && entrant.droppedAt === undefined && !entrant.nafNumber && !entrant.notNafMember && !profile;
 }
 
 /**
@@ -586,11 +656,13 @@ export function nafOwed(tournament: Pick<TournamentRecord, "nafSanctioned">, ent
  * naf-request notice once. The mark is the guard: a restart finds them marked and notifies nobody again. Reads never
  * write; they derive (nafOwed). Returns how many entries were marked.
  */
-export function settleNafOwedEntries(deps: Pick<TournamentApiDeps, "store" | "notify">): number {
+export function settleNafOwedEntries(deps: Pick<TournamentApiDeps, "store" | "notify" | "identityRecord" | "identityRecords">): number {
   let count = 0;
   for (const tournament of deps.store.tournaments(["draft", "active"])) {
     if (!tournament.nafSanctioned) continue;
-    const unmarked = deps.store.entrants(tournament.id).filter((e) => nafOwed(tournament, e) && !e.nafPending);
+    const entrants = deps.store.entrants(tournament.id);
+    const profiles = profileNafs(deps, entrants.map((e) => e.coach.ffbCoachId));
+    const unmarked = entrants.filter((e) => nafOwed(tournament, e, profiles.get(coachKey(e.coach.ffbCoachId))) && !e.nafPending);
     if (!unmarked.length) continue;
     const marked = deps.store.markNafPending(tournament.id, unmarked.map((e) => e.id));
     for (const e of unmarked) if (marked.includes(e.id)) notifyNafRequest(deps as TournamentApiDeps, tournament, e.coach.ffbCoachId, "", false);
@@ -769,7 +841,7 @@ export async function tournamentApi(
       const entrant = entrantByCoach(deps.store.entrants(tournament.id), identity.coach);
       if (!entrant || entrant.droppedAt) return { status: 403, body: { error: "You are not entered in this tournament." } };
       // NAF stays non-optional (owner 10-31): an entry still owing its NAF answer cannot submit a roster.
-      if (nafOwed(tournament, entrant)) return { status: 400, body: { error: NAF_REQUIRED_MESSAGE } };
+      if (tournament.nafSanctioned && nafOwed(tournament, entrant, profileNaf(deps, entrant.coach.ffbCoachId))) return { status: 400, body: { error: NAF_REQUIRED_MESSAGE } };
       if (tournament.rostersLockedAt || entrant.flags?.frozen)
         return { status: 409, body: { error: "Rosters are locked; ask an organiser to unlock them before resubmitting." } };
       if (!deps.validateSubmission) return { status: 503, body: { error: "Team validation is unavailable on this host." } };
@@ -778,7 +850,7 @@ export async function tournamentApi(
       const updated = deps.store.submitTeam(tournament.id, entrant.id, check, now);
       return {
         status: 201,
-        body: { entrant: clientEntrant(updated, deps, true), submission: submissionView(updated, true) },
+        body: { entrant: clientEntrant(updated, deps, true, undefined, tournament, tournament.nafSanctioned ? profileNaf(deps, updated.coach.ffbCoachId) : undefined), submission: submissionView(updated, true) },
       };
     }
 
@@ -886,7 +958,7 @@ export async function tournamentApi(
         ...(input.manualSeed === undefined ? {} : { manualSeed: input.manualSeed as number | null }),
       }, now);
       notifyFlagChanges(deps, tournament, before, updated, identity.coach);
-      return { status: 200, body: { entrant: clientEntrant(updated, deps, true) } };
+      return { status: 200, body: { entrant: clientEntrant(updated, deps, true, undefined, tournament, tournament.nafSanctioned ? profileNaf(deps, updated.coach.ffbCoachId) : undefined) } };
     }
 
     const entrantCollectionMatch = path.match(/^\/api\/tournaments\/([^/]+)\/entrants$/);
@@ -913,7 +985,9 @@ export async function tournamentApi(
         if (!self) return { status: 400, body: { error: "Only the coach can choose what they share." } };
         try { share = parseShareFields(input.share); } catch (e) { return { status: 400, body: { error: (e as ContactValidationError).message } }; }
       }
-      // NAF: required on a NAF-sanctioned tournament unless the coach is not a NAF member; optional (format-checked) otherwise.
+      // NAF (owner 10-31, profile-first): on a NAF-sanctioned tournament the coach's profile NAF name and number go to the
+      // organisers with the entry (derived on read, nothing copied), else the coach says "not a NAF member". A number the
+      // coach types is not taken there (it belongs on the profile); elsewhere it stays optional and format-checked.
       if (input.notNafMember !== undefined && typeof input.notNafMember !== "boolean")
         return { status: 400, body: { error: "notNafMember must be true or false." } };
       if (input.nafNumber !== undefined && input.nafNumber !== null && typeof input.nafNumber !== "string")
@@ -921,11 +995,13 @@ export async function tournamentApi(
       const sanctioned = tournament?.nafSanctioned === true;
       const notNafMember = sanctioned && input.notNafMember === true;
       const typedNaf = typeof input.nafNumber === "string" ? input.nafNumber.trim() : "";
-      const nafNumber = typedNaf && !notNafMember ? canonicalNafId(typedNaf) : undefined;
-      if (typedNaf && !notNafMember && !nafNumber) return { status: 400, body: { error: "NAF number must be 1 to 10 digits." } };
-      if (sanctioned && self && !notNafMember && !nafNumber) return { status: 400, body: { error: NAF_REQUIRED_MESSAGE } };
+      const parsedNaf = typedNaf && !notNafMember ? canonicalNafId(typedNaf) : undefined;
+      if (typedNaf && !notNafMember && !parsedNaf) return { status: 400, body: { error: "NAF number must be 1 to 10 digits." } };
+      const nafNumber = sanctioned && self ? undefined : parsedNaf;
+      const profile = sanctioned ? profileNaf(deps, targetCoach) : undefined;
+      if (sanctioned && self && !notNafMember && !profile) return { status: 400, body: { error: NAF_REQUIRED_MESSAGE } };
       // An organiser may enter a coach without it, but only the coach says "not a NAF member": the entry owes the answer.
-      const nafPending = sanctioned && !self && !nafNumber;
+      const nafPending = sanctioned && !self && !nafNumber && !profile;
       const teamId = input.teamId.trim();
       const owner = deps.teamOwner?.(teamId);
       if (!owner || coachKey(owner) !== coachKey(targetCoach))
@@ -1086,9 +1162,13 @@ export async function tournamentApi(
       const pendingBefore = new Set(deps.store.entrants(tournamentId).filter((e) => e.nafPending).map((e) => e.id));
       let tournament = coreKeys.length || !hasPage ? deps.store.updateTournament(tournamentId, patch, now) : existing;
       if (patch.nafSanctioned === true) {
-        // Made NAF sanctioned with entries already in: one notice per coach who now owes the answer, none to organisers.
-        for (const e of deps.store.entrants(tournamentId)) {
-          if (e.nafPending && !pendingBefore.has(e.id)) notifyNafRequest(deps, tournament, e.coach.ffbCoachId, identity.coach, false);
+        // Made NAF sanctioned with entries already in: one notice per coach, none to organisers. A coach with NAF details
+        // on their profile is told they are now shared; one without is asked to add them (or say "not a NAF member").
+        const marked = deps.store.entrants(tournamentId).filter((e) => e.nafPending && !pendingBefore.has(e.id));
+        const profiles = profileNafs(deps, marked.map((e) => e.coach.ffbCoachId));
+        for (const e of marked) {
+          if (profiles.has(coachKey(e.coach.ffbCoachId))) notifyNafShared(deps, tournament, e.coach.ffbCoachId, identity.coach);
+          else notifyNafRequest(deps, tournament, e.coach.ffbCoachId, identity.coach, false);
         }
       }
       if (hasPage) tournament = deps.store.updatePage(tournamentId, pagePatch, now);
@@ -1190,6 +1270,10 @@ export async function tournamentApi(
       const entrants = deps.store.entrants(tournament.id);
       const manager = canManage(tournament, auth);
       const shared = manager && auth ? sharedMap(deps, auth, entrants.filter((e) => e.droppedAt === undefined), tournament.id) : new Map<string, SharedContact>();
+      // Profile NAF details (sanctioned only): every entrant for a manager, the coach's own otherwise; never public.
+      const profiles = tournament.nafSanctioned && auth
+        ? profileNafs(deps, (manager ? entrants : entrants.filter((e) => coachKey(e.coach.ffbCoachId) === coachKey(auth.coach))).map((e) => e.coach.ffbCoachId))
+        : new Map<string, ProfileNaf>();
       // Fixtures: organisers and this tournament's managers see all; an entrant sees every fixture of the event
       // (mine + all); another signed-in coach sees only fixtures they play in; anonymous visitors none.
       const entered = auth ? entrants.some((entrant) => coachKey(entrant.coach.ffbCoachId) === coachKey(auth.coach)) : false;
@@ -1210,6 +1294,7 @@ export async function tournamentApi(
             manager || (auth !== undefined && coachKey(auth.coach) === coachKey(entrant.coach.ffbCoachId)),
             shared.get(entrant.id),
             tournament,
+            profiles.get(coachKey(entrant.coach.ffbCoachId)),
           )),
           rounds: deps.store.rounds(tournament.id),
           standings: deps.store.standings(tournament.id),
@@ -1235,11 +1320,12 @@ export async function tournamentApi(
       if (!entrant || entrant.droppedAt !== undefined) return { status: 404, body: { error: "No active entry with that id." } };
       if (coachKey(entrant.coach.ffbCoachId) !== coachKey(identity.coach)) return { status: 403, body: { error: "Only the coach answers for their entry." } };
       if (!tournament.nafSanctioned) return { status: 400, body: { error: "This tournament is not NAF sanctioned." } };
-      const answer = nafAnswer(jsonObject(body));
+      const profile = profileNaf(deps, entrant.coach.ffbCoachId);
+      const answer = nafAnswer(jsonObject(body), profile);
       if ("error" in answer) return { status: 400, body: { error: answer.error } };
       const updated = deps.store.answerNaf(tournament.id, entrant.id, answer, now);
       if (updated.notNafMember && !entrant.notNafMember) notifyNotNafMember(deps, tournament, updated.coach.ffbCoachId, identity.coach);
-      return { status: 200, body: { entrant: clientEntrant(updated, deps, true) } };
+      return { status: 200, body: { entrant: clientEntrant(updated, deps, true, undefined, tournament, profile) } };
     }
 
     // Organiser view of an entrant's shared contact (owner 10-31): the coach name plus only the fields the coach granted
@@ -1260,7 +1346,7 @@ export async function tournamentApi(
         headers: { "cache-control": "private, no-store" },
         body: {
           contact,
-          ...(entrant.nafNumber ? { nafNumber: entrant.nafNumber } : {}),
+          ...nafFields(entryNaf(tournament, entrant, tournament.nafSanctioned ? profileNaf(deps, entrant.coach.ffbCoachId) : undefined)),
           ...(entrant.notNafMember ? { notNafMember: true } : {}),
         },
       };

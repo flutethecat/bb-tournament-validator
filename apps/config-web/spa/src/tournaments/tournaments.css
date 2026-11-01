@@ -324,7 +324,19 @@ a.tn-fact-sub { color: var(--ui-text); text-decoration: underline; }
 .tn-reg-form { display: grid; gap: 12px; min-width: 0; }
 .tn-reg-chip { margin: 0; }
 .tn-reg-naf { display: grid; gap: 6px; min-width: 0; }
-.tn-reg-naf input[type="text"] { min-height: 44px; max-width: 16em; }
+.tn-reg-naf input[type="text"] { min-height: 44px; width: 100%; max-width: 16em; box-sizing: border-box; }
+/* NAF block (profile-first, owner 10-31): caption, the read-only "will be shared" value row, or the inline add form */
+.tn-naf-cap, .tn-naf-k { margin: 0; font: 10px/1.6 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-muted); }
+.tn-naf-cap .muted { letter-spacing: .06em; }
+.tn-naf-line {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; min-width: 0;
+  padding: 10px 12px; border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--ui-info); border-radius: 2px;
+  background: var(--ui-surface-2); overflow-wrap: anywhere;
+}
+.tn-naf-line > span { flex: 1 1 16em; min-width: 0; }
+.tn-naf-prompt { margin: 0; font-weight: 600; }
+.tn-naf-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(12em, 16em)); gap: 8px 12px; min-width: 0; }
+.tn-naf-field { display: grid; gap: 4px; min-width: 0; }
 .tn-reg-share { display: grid; gap: 6px; min-width: 0; }
 .tn-reg-share .tn-fact-k { margin: 0; }
 .tn-shared { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }

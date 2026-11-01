@@ -325,24 +325,48 @@ describe("phase 2/3 views (server-rendered against a mocked API)", () => {
     // Share picker (owner 10-31): three boxes, none ticked; no NAF block on a tournament that is not NAF sanctioned.
     expect(html).toContain("Share with the organiser");
     for (const label of ["Preferred name", "Email", "Phone"]) expect(html).toContain(`<span>${label}`);
-    expect(html).not.toContain("NAF number (required");
+    expect(html).not.toContain('class="tn-reg-naf"');
   });
 
   it("NAF pending entry: the coach answers before submitting (Submit team disabled)", async () => {
     const body = detailBody({ tournament: tournament({ nafSanctioned: true, myEntrantId: "t1:entrant:1" }), entrants: [alice({ nafPending: true }), bob()] });
     const { html } = await render("/tournaments/t1", { ...AS("Alice"), "/api/tournaments/t1": body, ...OPTIONS }, loaded("t1", "Alice"));
-    expect(html).toContain("Give your NAF number, or say you are not a NAF member, before you submit a roster.");
+    expect(html).toContain("Add your NAF name and number to your profile, or say you are not a NAF member, before you submit a roster.");
     expect(html).toContain(">Save NAF answer</button>");
     expect(html).toMatch(/<button class="lobby-btn primary" type="submit" disabled[^>]*>Submit team<\/button>/);
   });
 
-  it("NAF-sanctioned tournament: the chip, the required NAF number and the 'I am not a NAF member' box", async () => {
+  it("NAF-sanctioned tournament: the chip and the NAF block (profile read pending on first render); no typed NAF number", async () => {
     const body = detailBody({ tournament: tournament({ nafSanctioned: true }), entrants: [bob()] });
     const { html } = await render("/tournaments/t1", { ...AS("Alice"), "/api/tournaments/t1": body, ...OPTIONS }, loaded("t1", "Alice"));
     expect(html).toContain('data-naf="sanctioned">NAF sanctioned</span>');
-    expect(html).toContain("NAF number (required — this tournament is NAF sanctioned)");
-    expect(html).toContain("Not optional: your NAF number is shared with the organisers as part of your entry.");
-    expect(html).toContain("I am not a NAF member");
+    expect(html).toContain("required, this tournament is NAF sanctioned");
+    expect(html).not.toContain("NAF number (required");
+  });
+
+  it("NAF block: profile NAF = a read-only shared line with Change in Account; none = add name and number or not a member", async () => {
+    const [comp, vue] = await Promise.all([vite.ssrLoadModule("/src/components/NafProfileField.vue"), import("vue")]);
+    const router = mods.vueRouter.createRouter({ history: mods.vueRouter.createMemoryHistory("/app/"), routes: [{ path: "/account", name: "account", component: { render: () => null } }] });
+    const show = async (props: Record<string, unknown>) => {
+      const app = vue.createSSRApp({ render: () => vue.h(comp.default, { idPrefix: "x", notNafMember: false, draft: { nafName: "", nafId: "" }, ...props }) });
+      app.use(router);
+      return (await mods.renderer.renderToString(app)) as string;
+    };
+    const linked = await show({ profile: { nafName: "Alice Fake", nafNumber: "34116" } });
+    expect(linked).toContain("Your NAF name Alice Fake and number 34116 will be shared with the organiser.");
+    expect(linked).toContain('href="/app/account#identity"');
+    expect(linked).toContain("Change in Account");
+    expect(linked).not.toContain("<input");
+    expect(linked).not.toContain("I am not a NAF member");
+    const missing = await show({ profile: null });
+    expect(missing).toContain("Add your NAF name and number");
+    expect(missing).toContain('id="x-name"');
+    expect(missing).toContain('id="x-id"');
+    expect(missing).toContain("I am not a NAF member");
+    expect(missing).toContain("Saved to your profile and shared with the organiser.");
+    const loading = await show({ profile: null, loading: true });
+    expect(loading).toContain("Checking your profile for NAF details");
+    expect(loading).not.toContain("<input");
   });
 
   it("entrant: invalid chip with problems, Submit team from saves and library, Withdraw; opponent link on the next fixture", async () => {
@@ -389,7 +413,7 @@ describe("phase 2/3 views (server-rendered against a mocked API)", () => {
     const plain = await render("/tournaments/t1?tab=manage", { ...AS("Alice"), "/api/tournaments/t1": detailBody() }, loaded("t1"));
     expect(plain.html).not.toContain("Start Tournament");
     expect(plain.html).toContain("Format");
-    const body = detailBody({ capabilities: { manage: true, assignRoles: true }, entrants: [alice({ manualSeed: 4, flags: { ...FLAGS, paid: true } }), bob({ flags: { ...FLAGS, rosterVerified: true } })] });
+    const body = detailBody({ capabilities: { manage: true, assignRoles: true }, entrants: [alice({ manualSeed: 4, flags: { ...FLAGS, paid: true }, nafName: "Alice Fake", nafNumber: "34116", nafChecked: true }), bob({ flags: { ...FLAGS, rosterVerified: true }, nafPending: true })] });
     const { html } = await render("/tournaments/t1?tab=manage", { ...AS("Veers"), "/api/tournaments/t1": body }, loaded("t1"));
     expect(html).toContain(">Manage</a>");
     expect(html).toContain(">Summary<");
@@ -406,6 +430,8 @@ describe("phase 2/3 views (server-rendered against a mocked API)", () => {
     expect(html).toContain(">Participants<");
     for (const h of ["Seed", "Roster", "Paid", "Verified", "Frozen", "Checked in", "Active", "Next fixture"]) expect(html).toContain(`<th>${h}</th>`);
     expect(html).toContain('value="4"');
+    expect(html).toContain("NAF Alice Fake #34116 (checked)");
+    expect(html).toContain('data-naf="pending">NAF pending</span>');
     expect(html).toContain(">Not checked in</button>");
     expect(html).not.toContain("Generate round");
   });

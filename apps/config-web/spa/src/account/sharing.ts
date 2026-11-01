@@ -31,7 +31,10 @@ export interface SharingInfo {
   text: string;
   phoneOnFile: boolean;
   emailOnFile: boolean;
+  /** The NAF details on the coach's profile (shared with organisers of NAF-sanctioned tournaments they enter). */
   nafNumber?: string;
+  nafName?: string;
+  nafChecked?: boolean;
   scopes: SharingRow[];
 }
 

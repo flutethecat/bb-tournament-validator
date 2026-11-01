@@ -149,7 +149,7 @@ export interface TournamentSummary {
   notes?: string;
   news?: TournamentNewsPost[];
   deadlines?: TournamentDeadlines;
-  /** NAF sanctioned (owner 10-31): registration needs a NAF number or "I am not a NAF member". */
+  /** NAF sanctioned (owner 10-31): the coach's profile NAF name and number go to the organisers, or "I am not a NAF member". */
   nafSanctioned?: boolean;
 }
 
@@ -198,10 +198,14 @@ export interface TournamentEntrant {
   flags?: TournamentEntrantFlags;
   rosterVerifiedOverride?: boolean;
   manualSeed?: number;
-  /** Coach and managers only: the NAF number given at registration, and the "not a NAF member" flag. */
+  /** Coach and managers only: the entry's NAF details (on a NAF-sanctioned tournament the coach's current profile NAF
+   *  name and number; otherwise a number stored with the entry), whether the NAF coach page check matches, and the
+   *  "not a NAF member" flag. */
   nafNumber?: string;
+  nafName?: string;
+  nafChecked?: boolean;
   notNafMember?: boolean;
-  /** NAF sanctioned and the coach has not answered yet (coach and managers). */
+  /** NAF sanctioned and the entry has no NAF answer: no profile NAF details, no stored number (coach and managers). */
   nafPending?: boolean;
   /** Managers only: what the coach shares with this tournament's organisers (the coach name plus granted fields). */
   shared?: TournamentSharedContact;

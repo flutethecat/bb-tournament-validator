@@ -14,7 +14,7 @@ import {
 } from "./contactSchema.js";
 import { grantApplies, grantedFields, inShareScope, parseShareScope, type MembershipSources, type ShareScope } from "./contactFor.js";
 import { verifiedNaf } from "./connections.js";
-import { normalizeFfbCoachId, ownIdentityRecord, upsertIdentity, type CoachIdentityRecord } from "./identitiesStore.js";
+import { canonicalNafId, normalizeFfbCoachId, ownIdentityRecord, upsertIdentity, type CoachIdentityRecord } from "./identitiesStore.js";
 import type { TournamentRecord } from "../tournaments/types.js";
 
 export const SHARING_PATH = "/api/me/sharing";
@@ -45,8 +45,11 @@ export interface SharingView {
   /** No phone on file = nothing to share (the phone box is disabled). */
   phoneOnFile: boolean;
   emailOnFile: boolean;
-  /** The coach's verified NAF number (registration on a NAF-sanctioned tournament prefills it). */
+  /** The NAF name and number on the coach's profile (owner 10-31): on a NAF-sanctioned tournament they go to the
+   *  organisers with the entry, and the registration form says so. nafChecked: the NAF coach page check matches. */
   nafNumber?: string;
+  nafName?: string;
+  nafChecked?: true;
   scopes: SharingRow[];
 }
 
@@ -72,13 +75,15 @@ export function sharingView(record: CoachIdentityRecord, sources: SharingSources
     const scope = parseShareScope(`tournament:${t.id}`);
     if (scope && inShareScope(record, scope, sources)) scopes.push(row(record, scope, t.name, sources));
   }
-  const naf = verifiedNaf(record);
+  const nafNumber = canonicalNafId(record.identities.nafId);
+  const nafName = record.identities.nafName?.trim();
+  const checked = Boolean(nafNumber && verifiedNaf(record));
   return {
     version: SHARING_VERSION,
     text: SHARING_TEXT,
     phoneOnFile: contact.phones.length > 0,
     emailOnFile: Boolean(contact.email),
-    ...(naf ? { nafNumber: naf.nafId } : {}),
+    ...(nafNumber ? { nafNumber, ...(nafName ? { nafName } : {}), ...(checked ? { nafChecked: true as const } : {}) } : {}),
     scopes,
   };
 }

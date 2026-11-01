@@ -1,13 +1,14 @@
 <script setup lang="ts">
 // Organiser "NAF details" modal (Participants row menu): a tournament organiser records the NAF name and number of a
-// coach entered in their tournament (owner ruling 10-31). The server answers only the NAF allow-list and refuses a coach
-// who is not an active entrant of a tournament the caller runs.
+// coach entered in their tournament (owner ruling 10-31). They go on the coach's profile (the same NAF details a coach
+// links in Account), so the Participants row shows them after the save. The server answers only the NAF allow-list and
+// refuses a coach who is not an active entrant of a tournament the caller runs.
 import { inject, onMounted, onUnmounted, ref } from "vue";
 import { API_KEY } from "../app";
 import { api } from "../shared/api";
 
 const props = defineProps<{ coachKey: string; teamName?: string }>();
-const emit = defineEmits<{ close: [] }>();
+const emit = defineEmits<{ close: []; saved: [] }>();
 const fetcher = inject(API_KEY, api);
 
 const nafName = ref("");
@@ -29,6 +30,7 @@ async function save() {
     const reply = await fetcher<NafReply>("/api/admin/identities/naf", { method: "POST", body });
     const ids = reply.coach?.identities ?? {};
     saved.value = `Saved: ${ids.nafName || "no NAF name"}${ids.nafId ? ` #${ids.nafId}` : ""}.`;
+    emit("saved");
   } catch (err) {
     error.value = err instanceof Error ? err.message : "Can't save the NAF details.";
   } finally {
@@ -49,7 +51,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
         <button type="button" class="tn-modal-x" aria-label="Close" @click="emit('close')">×</button>
       </h3>
       <form class="tn-panel-body" @submit.prevent="save">
-        <p class="muted"><template v-if="teamName">{{ teamName }}. </template>Record the coach's NAF name and number. Fields left blank are not changed.</p>
+        <p class="muted"><template v-if="teamName">{{ teamName }}. </template>Record the coach's NAF name and number on their profile. Fields left blank are not changed.</p>
         <label for="naf-ent-name">NAF name</label>
         <input id="naf-ent-name" v-model="nafName" type="text" maxlength="80" autocomplete="off" :disabled="busy" />
         <label for="naf-ent-id">NAF number</label>

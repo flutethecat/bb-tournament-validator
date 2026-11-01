@@ -91,7 +91,8 @@ export interface TournamentRecord {
   news?: TournamentNewsPost[];
   /** ISO timestamps. The coach home Deadlines panel reads exactly these names. */
   deadlines?: TournamentDeadlines;
-  /** NAF sanctioned (owner 10-31): coach registration needs a NAF number, or the "I am not a NAF member" box. Absent = false. */
+  /** NAF sanctioned (owner 10-31): coach registration needs the NAF name and number on the coach's profile (shared with
+   *  the organisers), or the "I am not a NAF member" box. Absent = false. */
   nafSanctioned?: boolean;
   createdAt: string;
   updatedAt: string;
@@ -167,12 +168,15 @@ export interface TournamentEntrantRecord {
   /** v4: organiser seed for seedingMode "manual" (1 = top seed). */
   manualSeed?: number;
   submission?: TournamentSubmission;
-  /** The NAF number the coach gave at registration (shown to the coach and the tournament's managers only). */
+  /** A NAF number stored with the entry (coach and managers only): typed by the coach before the profile became the
+   *  source (owner 10-31), or given by an organiser adding the coach. On a NAF-sanctioned tournament the coach's profile
+   *  NAF details win when present; new self-entries store none (derived from the profile on read). */
   nafNumber?: string;
   /** Set when the coach ticked "I am not a NAF member" registering for a NAF-sanctioned tournament (managers only). */
   notNafMember?: true;
-  /** NAF sanctioned, and the coach has not answered yet (an organiser-made entry, or the tournament became sanctioned
-   *  after the entry): the coach's roster submission is refused until they give a NAF number or "not a NAF member". */
+  /** The coach was asked for their NAF answer (organiser-made entry, or the tournament became sanctioned after the
+   *  entry): the one-notice guard. Whether the entry owes the answer is derived on read (nafOwed: no profile NAF number,
+   *  no stored number, not "not a NAF member"); the roster submission is refused while it does. */
   nafPending?: true;
 }
 

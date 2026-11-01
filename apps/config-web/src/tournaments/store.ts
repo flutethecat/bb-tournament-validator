@@ -615,11 +615,13 @@ export class TournamentStore {
     });
   }
 
-  /** The coach's NAF answer for their entry: a NAF number, or "not a NAF member". Clears nafPending. */
+  /** The coach's NAF answer for their entry: a NAF number (older entries), "not a NAF member", or fromProfile (the
+   *  coach's profile NAF details stand for the entry: no number is stored, so a later unlink makes it owed again).
+   *  Clears nafPending. */
   answerNaf(
     tournamentId: string,
     entrantId: string,
-    answer: { nafNumber: string } | { notNafMember: true },
+    answer: { nafNumber: string } | { notNafMember: true } | { fromProfile: true },
     now = new Date(),
   ): TournamentEntrantRecord {
     return this.mutate((data) => {
@@ -629,7 +631,8 @@ export class TournamentStore {
       if (!entrant || entrant.tournamentId !== tournamentId || entrant.droppedAt !== undefined)
         throw new TournamentStoreError(404, "Tournament entrant not found.");
       if ("nafNumber" in answer) { entrant.nafNumber = answer.nafNumber; delete entrant.notNafMember; }
-      else { entrant.notNafMember = true; delete entrant.nafNumber; }
+      else if ("notNafMember" in answer) { entrant.notNafMember = true; delete entrant.nafNumber; }
+      else { delete entrant.notNafMember; delete entrant.nafNumber; }
       delete entrant.nafPending;
       tournament.updatedAt = now.toISOString();
       return entrant;

@@ -67,24 +67,55 @@ export interface TournamentDetailState {
   startOutcome: "" | "refused" | "started";
 }
 
-export interface RegistrationExtras { share?: ShareField[]; nafNumber?: string; notNafMember?: boolean }
+export interface RegistrationExtras { share?: ShareField[]; notNafMember?: boolean }
 
-/** The POST /entrants body: teamId, share (always sent, [] = nothing), the NAF answer only when given. */
+/** The POST /entrants body: teamId, share (always sent, [] = nothing), notNafMember only when ticked. NAF details are
+ *  never typed per entry (owner 10-31): on a NAF-sanctioned tournament the server takes them from the coach's profile. */
 export function registrationBody(teamId: string, entry: RegistrationExtras) {
-  return {
-    teamId,
-    share: entry.share ?? [],
-    ...(entry.notNafMember ? { notNafMember: true } : entry.nafNumber?.trim() ? { nafNumber: entry.nafNumber.trim() } : {}),
-  };
+  return { teamId, share: entry.share ?? [], ...(entry.notNafMember ? { notNafMember: true } : {}) };
 }
 
-/** The NAF problem with a registration form ("" = fine): required on a sanctioned tournament unless not a member. */
-export function nafProblem(sanctioned: boolean, nafNumber: string, notNafMember: boolean): string {
-  const n = nafNumber.trim();
-  if (sanctioned && notNafMember) return "";
-  if (n && !/^\d{1,10}$/.test(n)) return "NAF number must be 1 to 10 digits.";
-  if (sanctioned && !n) return "NAF number required for this NAF-sanctioned tournament.";
+/** The NAF details on the coach's profile, as GET /api/me/sharing reports them. */
+export interface ProfileNafView { nafNumber?: string; nafName?: string }
+
+/** The NAF name and number a coach types into the inline "add to your profile" form. */
+export interface NafLinkDraft { nafName: string; nafId: string }
+
+const NAF_NAME = /^[\p{L}\p{N}][\p{L}\p{N} ._'-]*$/u;
+export const NAF_ADD_PROMPT = "Add your NAF name and number, or tick \"I am not a NAF member\".";
+
+/** The NAF problem with a registration (or NAF answer) form, "" = fine. On a sanctioned tournament the profile's NAF
+ *  details or "not a NAF member" settle it; otherwise the inline form must hold a NAF name and number (the server's
+ *  link check stays the authority). Not sanctioned: nothing to check. */
+export function nafProblem(sanctioned: boolean, profile: ProfileNafView | null | undefined, notNafMember: boolean, draft: NafLinkDraft): string {
+  if (!sanctioned || notNafMember || profile?.nafNumber) return "";
+  const name = draft.nafName.trim();
+  const id = draft.nafId.trim();
+  if (!name && !id) return NAF_ADD_PROMPT;
+  if (!name) return "Enter your NAF name.";
+  if (name.length > 60) return "NAF name must be at most 60 characters.";
+  if (!NAF_NAME.test(name)) return "NAF name can use letters, digits, spaces and . _ ' -";
+  if (!id) return "Enter your NAF number.";
+  if (!/^\d{1,10}$/.test(id)) return "NAF number must be 1 to 10 digits.";
   return "";
+}
+
+/** The line a coach with profile NAF details sees on a NAF-sanctioned tournament (owner 10-31: they are told). */
+export function nafSharedLine(profile: ProfileNafView): string {
+  return profile.nafName
+    ? `Your NAF name ${profile.nafName} and number ${profile.nafNumber} will be shared with the organiser.`
+    : `Your NAF number ${profile.nafNumber} will be shared with the organiser.`;
+}
+
+export const NAF_LINK_PATH = "/api/me/connections/naf";
+
+/** Saves the inline NAF name and number to the coach's profile through the Account NAF link (POST /api/me/connections/naf:
+ *  same validation and NAF coach page check as the Account page). Returns the profile's NAF details after the save. */
+export async function linkProfileNaf(api: Fetcher, draft: NafLinkDraft): Promise<ProfileNafView> {
+  const view = await api<{ nafName?: string; nafId?: string }>(NAF_LINK_PATH, {
+    method: "POST", body: { nafName: draft.nafName.trim(), nafId: draft.nafId.trim() },
+  });
+  return { ...(view.nafId ? { nafNumber: view.nafId } : {}), ...(view.nafName ? { nafName: view.nafName } : {}) };
 }
 
 export interface TournamentSettingsPatch {
@@ -250,10 +281,11 @@ export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () =>
    *  teams; on a NAF-sanctioned tournament a NAF number, or notNafMember. */
   const register = (teamId: string, entry: RegistrationExtras = {}) =>
     run("register", () => deps.api(`${base()}/entrants`, { method: "POST", body: registrationBody(teamId, entry) }), "You are registered.");
-  /** The coach's NAF answer for their entry (NAF-sanctioned tournament): a NAF number or "not a NAF member". */
-  const answerNaf = (entrantId: string, answer: { nafNumber?: string; notNafMember?: boolean }) =>
+  /** The coach's NAF answer for their entry (NAF-sanctioned tournament): "not a NAF member", or the NAF details now on
+   *  their profile (fromProfile). */
+  const answerNaf = (entrantId: string, answer: { notNafMember?: boolean } = {}) =>
     run("naf", () => deps.api(`${base()}/entrants/${encodeURIComponent(entrantId)}/naf`, {
-      method: "POST", body: answer.notNafMember ? { notNafMember: true } : { nafNumber: (answer.nafNumber ?? "").trim() },
+      method: "POST", body: answer.notNafMember ? { notNafMember: true } : { fromProfile: true },
     }), "NAF answer saved.");
   const withdraw = () => {
     const mine = state.tournament?.myEntrantId;

@@ -651,7 +651,7 @@ if (forkAdminCfg) {
 }
 setActiveNotifier(tournamentNotifier);
 // NAF-sanctioned entries that owe their NAF answer but are not marked yet: marked once, one notice per coach (idempotent).
-try { settleNafOwedEntries({ store: tournamentStore, notify: tournamentNotifier }); } catch (e) { console.error(`[naf] startup settle failed: ${(e as Error).message}`); }
+try { settleNafOwedEntries({ store: tournamentStore, notify: tournamentNotifier, identityRecords: (coachIds) => { const all = readIdentities().coaches; return coachIds.map((c) => all[normalizeFfbCoachId(c)]); } }); } catch (e) { console.error(`[naf] startup settle failed: ${(e as Error).message}`); }
 const messageLimiter = new SenderRateLimiter(30, 60_000);
 
 /** PUBLIC_BASE_URL, validated once at startup (http/https origin, no userinfo / path); unset or invalid = none. */
@@ -2029,6 +2029,7 @@ async function handleApi(
       store: tournamentStore,
       teamBuild: (teamId) => libraryTeamForId(teamId),
       identityRecord: (coachId) => ownIdentityRecord(coachId),
+      identityRecords: (coachIds) => { const all = readIdentities().coaches; return coachIds.map((c) => all[normalizeFfbCoachId(c)]); },
       packageExists: (packageName) => packages.get(packageName) !== undefined,
       teamOwner: (teamId) => libraryOwnerForTeam(teamId),
       validateSubmission: (coach, ref, packageName, at) => checkTournamentSubmission(submissionCheckDeps(), coach, ref, packageName, at),

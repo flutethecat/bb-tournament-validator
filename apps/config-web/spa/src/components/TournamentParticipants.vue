@@ -2,8 +2,8 @@
 // Organiser Participants table: seed (manual seed input), team + coach, roster chip (not submitted / valid / invalid,
 // "by hand" when an organiser verified it), the five status flags as toggles, and the next fixture. Filter chips pick
 // out the rows that need attention. Rows collapse to cards on a phone. "Shared" shows what each coach chose to share with
-// this tournament's organisers (owner 10-31; "Not shared" otherwise), the NAF number given at registration, and a
-// "Not a NAF member" flag. The row menu has "Message coach" (notifications lane) and "NAF details" (organisers record a coach's NAF name and number).
+// this tournament's organisers (owner 10-31; "Not shared" otherwise), the entry's NAF name and number (on a NAF-sanctioned
+// tournament the coach's current profile details, so a change or unlink shows here), and a "Not a NAF member" flag. The row menu has "Message coach" (notifications lane) and "NAF details" (organisers record a coach's NAF name and number).
 import { computed, inject, ref } from "vue";
 import type { TournamentEntrant, TournamentEntrantFlags } from "../shared/api";
 import Crest from "./Crest.vue";
@@ -105,7 +105,7 @@ function seed(e: TournamentEntrant, raw: string) {
           <td data-label="Shared" class="tn-shared">
             <span v-for="(line, i) in sharedLines(r.e)" :key="i">{{ line }}</span>
             <span v-if="!sharedLines(r.e).length" class="muted">Not shared</span>
-            <span v-if="r.e.nafNumber" class="muted">NAF #{{ r.e.nafNumber }}</span>
+            <span v-if="r.e.nafNumber" class="muted" data-naf="details">NAF {{ r.e.nafName ? `${r.e.nafName} ` : "" }}#{{ r.e.nafNumber }}{{ r.e.nafChecked ? " (checked)" : "" }}</span>
             <span v-if="r.e.notNafMember"><span class="tn-chip" data-naf="not-member">Not a NAF member</span></span>
             <span v-if="r.e.nafPending"><span class="tn-chip" data-naf="pending">NAF pending</span></span>
           </td>
@@ -134,7 +134,10 @@ function seed(e: TournamentEntrant, raw: string) {
     </table>
   </div>
   <p v-if="dropped" class="muted">{{ dropped }} withdrawn {{ dropped === 1 ? "entry is" : "entries are" }} not listed.</p>
-  <NafEntrantModal v-if="nafEditing?.coachId" :coach-key="nafEditing.coachId" :team-name="nafEditing.submission?.teamName || nafEditing.teamName" @close="nafEditing = null" />
+  <NafEntrantModal
+    v-if="nafEditing?.coachId" :coach-key="nafEditing.coachId" :team-name="nafEditing.submission?.teamName || nafEditing.teamName"
+    @saved="detail.refresh()" @close="nafEditing = null"
+  />
   <MessageCoachModal
     v-if="messaging?.coachId && state.tournament"
     :tournament-id="state.tournament.id" :coach-key="messaging.coachId ?? ''" :team-name="messaging.submission?.teamName || messaging.teamName"

@@ -3,7 +3,7 @@ import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
 import { createSharing, fieldDisabled, startingFields, toggleField, type SharingInfo } from "../spa/src/account/sharing";
 import { createLeagueSharing } from "../spa/src/account/leagueSharing";
-import { nafProblem, registrationBody } from "../spa/src/tournaments/detail";
+import { linkProfileNaf, NAF_ADD_PROMPT, nafProblem, nafSharedLine, registrationBody } from "../spa/src/tournaments/detail";
 import { createBody } from "../spa/src/tournaments/create";
 
 // SPA side of organiser sharing (spec 2026-10-31): the Account Sharing controller, the league notice's share boxes, the
@@ -94,18 +94,36 @@ describe("league notice share boxes", () => {
 });
 
 describe("registration body and NAF check", () => {
-  it("sends share always, a NAF number or notNafMember only when given", () => {
+  it("sends share always and notNafMember only when ticked; never a typed NAF number (owner 10-31: the profile is the source)", () => {
     expect(registrationBody("tm1", {})).toEqual({ teamId: "tm1", share: [] });
-    expect(registrationBody("tm1", { share: ["email"], nafNumber: " 42 " })).toEqual({ teamId: "tm1", share: ["email"], nafNumber: "42" });
-    expect(registrationBody("tm1", { nafNumber: "42", notNafMember: true })).toEqual({ teamId: "tm1", share: [], notNafMember: true });
+    expect(registrationBody("tm1", { share: ["email"] })).toEqual({ teamId: "tm1", share: ["email"] });
+    expect(registrationBody("tm1", { notNafMember: true })).toEqual({ teamId: "tm1", share: [], notNafMember: true });
   });
 
-  it("required on a sanctioned tournament unless not a member; format-checked when typed", () => {
-    expect(nafProblem(true, "", false)).toBe("NAF number required for this NAF-sanctioned tournament.");
-    expect(nafProblem(true, "", true)).toBe("");
-    expect(nafProblem(true, "12345", false)).toBe("");
-    expect(nafProblem(true, "12a", false)).toBe("NAF number must be 1 to 10 digits.");
-    expect(nafProblem(false, "", false)).toBe("");
+  it("sanctioned: profile NAF or not-a-member settles it; otherwise the inline NAF name and number are checked", () => {
+    const empty = { nafName: "", nafId: "" };
+    expect(nafProblem(false, null, false, empty)).toBe("");
+    expect(nafProblem(true, { nafNumber: "34116", nafName: "Alice Fake" }, false, empty)).toBe("");
+    expect(nafProblem(true, null, true, empty)).toBe("");
+    expect(nafProblem(true, null, false, empty)).toBe(NAF_ADD_PROMPT);
+    expect(nafProblem(true, null, false, { nafName: "", nafId: "12" })).toBe("Enter your NAF name.");
+    expect(nafProblem(true, null, false, { nafName: "Alice Fake", nafId: "" })).toBe("Enter your NAF number.");
+    expect(nafProblem(true, null, false, { nafName: "Alice Fake", nafId: "12a" })).toBe("NAF number must be 1 to 10 digits.");
+    expect(nafProblem(true, null, false, { nafName: "<b>", nafId: "12" })).toBe("NAF name can use letters, digits, spaces and . _ ' -");
+    expect(nafProblem(true, null, false, { nafName: " Alice Fake ", nafId: " 12 " })).toBe("");
+  });
+
+  it("the shared line names the profile's NAF name and number", () => {
+    expect(nafSharedLine({ nafName: "Alice Fake", nafNumber: "34116" })).toBe("Your NAF name Alice Fake and number 34116 will be shared with the organiser.");
+    expect(nafSharedLine({ nafNumber: "34116" })).toBe("Your NAF number 34116 will be shared with the organiser.");
+  });
+
+  it("the inline add saves to the profile through the Account NAF link", async () => {
+    const f = mockFetcher({ "POST /api/me/connections/naf": (b: unknown) => ({ nafName: (b as { nafName: string }).nafName, nafId: "34116" }) });
+    expect(await linkProfileNaf(f, { nafName: " Alice Fake ", nafId: " 034116 " })).toEqual({ nafName: "Alice Fake", nafNumber: "34116" });
+    expect(f.calls).toEqual([{ path: "/api/me/connections/naf", method: "POST", body: { nafName: "Alice Fake", nafId: "034116" } }]);
+    const refused = mockFetcher({ "POST /api/me/connections/naf": new ApiError(422, "No NAF coach page was found for number 1.") });
+    await expect(linkProfileNaf(refused, { nafName: "A", nafId: "1" })).rejects.toThrow("No NAF coach page");
   });
 
   it("Create Tournament sends nafSanctioned only when ticked", () => {

@@ -79,7 +79,7 @@ async function addOrganizer() { if (newOrganizer.value.trim()) { await detail.ad
     <label class="tn-field tn-check-field">
       <span class="tn-fact-k">NAF</span>
       <span class="tn-check-line"><input v-model="form.nafSanctioned" type="checkbox" /> NAF sanctioned</span>
-      <small class="muted">Coaches must give a NAF number to register, or tick "I am not a NAF member".</small>
+      <small class="muted">The NAF name and number on each coach's profile are shared with the organisers. A coach without them adds them to register, or ticks "I am not a NAF member".</small>
     </label>
     <div class="tn-actions tn-form-actions">
       <button class="lobby-btn primary" type="submit" :disabled="!dirty || busy">Save settings</button>
