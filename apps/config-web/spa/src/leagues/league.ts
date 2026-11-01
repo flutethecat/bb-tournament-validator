@@ -200,10 +200,16 @@ export function createLeagueDetail(deps: { api: Fetcher; upload?: RawUploader })
     }
   }
   const seasonPath = (seasonId: string): string => `${base()}/seasons/${encodeURIComponent(seasonId)}`;
-  const putNews = (seasonId: string) => (res: { news?: LeagueNewsPost[] }): void => { const s = state.season[seasonId]; if (s) s.news = res.news ?? []; };
-  const putFixture = (seasonId: string) => (res: { fixture: LeagueFixture }): void => {
+  /** Every season write bumps the season revision server-side; the answer carries it, so a later revision-checked write (phase format, coach account) is not refused as stale. */
+  const putRevision = (seasonId: string, res: { revision?: unknown } | undefined): void => {
+    const s = state.season[seasonId];
+    if (s && typeof res?.revision === "number") s.revision = res.revision;
+  };
+  const putNews = (seasonId: string) => (res: { news?: LeagueNewsPost[]; revision?: number }): void => { const s = state.season[seasonId]; if (s) s.news = res.news ?? []; putRevision(seasonId, res); };
+  const putFixture = (seasonId: string) => (res: { fixture: LeagueFixture; revision?: number }): void => {
     const s = state.season[seasonId];
     if (!s) return;
+    putRevision(seasonId, res);
     const i = s.fixtures.findIndex((f) => f.id === res.fixture.id);
     if (i >= 0) s.fixtures[i] = res.fixture; else s.fixtures.push(res.fixture);
   };
@@ -222,9 +228,10 @@ export function createLeagueDetail(deps: { api: Fetcher; upload?: RawUploader })
     editFixture: (seasonId: string, id: string, patch: { date?: string | null; round?: number; result?: { home: number; away: number; homeCas?: number | null; awayCas?: number | null } | null }) =>
       edit(`fixture:${id}`, () => deps.api<{ fixture: LeagueFixture }>(`${seasonPath(seasonId)}/fixtures/${encodeURIComponent(id)}`, { method: "PATCH", body: patch }), putFixture(seasonId), "Fixture saved."),
     deleteFixture: (seasonId: string, id: string) =>
-      edit(`fixture:${id}`, () => deps.api(`${seasonPath(seasonId)}/fixtures/${encodeURIComponent(id)}`, { method: "DELETE" }), () => {
+      edit(`fixture:${id}`, () => deps.api<{ revision?: number }>(`${seasonPath(seasonId)}/fixtures/${encodeURIComponent(id)}`, { method: "DELETE" }), (res) => {
         const s = state.season[seasonId];
         if (s) s.fixtures = s.fixtures.filter((f) => f.id !== id);
+        putRevision(seasonId, res);
       }, "Fixture deleted."),
     /** Organisers: mark a phase Table or Knockout (season revision sent; the server answers the re-derived season). */
     setPhaseFormat: (seasonId: string, phaseId: string, format: "table" | "knockout") =>
@@ -258,7 +265,8 @@ export function createLeagueDetail(deps: { api: Fetcher; upload?: RawUploader })
       state.forkBusy = fixtureId;
       state.forkError = "";
       try {
-        const res = await deps.api<{ fixture: LeagueFixture }>(`${base()}/seasons/${encodeURIComponent(seasonId)}/fixtures/${encodeURIComponent(fixtureId)}`, { method: "PATCH", body: { forkEnabled: on } });
+        const res = await deps.api<{ fixture: LeagueFixture; revision?: number }>(`${base()}/seasons/${encodeURIComponent(seasonId)}/fixtures/${encodeURIComponent(fixtureId)}`, { method: "PATCH", body: { forkEnabled: on } });
+        putRevision(seasonId, res);
         const season = state.season[seasonId];
         const i = season?.fixtures.findIndex((f) => f.id === fixtureId) ?? -1;
         if (season && i >= 0) season.fixtures[i] = res.fixture;

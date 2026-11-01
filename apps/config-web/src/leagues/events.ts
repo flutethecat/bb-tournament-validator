@@ -260,7 +260,7 @@ async function newsRoute(
       try { deps.notify?.(coach, { type: "league-broadcast", title: clip(`${league.name}: ${post.title}`, 120), body: clip(post.body, 300), link, from: who.coach }); } catch { /* fire-and-forget */ }
     }
     await postLeagueEvent(deps.store, league, "news", buildNewsPost(league, season, post), deps.postWebhook);
-    return res(201, { post, news: orderedNews(season.news) });
+    return res(201, { post, news: orderedNews(season.news), revision: season.revision });
   }
   const post = list.find((p) => p.id === newsId);
   if (!post) return fail(404, "News post not found.");
@@ -268,7 +268,7 @@ async function newsRoute(
     season.news = list.filter((p) => p.id !== newsId);
     if (!season.news.length) delete season.news;
     deps.store.putSeason(season);
-    return res(200, { news: orderedNews(season.news) });
+    return res(200, { news: orderedNews(season.news), revision: season.revision });
   }
   const patch = parseNewsInput(input, true);
   if (patch.title !== undefined) post.title = patch.title;
@@ -276,7 +276,7 @@ async function newsRoute(
   if (patch.pinned !== undefined) post.pinned = patch.pinned;
   if (patch.title !== undefined || patch.body !== undefined) post.editedAt = now;
   deps.store.putSeason(season);
-  return res(200, { post, news: orderedNews(season.news) });
+  return res(200, { post, news: orderedNews(season.news), revision: season.revision });
 }
 
 // ---- fixtures editor ------------------------------------------------------------------------------------------------
@@ -349,7 +349,7 @@ async function createFixture(league: LeagueRecord, season: SeasonRecord, who: Le
   addLog(season, { at, by: who.coach, kind: "fixture-created", fixtureId: id, text: `${who.coach} added ${matchText(fixture)} (Round ${p.round}${p.date ? `, ${p.date}` : ""}).` });
   deps.store.putSeason(season);
   await postLeagueEvent(deps.store, league, "fixtureCreated", buildFixtureCreatedPost(league, season, fixture), deps.postWebhook);
-  return res(201, { ok: true, fixture: shown(fixture) });
+  return res(201, { ok: true, fixture: shown(fixture), revision: season.revision });
 }
 
 function deleteFixture(season: SeasonRecord, fixtureId: string, who: LeagueApiIdentity, deps: LeagueEventDeps): LeagueApiResult {
@@ -359,7 +359,7 @@ function deleteFixture(season: SeasonRecord, fixtureId: string, who: LeagueApiId
   season.fixtures = season.fixtures.filter((f) => f.id !== fixtureId);
   addLog(season, { at: (deps.now?.() ?? new Date()).toISOString(), by: who.coach, kind: "fixture-deleted", fixtureId, text: `${who.coach} deleted ${matchText(fixture)}.` });
   deps.store.putSeason(season);
-  return res(200, { ok: true });
+  return res(200, { ok: true, revision: season.revision });
 }
 
 const shown = (f: LeagueFixture): Omit<LeagueFixture, "forkNotice"> => {
@@ -415,7 +415,7 @@ export async function editFixture(
   if (result !== undefined) season.resultsChangedAt = (deps.now?.() ?? new Date()).toISOString();
   deps.store.putSeason(season);
   if (announce) await fixtureEvent(league, season, fixture, "result", { by: who.coach }, { store: deps.store, postWebhook: deps.postWebhook, now: deps.now });
-  return res(200, { ok: true, fixture: shown(fixture) });
+  return res(200, { ok: true, fixture: shown(fixture), revision: season.revision });
 }
 
 

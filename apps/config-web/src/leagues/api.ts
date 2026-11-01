@@ -879,7 +879,7 @@ async function patchFixture(league: LeagueRecord, seasonId: string, fixtureId: s
   for (const n of send) {
     try { deps.notify!(n.coach, n.input); } catch { /* fire-and-forget */ }
   }
-  return { status: 200, body: { ok: true, fixture: publicForkState(fixture) } };
+  return { status: 200, body: { ok: true, fixture: publicForkState(fixture), revision: season.revision } };
 }
 
 // ---- season read model ---------------------------------------------------------------------------------------------

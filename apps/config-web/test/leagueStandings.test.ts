@@ -241,7 +241,10 @@ describe("standings and Finish season through the league API", () => {
 
   it("recomputes when a result is added, edited and removed", async () => {
     expect((await readSeason()).phases[0]!.standings.every((r) => r.played === 0)).toBe(true);
-    expect((await call("PATCH", "/api/leagues/tabbl/seasons/season-7/fixtures/f1", JAY, { result: { home: 2, away: 1, homeCas: 1, awayCas: 0 } })).status).toBe(200);
+    const saved = await call("PATCH", "/api/leagues/tabbl/seasons/season-7/fixtures/f1", JAY, { result: { home: 2, away: 1, homeCas: 1, awayCas: 0 } });
+    expect(saved.status).toBe(200);
+    // The answer carries the bumped season revision (the SPA keeps it for later revision-checked writes).
+    expect((saved.body as { revision: number }).revision).toBe(store.season("tabbl", "season-7")!.revision);
     let s = await readSeason();
     expect(row(s, "a")).toMatchObject({ rank: 1, points: 3, wins: 1, tdFor: 2, casFor: 1, latest: ["W"] });
     expect(s.phases[0]!.standingsSource).toBe("computed");

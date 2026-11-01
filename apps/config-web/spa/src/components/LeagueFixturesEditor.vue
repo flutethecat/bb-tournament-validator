@@ -55,9 +55,14 @@ async function clearResult(f: LeagueFixture): Promise<void> {
 }
 // Phase format: the select shows the saved value; a change saves at once (the server answers the re-derived season).
 const phaseBusy = computed(() => state.editBusy.startsWith("phase:"));
-async function setFormat(phaseId: string, value: string): Promise<void> {
+const savedFormat = (p: { format?: string }): "table" | "knockout" => (p.format === "knockout" ? "knockout" : "table");
+async function setFormat(phaseId: string, e: Event): Promise<void> {
+  const select = e.target as HTMLSelectElement;
   mine.value = true;
-  await detail.setPhaseFormat(props.season.id, phaseId, value === "knockout" ? "knockout" : "table");
+  const ok = await detail.setPhaseFormat(props.season.id, phaseId, select.value === "knockout" ? "knockout" : "table");
+  // Refused (stale revision, network): the bound value did not change, so put the control back to the saved format;
+  // the error shows under the editor.
+  if (!ok) { const p = props.season.phases.find((x) => x.id === phaseId); select.value = savedFormat(p ?? {}); }
 }
 const confirming = ref("");
 async function remove(f: LeagueFixture): Promise<void> {
@@ -97,8 +102,8 @@ async function remove(f: LeagueFixture): Promise<void> {
       <p class="hm-small hm-empty">A knockout phase has no table: its final decides Champion and Runner-up, a third-place game decides Consolation.</p>
       <div class="ls-inline">
         <label v-for="p in season.phases" :key="p.id" class="ls-field" :data-phase="p.id"><span>{{ p.name }}</span>
-          <select :disabled="phaseBusy" @change="setFormat(p.id, ($event.target as HTMLSelectElement).value)">
-            <option value="table" :selected="p.format !== 'knockout'">Table</option><option value="knockout" :selected="p.format === 'knockout'">Knockout</option>
+          <select :value="savedFormat(p)" :disabled="phaseBusy" @change="setFormat(p.id, $event)">
+            <option value="table">Table</option><option value="knockout">Knockout</option>
           </select>
         </label>
       </div>

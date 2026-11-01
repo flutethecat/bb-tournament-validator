@@ -591,7 +591,7 @@ export async function updateForkSettings(deps: ForkRouteDeps, leagueId: string, 
       }
     });
     const f = saved?.fixtures.find((x) => x.id === fixtureId);
-    return f ? res(200, { ok: true, fixture: publicForkState(f) }) : fail(404, "Fixture not found.");
+    return f ? res(200, { ok: true, fixture: publicForkState(f), revision: saved!.revision }) : fail(404, "Fixture not found.");
   });
 }
 

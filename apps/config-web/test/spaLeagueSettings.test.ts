@@ -501,9 +501,48 @@ describe("league settings routes (server-rendered)", () => {
     ] } });
     const { html } = await render("/leagues/tabbl?tab=fixtures", detail, ORGANISER, { "/api/leagues/tabbl/seasons/season-6": twoPhases });
     expect(html).toContain(">Phases</h3>");
-    expect(html).toMatch(/data-phase="season-regular"><span>Regular<\/span><select[^>]*><option value="table" selected>Table<\/option><option value="knockout"/);
-    expect(html).toMatch(/data-phase="season-cup">[\s\S]*?<option value="knockout" selected>Knockout/);
+    expect(html).toMatch(/data-phase="season-regular"><span>Regular<\/span><select value="table"><option value="table">Table<\/option><option value="knockout"/);
+    expect(html).toMatch(/data-phase="season-cup"><span>Cup<\/span><select value="knockout">/); // bound to the saved format
     expect((await render("/leagues/tabbl?tab=fixtures", detail, COACH)).html).not.toContain(">Phases</h3>");
+  });
+
+  it("[review P2] league detail: every fixture / news write takes the season revision from the answer, so a later phase PATCH is not stale", async () => {
+    const f = mockFetcher({
+      ...API,
+      "POST /api/leagues/tabbl/seasons/season-6/fixtures": { ok: true, fixture: fx("f9", false), revision: 11 },
+      "PATCH /api/leagues/tabbl/seasons/season-6/fixtures/f2": (b: unknown) => ((b as { forkEnabled?: boolean }).forkEnabled !== undefined
+        ? { ok: true, fixture: fx("f2", false, { forkEnabled: true }), revision: 14 } : { ok: true, fixture: fx("f2", true), revision: 12 }),
+      "DELETE /api/leagues/tabbl/seasons/season-6/fixtures/f9": { ok: true, revision: 13 },
+      "POST /api/leagues/tabbl/seasons/season-6/news": { news: [], revision: 15 },
+      "PATCH /api/leagues/tabbl/seasons/season-6/phases/season-regular": (b: unknown) => ((b as { revision: number }).revision === 15
+        ? { ok: true, season: { ...season6(), revision: 16 } } : new ApiError(409, "This season changed since you opened it.")),
+    });
+    const d = createLeagueDetail({ api: f });
+    await d.load("tabbl");
+    await d.ensureSeason("season-6");
+    const rev = () => d.state.season["season-6"]!.revision;
+    await d.createFixture("season-6", { home: "a", away: "b", round: 1, phaseId: "", date: "", test: false });
+    expect(rev()).toBe(11);
+    await d.editFixture("season-6", "f2", { result: { home: 2, away: 1 } });
+    expect(rev()).toBe(12);
+    await d.deleteFixture("season-6", "f9");
+    expect(rev()).toBe(13);
+    await d.setFixtureFork("season-6", "f2", true);
+    expect(rev()).toBe(14);
+    await d.postNews("season-6", { title: "t", body: "b", pinned: false });
+    expect(rev()).toBe(15);
+    expect(await d.setPhaseFormat("season-6", "season-regular", "knockout")).toBe(true);
+    expect(rev()).toBe(16);
+  });
+
+  it("[review P3] league detail: a refused phase PATCH keeps the saved format and shows the error", async () => {
+    const f = mockFetcher({ ...API, "PATCH /api/leagues/tabbl/seasons/season-6/phases/season-regular": new ApiError(409, "This season changed since you opened it. Reload to see the latest.") });
+    const d = createLeagueDetail({ api: f });
+    await d.load("tabbl");
+    await d.ensureSeason("season-6");
+    expect(await d.setPhaseFormat("season-6", "season-regular", "knockout")).toBe(false);
+    expect(d.state.season["season-6"]!.phases[0]!.format).toBeUndefined();
+    expect(d.state.editError).toContain("changed since you opened it");
   });
 
   it("league detail: setPhaseFormat sends the season revision and takes the re-derived season", async () => {
