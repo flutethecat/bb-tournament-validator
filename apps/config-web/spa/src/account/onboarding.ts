@@ -9,7 +9,7 @@ import { ApiError } from "../shared/api";
 import {
   MAX_PHONES, nationalPart, normalizePhoneNumber, parseEmail, parsePreferredName, PHONE_LABELS, PREFERRED_NAME_MAX, type PhoneLabel,
 } from "../../../src/auth/contactSchema";
-import { COUNTRIES, countryByCode, type Country } from "../../../src/auth/countries";
+import { COUNTRIES, countryByCode, countryByName, type Country } from "../../../src/auth/countries";
 import { dialogKey } from "../teams/manage";
 
 export { COUNTRIES, countryByCode, MAX_PHONES, PHONE_LABELS, PREFERRED_NAME_MAX };
@@ -19,6 +19,13 @@ export const PHONE_HINT = "Without the country code, for example 555 123 4567. S
 export const COUNTRY_REQUIRED = "Choose your country.";
 /** Under the league-contact box: organisers message through the portal; nothing else is shown unless shared. */
 export const LEAGUE_CONTACT_HINT = "They don't see your email or phone unless you choose to share it.";
+
+/** The Country field's text after its model changes: a code set from outside shows its name; a code that became ""
+ *  while the coach types (the text no longer names a country) keeps the text as typed (review P3). */
+export function countryTextAfterModel(text: string, code: string): string {
+  if (!code) return text;
+  return countryByName(text)?.code === code ? text : countryByCode(code)?.name ?? text;
+}
 
 /** The calling-code prefix shown left of the phone field ("+44"); "" when the number is typed with "+" or no country. */
 export function phonePrefix(row: Pick<PhoneRow, "number" | "country">, profileCountry: string): string {

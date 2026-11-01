@@ -502,3 +502,17 @@ describe("country and the one phone number (owner 10-31)", () => {
     expect(stored("NoC").contact?.phones).toEqual([{ number: "+15551234567", country: "US" }]);
   });
 });
+
+describe("national number length (review P2 on a7dad19)", () => {
+  it("NANP is exactly 10 digits; the calling code typed in front is rejected (never stripped); other countries by range", () => {
+    expect(normalizePhoneNumber("212 555 0123", "US")).toBe("+12125550123");
+    expect(() => normalizePhoneNumber("1 212 555 0123", "US")).toThrow(/Leave out the country code \(\+1\)/); // would be +112125550123
+    expect(() => normalizePhoneNumber("212 5550", "US")).toThrow("Enter the number without the country code, for example 555 123 4567."); // would be +12125550
+    expect(() => normalizePhoneNumber("44 7700 900555", "GB")).toThrow(/Leave out the country code \(\+44\)/);
+    expect(() => normalizePhoneNumber("7700 9005", "GB")).toThrow(/without the country code/); // 8 digits: too short for the UK
+    expect(normalizePhoneNumber("030 5551234", "DE")).toBe("+49305551234");
+    expect(() => normalizePhoneNumber("12345", "XK")).toThrow(/without the country code/); // default 6 to 12
+    expect(normalizePhoneNumber("123456", "XK")).toBe("+383123456");
+    expect(() => parsePhones([{ number: "1 212 555 0123" }], "US")).toThrow(/Leave out the country code/);
+  });
+});

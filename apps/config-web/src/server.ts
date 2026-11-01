@@ -166,7 +166,7 @@ import { contactOf, onboardingNeeded } from "./auth/contactSchema.js";
 import {
   createMailerRecipientLookup, parseShareScope, publicIdentityRecord, sharedContactFor, tournamentOrganiserOf, type MembershipSources,
 } from "./auth/contactFor.js";
-import { answerLeagueRegistration, LEAGUE_SHARING_PATH, leagueSharingView, recordLeagueExits } from "./auth/leagueSharing.js";
+import { answerLeagueRegistration, LEAGUE_SHARING_PATH, leagueSharingView } from "./auth/leagueSharing.js";
 import { setSharing, SHARING_PATH, SharingError, sharingView, storeGrant, type SharingSources } from "./auth/sharing.js";
 import { attachSuper } from "./super/index.js";
 import { mailConfigWarnings } from "./mail/config.js";
@@ -484,8 +484,6 @@ const membershipSources: MembershipSources = { tournaments: tournamentStore, lea
 export const mailerRecipientFor = createMailerRecipientLookup(membershipSources);
 /** Per-organiser sharing (src/auth/sharing.ts): the same stores, plus the tournament listing for the Sharing panel. */
 const sharingSources: SharingSources = { tournaments: tournamentStore, leagues: leagueStore };
-// A coach who leaves a league's roster loses the acknowledgement: re-joining asks again before anything is shared.
-leagueStore.onRosterExit = (leagueId, coaches) => recordLeagueExits(leagueId, coaches);
 /** What an organiser (or a site admin) sees of a coach for one league / tournament: only what the coach granted. */
 function sharedContact(viewer: { coach: string; admin?: boolean }, coach: string, scopeKey: string) {
   return sharedContacts(viewer, [coach], scopeKey)[0];

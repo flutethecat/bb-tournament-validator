@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync 
 import { join } from "node:path";
 import { atomicWriteTextFile } from "@bb/fork-ops";
 import { linkPlayerCareers, needsPlayerIds } from "./playerIds.js";
+import { recordLeagueExits } from "../auth/leagueSharing.js";
 import type { LeagueFixture, LeagueRecord, LeagueSecrets, LeagueTeam, SeasonRecord } from "./types.js";
 
 /** One player of a league fork game, public subset: the roster position, and from a full result the SPP the league banked and the server's injury names. */
@@ -112,17 +113,32 @@ export class LeagueStore {
   private readonly forkIndexTtlMs: number;
   private readonly now: () => number;
   /**
-   * Called after a season write or removal through this store with the coach accounts that are no longer on ANY season
-   * of the league (an organiser cleared or moved their only assignment, a re-import dropped them, a season went). The
-   * server uses it to withdraw their league acknowledgement, so a re-joining coach confirms again (spec 2026-10-31).
-   * A season file written by another process is not seen here.
+   * Built into every store (spec 2026-10-31, review P1): after a season write or removal, the coach accounts that are no
+   * longer on ANY season of the league (an organiser cleared or moved their only assignment, a re-import dropped them,
+   * a season went) lose their league acknowledgement in the identities file (recordLeagueExits), so a re-joining coach
+   * confirms again. Every writer (the server, the TourPlay importer, scripts) goes through a LeagueStore, so none skips it.
+   * `identitiesFile` = the file to update (default: IDENTITIES_FILE, else the default identities.json); `onRosterExit`
+   * only observes (tests). Under the test runner, a store with neither an explicit file nor IDENTITIES_FILE never touches
+   * the default (live) identities file.
    */
-  onRosterExit?: (leagueId: string, coaches: string[]) => void;
+  private readonly rosterExit: (leagueId: string, coaches: string[]) => void;
+  /** False only under the test runner with no identities file to update and no observer: nothing to compute. */
+  private readonly exitsActive: boolean;
 
-  constructor(stateDir: string, opts: { forkIndexTtlMs?: number; now?: () => number } = {}) {
+  constructor(stateDir: string, opts: {
+    forkIndexTtlMs?: number; now?: () => number; identitiesFile?: string; onRosterExit?: (leagueId: string, coaches: string[]) => void;
+  } = {}) {
     this.root = join(stateDir, "leagues");
     this.forkIndexTtlMs = opts.forkIndexTtlMs ?? 10 * 60_000;
     this.now = opts.now ?? Date.now;
+    const file = opts.identitiesFile;
+    const guarded = () => Boolean(process.env.VITEST && !file && !process.env.IDENTITIES_FILE);
+    this.exitsActive = Boolean(opts.onRosterExit) || !guarded();
+    this.rosterExit = (leagueId, coaches) => {
+      opts.onRosterExit?.(leagueId, coaches);
+      if (guarded()) return;
+      recordLeagueExits(leagueId, coaches, new Date(this.now()), file);
+    };
   }
 
   /**
@@ -320,7 +336,7 @@ export class LeagueStore {
 
   removeSeason(leagueId: string, seasonId: string): void {
     if (!SEASON_ID.test(seasonId)) return;
-    const before = this.onRosterExit ? this.rawSeasons(leagueId) : [];
+    const before = this.exitsActive ? this.rawSeasons(leagueId) : [];
     this.dropSeasonFile(leagueId, seasonId);
     this.reportExits(leagueId, before, before.filter((s) => s.id !== seasonId));
   }
@@ -333,11 +349,11 @@ export class LeagueStore {
   }
 
   private reportExits(leagueId: string, before: readonly SeasonRecord[], after: readonly SeasonRecord[]): void {
-    if (!this.onRosterExit) return;
+    if (!this.exitsActive) return;
     const now = rosterAccounts(after);
     const gone = [...rosterAccounts(before)].filter(([key]) => !now.has(key)).map(([, coach]) => coach);
     if (!gone.length) return;
-    try { this.onRosterExit(leagueId, gone); } catch { /* the season write stands */ }
+    try { this.rosterExit(leagueId, gone); } catch { /* the season write stands */ }
   }
 }
 

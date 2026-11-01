@@ -19,7 +19,7 @@ import { contactOf, LEAGUE_SHARE_VERSION, leagueShareText, parseShareFields, sha
 import { ContactValidationError } from "./contactSchema.js";
 import { leaguesOf, type MembershipSources } from "./contactFor.js";
 import { SharingError, withGrant } from "./sharing.js";
-import { normalizeFfbCoachId, ownIdentityRecord, readIdentities, upsertIdentity, type CoachIdentityRecord } from "./identitiesStore.js";
+import { normalizeFfbCoachId, ownIdentityRecord, readIdentities, upsertIdentity, withIdentitiesFile, type CoachIdentityRecord } from "./identitiesStore.js";
 
 export const LEAGUE_SHARING_PATH = "/api/me/leagues/sharing";
 
@@ -144,7 +144,8 @@ export function answerLeagueRegistration(
  * league:<id> sharing grant stays as a record: the notice pre-ticks it, and it is not read until the coach confirms.
  * Coaches without an identity record are skipped (nothing to withdraw).
  */
-export function recordLeagueExits(leagueId: string, coaches: readonly string[], now = new Date()): void {
+export function recordLeagueExits(leagueId: string, coaches: readonly string[], now = new Date(), identitiesFile?: string): void {
+  if (identitiesFile) return withIdentitiesFile(identitiesFile, () => recordLeagueExits(leagueId, coaches, now));
   const known = readIdentities().coaches;
   for (const coach of coaches) {
     const record = known[normalizeFfbCoachId(coach)];

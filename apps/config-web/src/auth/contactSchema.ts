@@ -21,7 +21,7 @@
  *  (spa/src/privacy/version.ts). Bumping it there asks every coach again at their next visit (accepted versions are ISO
  *  dates and compare as strings). */
 import { PRIVACY_VERSION } from "../../spa/src/privacy/version.js";
-import { countryByCode, KEEPS_LEADING_ZERO } from "./countries.js";
+import { countryByCode, KEEPS_LEADING_ZERO, nationalLength } from "./countries.js";
 export { PRIVACY_VERSION };
 /** The wording version of the league-contact consent. */
 export const LEAGUE_CONTACT_VERSION = "2026-10-31b";
@@ -174,8 +174,17 @@ export function normalizePhoneNumber(value: unknown, country?: string): string {
   if (!c) throw new ContactValidationError("Choose your country first.");
   if (!/^\d+$/.test(compact)) throw new ContactValidationError(PHONE_NATIONAL_MESSAGE);
   const national = KEEPS_LEADING_ZERO.has(c.code) ? compact : compact.replace(/^0/, "");
+  const [min, max] = nationalLength(c);
+  if (national.length < min || national.length > max) {
+    // The calling code typed in front of the national number ("1 212 555 0123" for the US): REJECTED with a pointed
+    // message, never stripped (a number that merely starts with those digits must not be silently cut).
+    const rest = national.slice(c.dial.length);
+    if (national.startsWith(c.dial) && rest.length >= min && rest.length <= max)
+      throw new ContactValidationError(`Leave out the country code (+${c.dial}): it is added for you. ${PHONE_NATIONAL_MESSAGE}`);
+    throw new ContactValidationError(PHONE_NATIONAL_MESSAGE);
+  }
   const e164 = `+${c.dial}${national}`;
-  if (!national || !E164.test(e164)) throw new ContactValidationError(PHONE_NATIONAL_MESSAGE);
+  if (!E164.test(e164)) throw new ContactValidationError(PHONE_NATIONAL_MESSAGE);
   return e164;
 }
 

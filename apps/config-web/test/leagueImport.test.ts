@@ -263,3 +263,43 @@ describe("league store and importer", () => {
     expect(store.season("tabbl", "season-6")!.log?.filter((e) => e.kind === "team-coach")).toHaveLength(1);
   });
 });
+
+describe("[review P1] a re-import that drops a coach withdraws their league acknowledgement (spec 2026-10-31)", () => {
+  it("dropped -> acknowledgement gone (grant kept); back on a later re-import -> not shared until the coach confirms", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { withIdentitiesFile, readIdentities } = await import("../src/auth/identitiesStore");
+    const { grantApplies, parseShareScope } = await import("../src/auth/contactFor");
+    const root = tmp();
+    writeExport(root, "tabbl---season-6");
+    const identities = join(root, "identities.json");
+    const jay = (nafName?: string) => ({
+      ffbCoachId: "Jay", level: "player", banned: false, silenced: false, note: "", profile: {}, updatedAt: "", updatedBy: "",
+      identities: nafName ? { nafName } : {},
+      consent: {
+        privacy: { acceptedVersion: "2026-10-31", at: "2026-10-31T00:00:00.000Z" },
+        leagues: { tabbl: { at: "2026-10-31T00:00:00.000Z", version: "2026-10-31c" } },
+        sharing: { "league:tabbl": { fields: ["email"], at: "2026-10-31T00:00:00.000Z", version: "2026-10-31" } },
+      },
+    });
+    const write = (rec: Record<string, unknown>) => writeFileSync(identities, JSON.stringify({ version: 1, coaches: { jay: rec } }));
+    const stored = () => JSON.parse(readFileSync(identities, "utf8")).coaches.jay as { consent: { leagues?: Record<string, unknown>; sharing?: Record<string, unknown> } };
+    write(jay("FluteTheCat"));
+    const stateDir = tmp();
+    const opts = { league: "tabbl", name: "TABBL", fullName: "TABBL", exports: root, identities, stateDir, log: () => undefined };
+    await importLeague(opts);
+    expect(stored().consent.leagues).toEqual({ tabbl: { at: "2026-10-31T00:00:00.000Z", version: "2026-10-31c" } });
+    // The NAF link is gone, so the re-import no longer seats Jay: the acknowledgement goes, the sharing record stays.
+    write({ ...jay(), consent: stored().consent });
+    await importLeague(opts);
+    expect(stored().consent.leagues).toBeUndefined();
+    expect(stored().consent.sharing).toHaveProperty(["league:tabbl"]);
+    // Linked again: Jay is back on the roster, but nothing is shared until he confirms.
+    write({ ...jay("FluteTheCat"), consent: stored().consent });
+    await importLeague(opts);
+    const store = new LeagueStore(stateDir);
+    const sources = { tournaments: { tournament: () => undefined, entrants: () => [] }, leagues: store as never };
+    const record = withIdentitiesFile(identities, () => readIdentities().coaches.jay!);
+    expect(store.seasons("tabbl")[0]!.teams.some((t) => t.coachId === "Jay")).toBe(true);
+    expect(grantApplies(record, parseShareScope("league:tabbl")!, sources)).toBe(false);
+  });
+});

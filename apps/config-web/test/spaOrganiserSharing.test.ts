@@ -114,3 +114,17 @@ describe("registration body and NAF check", () => {
     expect(createBody({ ...base, nafSanctioned: true })).toMatchObject({ nafSanctioned: true });
   });
 });
+
+describe("Country field text (review P3 on a7dad19)", () => {
+  it("typing over a chosen country keeps every keystroke; an outside change shows the country's name", async () => {
+    const { countryTextAfterModel } = await import("../spa/src/account/onboarding");
+    // "United Kingdom" chosen, the coach deletes one letter: the model becomes "" but the text stays as typed.
+    expect(countryTextAfterModel("United Kingdo", "")).toBe("United Kingdo");
+    expect(countryTextAfterModel("G", "")).toBe("G");
+    // Typing completes a name: the text is already right.
+    expect(countryTextAfterModel("germany", "DE")).toBe("germany");
+    // A code set from outside (reload, reset) shows its name.
+    expect(countryTextAfterModel("", "GB")).toBe("United Kingdom");
+    expect(countryTextAfterModel("France", "DE")).toBe("Germany");
+  });
+});

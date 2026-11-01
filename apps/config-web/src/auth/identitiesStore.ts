@@ -226,6 +226,15 @@ export function identitiesFile(): string {
   return process.env.IDENTITIES_FILE ? resolve(process.env.IDENTITIES_FILE) : DEFAULT_IDENTITIES_FILE;
 }
 
+/** Runs `fn` (synchronous) against another identities file (a script's --identities), restoring the setting after. */
+export function withIdentitiesFile<T>(file: string, fn: () => T): T {
+  const previous = process.env.IDENTITIES_FILE;
+  process.env.IDENTITIES_FILE = file;
+  try { return fn(); } finally {
+    if (previous === undefined) delete process.env.IDENTITIES_FILE; else process.env.IDENTITIES_FILE = previous;
+  }
+}
+
 function boundedString(value: unknown, field: string, max: number): string {
   if (typeof value !== "string") throw new Error(`${field} must be a string.`);
   if (value.length > max) throw new Error(`${field} must be at most ${max} characters.`);

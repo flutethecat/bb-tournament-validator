@@ -573,6 +573,26 @@ function nafAnswer(input: Record<string, unknown>): { nafNumber: string } | { no
 
 export const NAF_REQUIRED_MESSAGE = "NAF number required for this NAF-sanctioned tournament.";
 
+/** Derived, not just the stored flag (review P2): an active entry of a NAF-sanctioned tournament with neither a NAF
+ *  number nor "not a NAF member" owes its NAF answer, however it got that way. */
+export function nafOwed(tournament: Pick<TournamentRecord, "nafSanctioned">, entrant: TournamentEntrantRecord): boolean {
+  return tournament.nafSanctioned === true && entrant.droppedAt === undefined && !entrant.nafNumber && !entrant.notNafMember;
+}
+
+/**
+ * The first time an owed answer is seen (an entry from before the tournament was sanctioned, written by any path), the
+ * entry is marked nafPending and its coach gets the naf-request notice once; later evaluations find it marked. Returns
+ * the entrants as they stand after marking.
+ */
+function settleNafOwed(deps: TournamentApiDeps, tournament: TournamentRecord, entrants: TournamentEntrantRecord[], actor: string): TournamentEntrantRecord[] {
+  const unmarked = entrants.filter((e) => nafOwed(tournament, e) && !e.nafPending);
+  if (!unmarked.length) return entrants;
+  let marked: string[] = [];
+  try { marked = deps.store.markNafPending(tournament.id, unmarked.map((e) => e.id)); } catch { return entrants; }
+  for (const e of unmarked) if (marked.includes(e.id)) notifyNafRequest(deps, tournament, e.coach.ffbCoachId, actor, false);
+  return deps.store.entrants(tournament.id);
+}
+
 function notifyFixtures(deps: TournamentApiDeps, tournament: TournamentRecord, matches: readonly ScheduledMatchRecord[], actor: string): void {
   if (!deps.notify) return;
   quietly(() => {
@@ -743,7 +763,10 @@ export async function tournamentApi(
       const entrant = entrantByCoach(deps.store.entrants(tournament.id), identity.coach);
       if (!entrant || entrant.droppedAt) return { status: 403, body: { error: "You are not entered in this tournament." } };
       // NAF stays non-optional (owner 10-31): an entry still owing its NAF answer cannot submit a roster.
-      if (entrant.nafPending && tournament.nafSanctioned) return { status: 400, body: { error: NAF_REQUIRED_MESSAGE } };
+      if (nafOwed(tournament, entrant)) {
+        settleNafOwed(deps, tournament, [entrant], "");
+        return { status: 400, body: { error: NAF_REQUIRED_MESSAGE } };
+      }
       if (tournament.rostersLockedAt || entrant.flags?.frozen)
         return { status: 409, body: { error: "Rosters are locked; ask an organiser to unlock them before resubmitting." } };
       if (!deps.validateSubmission) return { status: 503, body: { error: "Team validation is unavailable on this host." } };
@@ -1161,7 +1184,8 @@ export async function tournamentApi(
       const tournamentId = decoded(detailMatch[1]!);
       const tournament = tournamentId ? deps.store.tournament(tournamentId) : undefined;
       if (!tournament) return { status: 404, body: { error: "Tournament not found." } };
-      const entrants = deps.store.entrants(tournament.id);
+      // An unanswered entry of a sanctioned tournament is marked (and its coach told) the first time it is seen.
+      const entrants = settleNafOwed(deps, tournament, deps.store.entrants(tournament.id), "");
       const manager = canManage(tournament, auth);
       const shared = manager && auth ? sharedMap(deps, auth, entrants.filter((e) => e.droppedAt === undefined), tournament.id) : new Map<string, SharedContact>();
       // Fixtures: organisers and this tournament's managers see all; an entrant sees every fixture of the event

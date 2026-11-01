@@ -90,7 +90,8 @@ export const seasonNumberFromSlug = (slug: string): number | undefined => {
 
 export async function importLeague(opts: ImportOptions): Promise<SeasonReport[]> {
   const log = opts.log ?? ((line: string) => console.log(line));
-  const store = new LeagueStore(opts.stateDir);
+  // Coaches a re-import drops lose their league acknowledgement in the same identities file (LeagueStore, review P1).
+  const store = new LeagueStore(opts.stateDir, opts.identities ? { identitiesFile: opts.identities } : {});
   const now = opts.now ?? new Date();
   const naf = nafMapFromIdentities(opts.identities);
   const mapCoach: CoachMapper = (_coach, nafUser) => (nafUser ? naf.get(nafUser.trim().toLowerCase()) : undefined);

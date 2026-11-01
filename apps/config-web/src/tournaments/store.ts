@@ -599,6 +599,22 @@ export class TournamentStore {
     });
   }
 
+  /** Marks entries as owing their NAF answer (nafPending); returns the ids newly marked (already marked: skipped). */
+  markNafPending(tournamentId: string, entrantIds: readonly string[], now = new Date()): string[] {
+    if (!entrantIds.length) return [];
+    return this.mutate((data) => {
+      const marked: string[] = [];
+      for (const id of entrantIds) {
+        const entrant = data.entrants[id];
+        if (!entrant || entrant.tournamentId !== tournamentId || entrant.nafPending) continue;
+        entrant.nafPending = true;
+        marked.push(id);
+      }
+      if (marked.length && data.tournaments[tournamentId]) data.tournaments[tournamentId]!.updatedAt = now.toISOString();
+      return marked;
+    });
+  }
+
   /** The coach's NAF answer for their entry: a NAF number, or "not a NAF member". Clears nafPending. */
   answerNaf(
     tournamentId: string,
