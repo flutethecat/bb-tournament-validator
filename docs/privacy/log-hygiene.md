@@ -34,7 +34,17 @@ Startup lines, session-file read/write errors (`[sessions]`), `[deprecated-passw
 skip warnings with game ids and error messages, `[ban-enforcement]` warnings naming a side and team id, and
 `[leagues]` results applied with league and game ids. Coach names can appear inside error messages or league ids.
 
+## Logged values from the network
+
+`src/super/service.ts` used to log the claimed coach string on an auth failure. It now logs `safeLogValue()`
+(`src/privacy/logSafe.ts`): whitespace and control characters stripped, `@` replaced, at most 40 characters.
+
 ## Retention
 
-The notice promises 14 days. Rotate `data-store/config-web.log` daily and delete files older than 14 days (a scheduled task
-or logrotate equivalent on the live host). This rotation is an operator action; nothing in the repo does it yet.
+The notice promises 14 days, and the server enforces it (`src/privacy/logRotation.ts`, started from `server.ts`): at startup
+and then daily, any `*.log`, `*.out` or `*.err` file in the data-store directory (`FORK_STATE_DIR`), the config-web folder, and
+`CONFIG_WEB_LOG_DIR` if set, last written before today is renamed with its date (`config-web.log.2026-10-30`), or copied and
+truncated where Windows holds the redirected file open; dated files older than 14 days are deleted. Caddy access logs, if
+kept, are outside this and must be rotated separately.
+
+Bug-report folders are pruned the same way after 12 months (`pruneBugReports` in `src/bugReports.ts`, daily).

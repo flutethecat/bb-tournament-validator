@@ -218,6 +218,7 @@ import {
   readJsonCapped,
   submitBugReport,
   updateBugReportTriage,
+  pruneBugReports,
 } from "./bugReports.js";
 import {
   TournamentMatchAccessError,
@@ -294,6 +295,7 @@ import { RateLimiter } from "./translate/guards.js";
 import { createTournamentNotifier, isNotificationApiPath, NotificationStore, notificationsApi, SenderRateLimiter, setActiveNotifier } from "./notifications.js";
 import { clientIp } from "./translate/route.js";
 import { privacyContact } from "./privacy/contact.js";
+import { startLogRotation } from "./privacy/logRotation.js";
 import { clockView, isTabletopApiPath, recoverTabletop, tabletopApi, type TabletopApiDeps } from "./tabletop/api.js";
 import { FileTabletopRepository } from "./tabletop/store.js";
 import { createRecorderWebhook, recorderAnnouncement } from "./tabletop/discord.js";
@@ -4242,6 +4244,16 @@ if (AUTH_SIDECAR && LISTEN_HOST !== HOST) {
   console.warn(
     `[auth-sidecar] AUTH_SIDECAR_ALLOW_INSECURE_PUBLIC=1 — binding ${HOST}:${PORT} over PLAIN HTTP; session cookies + coach creds travel in cleartext (TLS owed pre-competitive).`,
   );
+}
+
+// Privacy notice retention promises: bug reports 12 months, logs 14 days (src/privacy/logRotation.ts). Not in test runs.
+if (!process.env.VITEST) {
+  const pruneReports = (): void => {
+    try { const gone = pruneBugReports(BUG_REPORTS_DIR); if (gone.length) console.log(`[bug-reports] pruned ${gone.length} older than 12 months`); } catch { /* retried tomorrow */ }
+  };
+  pruneReports();
+  setInterval(pruneReports, 24 * 60 * 60 * 1000).unref();
+  startLogRotation([...new Set([FORK_STATE_DIR, resolve(HERE, ".."), ...(process.env.CONFIG_WEB_LOG_DIR ? [resolve(process.env.CONFIG_WEB_LOG_DIR)] : [])])]);
 }
 
 server.listen(PORT, LISTEN_HOST, () => {

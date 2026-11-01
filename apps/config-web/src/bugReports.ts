@@ -11,7 +11,7 @@
  * per-coach in-memory rate limit (10/hour, 429) — same idiom as auth/loginAttempts.ts.
  */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { coachSecretDigest } from "@bb/fork-ops";
 import { noteLegacyPasswordAuth } from "./auth/deprecation.js";
@@ -289,6 +289,30 @@ function normalizedTriage(value: unknown): BugReportRow["triage"] {
     updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : null,
     updatedBy: typeof raw.updatedBy === "string" ? raw.updatedBy : null,
   };
+}
+
+/** Privacy notice: bug reports are kept 12 months. */
+export const BUG_REPORT_RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
+
+/** Deletes report folders submitted more than the retention ago (submittedAt, else the timestamp prefix of the id). Returns the ids removed. */
+export function pruneBugReports(dir: string, now = Date.now(), maxAgeMs = BUG_REPORT_RETENTION_MS): string[] {
+  if (!existsSync(dir)) return [];
+  const removed: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    let submitted = NaN;
+    try {
+      const r = JSON.parse(readFileSync(join(dir, entry.name, "report.json"), "utf8")) as { submittedAt?: unknown };
+      if (typeof r.submittedAt === "string") submitted = Date.parse(r.submittedAt);
+    } catch { /* fall back to the id prefix */ }
+    if (Number.isNaN(submitted)) {
+      const m = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})/.exec(entry.name);
+      if (m) submitted = Date.parse(`${m[1]}T${m[2]}:${m[3]}:${m[4]}Z`);
+    }
+    if (Number.isNaN(submitted) || now - submitted <= maxAgeMs) continue; // undated folders are left alone
+    try { rmSync(join(dir, entry.name), { recursive: true, force: true }); removed.push(entry.name); } catch { /* retried tomorrow */ }
+  }
+  return removed;
 }
 
 /** Listing for the organizer view: metadata only, description truncated to 200 chars. */

@@ -13,6 +13,7 @@ import type { LobbySocketBridge } from "../lobby.js";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { randomBytes } from "node:crypto";
+import { safeLogValue } from "../privacy/logSafe.js";
 
 export type Seat = "home" | "away";
 
@@ -204,13 +205,13 @@ export class SuperService {
     const nonce = String(conn.data.nonce);
     const ts = String(conn.data.ts);
     const ok = await this.opts.verifyAuth(coach, nonce, ts, response);
-    if (!ok) { this.log(`auth reject coach=${coach}`); conn.close(); return; }
+    if (!ok) { this.log(`auth reject coach=${safeLogValue(coach)}`); conn.close(); return; }
 
     // SM-6/RC-1: authoritative participant + seat truth. null ⇒ not a participant ⇒ reject
     // (admit-unverified is forbidden — it re-opens spoofing). Caller's resolver parks-and-retries
     // internally if the gamestate isn't queryable yet.
     const seat = await this.opts.resolveSeat(gameId, coach);
-    if (!seat) { this.log(`participant reject coach=${coach} game=${gameId}`); conn.close(); return; }
+    if (!seat) { this.log(`participant reject coach=${safeLogValue(coach)} game=${safeLogValue(gameId)}`); conn.close(); return; }
 
     conn.data.authed = true;
     conn.data.coach = coach;

@@ -2,6 +2,23 @@
 // from it, and the export/delete lanes import the same list (src/privacy/export.ts must have a collector per `id`), so
 // the page and the export cannot drift. No personal data lives here: only the kinds of data the site stores.
 
+/**
+ * Which privacy features the running site actually has. The notice states a feature only when its flag is true and
+ * otherwise says "coming soon, email the contact". Flip each flag (one line) in the change that lands the feature.
+ */
+export interface PrivacyFeatures {
+  /** "Download my data" on the Account page. */
+  export: boolean;
+  /** "Delete my account", including anonymising public history. */
+  delete: boolean;
+  /** Consent and notice acceptance are recorded at sign-up. */
+  consentRecording: boolean;
+  /** League-contact consent can be withdrawn on the Account page. */
+  consentWithdrawal: boolean;
+}
+
+export const FEATURES: PrivacyFeatures = { export: false, delete: false, consentRecording: false, consentWithdrawal: false };
+
 export type PublicVisibility = "no" | "yes" | "partly";
 
 export interface InventoryRow {
@@ -21,8 +38,10 @@ export interface InventoryRow {
   retention: string;
 }
 
-const ACCOUNT_LIFETIME = "While your account exists; removed when you delete your account.";
-const HISTORY_RETENTION = "Kept as league and tournament history; your coach name is replaced by \"Deleted coach\" when you delete your account.";
+// Retention strings say only what is true on every build. What happens on account deletion depends on the feature flags
+// below and is stated by the notice page, never here.
+const ACCOUNT_LIFETIME = "While your account exists.";
+const HISTORY_RETENTION = "Kept as league and tournament history.";
 
 export const INVENTORY: readonly InventoryRow[] = [
   {
@@ -109,7 +128,7 @@ export const INVENTORY: readonly InventoryRow[] = [
     id: "tabletop", store: "data-store/tabletop/",
     data: "Tabletop matches, their events and journals, and the teams used.",
     purpose: "The match recorder.",
-    public: "partly", publicNote: "Published matches only.",
+    public: "partly", publicNote: "Tabletop matches are visible to spectators while they are recorded and after publication; test matches never.",
     retention: HISTORY_RETENTION,
   },
   {
@@ -129,13 +148,32 @@ export const INVENTORY: readonly InventoryRow[] = [
     id: "bug-reports", store: "bug-reports/ (BUG_REPORTS_DIR)",
     data: "Bug reports you send: a game log, wire trace and optional screenshot, named by your coach name.",
     purpose: "Support and fixing bugs.",
-    public: "no", retention: "12 months, or until you delete your account.",
+    public: "no", retention: "12 months; older reports are deleted automatically each day.",
   },
   {
     id: "logs", store: "config-web.*.log, data-store/config-web.log",
     data: "Server logs of errors and operations. They do not carry email addresses or IP addresses (see docs/privacy/log-hygiene.md).",
     purpose: "Keeping the site running and secure.",
-    public: "no", retention: "14 days.",
+    public: "no", retention: "14 days; older log files are deleted automatically each day.",
+  },
+  {
+    id: "lobby-chat", store: "Server memory (Start Game lobby; never written to disk)",
+    data: "Lobby chat messages (your coach name, the text and a timestamp) and who is in the lobby while connected.",
+    purpose: "Chatting with your opponent while you set up a game.",
+    public: "partly", publicNote: "Seen by the people in that lobby.",
+    retention: "Up to 24 hours after the lobby opens (1 hour once its game starts); lost when the server restarts.",
+  },
+  {
+    id: "desktop-claims", store: "Server memory (desktop sign-in)",
+    data: "A one-time claim that hands your browser sign-in to the Super FUMBBL desktop app, tied to your coach name.",
+    purpose: "Signing in to the desktop app.",
+    public: "no", retention: "10 minutes; lost when the server restarts.",
+  },
+  {
+    id: "translation-cache", store: "Server memory (chat translation cache)",
+    data: "Chat text sent for translation and its translation, when an operator has chat translation switched on.",
+    purpose: "Translating chat, and not translating the same text twice.",
+    public: "no", retention: "24 hours; lost when the server restarts.",
   },
   {
     id: "fork-db", store: "Fork server database (separate service)",
@@ -153,8 +191,8 @@ export const COLLECT_GROUPS: readonly CollectGroup[] = [
   { title: "Your account", text: "Your Discord user id and username, the verified email on your Discord account, and your Discord avatar. If you add them: your preferred name, a contact email, and up to three phone numbers.", ids: ["identities", "contact-details", "consents", "sessions", "discord-sso", "organizers"] },
   { title: "What you create", text: "Rosters, teams, logos, avatars, match records, and league and tournament entries.", ids: ["coach-avatars", "team-avatars", "builder-saves", "team-library", "tournaments", "leagues", "tabletop"] },
   { title: "Game results and ratings", text: "Who played, who won, and the ratings and titles that follow.", ids: ["results", "fork-db"] },
-  { title: "Notifications and bug reports", text: "Notices we send you on the site, and the bug reports you choose to send.", ids: ["notifications", "bug-reports"] },
-  { title: "Technical data", text: "A session cookie, and your IP address held in memory only, for abuse limits.", ids: ["logs"] },
+  { title: "Notifications, chat and bug reports", text: "Notices we send you on the site, lobby chat messages, and the bug reports you choose to send.", ids: ["notifications", "bug-reports", "lobby-chat"] },
+  { title: "Technical data", text: "A session cookie, and your IP address held in memory only, for abuse limits.", ids: ["logs", "desktop-claims", "translation-cache"] },
 ];
 
 import { PRIVACY_VERSION } from "./version";
