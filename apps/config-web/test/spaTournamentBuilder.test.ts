@@ -209,6 +209,30 @@ describe("tournament builder controller", () => {
     expect(b.sheetModel().rows[0]!.name).toBe("Ironhide");
   });
 
+  it("tournament stat rules (owner 11-01): the dialog's + carries the rule's reason per player, stat and team", async () => {
+    const tier = { ...TIER_ROW, statIncreasesAllowed: true, statIncreases: { allowed: ["MA", "ST", "AV"], costGold: { MA: 20000, ST: 80000, AV: 10000 }, maxPerPlayer: 2 },
+      statIncreaseRules: { excludePositions: [{ race: "*", position: "Ogre" }], blockedStats: [{ stat: "ST", keywords: ["Lineman"] }], maxPerTeam: 1 } };
+    const f = mockFetcher(routes({ "/api/fork/team-builder/tiers?packageName=Test%20Cup": { races: [tier] }, "/api/fork/team-builder/legal-skills?rosterId=human&positionId=hogr": LEGAL }));
+    const { b } = await ready(f);
+    b.setTeamName("Reavers");
+    b.addPosition("hlin");
+    b.addPosition("hbli");
+    b.addPosition("hogr");
+    const reason = (i: number, stat: string) => b.statSteps(i).find((o) => o.stat === stat)!.reason;
+    expect(reason(0, "ST")).toBe("Tournament rule: no ST increases for Lineman players."); // stat blocked for a keyword (type)
+    expect(reason(0, "MA")).toBe(""); // another stat is open
+    expect(reason(1, "ST")).toBe(""); // another position may
+    expect(reason(2, "MA")).toBe("Tournament rule: no stat increases for Ogre players."); // position excluded, every stat
+    expect(reason(2, "AV")).toBe("Tournament rule: no stat increases for Ogre players.");
+    expect(reason(0, "AG")).toBe("AG increases aren't available here."); // not on the package's stat list
+    expect(b.addStat(1, "MA")).toBe("");
+    expect(reason(0, "MA")).toBe("Tournament rule: max 1 stat increase per team."); // team cap reached: everyone else greys out
+    expect(reason(1, "ST")).toBe("Tournament rule: max 1 stat increase per team.");
+    expect(b.statSteps(1).find((o) => o.stat === "MA")).toMatchObject({ has: true, removeReason: "" }); // the holder can still remove it
+    b.removeStat(1, "MA");
+    expect(reason(0, "MA")).toBe("");
+  });
+
   it("Team Captain: no direct reassignment; clearing the captain (or firing them) frees the toggle (owner 10-31)", async () => {
     const { b } = await ready(mockFetcher(routes()));
     b.setTeamName("Reavers");

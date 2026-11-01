@@ -5,6 +5,7 @@ import { computed, inject } from "vue";
 import { TOURNAMENT_CREATOR_KEY } from "../tournaments/creator";
 import CreatorNum from "./CreatorNum.vue";
 import CreatorOverride from "./CreatorOverride.vue";
+import CreatorStatRules from "./CreatorStatRules.vue";
 
 const c = inject(TOURNAMENT_CREATOR_KEY)!;
 const { state } = c;
@@ -15,7 +16,6 @@ const toggles: Array<{ key: SpecialKey; label: string }> = [
   { key: "insignificantTraitConstraint", label: "Insignificant-trait constraint" },
   { key: "stalling", label: "Stalling allowed" },
   { key: "slannAllowed", label: "Slann allowed" },
-  { key: "statIncreasesAllowed", label: "Allow stat increases" },
 ];
 const json = computed(() => JSON.stringify(c.serialize(), null, 2));
 </script>
@@ -27,9 +27,10 @@ const json = computed(() => JSON.stringify(c.serialize(), null, 2));
       <button v-for="t in toggles" :key="t.key" type="button" class="cr-chip" :aria-pressed="special[t.key] === true" :disabled="ro" @click="c.toggleSpecial(t.key)">{{ t.label }}</button>
       <button type="button" class="cr-chip" :aria-pressed="Number(special.minPlayers) <= 10" :disabled="ro" @click="c.toggleStarsEleventh()">Stars are the 11th player</button>
     </div>
-    <p v-if="special.statIncreasesAllowed !== true" class="muted cr-stat-note">Stat increases are off: the Advance dialog greys them out, the validator refuses them, and any per-race stat settings are ignored.</p>
     <div class="cr-grid"><CreatorNum label="Minimum players" :path="['special', 'minPlayers']" kind="int" placeholder="11 (default)" /></div>
   </section>
+
+  <CreatorStatRules />
 
   <section class="hm-panel" aria-labelledby="cr-sideline-h">
     <header class="hm-band"><h2 id="cr-sideline-h">Sideline staff</h2></header>

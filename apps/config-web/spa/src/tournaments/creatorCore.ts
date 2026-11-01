@@ -399,6 +399,11 @@ export function setPath(root: object, path: Path, value: unknown): void {
 export interface SkillInfo { name: string; category?: string }
 export interface StarInfo { name: string; pairedWith?: string; pairPrimary?: boolean }
 export interface TeamInfo { name: string; defaultTier?: number | null }
+export interface PositionCatalog { race: string; positions: Array<{ name: string; type?: string; keywords?: string[] }> }
+export interface StatRuleDoc {
+  excludePositions?: Array<{ race?: string; position: string }>; excludeKeywords?: string[];
+  blockedStats?: Array<{ stat: string; positions?: Array<{ race?: string; position: string }>; keywords?: string[] }>; maxPerTeam?: number;
+}
 export interface PresetInfo { id: string; label: string; pkg: RawDoc }
 
 export function pairedStarNames(stars: StarInfo[], name: string): string[] {

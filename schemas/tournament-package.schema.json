@@ -8,6 +8,12 @@
   "additionalProperties": false,
   "patternProperties": { "^_": { "description": "Authoring notes (e.g. _notes); ignored by the validator." } },
   "definitions": {
+    "statRulePosition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["position"],
+      "properties": { "race": { "type": "string", "description": "Roster name; \"*\" or omitted = any race." }, "position": { "type": "string" } }
+    },
     "statIncreases": {
       "type": ["object", "null"],
       "description": "Characteristic increases, detected by diffing printed stats vs the dataset position (MA/ST/AV +1; AG/PA one step better). Tiers/team rules MERGE over the flat value; absent everywhere = not checked.",
@@ -249,7 +255,31 @@
         "insignificantTraitConstraint": { "type": "boolean", "default": true, "description": "Players with the Insignificant trait may not exceed players without it." },
         "stalling": { "type": "boolean", "default": true },
         "slannAllowed": { "type": "boolean", "default": false },
-        "statIncreasesAllowed": { "type": "boolean", "default": false },
+        "statIncreasesAllowed": { "type": "boolean", "default": false, "description": "Master switch (Allow stat increases): off refuses every characteristic increase whatever the statIncreases knobs say." },
+        "statIncreaseRules": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Granular stat-increase rules, used when statIncreasesAllowed is true. Per-player cap stays statIncreases.maxPerPlayer.",
+          "properties": {
+            "excludePositions": { "type": "array", "items": { "$ref": "#/definitions/statRulePosition" }, "description": "No stat increases for these positions." },
+            "excludeKeywords": { "type": "array", "items": { "type": "string" }, "description": "No stat increases for positions with these dataset keywords or types (Big Guy, Lineman)." },
+            "blockedStats": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["stat"],
+                "properties": {
+                  "stat": { "enum": ["MA", "ST", "AG", "PA", "AV"] },
+                  "positions": { "type": "array", "items": { "$ref": "#/definitions/statRulePosition" } },
+                  "keywords": { "type": "array", "items": { "type": "string" } }
+                }
+              },
+              "description": "A stat nobody (no positions or keywords listed) or only the listed positions / keywords may take."
+            },
+            "maxPerTeam": { "type": ["number", "null"], "description": "Most stat increases the whole team may carry." }
+          }
+        },
         "bannedSkills": { "type": "array", "items": { "type": "string" }, "default": [] },
         "minPlayers": { "type": "number", "default": 11 }
       }

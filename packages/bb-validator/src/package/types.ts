@@ -4,6 +4,8 @@
  * TO-authored files); sketched here as plain interfaces to stay toolchain-free.
  */
 
+import type { StatIncreaseRules } from "../cost/statRules";
+
 /**
  * A gold+SP "skill package" a coach may choose (Spike!-style). A roster is legal
  * if it fits ANY package: gold spend ≤ `gold` AND SP spend ≤ `skillPointBudget`
@@ -320,6 +322,8 @@ export interface TournamentPackage {
     stalling: boolean; // default true
     slannAllowed: boolean; // default false
     statIncreasesAllowed: boolean; // default false
+    /** Granular stat-increase rules (who may not, blocked stats, per-team cap); see cost/statRules.ts. */
+    statIncreaseRules?: StatIncreaseRules;
     bannedSkills: string[]; // default []
     minPlayers: number; // default 11
   };

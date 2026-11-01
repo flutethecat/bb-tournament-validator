@@ -24,6 +24,13 @@ export function teamList() {
   return bb2025.teams;
 }
 
+/** Every roster's positions (name, type, dataset keywords) for the Tournament Creator's stat-increase rules picker. */
+export function positionList(): Array<{ race: string; positions: Array<{ name: string; type: string; keywords: string[] }> }> {
+  return Object.values(bb2025.rosters)
+    .map((r) => ({ race: r.name, positions: r.positions.map((p) => ({ name: p.name, type: p.type, keywords: [...(p.keywords ?? [])] })) }))
+    .sort((a, b) => a.race.localeCompare(b.race));
+}
+
 export type AdminTeamSearchMode = "name" | "id" | "coach";
 
 export interface AdminTeamSearchRow {

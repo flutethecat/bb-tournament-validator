@@ -11,6 +11,7 @@ import {
   type StatKey,
   type TournamentPackage,
 } from "@bb/validator";
+import { cleanStatIncreaseRules, type StatIncreaseRules } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 import type { PackageFiles } from "./data.js";
 import { isFreeCreatePackage } from "./freeCreate.js";
@@ -109,6 +110,8 @@ export interface BuilderRaceRules {
   /** The package's master switch (special.statIncreasesAllowed, "Allow stat increases" in the Tournament Creator). When false
    *  the Advance dialog shows the stat bar greyed out and the validator refuses any increase. */
   statIncreasesAllowed: boolean;
+  /** special.statIncreaseRules cleaned (who may not, blocked stats, per-team cap); null when none are set or the switch is off. */
+  statIncreaseRules: StatIncreaseRules | null;
   /** Only the packs open to the race ([] when stars are not allowed or no packs are configured). */
   starPacks: BuilderStarPack[];
   /** Overall star cap (counts picks when packs are configured); 0 when stars are not allowed. */
@@ -138,6 +141,7 @@ export function builderRaceRules(pkg: TournamentPackage, race: string): BuilderR
     maxStackedPlayers: cfg.maxStackedPlayers,
     stackedPlayer: { ...cfg.stackedPlayer },
     statIncreasesAllowed: pkg.special.statIncreasesAllowed === true,
+    statIncreaseRules: pkg.special.statIncreasesAllowed === true ? cleanStatIncreaseRules(pkg.special.statIncreaseRules) : null,
     statIncreases: pkg.special.statIncreasesAllowed === true && si && si.allowed.length ? { allowed: [...si.allowed], costGold: { ...si.costGold } } : null,
     starPacks,
     maxStars: cfg.starPlayersAllowed ? pkg.starPlayers.maxCount : 0,

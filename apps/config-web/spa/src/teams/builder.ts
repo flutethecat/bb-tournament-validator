@@ -23,6 +23,7 @@ import {
   FREE_CREATE_DESCRIPTION, FREE_CREATE_LABEL, FREE_CREATE_PACKAGE, freeCreateSkillGold, freeCreateStatGold, statCapReason,
 } from "../../../src/freeCreate";
 import { TEAM_BUILDER_BODY_BOUNDS } from "../../../src/teamBuilderWire";
+import { cleanStatIncreaseRules, statRuleBlock, teamCapBlock, type StatIncreaseRules } from "../../../../../packages/bb-validator/src/cost/statRules";
 import { cleanPlayerName, PLAYER_NAME_MAX, randomPlayerName } from "../../../src/playerNames";
 export { PLAYER_NAME_MAX };
 
@@ -443,6 +444,14 @@ export function createTournamentBuilder(deps: BuilderDeps) {
   const allowedStats = (): string[] => core.allowedStatList(statRules());
   /** The package's master switch for stat increases ("Allow stat increases" in the Tournament Creator; Free Create is always on).
    *  Only an explicit false from the server counts as off, so a server that doesn't send it keeps the knob-driven behaviour. */
+  /** The package's granular rules (who may not, blocked stats, per-team cap), as the server cleaned them; null for none / Free Create. */
+  const statRuleSet = (): StatIncreaseRules | null => {
+    if (free()) return null;
+    const raw = (state.preview?.package?.rules as { statIncreaseRules?: unknown } | undefined)?.statIncreaseRules
+      ?? (ownTierRow()?.raw as { statIncreaseRules?: unknown } | undefined)?.statIncreaseRules;
+    return cleanStatIncreaseRules(raw);
+  };
+  const teamStatIncreases = (): number => state.slots.reduce((n, sl) => n + sl.chosenStatIncreases.filter((k) => allowedStats().includes(k)).length, 0);
   const statsRuleAllowed = (): boolean => {
     if (free()) return true;
     const flag = (state.preview?.package?.rules as { statIncreasesAllowed?: unknown } | undefined)?.statIncreasesAllowed
@@ -1314,12 +1323,16 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     const chosen = slot.chosenStatIncreases.filter((k) => allowedStats().includes(k));
     const now = core.improvedStats(position, chosen);
     const ruleOff = !statsRuleAllowed();
+    const rules = statRuleSet();
+    const taken = teamStatIncreases();
+    const who = { race: state.roster?.raceName ?? "", position: position.name, keywords: position.keywords, type: position.type };
     // Always the five tiles. A ruleset that disallows increases (or a race with none set up) shows them greyed out, each
     // "+" carrying the reason; "−" still works on increases the player already has, so a stale one can be removed.
     return STAT_KEYS.map((stat) => {
       const has = chosen.includes(stat);
       const offered = !ruleOff && allowedStats().includes(stat);
-      const block = offered ? statBlock(slot, position, stat) : ruleOff ? STATS_OFF_REASON : `${stat} increases aren't available here.`;
+      const rule = offered && !has ? statRuleBlock(rules, who, stat) || teamCapBlock(rules, taken) : "";
+      const block = rule || (offered ? statBlock(slot, position, stat) : ruleOff ? STATS_OFF_REASON : `${stat} increases aren't available here.`);
       const reason = has && block === "Already taken." ? `${stat} already has its increase.` : block;
       const next = core.improvedStats(position, [...chosen, stat]);
       const cost = offered ? core.statIncreaseCost(statRules(), stat) : null;

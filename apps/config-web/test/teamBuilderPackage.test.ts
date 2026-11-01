@@ -83,6 +83,7 @@ describe("packageResponseInfo", () => {
         stackedPlayer: { maxSkills: null, maxSecondary: null, maxElite: null },
         statIncreases: null,
         statIncreasesAllowed: false,
+        statIncreaseRules: null,
         starPacks: [],
         maxStars: null,
       },

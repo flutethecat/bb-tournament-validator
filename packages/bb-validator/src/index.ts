@@ -74,6 +74,8 @@ export {
 export type { ResolvedTeamConfig, ResolvedStatIncreases } from "./package/resolveConfig";
 export { MAX_STAT_STEPS, statIncreasesOf, statIncreasesOverLimit, statIncreaseGold, statIncreasesGold, starPackPicks } from "./cost/extras";
 export type { StarPick } from "./cost/extras";
+export { cleanStatIncreaseRules, playerStatRuleBlock, statRuleBlock, teamCapBlock } from "./cost/statRules";
+export type { StatIncreaseRules, BlockedStat, RulePosition, RulePlayer } from "./cost/statRules";
 export { loadPackage, mergePackages, parseSkillCostCsv, applyCsvOverrides } from "./package/resolve";
 export type { CsvSkillCostRow, DeepPartial } from "./package/resolve";
 export { costSP, isElite } from "./cost/costSP";

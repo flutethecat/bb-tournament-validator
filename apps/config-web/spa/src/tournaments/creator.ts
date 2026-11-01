@@ -14,7 +14,7 @@ import {
   clone, deepEqual, fallbackRaw, freshView, inferView, INDUCEMENTS, isObj, kToGold, matrixForDisplay, MAX_TIERS, MEGA_STARS,
   normalizePackage, nullableNumber, numberOr, pairedStarNames, preflight, recordTouched, safeArray, serializePackage, setPath,
   starTierCosts, touchPath, getPath, pathKey,
-  type Num, type Path, type Pkg, type PresetInfo, type RawDoc, type SkillInfo, type SkillMode, type SkillPack, type StarInfo, type System,
+  type Num, type Path, type Pkg, type PositionCatalog, type PresetInfo, type StatRuleDoc, type RawDoc, type SkillInfo, type SkillMode, type SkillPack, type StarInfo, type System,
   type TeamInfo, type Tier, type ViewState,
 } from "./creatorCore";
 
@@ -94,6 +94,8 @@ export interface CreatorState {
   skills: SkillInfo[];
   stars: StarInfo[];
   teams: TeamInfo[];
+  /** Every roster's positions (stat-increase rules picker); empty when the server has no /api/positions. */
+  positions: PositionCatalog[];
   /** The saved package open in the editor ("" for a preset, blank or duplicate not saved yet). */
   selected: string;
   pkg: Pkg | null;
@@ -172,7 +174,7 @@ export function createTournamentCreator(deps: CreatorDeps) {
   const openHtml = deps.openHtml ?? defaultOpenHtml;
   const state = reactive<CreatorState>({
     loaded: false, loadError: "", connected: false, catalogNotices: [],
-    packageNames: [], presets: [], skills: [], stars: [], teams: [],
+    packageNames: [], presets: [], skills: [], stars: [], teams: [], positions: [],
     selected: "", pkg: null, original: {}, baseline: null, injected: new Set(), touched: new Set(),
     view: freshView("skillpoints", "pool"), activeTier: 0,
     problems: [], saved: null, exported: false, busy: false, revision: null, conflict: "", readOnly: "", authBlocked: "",
@@ -664,6 +666,45 @@ export function createTournamentCreator(deps: CreatorDeps) {
   function toggleSpecial(key: "insignificantTraitConstraint" | "stalling" | "slannAllowed" | "statIncreasesAllowed"): void {
     edit((pkg) => { pkg.special[key] = !pkg.special[key]; });
   }
+  // ---------- stat-increase rules (special.statIncreaseRules) ----------
+  /** Edit the granular rules; the key is dropped again when nothing is left, so an untouched package serialises as authored. */
+  function editStatRules(mutate: (r: StatRuleDoc) => void): void {
+    edit((pkg) => {
+      const r = (isObj(pkg.special.statIncreaseRules) ? pkg.special.statIncreaseRules : {}) as StatRuleDoc;
+      mutate(r);
+      for (const k of ["excludePositions", "excludeKeywords", "blockedStats"] as const) if (Array.isArray(r[k]) && r[k]!.length === 0) delete r[k];
+      if (r.maxPerTeam == null) delete r.maxPerTeam;
+      if (Object.keys(r).length) pkg.special.statIncreaseRules = r; else delete pkg.special.statIncreaseRules;
+    });
+  }
+  const samePos = (a: { race?: string; position?: string }, race: string, position: string): boolean => (a.race ?? "*") === race && a.position === position;
+  function addExcludePosition(race: string, position: string): void {
+    editStatRules((r) => { r.excludePositions ??= []; if (!r.excludePositions.some((x) => samePos(x, race, position))) r.excludePositions.push({ race, position }); });
+  }
+  function removeExcludePosition(index: number): void { editStatRules((r) => { r.excludePositions?.splice(index, 1); }); }
+  function toggleExcludeKeyword(keyword: string): void {
+    editStatRules((r) => { const list = (r.excludeKeywords ??= []); const at = list.indexOf(keyword); if (at >= 0) list.splice(at, 1); else list.push(keyword); });
+  }
+  function addBlockedStat(stat: string): void { editStatRules((r) => { (r.blockedStats ??= []).push({ stat }); }); }
+  function removeBlockedStat(index: number): void { editStatRules((r) => { r.blockedStats?.splice(index, 1); }); }
+  function setBlockedStat(index: number, stat: string): void { editStatRules((r) => { const b = r.blockedStats?.[index]; if (b) b.stat = stat; }); }
+  function addBlockedPosition(index: number, race: string, position: string): void {
+    editStatRules((r) => { const b = r.blockedStats?.[index]; if (!b) return; b.positions ??= []; if (!b.positions.some((x) => samePos(x, race, position))) b.positions.push({ race, position }); });
+  }
+  function removeBlockedPosition(index: number, at: number): void {
+    editStatRules((r) => { const b = r.blockedStats?.[index]; if (!b?.positions) return; b.positions.splice(at, 1); if (!b.positions.length) delete b.positions; });
+  }
+  function toggleBlockedKeyword(index: number, keyword: string): void {
+    editStatRules((r) => {
+      const b = r.blockedStats?.[index]; if (!b) return;
+      const list = (b.keywords ??= []); const at = list.indexOf(keyword); if (at >= 0) list.splice(at, 1); else list.push(keyword);
+      if (!list.length) delete b.keywords;
+    });
+  }
+  function setMaxPerTeam(raw: string): void {
+    const n = raw.trim() === "" ? null : Math.max(0, Math.floor(Number(raw)));
+    editStatRules((r) => { if (n == null || !Number.isFinite(n)) delete r.maxPerTeam; else r.maxPerTeam = n; });
+  }
   function toggleStarsEleventh(): void {
     edit((pkg) => { pkg.special.minPlayers = Number(pkg.special.minPlayers) <= 10 ? 11 : 10; });
   }
@@ -694,6 +735,7 @@ export function createTournamentCreator(deps: CreatorDeps) {
     state.skills = [...new Map(skills.filter((s) => isObj(s) && typeof s.name === "string").map((s) => [s.name, s])).values()].sort((a, b) => a.name.localeCompare(b.name));
     state.stars = safeArray<StarInfo>(values.stars).filter((s) => isObj(s) && typeof s.name === "string").sort((a, b) => a.name.localeCompare(b.name));
     state.teams = safeArray<TeamInfo>(values.teams).filter((t) => isObj(t) && typeof t.name === "string").sort((a, b) => a.name.localeCompare(b.name));
+    state.positions = await api<unknown>("/api/positions").then((v) => safeArray<PositionCatalog>(v).filter((r) => isObj(r) && typeof r.race === "string" && Array.isArray(r.positions)), () => []);
     state.loaded = true;
   }
 
@@ -864,6 +906,7 @@ export function createTournamentCreator(deps: CreatorDeps) {
     addTeamRule, removeTeamRule,
     toggleStarsAllowed, moveStar, toggleMegaStars, setStarTierCost, setStarsPaidInSp, addStarPack, removeStarPack,
     toggleInducement, stepInducement, toggleSpecial, toggleStarsEleventh,
+    addExcludePosition, removeExcludePosition, toggleExcludeKeyword, addBlockedStat, removeBlockedStat, setBlockedStat, addBlockedPosition, removeBlockedPosition, toggleBlockedKeyword, setMaxPerTeam,
     init, open, loadPreset, newBlank, duplicate, revert, save, exportSheet, requestPreview,
   };
 }

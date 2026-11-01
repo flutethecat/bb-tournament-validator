@@ -102,6 +102,7 @@ import {
   skillCatalog,
   starList,
   teamList,
+  positionList,
   type AdminTeamSearchMode,
 } from "./data";
 import { builderTierRows, packageRaceRules, packageResponseInfo, resolveBuilderPackage } from "./teamBuilderPackage.js";
@@ -381,6 +382,7 @@ const PUBLIC_PATHS = new Set([
   "/api/skills",
   "/api/stars",
   "/api/teams",
+  "/api/positions",
   "/api/presets",
   "/api/packages",
   "/api/export",
@@ -2849,6 +2851,8 @@ async function handleApi(
   if (path === "/api/skills" && method === "GET") return sendJson(res, 200, skillCatalog());
 
   if (path === "/api/teams" && method === "GET") return sendJson(res, 200, teamList());
+
+  if (path === "/api/positions" && method === "GET") return sendJson(res, 200, positionList());
 
   if (path === "/api/team/checkName" && method === "POST") {
     const body = await readBody(req, MUTATION_JSON_BODY_CAP);

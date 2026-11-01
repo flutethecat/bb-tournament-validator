@@ -1,6 +1,21 @@
 [
   {
     "date": "2026-11-01",
+    "title": "Finer stat increase rules for organisers",
+    "body": "The Tournament Creator's Advanced tab has a Stat increases section: pick positions or keywords (such as Big Guy or Lineman) that can't advance, block a stat for everyone or for chosen players, and cap increases per team. The Advance dialog greys out each blocked button and says which tournament rule applies, and the validator enforces the same rules.",
+    "links": [
+      {
+        "label": "Tournament Creator",
+        "href": "/app/tournament-creator"
+      },
+      {
+        "label": "Roster Builder",
+        "href": "/app/tournament-team-builder"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-01",
     "title": "Reset a player, and stat increases follow the ruleset",
     "body": "The Advance dialog has a RESET switch that takes a player back to base: every added skill and stat increase goes, while the name, number and Team Captain stay. Rulesets that don't allow stat increases now show the stat bar greyed out with the reason, and the Tournament Creator has an Allow stat increases switch (Advanced) that the validator enforces.",
     "links": [

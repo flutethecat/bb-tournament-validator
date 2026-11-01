@@ -4,6 +4,7 @@
  */
 
 import { costSP, isElite } from "../cost/costSP";
+import { cleanStatIncreaseRules, playerStatRuleBlock, statRuleBlock, teamCapBlock } from "../cost/statRules";
 import { MAX_STAT_STEPS, starPackPicks, statIncreasesGold, statIncreasesOf, statIncreasesOverLimit } from "../cost/extras";
 import { skillsGold } from "../cost/costGold";
 import { inducementIdForName, inducementReducedFor } from "../dataset/inducements";
@@ -549,7 +550,9 @@ export const statIncreasesRule: Rule = {
     // regardless of package, so this must fail closed). With it on and no knob anywhere, increases stay unchecked.
     const allowed = pkg.special.statIncreasesAllowed === true;
     const si = allowed ? cfg.statIncreases : undefined;
-    if (!si && allowed) return [];
+    const granular = allowed ? cleanStatIncreaseRules(pkg.special.statIncreaseRules) : null;
+    if (!si && allowed && !granular) return [];
+    let teamTotal = 0;
     const where = sourceLabel(cfg);
     const findings: Finding[] = [];
     for (const rp of players) {
@@ -570,6 +573,21 @@ export const statIncreasesRule: Rule = {
       if (incs.length === 0) continue;
       const label = `#${rp.player.number} ${rp.position.name}`;
       const shown = incs.map((k) => `+${k}`).join(", ");
+      const who = { race: roster.rosterName, position: rp.position.name, aliases: rp.position.aliases, keywords: rp.position.keywords, type: rp.position.type };
+      const whole = allowed ? playerStatRuleBlock(granular, who) : "";
+      if (whole) {
+        findings.push(err("stat-increases", `${label} has a characteristic increase (${shown}). ${whole}`, { playerRef: rp.player.number, suggestion: `Remove the increase from ${label}.` }));
+        continue;
+      }
+      const blocked = allowed ? [...new Set(incs.filter((k) => statRuleBlock(granular, who, k)))] : [];
+      if (blocked.length) {
+        findings.push(err("stat-increases", `${label}: ${blocked.map((k) => `+${k}`).join(", ")} is not allowed. ${statRuleBlock(granular, who, blocked[0]!)}`, {
+          playerRef: rp.player.number, suggestion: `Remove ${blocked.map((k) => `+${k}`).join(", ")} from ${label}.`,
+        }));
+        continue;
+      }
+      teamTotal += incs.length;
+      if (!si && allowed) continue; // allowed with no per-race knob: only the granular rules above apply
       if (!si) {
         findings.push(
           err("stat-increases", `${label} has a characteristic increase (${shown}); this ruleset doesn't allow stat increases.`, {
@@ -616,6 +634,9 @@ export const statIncreasesRule: Rule = {
           }),
         );
     }
+    const cap = granular?.maxPerTeam;
+    if (allowed && cap != null && teamTotal > cap)
+      findings.push(err("stat-increases", `The team has ${teamTotal} stat increases. ${teamCapBlock(granular, cap)}`, { suggestion: `Remove ${teamTotal - cap} stat increase${teamTotal - cap === 1 ? "" : "s"}.` }));
     return findings;
   },
 };
