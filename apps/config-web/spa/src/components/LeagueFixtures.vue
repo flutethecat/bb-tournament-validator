@@ -12,7 +12,7 @@ import { computed, inject, nextTick, onMounted, ref, watch } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import { fixtureQuery } from "../leagues/fixture";
 import {
-  currentRound, filterFixtures, fixtureRounds, fixtureStatus, fixtureTeams, parseRound, readFixturesView, roundSteps, writeFixturesView,
+  currentRound, filterFixtures, fixtureRounds, fixtureStatus, fixtureTeams, keepPhase, keepTeam, parseRound, readFixturesView, roundSteps, scoreLinkLabel, writeFixturesView,
   type FixturesView, type RoundPick,
 } from "../leagues/fixtureNav";
 import LeagueFixturesEditor from "./LeagueFixturesEditor.vue";
@@ -33,12 +33,18 @@ const FORK_LABEL: Record<string, string> = { teams_built: "Teams built", schedul
 const phase = ref("all");
 const team = ref("");
 const groups = computed(() => fixturesByPhase(props.season));
-const phased = computed(() => (phase.value === "all" ? groups.value : groups.value.filter((g) => g.phase.id === phase.value)));
-const rounds = computed(() => fixtureRounds(phased.value));
 const teams = computed(() => fixtureTeams(groups.value));
+// The filters belong to a season: a season switch resets them, and a choice the season does not offer is off.
+const phaseOn = computed(() => keepPhase(phase.value, groups.value.map((g) => g.phase.id)));
+const teamOn = computed(() => keepTeam(team.value, teams.value));
+watch(() => props.season.id, () => { phase.value = "all"; team.value = ""; });
+watch(teamOn, (t) => { if (t !== team.value) team.value = t; });
+watch(phaseOn, (p) => { if (p !== phase.value) phase.value = p; });
+const phased = computed(() => (phaseOn.value === "all" ? groups.value : groups.value.filter((g) => g.phase.id === phaseOn.value)));
+const rounds = computed(() => fixtureRounds(phased.value));
 const pick = computed<RoundPick>(() => parseRound(route.query.round, rounds.value) ?? currentRound(phased.value));
 const steps = computed(() => roundSteps(rounds.value, pick.value));
-const shown = computed(() => filterFixtures(phased.value, pick.value, team.value));
+const shown = computed(() => filterFixtures(phased.value, pick.value, teamOn.value));
 const tally = computed(() => {
   const all = shown.value.flatMap((g) => g.rounds);
   return { played: all.reduce((n, r) => n + r.played, 0), total: all.reduce((n, r) => n + r.fixtures.length, 0) };
@@ -155,7 +161,7 @@ watch(pick, placeStrip);
                 <span class="lg-fx-who"><span class="lg-team-name">{{ f.home.team }}</span><small>{{ f.home.coach }}</small></span>
               </td>
               <td class="lg-fx-c lg-fx-score-cell">
-                <RouterLink class="lg-fx-score" :data-open="scored(f) ? null : 'true'" :to="summaryLink(f)" :aria-label="`Fixture summary: ${f.home.team} against ${f.away.team}`">
+                <RouterLink class="lg-fx-score" :data-open="scored(f) ? null : 'true'" :to="summaryLink(f)" :aria-label="scoreLinkLabel(f)">
                   <template v-if="scored(f)">{{ f.home.score }}<span class="lg-fx-dash" aria-hidden="true">-</span>{{ f.away.score }}</template><template v-else>vs</template>
                 </RouterLink>
                 <small v-if="cas(f)" class="lg-fx-cas">CAS {{ cas(f) }}</small>

@@ -9,7 +9,8 @@ import {
   canManageLeague, cardQuery, cardSeasonChips, tiedLine, createLeagueDetail, createLeagueList, createLeagueStats, crestFor, fixtureContext, fixturesByPhase, honourBoards, honourValue,
   fixtureOutcome, kValue, teamValueFigures, latestResults, pickSeason, playerByRef, sharedTotalsFor, resultCardProps, safeArtUrl, standingsTables, teamByRef,
 } from "../spa/src/leagues/league";
-import { currentRound, filterFixtures, fixtureRounds, fixtureStatus, fixtureTeams, parseRound, readFixturesView, roundSteps, writeFixturesView } from "../spa/src/leagues/fixtureNav";
+import { currentRound, filterFixtures, fixtureRounds, fixtureStatus, fixtureTeams, keepPhase, keepTeam, parseRound, readFixturesView, roundSteps, scoreLinkLabel, writeFixturesView } from "../spa/src/leagues/fixtureNav";
+import { createAnnounce } from "../spa/src/leagues/dialog";
 import type { LeagueFixture, LeagueStats, LeagueSummary, SeasonRecord, SeasonSummary } from "../spa/src/leagues/types";
 
 // SPA Leagues: controllers + display helpers, and the list / league page / statistics routes server-rendered through
@@ -482,6 +483,28 @@ describe("league routes (server-rendered against a mocked API)", () => {
     expect(older).toMatch(/aria-pressed="true"[^>]*>News post</); // falls back to the news post
     expect(older).toMatch(/disabled[^>]*>Message members</);
     expect(older).toContain("Message members works from the newest season.");
+    // While a submit is in flight: the strip, Cancel and the close button are locked; the footer says Sending...
+    d.state.editBusy = "news";
+    const busy = await show({ canMessage: true });
+    d.state.editBusy = "";
+    expect(busy).toMatch(/<button type="button" class="sf-tab" aria-pressed="true" disabled[^>]*>News post</);
+    expect(busy).toMatch(/<button type="button" class="sf-tab" aria-pressed="false" disabled[^>]*>Message members</);
+    expect(busy).toMatch(/class="ls-dialog-x" aria-label="Close" disabled/);
+    expect(busy).toMatch(/<button type="button" class="sf-btn" disabled[^>]*>Cancel</);
+    expect(busy).toMatch(/>Sending\.\.\.<\/button>/);
+  });
+
+  it("Announcement dialog posts to the season it was opened on, not the one the page moved to", async () => {
+    const dialogMod = await vite.ssrLoadModule("/src/leagues/dialog.ts");
+    const a = dialogMod.createAnnounce();
+    a.open("season-6", "tabbl/season-6");
+    const { html } = await render("/leagues/tabbl?season=season-1", async (inject, f) => {
+      await loadedDetail("season-6")(inject, f);
+      inject(dialogMod.ANNOUNCE_KEY, a);
+    }, ORGANISER);
+    const dlg = html.slice(html.indexOf('class="ls-dialog-backdrop"'));
+    expect(dlg).toContain('<span class="hm-cap">Season 6</span>'); // the captured season, while the page shows Season 1
+    expect(dlg).not.toContain("Message members works from the newest season."); // season 6 is the newest
   });
 
   it("standings, fixtures (cards + an unplayed row), teams, a team roster and honours tabs", async () => {
@@ -580,6 +603,8 @@ describe("league routes (server-rendered against a mocked API)", () => {
       expect(html).toContain('data-status="forfeit"'); // f3: home conceded
       expect(html).toContain('data-status="scheduled"');
       expect(html).toContain("Rot Girl Summer conceded");
+      expect(html).toContain('aria-label="Fixture summary: Grudge Rollers 1–1 Rot Girl Summer"'); // the score stays in the name
+      expect(html).toContain('aria-label="Fixture summary: Grudge Rollers vs Rot Girl Summer"'); // f4 unplayed
       expect(html).not.toContain('class="rc-card"');
     } finally { delete g.localStorage; }
   });
@@ -690,6 +715,37 @@ describe("fixtures nav helpers (round strip, filters, status, remembered view)",
     expect(fixtureStatus({ ...f4!, date: "2026-10-01" }, "2026-11-01")).toEqual({ label: "Overdue", tone: "urgent" });
     expect(fixtureStatus({ ...f4!, date: "2026-12-01" }, "2026-11-01").label).toBe("Scheduled");
     expect(fixtureStatus({ ...f4!, suspended: true }, "2026-11-01")).toEqual({ label: "Not played", tone: "muted" });
+  });
+
+  it("filters reset to off when the season no longer offers them; the score link label keeps the score", () => {
+    expect(keepTeam("Grudge Rollers", ["Grudge Rollers", "Orcs"])).toBe("Grudge Rollers");
+    expect(keepTeam("Gone Team", ["Grudge Rollers"])).toBe("");
+    expect(keepPhase("season-regular", ["season-regular"])).toBe("season-regular");
+    expect(keepPhase("season-playoffs", ["season-regular"])).toBe("all");
+    const [f1, , , f4] = season6().fixtures;
+    expect(scoreLinkLabel(f1!)).toBe("Fixture summary: Grudge Rollers 1–1 Rot Girl Summer");
+    expect(scoreLinkLabel(f4!)).toBe("Fixture summary: Grudge Rollers vs Rot Girl Summer");
+  });
+
+  it("Announcement state: captures the season, closes on a league or season move, keeps the confirmation until any move", () => {
+    const a = createAnnounce();
+    a.open("season-6", "tabbl/season-6");
+    expect(a.state.seasonId).toBe("season-6");
+    a.moved("tabbl/season-6"); // same league and season (e.g. another tab): stays open
+    expect(a.state.seasonId).toBe("season-6");
+    a.moved("tabbl/season-5"); // another season: closed, drafts go with the dialog
+    expect(a.state.seasonId).toBe("");
+    a.open("season-6", "tabbl/season-6");
+    a.moved("other/season-1"); // another league
+    expect(a.state.seasonId).toBe("");
+    a.open("season-6", "tabbl/season-6");
+    a.done("News posted.");
+    expect(a.state).toMatchObject({ seasonId: "", notice: "News posted." });
+    a.moved("tabbl/season-6");
+    expect(a.state.notice).toBe("");
+    a.open("season-6", "tabbl/season-6");
+    a.close();
+    expect(a.state.seasonId).toBe("");
   });
 
   it("the Cards | Table choice is remembered per viewer and never needs storage", () => {

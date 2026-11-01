@@ -77,3 +77,13 @@ export function readFixturesView(): FixturesView {
 export function writeFixturesView(v: FixturesView): void {
   try { if (typeof localStorage !== "undefined") localStorage.setItem(FIXTURES_VIEW_KEY, v); } catch { /* no storage */ }
 }
+
+/** A filter choice that the (new) season still offers, else "" / "all" (the filter is off). */
+export const keepTeam = (team: string, teams: string[]): string => (teams.includes(team) ? team : "");
+export const keepPhase = (phase: string, phases: string[]): string => (phases.includes(phase) ? phase : "all");
+
+/** The score link's accessible name keeps the visible score: "Fixture summary: A 2–2 B" ("A vs B" unplayed). */
+export function scoreLinkLabel(f: Pick<LeagueFixture, "home" | "away">): string {
+  const mid = f.home.score !== null && f.away.score !== null ? `${f.home.score}–${f.away.score}` : "vs";
+  return `Fixture summary: ${f.home.team} ${mid} ${f.away.team}`;
+}

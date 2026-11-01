@@ -25,6 +25,7 @@ import {
   canManageLeague, createLeagueDetail, isLeagueTab, LEAGUE_DETAIL_KEY, LEAGUE_TABS, pickSeason, RULESET_TONE,
   SEASON_STATUS_LABEL, seasonDates, seasonRowScroll, type LeagueTab,
 } from "../leagues/league";
+import { ANNOUNCE_KEY, createAnnounce } from "../leagues/dialog";
 import "../leagues/leagues.css";
 
 const props = defineProps<{ id: string }>();
@@ -100,12 +101,13 @@ onMounted(async () => {
 });
 usePageTitle(() => state.league?.name);
 
-// Announcement dialog (organisers): closes on success; the confirmation shows under the header strip.
-const announcing = ref(false);
-const announced = ref("");
-const openAnnounce = (): void => { announced.value = ""; announcing.value = true; };
-const onAnnounced = (notice: string): void => { announcing.value = false; announced.value = notice; };
-watch(() => route.fullPath, () => { announced.value = ""; });
+// Announcement dialog (organisers): posts to the season it was opened on; closes on success (the confirmation shows
+// under the header strip) and when the league or season changes, dropping its drafts.
+const announce = inject(ANNOUNCE_KEY, null) ?? createAnnounce();
+const scopeKey = computed(() => `${props.id}/${current.value?.id ?? ""}`);
+const announceSeason = computed(() => (announce.state.seasonId ? state.season[announce.state.seasonId] : undefined));
+const openAnnounce = (): void => { if (season.value) announce.open(season.value.id, scopeKey.value); };
+watch(() => route.fullPath, () => announce.moved(scopeKey.value));
 </script>
 
 <template>
@@ -115,10 +117,10 @@ watch(() => route.fullPath, () => { announced.value = ""; });
     <p v-else-if="!state.loaded || !state.league" class="hm-empty" role="status">Loading league...</p>
     <template v-else>
       <LeagueFront :id="id" :league="state.league" :seasons="state.seasons" :manage="manage" :announce="Boolean(season)" @announce="openAnnounce" />
-      <p v-if="announced" class="sf-notice lg-announced" role="status">{{ announced }}</p>
+      <p v-if="announce.state.notice" class="sf-notice lg-announced" role="status">{{ announce.state.notice }}</p>
       <LeagueAnnounce
-        v-if="announcing && manage && season" :league-id="id" :season="season" :can-message="season.id === state.seasons[0]?.id"
-        @close="announcing = false" @done="onAnnounced"
+        v-if="manage && announceSeason" :key="announceSeason.id" :league-id="id" :season="announceSeason" :can-message="announceSeason.id === state.seasons[0]?.id"
+        @close="announce.close()" @done="announce.done($event)"
       />
 
       <section class="hm-panel lg-seasons" aria-labelledby="lg-season-h">
