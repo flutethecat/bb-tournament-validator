@@ -114,7 +114,7 @@ usePageTitle(() => (view.value ? title.value : ""));
     <section v-if="state.gone" class="hm-panel sf-solo" aria-labelledby="lb-gone-h">
       <header class="hm-band"><h2 id="lb-gone-h">Lobby closed</h2></header>
       <p>{{ state.gone }}</p>
-      <div class="sf-actions"><RouterLink class="sf-btn" :to="{ name: 'lobby' }">Back to Start Game</RouterLink></div>
+      <div class="sf-btn-row"><RouterLink class="sf-btn" :to="{ name: 'lobby' }">Back to Start Game</RouterLink></div>
     </section>
     <template v-else>
       <p class="lb-back"><RouterLink :to="{ name: 'lobby' }">← Start Game</RouterLink></p>
@@ -142,7 +142,7 @@ usePageTitle(() => (view.value ? title.value : ""));
           </div>
           <p v-if="joinErr" class="sf-error" role="alert">{{ joinErr }}</p>
         </div>
-        <div v-else-if="control === 'close'" class="sf-actions">
+        <div v-else-if="control === 'close'" class="sf-btn-row">
           <button class="sf-btn" type="button" @click="onClose">Close lobby</button>
         </div>
         <div class="lb-launch">

@@ -229,7 +229,7 @@ async function signOut(): Promise<void> {
       <section v-else-if="gate === 'error'" class="hm-panel sf-solo" aria-labelledby="sf-gate-h">
         <header class="hm-band"><h2 id="sf-gate-h">Can't check your sign-in</h2></header>
         <p class="sf-error" role="alert">{{ session.state.error }}</p>
-        <div class="sf-actions"><button class="sf-btn" type="button" @click="session.load(true)">Try again</button></div>
+        <div class="sf-btn-row"><button class="sf-btn" type="button" @click="session.load(true)">Try again</button></div>
       </section>
       <LandingWelcome v-else-if="gate === 'signin' && route.name === 'home' && !session.otherSession()" :href="loginHref" :sso-enabled="session.ssoEnabled()" />
       <template v-else-if="gate === 'signin'">

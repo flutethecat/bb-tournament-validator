@@ -388,7 +388,7 @@ usePageTitle(() => (match.value ? `${match.value.home.teamName} vs ${match.value
   <section v-if="state.error && !state.loaded" class="hm-panel sf-solo" aria-labelledby="tt-err-h">
     <header class="hm-band"><h2 id="tt-err-h">Match unavailable</h2></header>
     <p class="sf-error" role="alert">{{ state.error }}</p>
-    <div class="sf-actions"><RouterLink class="sf-btn" to="/tabletop">Back to Tabletop</RouterLink></div>
+    <div class="sf-btn-row"><RouterLink class="sf-btn" to="/tabletop">Back to Tabletop</RouterLink></div>
   </section>
   <p v-else-if="!match" class="muted">Loading...</p>
   <div v-else ref="recRoot" class="tt-rec" :data-tt-theme="theme" @pointerover="onTipOver($event); onCardOver($event)" @pointerout="tipClear(); onCardOut($event)" @pointerdown="onTipTouch($event); onCardTouch($event)" @pointerup="pcardCancel()" @pointercancel="pcardCancel()" @focusin="onTipFocus($event); onCardFocus($event)" @focusout="tipClear(); pcardClose()">

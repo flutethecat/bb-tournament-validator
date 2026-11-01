@@ -7,6 +7,6 @@ defineProps<{ title: string; href: string; blurb: string }>();
   <section class="hm-panel sf-solo" aria-labelledby="lo-h">
     <header class="hm-band"><h2 id="lo-h">Classic page</h2></header>
     <p>{{ blurb }}</p>
-    <div class="sf-actions"><a class="sf-btn primary" :href="href">Open {{ title }}</a></div>
+    <div class="sf-btn-row"><a class="sf-btn primary" :href="href">Open {{ title }}</a></div>
   </section>
 </template>

@@ -108,7 +108,7 @@ onServerPrefetch(init);
       <label class="tt-check"><input v-model="skipPregame" type="checkbox" /> Skip pre-game (start at the kick-off)</label>
       <button class="sf-btn primary tt-tap" type="submit" :disabled="busy">Create test match</button>
     </form>
-    <div class="sf-actions tt-testcard-foot"><button class="sf-btn danger" type="button" @click="purge">Purge test matches</button></div>
+    <div class="sf-btn-row tt-testcard-foot"><button class="sf-btn danger" type="button" @click="purge">Purge test matches</button></div>
     <p v-if="notice" class="muted" role="status">{{ notice }}</p>
     <p v-if="error" class="sf-error" role="alert">{{ error }}</p>
   </section>

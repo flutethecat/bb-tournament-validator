@@ -430,7 +430,7 @@ button.sf-tab { margin: 0; border: 0; border-radius: 0; background: transparent;
 .sf-table tbody tr:nth-child(even), .lg-table tbody tr:nth-child(even) { background: color-mix(in srgb, var(--ui-surface-2) 50%, transparent); }
 
 /* ==== Small-page layout helpers (style-misc lane, 11-01), after the shared controls above: a big primary button, the
-   stacked and inline form rows, an action row, the one-third / two-thirds split, the coach avatar and a narrow solo
+   stacked and inline form rows, a button row (sf-btn-row), the one-third / two-thirds split, the coach avatar and a narrow solo
    panel. They replace the legacy lobby form, grid and avatar classes on the small pages. Tokens only. ==== */
 .sf-btn.big { min-height: 48px; padding: 0 24px; font-size: 14px; }
 .sf-form { display: grid; gap: 6px; max-width: 420px; }
@@ -438,11 +438,11 @@ button.sf-tab { margin: 0; border: 0; border-radius: 0; background: transparent;
 .sf-form > .sf-btn { justify-self: start; margin-top: 8px; }
 .sf-form.inline { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; max-width: none; margin-top: 8px; }
 .sf-form.inline .sf-k { margin: 0; }
-.sf-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.sf-btn-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .sf-split { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); align-items: start; }
 .sf-split.even { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 @media (max-width: 800px) { .sf-split, .sf-split.even { grid-template-columns: minmax(0, 1fr); } }
 .sf-avatar { width: 64px; height: 64px; flex: none; border-radius: 2px; object-fit: cover; border: 2px solid var(--sf-panel-line); box-shadow: 0 2px 0 var(--sf-panel-drop); }
 .sf-avatar.small { width: 24px; height: 24px; border-width: 1px; box-shadow: none; }
 .sf-solo { max-width: 720px; align-self: start; }
-.sf-solo > .sf-actions { margin-top: 12px; }
+.sf-solo > .sf-btn-row { margin-top: 12px; }
