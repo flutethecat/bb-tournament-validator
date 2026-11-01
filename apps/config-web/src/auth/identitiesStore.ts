@@ -440,24 +440,6 @@ export function updateOwnAccount(coach: string, body: unknown, now = new Date())
   }).coaches[normalizeFfbCoachId(previous.ffbCoachId)]!;
 }
 
-/**
- * What a NON-admin organiser may see of another coach's identity: the coach name and the NAF fields they manage (plus
- * the NAF check over that pair). Never contact details, consent, the preferred name, Discord ids or the Discord email.
- * Site admins and the coach themself read the full record through their own routes.
- */
-export function organizerIdentityView(record: CoachIdentityRecord): {
-  ffbCoachId: string;
-  identities: Pick<CoachIdentities, "nafName" | "nafId">;
-  connections?: CoachConnections;
-} {
-  const { nafName, nafId } = record.identities;
-  return {
-    ffbCoachId: record.ffbCoachId,
-    identities: { ...(nafName ? { nafName } : {}), ...(nafId ? { nafId } : {}) },
-    ...(record.connections?.naf ? { connections: { naf: record.connections.naf } } : {}),
-  };
-}
-
 export function organizerUpdateIdentity(
   actingCoach: string,
   targetFfbCoachId: string,

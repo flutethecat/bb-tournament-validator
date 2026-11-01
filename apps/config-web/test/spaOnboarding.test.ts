@@ -175,10 +175,11 @@ describe("views (server-rendered against a mocked API)", () => {
   beforeAll(async () => {
     const { createServer } = await import("vite");
     vite = await createServer({ configFile: SPA_CONFIG, logLevel: "silent", appType: "custom", server: { middlewareMode: true, hmr: false, ws: false } });
-    const [app, vueRouter, renderer, onboarding] = await Promise.all([
+    const [app, vueRouter, renderer, onboarding, sharing] = await Promise.all([
       vite.ssrLoadModule("/src/app.ts"), vite.ssrLoadModule("vue-router"), vite.ssrLoadModule("vue/server-renderer"), vite.ssrLoadModule("/src/account/onboarding.ts"),
+      vite.ssrLoadModule("/src/account/leagueSharing.ts"),
     ]);
-    mods = { app, vueRouter, renderer, onboarding };
+    mods = { app, vueRouter, renderer, onboarding, sharing };
   }, 60_000);
   afterAll(async () => { await vite?.close(); });
 
@@ -190,6 +191,11 @@ describe("views (server-rendered against a mocked API)", () => {
     await o.load("Alice");
     prep?.(o);
     spa.app.provide(mods.onboarding.ONBOARDING_KEY, o);
+    if (routes["/api/me/leagues/sharing"]) {
+      const ls = mods.sharing.createLeagueSharing({ api: f });
+      await ls.load("Alice");
+      spa.app.provide(mods.sharing.LEAGUE_SHARING_KEY, ls);
+    }
     await spa.router.push(path);
     await spa.router.isReady();
     await spa.session.load();
@@ -258,5 +264,57 @@ describe("views (server-rendered against a mocked API)", () => {
     expect(sec).toContain("Accepted version 2026-10-31 on 2026-11-01");
     expect(sec).not.toMatch(/name="privacy"|privacyAccepted/);
     expect(sec).toContain(">Save contact details</button>");
+  });
+
+  const SHARING = (rows: unknown[]) => ({ "/api/me/leagues/sharing": { version: "2026-10-31", leagues: rows } });
+  const ROW = (id: string, status: string, extra: Record<string, unknown> = {}) => ({
+    id, name: id === "lg" ? "Test League" : "Other League", status, onRoster: true,
+    text: `By joining ${id === "lg" ? "Test League" : "Other League"}, you share your personal data (name, contact email, phone numbers and profile) with the league's organisers so they can run the league and contact you.`,
+    ...extra,
+  });
+
+  it("league data-sharing notice: non-blocking panel above the page for a pending league; the shell stays usable", async () => {
+    const html = await render("/home", { "/api/me/onboarding": INFO(false), ...SHARING([ROW("lg", "pending"), ROW("other", "pending")]) });
+    const panel = html.slice(html.indexOf('class="tn-panel ls-notice"'));
+    expect(panel).toContain('role="region" aria-labelledby="ls-notice-h"');
+    expect(panel).toContain("Sharing your data with Test League");
+    expect(panel).toContain("By joining Test League, you share your personal data (name, contact email, phone numbers and profile) with the league&#39;s organisers so they can run the league and contact you.");
+    expect(checkboxes(panel.slice(0, panel.indexOf("</section>")))).toHaveLength(1);
+    expect(panel).toMatch(/<button class="lobby-btn primary" type="button" disabled[^>]*>Share<\/button>/);
+    expect(panel).toContain(">Don&#39;t share</button>");
+    expect(html).not.toContain('aria-modal="true"');
+    expect(html).not.toMatch(/<header class="shell-header[^"]*"[^>]*inert/);
+    // Answered leagues show no notice; nor does it show over the welcome modal.
+    expect(await render("/home", { "/api/me/onboarding": INFO(false), ...SHARING([ROW("lg", "shared", { at: "2026-11-01T00:00:00Z" })]) })).not.toContain("ls-notice");
+    expect(await render("/home", { "/api/me/onboarding": INFO(true), ...SHARING([ROW("lg", "pending")]) })).not.toContain("ls-notice");
+  });
+
+  it("Account page: League data sharing lists each league with its status, Stop sharing for a shared one, Share for the others", async () => {
+    const html = await render("/account", {
+      "/api/me/onboarding": INFO(false), "/api/me/contact": CONTACT,
+      ...SHARING([ROW("lg", "shared", { at: "2026-11-01T10:00:00.000Z" }), ROW("other", "declined", { at: "2026-11-02T10:00:00.000Z" })]),
+    });
+    const sec = html.slice(html.indexOf('id="league-sharing"'), html.indexOf('id="calendar"')).replace(/<!--[^>]*-->/g, "");
+    expect(sec).toContain('<h2 id="ac-share-h">League data sharing</h2>');
+    expect(sec).toMatch(/data-share="shared"[\s\S]*Test League[\s\S]*Shared since 2026-11-01[\s\S]*>Stop sharing<\/button>/);
+    expect(sec).toMatch(/data-share="declined"[\s\S]*Other League[\s\S]*Not shared \(since 2026-11-02\)[\s\S]*>Share…<\/button>/);
+  });
+
+  it("league sharing controller: Share needs the tick and sends acknowledged; Don't share sends share false", async () => {
+    const f = mockFetcher({
+      ...SHARING([ROW("lg", "pending")]),
+      "POST /api/me/leagues/sharing": (body: unknown) => ({ leagues: [ROW("lg", (body as { share: boolean }).share ? "shared" : "declined")] }),
+    });
+    const ls = (await import("../spa/src/account/leagueSharing")).createLeagueSharing({ api: f });
+    await ls.load("Alice");
+    expect(ls.pending()?.id).toBe("lg");
+    expect(await ls.share("lg")).toBe(false);
+    expect(f.calls.some((c) => c.method === "POST")).toBe(false);
+    ls.tick("lg", true);
+    expect(await ls.share("lg")).toBe(true);
+    expect(f.calls.at(-1)).toEqual({ path: "/api/me/leagues/sharing", method: "POST", body: { leagueId: "lg", share: true, acknowledged: true } });
+    expect(ls.pending()).toBeUndefined();
+    expect(await ls.decline("lg")).toBe(true);
+    expect(f.calls.at(-1)?.body).toEqual({ leagueId: "lg", share: false });
   });
 });

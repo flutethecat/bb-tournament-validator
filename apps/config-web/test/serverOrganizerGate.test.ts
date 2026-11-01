@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createSession, ONBOARDED_CONSENT } from "./onboardedFixture.js";
+import { createSession, ONBOARDED_CONSENT, seedLeague } from "./onboardedFixture.js";
 
 const root = mkdtempSync(join(tmpdir(), "server-organizer-gate-"));
 const previousEnv = new Map<string, string | undefined>();
@@ -21,6 +21,7 @@ beforeAll(async () => {
     FORK_LIBRARY_DIR: join(root, "library"),
     FORK_TEAMS_DIR: join(root, "teams"),
     FORK_ADMIN_PASSWORD: "",
+    FORK_STATE_DIR: join(root, "state"),
   })) {
     previousEnv.set(name, process.env[name]);
     process.env[name] = value;
@@ -28,6 +29,8 @@ beforeAll(async () => {
   mkdirSync(join(root, "library"), { recursive: true });
   mkdirSync(join(root, "teams"), { recursive: true });
   mkdirSync(join(root, "log"), { recursive: true });
+  // Owner ruling 10-31: an organiser manages NAF fields only for coaches on a league they organise.
+  seedLeague(join(root, "state"), { id: "gate-league", name: "Gate League", organisers: ["OrganizerCoach"], members: ["TargetCoach"] });
   // Trip reloadFork's busy guard so this test never kills or spawns the fork process.
   writeFileSync(join(root, "log", "default.log"), "");
   writeFileSync(join(root, "identities.json"), JSON.stringify({

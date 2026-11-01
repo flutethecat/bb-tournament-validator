@@ -13,6 +13,8 @@ import TestSignInCard from "./components/TestSignInCard.vue";
 import TournamentCreateDialog from "./components/TournamentCreateDialog.vue";
 import OnboardingDialog from "./components/OnboardingDialog.vue";
 import { ONBOARDING_KEY } from "./account/onboarding";
+import LeagueShareNotice from "./components/LeagueShareNotice.vue";
+import { LEAGUE_SHARING_KEY } from "./account/leagueSharing";
 import { canCreateTournament, TOURNAMENT_CREATOR_KEY } from "./tournaments/create";
 import { appPath, discordLoginUrl, SESSION_KEY } from "./session";
 import { THEME_KEY, themeLabel } from "./theme";
@@ -42,6 +44,13 @@ const canCreate = computed(() => Boolean(creator) && canCreateTournament(session
 const onboarding = inject(ONBOARDING_KEY, null);
 const onboardingOpen = computed(() => onboarding?.open() === true);
 onMounted(() => watch(() => session.coach(), (coach) => void onboarding?.load(coach), { immediate: true }));
+// League data-sharing notice (owner 10-31): once onboarding is done, the leagues the coach has not answered show a
+// non-blocking notice above the page, one at a time.
+const leagueSharing = inject(LEAGUE_SHARING_KEY, null);
+const onboardingSettled = computed(() => Boolean(onboarding?.state.info) && !onboardingOpen.value);
+onMounted(() => watch(() => [session.coach(), onboardingSettled.value] as const, ([coach, settled]) => {
+  void leagueSharing?.load(settled ? coach : "");
+}, { immediate: true }));
 const createOpen = computed(() => creator?.state.open === true || onboardingOpen.value);
 function openCreate(): void {
   menuOpen.value = false;
@@ -226,7 +235,10 @@ async function signOut(): Promise<void> {
         <TestSignInCard />
         <RecentGames class="rc-landing" />
       </template>
-      <RouterView v-else :key="route.path" />
+      <template v-else>
+        <LeagueShareNotice v-if="leagueSharing && session.signedIn() && !onboardingOpen" />
+        <RouterView :key="route.path" />
+      </template>
     </main>
   </div>
   <TournamentCreateDialog v-if="creator?.state.open && !onboardingOpen" />

@@ -78,6 +78,7 @@ const sections = [
         <li><h3 class="hm-log-title">To run your account and the services you use</h3><p>Signing in, rosters, teams, games, leagues and tournaments. Legal basis: contract.</p></li>
         <li><h3 class="hm-log-title">For public results and standings</h3><p>Game results, ratings and standings are a shared record for the community and organisers. Legal basis: legitimate interest. You have the right to object.</p></li>
         <li><h3 class="hm-log-title">For security and abuse prevention</h3><p>Rate limits, bans and keeping the site safe. Legal basis: legitimate interest.<template v-if="FEATURES.delete"> If a banned coach deletes their account we keep a hash of their Discord id so the ban holds.</template></p></li>
+        <li><h3 class="hm-log-title">To share your details with your league's organisers</h3><p>When you join a league we ask whether you agree to share your personal data (name, contact email, phone numbers and profile) with that league's organisers so they can run the league. If you don't, you stay on your team and they see only your public profile. Legal basis: your consent. You can stop sharing at any time on the <RouterLink to="/account">Account page</RouterLink>.</p></li>
         <li><h3 class="hm-log-title">To let organisers contact you</h3><p>If you agree, the organisers of leagues and tournaments you join may contact you by email or phone. Legal basis: your consent. <template v-if="FEATURES.consentWithdrawal">You can withdraw it at any time on the <RouterLink to="/account">Account page</RouterLink>.</template><template v-else>You can withdraw it by emailing the contact above; withdrawing on the Account page is coming soon.</template><template v-if="FEATURES.consentRecording"> We record your choice, and that you accepted this notice when you signed up.</template></p></li>
         <li><h3 class="hm-log-title">Announcement emails</h3><p>We send none today. If we add them, they will be opt-in, and your consent is the legal basis.</p></li>
       </ul>
@@ -87,7 +88,7 @@ const sections = [
       <header class="hm-band"><h2 id="pv-public-h">What is public</h2></header>
       <p>Anyone can see your coach name, avatar, teams, rosters you share, your tournament and league participation, and your game results and ratings.</p>
       <p><strong>Your email, phone numbers and Discord ids are never public.</strong></p>
-      <p>Your preferred name, contact email and phone numbers are visible only to the organisers of leagues and tournaments you joined, and only if you agreed to be contacted.<template v-if="FEATURES.delete"> They are deleted with your account.</template></p>
+      <p>Your preferred name, contact email and phone numbers are visible only to the organisers of leagues you joined and agreed to share your data with. Whether they may contact you is a separate choice you make.<template v-if="FEATURES.delete"> They are deleted with your account.</template></p>
     </section>
 
     <section id="share" class="hm-panel" aria-labelledby="pv-share-h">

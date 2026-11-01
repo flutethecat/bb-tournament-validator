@@ -15,6 +15,7 @@ import { NOTIFICATIONS_KEY, useNotifications } from "./home/notifications";
 import { createPageTitle, PAGE_TITLE_KEY, type PageTitleStore } from "./shell/pageTitle";
 import { createTournamentCreator, TOURNAMENT_CREATOR_KEY } from "./tournaments/create";
 import { createOnboarding, ONBOARDING_KEY } from "./account/onboarding";
+import { createLeagueSharing, LEAGUE_SHARING_KEY } from "./account/leagueSharing";
 
 /** The JSON fetcher views use (tests may swap it; the default is the shared same-origin api()). */
 export const API_KEY: InjectionKey<Fetcher> = Symbol("api");
@@ -65,6 +66,7 @@ export function createSpa(opts: SpaOptions): Spa {
   app.provide(PAGE_TITLE_KEY, pageTitle);
   app.provide(TOURNAMENT_CREATOR_KEY, createTournamentCreator({ api: fetcher, onSignedOut: () => void session.load(true), onCreated: () => void tree.invalidate() }));
   app.provide(ONBOARDING_KEY, createOnboarding({ api: fetcher, onSignedOut: () => void session.load(true) }));
+  app.provide(LEAGUE_SHARING_KEY, createLeagueSharing({ api: fetcher }));
   app.use(router);
   return { app, router, session, library, theme, tree, ui, clock, pageTitle };
 }

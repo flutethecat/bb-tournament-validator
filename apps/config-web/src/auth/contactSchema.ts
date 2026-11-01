@@ -54,10 +54,29 @@ export interface PrivacyAcceptance {
   at: string;
 }
 
+/** A league data-sharing acknowledgement (owner 10-31): the coach shares their personal data with that league's
+ *  organisers. Without it the coach is treated as a non-member for identity access and contactFor. */
+export interface LeagueShareAck {
+  at: string;
+  version: string;
+}
+
 export interface CoachConsent {
   leagueContact?: LeagueContactConsent;
   privacy?: PrivacyAcceptance;
+  /** League id -> acknowledgement (the coach shares their data with that league's organisers). */
+  leagues?: Record<string, LeagueShareAck>;
+  /** League id -> when the coach declined (or stopped) sharing; they are not asked again for that league. */
+  leaguesDeclined?: Record<string, { at: string }>;
 }
+
+/** The league data-sharing notice (owner 10-31) and its wording version. `{league}` is the league's name. */
+export const LEAGUE_SHARE_VERSION = "2026-10-31";
+export const LEAGUE_SHARE_TEXT =
+  "By joining {league}, you share your personal data (name, contact email, phone numbers and profile) with the league's organisers so they can run the league and contact you.";
+export const leagueShareText = (league: string): string => LEAGUE_SHARE_TEXT.replace("{league}", league);
+const LEAGUE_KEY = /^[a-z0-9-]{1,80}$/;
+const MAX_LEAGUE_ACKS = 200;
 
 export class ContactValidationError extends Error {}
 
@@ -160,7 +179,27 @@ export function normalizedConsent(value: unknown): CoachConsent | undefined {
   const pv = value.privacy;
   if (isObject(pv) && shortString(pv.acceptedVersion, ISO_MAX) && shortString(pv.at, ISO_MAX))
     out.privacy = { acceptedVersion: pv.acceptedVersion, at: pv.at };
+  const leagues = leagueMap(value.leagues, (v) => (shortString(v.at, ISO_MAX) && shortString(v.version, ISO_MAX) ? { at: v.at, version: v.version } : undefined));
+  if (leagues) out.leagues = leagues;
+  const declined = leagueMap(value.leaguesDeclined, (v) => (shortString(v.at, ISO_MAX) ? { at: v.at } : undefined));
+  if (declined) out.leaguesDeclined = declined;
   return Object.keys(out).length ? out : undefined;
+}
+
+function leagueMap<T>(value: unknown, item: (v: Record<string, unknown>) => T | undefined): Record<string, T> | undefined {
+  if (!isObject(value)) return undefined;
+  const out: Record<string, T> = {};
+  for (const [id, v] of Object.entries(value).slice(0, MAX_LEAGUE_ACKS)) {
+    if (!LEAGUE_KEY.test(id) || !isObject(v)) continue;
+    const parsed = item(v);
+    if (parsed) out[id] = parsed;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+/** True when the coach acknowledged sharing their data with that league's organisers. */
+export function sharesWithLeague(record: Pick<ContactSource, "consent"> | undefined, leagueId: string): boolean {
+  return Boolean(record?.consent?.leagues && Object.hasOwn(record.consent.leagues, leagueId));
 }
 
 /** The fields the defaults read from (a structural slice of CoachIdentityRecord). */

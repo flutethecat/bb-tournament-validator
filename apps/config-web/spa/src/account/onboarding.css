@@ -40,3 +40,13 @@
 .ac-consent { display: grid; gap: 4px; margin: 0; }
 .ac-consent dt { font: 11px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-heading); }
 .ac-consent dd { margin: 0 0 6px; }
+
+/* ---- League data sharing: the shell notice (LeagueShareNotice.vue) and the Account list (AccountLeagueSharing.vue) */
+.ls-notice { margin: 0 0 16px; }
+.ls-notice-text { margin: 0; }
+.ls-notice-help { margin: 0; }
+.ac-share-list { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 10px; }
+.ac-share-row { display: grid; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--sf-panel-line, var(--ui-border)); }
+.ac-share-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.ac-share-head .lobby-btn { margin-left: auto; }
+.ac-share-form { display: grid; gap: 8px; }

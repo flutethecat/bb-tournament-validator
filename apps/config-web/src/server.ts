@@ -139,7 +139,6 @@ import {
   normalizeFfbCoachId,
   mergeIdentityRecords,
   organizerUpdateIdentity,
-  organizerIdentityView,
   ownIdentityRecord,
   readIdentities,
   identitiesFile,
@@ -163,7 +162,8 @@ import {
   onboardingGateApplies, onboardingView, updateOwnContact,
 } from "./auth/onboarding.js";
 import { onboardingNeeded } from "./auth/contactSchema.js";
-import { createContactLookup } from "./auth/contactFor.js";
+import { createContactLookup, organiserAccess, publicIdentityRecord, type MembershipSources } from "./auth/contactFor.js";
+import { LEAGUE_SHARING_PATH, leagueSharingView, setLeagueSharing } from "./auth/leagueSharing.js";
 import { attachSuper } from "./super/index.js";
 import {
   isLobbyApiPath,
@@ -465,7 +465,8 @@ const leagueStore = new LeagueStore(FORK_STATE_DIR);
  * Organiser contact lookup for later use (src/auth/contactFor.ts): a coach's email/phones only with their league-contact
  * consent and membership of that league or tournament. Deliberately NOT exposed through any route yet.
  */
-export const contactFor = createContactLookup({ tournaments: tournamentStore, leagues: leagueStore });
+const membershipSources: MembershipSources = { tournaments: tournamentStore, leagues: leagueStore };
+export const contactFor = createContactLookup(membershipSources);
 registerLeagueEvents({ store: leagueStore, notify: (coach, input) => { try { notificationStore.add(coach, input); } catch { /* fire-and-forget */ } } });
 
 const packages = new PackageFiles(PACKAGES_DIR);
@@ -1464,6 +1465,7 @@ function isStateChangingApiWrite(method: string, pathname: string): boolean {
     pathname === "/api/me/notifications/read" ||
     pathname === ONBOARDING_PATH ||
     pathname === CONTACT_PATH ||
+    pathname === LEAGUE_SHARING_PATH ||
     isTeamMutationWritePath(pathname) ||
     pathname.startsWith("/api/tournaments/") ||
     pathname.startsWith("/api/fork/tournaments/") ||
@@ -1679,6 +1681,22 @@ async function handleApi(
       let rawBody: unknown;
       try { rawBody = await readBody(req, 8 * 1024); } catch { return sendJson(res, 400, { error: "Invalid JSON request body." }); }
       return sendJson(res, 200, contactView(updateOwnContact(auth.coach, rawBody)));
+    } catch (error) {
+      return sendJson(res, 400, { error: (error as Error).message });
+    }
+  }
+
+  // League data sharing (owner 10-31): the leagues the coach is on, the notice for each, and share / stop sharing.
+  if (path === LEAGUE_SHARING_PATH && (method === "GET" || method === "POST")) {
+    if (!auth) return sendJson(res, 401, { error: "Authentication required." });
+    res.setHeader("cache-control", "private, no-store");
+    try {
+      if (method === "GET") return sendJson(res, 200, leagueSharingView(ownIdentityRecord(auth.coach), membershipSources));
+      const wait = onboardingLimiter.take([`coach:${normalizeFfbCoachId(auth.coach)}`], 0);
+      if (wait) { res.setHeader("retry-after", String(wait)); return sendJson(res, 429, { error: "Too many changes. Try again in a minute." }); }
+      let rawBody: unknown;
+      try { rawBody = await readBody(req, 4 * 1024); } catch { return sendJson(res, 400, { error: "Invalid JSON request body." }); }
+      return sendJson(res, 200, leagueSharingView(setLeagueSharing(auth.coach, rawBody, membershipSources), membershipSources));
     } catch (error) {
       return sendJson(res, 400, { error: (error as Error).message });
     }
@@ -2257,6 +2275,16 @@ async function handleApi(
     const body = rawBody as Record<string, unknown>;
     const ffbCoachId = typeof body.ffbCoachId === "string" ? body.ffbCoachId.trim() : "";
     if (!ffbCoachId) return sendJson(res, 400, { error: "ffbCoachId is required." });
+    // Owner ruling 10-31: a site admin manages anyone (full record back). An organiser manages only coaches on a league
+    // they own or organise (403 otherwise; tournaments do not count), and gets the FULL record back only when the coach
+    // acknowledged sharing their data with that league; else the record without personal fields (contactFor.ts).
+    const siteAdmin = auth?.admin === true || isAdminAuthed(req) || isTokenAuthed(req);
+    const self = auth !== undefined && normalizeFfbCoachId(auth.coach) === normalizeFfbCoachId(ffbCoachId);
+    let access: "full" | "member" | "none" = siteAdmin || self ? "full" : "none";
+    if (access === "none" && auth) {
+      try { access = organiserAccess(auth.coach, ownIdentityRecord(ffbCoachId), membershipSources); } catch { access = "none"; }
+    }
+    if (access === "none") return sendJson(res, 403, { error: "That coach is not on a league you organise." });
     try {
       const identityPatch = Object.fromEntries(
         Object.entries(body).filter(([field]) => field !== "ffbCoachId"),
@@ -2266,11 +2294,7 @@ async function handleApi(
         ffbCoachId,
         identityPatch,
       );
-      // A site admin gets the full record back; an organiser only the coach name and the NAF fields they manage
-      // (never another coach's contact details, consent or Discord data).
-      const siteAdmin = auth?.admin === true || isAdminAuthed(req) || isTokenAuthed(req);
-      const self = auth !== undefined && normalizeFfbCoachId(auth.coach) === normalizeFfbCoachId(coach.ffbCoachId);
-      return sendJson(res, 200, { ok: true, coach: siteAdmin || self ? coach : organizerIdentityView(coach) });
+      return sendJson(res, 200, { ok: true, coach: access === "full" ? coach : publicIdentityRecord(coach) });
     } catch (error) {
       return sendJson(res, 400, { error: (error as Error).message });
     }

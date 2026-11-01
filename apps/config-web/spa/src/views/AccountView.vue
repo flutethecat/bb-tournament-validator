@@ -13,6 +13,8 @@ import ScheduleDialog from "../components/ScheduleDialog.vue";
 import AccountIdentity from "../components/AccountIdentity.vue";
 import AccountCalendar from "../components/AccountCalendar.vue";
 import AccountContact from "../components/AccountContact.vue";
+import AccountLeagueSharing from "../components/AccountLeagueSharing.vue";
+import { LEAGUE_SHARING_KEY } from "../account/leagueSharing";
 import { createContactEditor } from "../account/contact";
 import { ONBOARDING_KEY } from "../account/onboarding";
 import { calendarZone } from "../account/calendar";
@@ -39,6 +41,7 @@ onBeforeUnmount(() => editors.stop());
 // again when the welcome modal completes (the one loaded behind it holds pre-onboarding consent).
 const onboarding = inject(ONBOARDING_KEY, null);
 const contactRound = ref(0);
+const hasLeagueSharing = inject(LEAGUE_SHARING_KEY, null) !== null;
 watch(() => onboarding?.open() === true, (open, was) => { if (was && !open) contactRound.value++; });
 const contact = computed(() => { void coach.value; void contactRound.value; return createContactEditor({ api: fetcher }); });
 
@@ -102,6 +105,11 @@ onServerPrefetch(() => (coach.value ? schedule.value.load() : undefined));
         <section v-if="session.signedIn()" id="contact" :key="`contact-${coach}-${contactRound}`" class="hm-panel" aria-labelledby="ac-contact-h">
           <header class="hm-band"><h2 id="ac-contact-h">Contact &amp; consent</h2><span class="hm-cap">Only organisers you allow</span></header>
           <AccountContact :editor="contact" />
+        </section>
+
+        <section v-if="session.signedIn() && hasLeagueSharing" id="league-sharing" :key="`league-sharing-${coach}`" class="hm-panel" aria-labelledby="ac-share-h">
+          <header class="hm-band"><h2 id="ac-share-h">League data sharing</h2><span class="hm-cap">Who sees your details</span></header>
+          <AccountLeagueSharing :coach="session.coach()" />
         </section>
 
         <section v-if="session.signedIn()" id="calendar" :key="`calendar-${coach}`" class="hm-panel" aria-labelledby="ac-calendar-h">

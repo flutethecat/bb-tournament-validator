@@ -8,7 +8,10 @@ import {
   parsePreferredName, preferredNameOf, PRIVACY_VERSION, withContactDefaults,
 } from "../src/auth/contactSchema.js";
 import { completeOnboarding, contactView, onboardingGateApplies, onboardingView, updateOwnContact } from "../src/auth/onboarding.js";
-import { createContactLookup, isMemberOf, type MembershipSources } from "../src/auth/contactFor.js";
+import {
+  createContactLookup, isLeagueRosterMember, isMemberOf, isTournamentMember, leaguesOf, organiserAccess, publicIdentityRecord, type MembershipSources,
+} from "../src/auth/contactFor.js";
+import { leagueSharingView, setLeagueSharing } from "../src/auth/leagueSharing.js";
 import { completeDiscordCoachAssociation } from "../src/auth/discordSso.js";
 import { mergeIdentityRecords, readIdentities, upsertIdentity, type CoachIdentityRecord } from "../src/auth/identitiesStore.js";
 
@@ -278,47 +281,109 @@ describe("Discord re-sign-in keeps the coach's edits", () => {
   });
 });
 
-describe("contactFor: consent + membership", () => {
+describe("league membership, data-sharing acknowledgement, organiser access and contactFor", () => {
+  const leagues: Record<string, { id: string; name: string; organisers: string[]; owner?: string }> = {
+    lg: { id: "lg", name: "Test League", organisers: ["LeagueOrg"] },
+    other: { id: "other", name: "Other League", organisers: ["SomeoneElse"], owner: "OtherOwner" },
+  };
   const sources: MembershipSources = {
     tournaments: {
       tournament: (id) => (id === "t1" ? { id } : undefined),
       entrants: (id) => (id === "t1" ? [{ coach: { ffbCoachId: "Ivy" } }, { coach: { ffbCoachId: "Dropped" }, droppedAt: "2026-10-01" }] : []),
     },
     leagues: {
-      league: (id) => (id === "lg" ? { id } : undefined),
+      league: (id) => leagues[id],
+      list: () => Object.values(leagues),
       seasons: (id) => (id === "lg" ? [{
-        teams: [{ coachId: "jay_team" }, { coachId: "Cleared", coachAssigned: { cleared: true } }],
-        participants: [{ coachId: "Kim" }, { coachId: undefined }],
-      }] : []),
+        teams: [{ coachId: "jay_team" }, { coachId: "Cleared", coachAssigned: { cleared: true } }, { coachId: "Kim" }],
+        participants: [{ coachId: "Pat" }, { coachId: undefined }],
+      }] : id === "other" ? [{ teams: [{ coachId: "Kim" }], participants: [] }] : []),
     },
   };
-  const granted = (on: boolean) => ({ leagueContact: { granted: on, at: NOW.toISOString(), version: "2026-10-31" }, privacy: { acceptedVersion: PRIVACY_VERSION, at: NOW.toISOString() } });
+  const ack = { at: NOW.toISOString(), version: "2026-10-31" };
+  const consent = (extra: Record<string, unknown> = {}) => ({
+    leagueContact: { granted: true, at: NOW.toISOString(), version: "2026-10-31" }, privacy: { acceptedVersion: PRIVACY_VERSION, at: NOW.toISOString() }, ...extra,
+  });
   const contact = { email: "c@example.test", emailSource: "user" as const, emailVerified: false, phones: [{ number: "+15551234567" }] };
 
-  it("members by fork coach account (case-insensitive): tournament entrants not dropped, league teams and participants", () => {
-    expect(isMemberOf("ivy", "t1", sources)).toBe(true);
-    expect(isMemberOf("Dropped", "t1", sources)).toBe(false);
-    expect(isMemberOf("JAY_TEAM", "lg", sources)).toBe(true);
-    expect(isMemberOf("Kim", "lg", sources)).toBe(true);
-    expect(isMemberOf("Cleared", "lg", sources)).toBe(false);
-    expect(isMemberOf("Ivy", "lg", sources)).toBe(false);
-    expect(isMemberOf("Ivy", "nope", sources)).toBe(false);
+  it("roster membership by fork coach account (case-insensitive): teams and participants, never a cleared assignment", () => {
+    expect(isLeagueRosterMember("JAY_TEAM", "lg", sources)).toBe(true);
+    expect(isLeagueRosterMember("Pat", "lg", sources)).toBe(true);
+    expect(isLeagueRosterMember("Cleared", "lg", sources)).toBe(false);
+    expect(isLeagueRosterMember("Ivy", "lg", sources)).toBe(false);
+    expect(isTournamentMember("ivy", "t1", sources)).toBe(true);
+    expect(isTournamentMember("Dropped", "t1", sources)).toBe(false);
+    expect(leaguesOf("Kim", sources).map((l) => l.id).sort()).toEqual(["lg", "other"]);
   });
 
-  it("answers email/phones only with consent AND membership; otherwise undefined", () => {
+  it("data-access membership of a league needs the acknowledgement; a tournament entry does not", () => {
+    expect(isMemberOf(record("Kim"), "lg", sources)).toBe(false);
+    expect(isMemberOf(record("Kim", { consent: { leagues: { lg: ack } } }), "lg", sources)).toBe(true);
+    expect(isMemberOf(record("Kim", { consent: { leagues: { other: ack } } }), "lg", sources)).toBe(false);
+    expect(isMemberOf(record("Ivy"), "t1", sources)).toBe(true);
+  });
+
+  it("organiser access: full for an acknowledged member of a league they organise, member without the ack, none otherwise", () => {
+    expect(organiserAccess("LeagueOrg", record("Kim", { consent: { leagues: { lg: ack } } }), sources)).toBe("full");
+    expect(organiserAccess("leagueorg", record("Kim"), sources)).toBe("member");
+    expect(organiserAccess("LeagueOrg", record("Kim", { consent: { leaguesDeclined: { lg: { at: "x" } } } }), sources)).toBe("member");
+    expect(organiserAccess("LeagueOrg", record("Ivy", { consent: { leagues: { lg: ack } } }), sources)).toBe("none"); // acked, not on the roster
+    expect(organiserAccess("OtherOwner", record("Kim", { consent: { leagues: { lg: ack } } }), sources)).toBe("member"); // owner of "other"; Kim acked lg only
+    expect(organiserAccess("Nobody", record("Kim", { consent: { leagues: { lg: ack } } }), sources)).toBe("none");
+    const pub = publicIdentityRecord(record("Kim", { profile: { preferredName: "P", displayName: "D" }, identities: { email: "e@x.yz", nafName: "N" }, contact, consent: consent() }));
+    expect(pub).not.toHaveProperty("contact");
+    expect(pub).not.toHaveProperty("consent");
+    expect(pub.profile).toEqual({ displayName: "D" });
+    expect(pub.identities).toEqual({ nafName: "N" });
+  });
+
+  it("contactFor answers email/phones only with the league-contact opt-in AND (an acknowledged league membership or a tournament entry)", () => {
     seed(
-      record("Ivy", { contact, consent: granted(true) }),
-      record("Kim", { contact, consent: granted(false) }),
-      record("Lee", { contact, consent: granted(true) }),
-      record("Dropped", { contact, consent: granted(true) }),
+      record("Ivy", { contact, consent: consent() }),
+      record("Kim", { contact, consent: consent() }),
+      record("Pat", { contact, consent: consent({ leagues: { lg: ack } }) }),
+      record("Lee", { contact, consent: consent({ leagues: { lg: ack } }) }),
+      record("Jay_team", { contact, consent: { ...consent({ leagues: { lg: ack } }), leagueContact: { granted: false, at: "x", version: "y" } } }),
+      record("Dropped", { contact, consent: consent() }),
     );
     const contactFor = createContactLookup(sources);
     expect(contactFor("Ivy", "t1")).toEqual({ coach: "Ivy", email: "c@example.test", emailVerified: false, phones: [{ number: "+15551234567" }] });
-    expect(contactFor("Ivy", "lg")).toBeUndefined(); // consent, but not a member of that league
-    expect(contactFor("Kim", "lg")).toBeUndefined(); // member, no consent
-    expect(contactFor("Lee", "t1")).toBeUndefined(); // consent, not a member
+    expect(contactFor("Pat", "lg")).toMatchObject({ coach: "Pat", email: "c@example.test" });
+    expect(contactFor("Kim", "lg")).toBeUndefined(); // on the roster, no acknowledgement
+    expect(contactFor("Lee", "lg")).toBeUndefined(); // acknowledgement, not on the roster
+    expect(contactFor("Jay_team", "lg")).toBeUndefined(); // acknowledged, but no league-contact opt-in
     expect(contactFor("Dropped", "t1")).toBeUndefined();
     expect(contactFor("Nobody", "t1")).toBeUndefined();
+  });
+
+  it("share / decline / stop sharing: checkbox required, roster only, stored per league, other consent untouched", () => {
+    seed(record("Kim", { consent: consent() }));
+    expect(leagueSharingView(stored("Kim"), sources).leagues.map((l) => [l.id, l.status])).toEqual([["lg", "pending"], ["other", "pending"]]);
+    expect(leagueSharingView(stored("Kim"), sources).leagues[0]!.text).toBe("By joining Test League, you share your personal data (name, contact email, phone numbers and profile) with the league's organisers so they can run the league and contact you.");
+    expect(() => setLeagueSharing("Kim", { leagueId: "lg", share: true }, sources)).toThrow(/Tick the box/);
+    expect(() => setLeagueSharing("Kim", { leagueId: "nope", share: true, acknowledged: true }, sources)).toThrow(/not on that league/);
+    expect(() => setLeagueSharing("Kim", { leagueId: "lg", share: "yes" }, sources)).toThrow(/true or false/);
+    setLeagueSharing("Kim", { leagueId: "lg", share: true, acknowledged: true }, sources, NOW);
+    expect(stored("Kim").consent?.leagues).toEqual({ lg: { at: NOW.toISOString(), version: "2026-10-31" } });
+    setLeagueSharing("Kim", { leagueId: "other", share: false }, sources, NOW);
+    expect(leagueSharingView(stored("Kim"), sources).leagues.map((l) => [l.id, l.status])).toEqual([["lg", "shared"], ["other", "declined"]]);
+    // Stop sharing: the acknowledgement goes, the coach stays on the roster (declined), privacy / contact consent kept.
+    setLeagueSharing("Kim", { leagueId: "lg", share: false }, sources, LATER);
+    expect(stored("Kim").consent?.leagues).toBeUndefined();
+    expect(stored("Kim").consent?.leaguesDeclined).toEqual({ lg: { at: LATER.toISOString() }, other: { at: NOW.toISOString() } });
+    expect(stored("Kim").consent?.privacy?.acceptedVersion).toBe(PRIVACY_VERSION);
+    expect(stored("Kim").consent?.leagueContact?.granted).toBe(true);
+    expect(organiserAccess("LeagueOrg", stored("Kim"), sources)).toBe("member");
+    // Sharing again later clears the decline.
+    setLeagueSharing("Kim", { leagueId: "lg", share: true, acknowledged: true }, sources, LATER);
+    expect(leagueSharingView(stored("Kim"), sources).leagues[0]).toMatchObject({ status: "shared", at: LATER.toISOString() });
+  });
+
+  it("the acknowledgements survive onboarding and contact edits", () => {
+    seed(record("Kim", { identities: { email: "k@example.test" }, consent: { leagues: { lg: ack } } }));
+    completeOnboarding("Kim", { ...okBody, email: "k@example.test" }, NOW);
+    updateOwnContact("Kim", { preferredName: "Kimmy" }, NOW);
+    expect(stored("Kim").consent?.leagues).toEqual({ lg: ack });
   });
 });
 
