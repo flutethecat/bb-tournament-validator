@@ -28,6 +28,7 @@ import TabletopSheetHead from "../components/TabletopSheetHead.vue";
 import { assignTitle } from "../tabletop/confirm";
 import { useNewIds } from "../tabletop/newIds";
 import { useStickToBottom } from "../tabletop/stickBottom";
+import { useAnnouncer } from "../tabletop/announce";
 import TabletopTimeline from "../components/TabletopTimeline.vue";
 import TabletopWeatherBar from "../components/TabletopWeatherBar.vue";
 import { canEditMatch, createViewerSettings, VIEWER_SETTINGS_INJECT } from "../tabletop/settings";
@@ -342,11 +343,9 @@ function setAdminHidden(on: boolean): void {
 const newIds = useNewIds(() => shownRows.value.map((r) => r.id));
 /** The log runs oldest to newest: follow the latest entry while the viewer is at the bottom, else offer the "New events" pill. */
 const feedEl = ref<HTMLElement | null>(null);
-const { unseen: newBelow, onScroll: onFeedScroll, toLatest: feedToLatest } = useStickToBottom(feedEl, () => shownRows.value.map((r) => r.id));
-/** Screen-reader announcement of the newest event (the last row), politely, only after the first load. */
-const latestRow = computed(() => [...shownRows.value].reverse().find((r) => r.part === "main"));
-const announce = ref("");
-watch(() => latestRow.value?.id, (id, prev) => { const r = latestRow.value; announce.value = prev !== undefined && id !== undefined && r ? `${r.lead}${r.rest}`.trim() : ""; });
+const { unseen: newBelow, onScroll: onFeedScroll, toLatest: feedToLatest } = useStickToBottom(feedEl, () => rows.value.filter((r) => r.removed === null).map((r) => r.id));
+/** Screen-reader announcement of the newest effective event, politely, only after the match has loaded. */
+const announce = useAnnouncer(() => rows.value, () => state.loaded);
 const canOverrideEnd = computed(() => recording.value && (state.clock?.turn ?? 0) >= 1 && !!state.clock?.activeTeam);
 const undoById = (id: string): void => { const e = state.events.find((x) => x.id === id); if (e) void rec.undo(e); };
 

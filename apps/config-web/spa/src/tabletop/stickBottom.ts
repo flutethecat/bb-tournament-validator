@@ -17,7 +17,7 @@ export function scrollToLatest(el: HTMLElement, smooth = true): void {
   else el.scrollTop = top;
 }
 
-/** Follow-the-bottom behaviour for a live log. `ids` is the log's row ids in display order (oldest first). */
+/** Follow-the-bottom behaviour for a live log. `ids` is the row ids in display order (oldest first); pass effective rows only, so toggling removed rows changes nothing. */
 export function useStickToBottom(scroller: Ref<HTMLElement | null>, ids: () => string[]): { unseen: Ref<boolean>; onScroll: () => void; toLatest: () => void } {
   const unseen = ref(false);
   let seen: Set<string> | null = null;
@@ -30,8 +30,12 @@ export function useStickToBottom(scroller: Ref<HTMLElement | null>, ids: () => s
       void nextTick(() => { if (!stopped && scroller.value) scrollToLatest(scroller.value, false); });
       return;
     }
-    const fresh = list.filter((id) => !seen!.has(id));
-    list.forEach((id) => seen!.add(id));
+    // only ids after the latest one already seen are new: revealing older (removed) rows never counts
+    const known = seen;
+    let from = -1;
+    for (let i = list.length - 1; i >= 0 && from < 0; i--) if (known.has(list[i]!)) from = i;
+    const fresh = list.slice(from + 1).filter((id) => !known.has(id));
+    list.forEach((id) => known.add(id));
     if (!fresh.length || !el) return;
     if (nearBottom(el)) void nextTick(() => { if (!stopped && scroller.value) scrollToLatest(scroller.value); });
     else unseen.value = true;

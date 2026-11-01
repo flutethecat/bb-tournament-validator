@@ -15,11 +15,11 @@ let mods: Record<string, any>;
 beforeAll(async () => {
   const { createServer } = await import("vite");
   vite = await createServer({ configFile: SPA_CONFIG, logLevel: "silent", appType: "custom", server: { middlewareMode: true, hmr: false, ws: false } });
-  const [renderer, feed, feedC, stick] = await Promise.all([
+  const [renderer, feed, feedC, stick, announce] = await Promise.all([
     vite.ssrLoadModule("vue/server-renderer"), vite.ssrLoadModule("/src/tabletop/feed.ts"),
-    vite.ssrLoadModule("/src/components/TabletopFeed.vue"), vite.ssrLoadModule("/src/tabletop/stickBottom.ts"),
+    vite.ssrLoadModule("/src/components/TabletopFeed.vue"), vite.ssrLoadModule("/src/tabletop/stickBottom.ts"), vite.ssrLoadModule("/src/tabletop/announce.ts"),
   ]);
-  mods = { renderer, feed, feedC, stick };
+  mods = { renderer, feed, feedC, stick, announce };
 }, 60_000);
 afterAll(async () => { await vite?.close(); });
 
@@ -134,12 +134,74 @@ describe("stick to the bottom", () => {
       t.scope.stop();
     } finally { g.matchMedia = prev; }
   });
+  it("revealing older ids (Show removed events) never raises the pill or scrolls", async () => {
+    const t = setup();
+    t.ids.value = ["a", "c"]; await settle();
+    t.node.scrollTop = 100;
+    t.ids.value = ["a", "b", "c"]; await settle(); // b is a historical row now shown
+    expect(t.api.unseen.value).toBe(false);
+    expect(t.node.scrollTop).toBe(100);
+    t.ids.value = ["a", "b", "c", "d"]; await settle(); // a genuinely newer id still does
+    expect(t.api.unseen.value).toBe(true);
+    t.scope.stop();
+  });
   it("a removal with no new id neither scrolls nor raises the pill", async () => {
     const t = setup();
     t.ids.value = ["a", "b"]; await settle();
     t.node.scrollTop = 0; t.ids.value = ["a"]; await settle();
     expect(t.api.unseen.value).toBe(false);
     expect(t.node.scrollTop).toBe(0);
+    t.scope.stop();
+  });
+});
+
+describe("announcements", () => {
+  const row = (id: string, player: string, over: Record<string, unknown> = {}) => ({ id, part: "main", removed: null, player, number: "", lead: "", rest: "scores a touchdown.", ...over }) as any;
+  const setup = (loaded: boolean, initial: any[] = []) => {
+    const rows = ref<any[]>(initial); const ready = ref(loaded);
+    const scope = effectScope();
+    const text = scope.run(() => mods.announce.useAnnouncer(() => rows.value, () => ready.value))!;
+    return { rows, ready, text, scope };
+  };
+  const settle = async () => { await nextTick(); await nextTick(); };
+  it("announces the newest effective event, naming the player; never a removed one", async () => {
+    const t = setup(true, [row("a", "Ann")]); // already in the log at load: silent
+    await settle();
+    expect(t.text.value).toBe("");
+    // a poll brings an event and its undo together: the removed row is last, the announcement stays on nothing new
+    t.rows.value = [row("a", "Ann"), row("b", "Bo", { removed: { by: "x", at: "", admin: false } })]; await settle();
+    expect(t.text.value).toBe("");
+    t.rows.value = [row("a", "Ann"), row("b", "Bo", { removed: { by: "x", at: "", admin: false } }), row("c", "Cy")]; await settle();
+    expect(t.text.value).toContain("Cy: scores a touchdown.");
+    t.scope.stop();
+  });
+  it("two identical consecutive actions both announce (different text each time)", async () => {
+    const t = setup(true, [row("a", "Ann")]);
+    await settle();
+    t.rows.value = [row("a", "Ann"), row("b", "Ann")]; await settle();
+    const first = t.text.value;
+    t.rows.value = [row("a", "Ann"), row("b", "Ann"), row("c", "Ann")]; await settle();
+    expect(first).toContain("Ann: scores a touchdown.");
+    expect(t.text.value).toContain("Ann: scores a touchdown.");
+    expect(t.text.value).not.toBe(first);
+    t.scope.stop();
+  });
+  it("the first event after loading an empty match is announced; nothing before the load completes", async () => {
+    const t = setup(false);
+    t.rows.value = []; await settle();
+    t.ready.value = true; await settle(); // loaded with zero events
+    expect(t.text.value).toBe("");
+    t.rows.value = [row("a", "Ann")]; await settle();
+    expect(t.text.value).toContain("Ann: scores a touchdown.");
+    t.scope.stop();
+  });
+  it("an undo that makes an older event the latest announces nothing", async () => {
+    const t = setup(true, [row("a", "Ann")]);
+    await settle();
+    t.rows.value = [row("a", "Ann"), row("b", "Bo")]; await settle();
+    const before = t.text.value;
+    t.rows.value = [row("a", "Ann"), row("b", "Bo", { removed: { by: "x", at: "", admin: false } })]; await settle();
+    expect(t.text.value).toBe(before);
     t.scope.stop();
   });
 });
