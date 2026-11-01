@@ -460,6 +460,7 @@ describe("delete", () => {
     expect(tf.entrants.e2.coach.discordUserId).toBe(BOB_DISCORD);
     // The coach's NAF answer goes with the entry's identity; another coach's flag stays.
     expect(tf.entrants.e1.nafNumber).toBeUndefined();
+    expect(tf.entrants.e1.nafSnapshot).toBeUndefined();
     expect(tf.entrants.e2.notNafMember).toBe(true);
     expect(tf.scheduledMatches.m1.home.coach.ffbCoachId).toBe(P);
     expect(tf.scheduledMatches.m1.away.coach.discordUserId).toBe(BOB_DISCORD);

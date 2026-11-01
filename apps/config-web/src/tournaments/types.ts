@@ -178,6 +178,10 @@ export interface TournamentEntrantRecord {
    *  entry): the one-notice guard. Whether the entry owes the answer is derived on read (nafOwed: no profile NAF number,
    *  no stored number, not "not a NAF member"); the roster submission is refused while it does. */
   nafPending?: true;
+  /** The entry's NAF details frozen when the coach withdrew from (or was dropped from) a NAF-sanctioned tournament:
+   *  the profile's name and number then, else the number stored with the entry. Used only by the NAF report, so the
+   *  games the coach played are reported; never shown elsewhere (a withdrawn entry shows no live profile NAF). */
+  nafSnapshot?: { nafName?: string; nafNumber: string; at: string };
 }
 
 export interface TournamentRoundRecord {

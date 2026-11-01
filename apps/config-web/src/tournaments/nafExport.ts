@@ -54,18 +54,45 @@ export function nafTimestamp(value: string): string {
 }
 
 export function renderNafTournamentXml(input: NafExportInput): string {
+  return renderNafTournamentReport(input).xml;
+}
+
+/** A NAF report plus the warnings the organiser should fix (withdrawn coaches' games reported with NAF fields empty). */
+export interface NafTournamentReport { xml: string; warnings: string[] }
+
+/**
+ * The NAF report of a tournament: every completed game. Active entrants' NAF details come from their identity record
+ * (the profile) and must be complete. A withdrawn entrant is listed only when they played a completed game, with the
+ * NAF details frozen on the entry when they withdrew (nafSnapshot), else the number stored with the entry; never the
+ * live profile. Missing details there are a warning, not a refusal, so no game is dropped.
+ */
+export function renderNafTournamentReport(input: NafExportInput): NafTournamentReport {
   const problems: string[] = [];
+  const warnings: string[] = [];
   const identities = new Map<string, { name: string; number: string }>();
   const teams = new Map<string, { race: string; rating: number }>();
-  const relevantEntrants = input.entrants.filter((entrant) => entrant.tournamentId === input.tournament.id);
+  const completed = input.matches.filter((match) => match.tournamentId === input.tournament.id && match.away && match.status === "completed" && match.result);
+  const played = new Set(completed.flatMap((match) => [match.home.entrantId, match.away!.entrantId]));
+  const relevantEntrants = input.entrants.filter((entrant) => entrant.tournamentId === input.tournament.id
+    && (entrant.droppedAt === undefined || played.has(entrant.id)));
   for (const entrant of relevantEntrants) {
-    const canonical = input.identityRecord(entrant.coach.ffbCoachId);
-    const name = canonical?.identities.nafName?.trim();
-    const number = canonical?.identities.nafId?.trim();
-    if (!name) problems.push(`${entrant.coach.ffbCoachId}: missing NAF name`);
-    if (!number) problems.push(`${entrant.coach.ffbCoachId}: missing NAF number`);
-    else if (!/^\d+$/.test(number)) problems.push(`${entrant.coach.ffbCoachId}: NAF number must contain digits only`);
-    if (name && number && /^\d+$/.test(number)) identities.set(entrant.id, { name, number });
+    const coach = entrant.coach.ffbCoachId;
+    if (entrant.droppedAt === undefined) {
+      const canonical = input.identityRecord(coach);
+      const name = canonical?.identities.nafName?.trim();
+      const number = canonical?.identities.nafId?.trim();
+      if (!name) problems.push(`${coach}: missing NAF name`);
+      if (!number) problems.push(`${coach}: missing NAF number`);
+      else if (!/^\d+$/.test(number)) problems.push(`${coach}: NAF number must contain digits only`);
+      if (name && number && /^\d+$/.test(number)) identities.set(entrant.id, { name, number });
+    } else {
+      const name = entrant.nafSnapshot?.nafName?.trim() ?? "";
+      const raw = (entrant.nafSnapshot?.nafNumber ?? entrant.nafNumber ?? "").trim();
+      const number = /^\d+$/.test(raw) ? raw : "";
+      if (!name) warnings.push(`${coach} (withdrawn): missing NAF name, reported empty`);
+      if (!number) warnings.push(`${coach} (withdrawn): missing NAF number, reported empty`);
+      identities.set(entrant.id, { name, number });
+    }
     const build = input.teamBuild(entrant.teamId, entrant.coach.ffbCoachId);
     // Harvest adaptation: this tree has no registrationSnapshot, so race and TV come solely
     // from the harvested module's existing injected teamBuild fallback.
@@ -76,15 +103,16 @@ export function renderNafTournamentXml(input: NafExportInput): string {
   const organizer = input.identityRecord(input.organizerCoachId);
   const organizerName = organizer?.identities.nafName?.trim();
   if (!organizerName) problems.push(`${input.organizerCoachId}: exporting organizer is missing a NAF name`);
-  // Games between the listed entrants only (the caller passes the active ones; a withdrawn coach's games are left out).
   const listed = new Set(relevantEntrants.map((entrant) => entrant.id));
-  const completed = input.matches.filter((match) => match.tournamentId === input.tournament.id && match.away && match.status === "completed" && match.result
-    && listed.has(match.home.entrantId) && listed.has(match.away.entrantId));
+  for (const match of completed) for (const side of [match.home, match.away!]) {
+    if (!listed.has(side.entrantId)) problems.push(`${side.coach.ffbCoachId}: a completed game has no entry in this tournament`);
+  }
   if (!completed.length) problems.push("tournament has no completed two-coach matches");
   if (problems.length) throw new NafExportError([...new Set(problems)]);
 
   const lines = [
     '<?xml version="1.0" encoding="UTF-8"?>',
+    ...warnings.map((warning) => `<!-- warning: ${warning.replaceAll("--", "- -")} -->`),
     '<nafReport xmlns:blo="http://www.bloodbowl.net">',
     `\t<organizer>${xml(organizerName!)}</organizer>`,
     "\t<coaches>",
@@ -119,5 +147,5 @@ export function renderNafTournamentXml(input: NafExportInput): string {
     lines.push("\t</game>");
   }
   lines.push("</nafReport>");
-  return `${lines.join("\n")}\n`;
+  return { xml: `${lines.join("\n")}\n`, warnings };
 }

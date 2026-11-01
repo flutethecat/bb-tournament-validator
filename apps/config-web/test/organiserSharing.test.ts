@@ -700,3 +700,42 @@ describe("profile NAF reaches organisers only for active entrants, and coaches a
     expect(h.inbox.length).toBe(before + 2);
   });
 });
+
+describe("NAF details frozen when a coach withdraws from a sanctioned tournament (owner 10-31: the NAF report has every game)", () => {
+  it("withdrawing snapshots the profile NAF (else the entry's number); responses and views never show it", async () => {
+    const h = harness();
+    const t = await createTournament(h, true);
+    h.naf.alice = { nafName: "Alice Fake", nafId: "77" };
+    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamId: "team-alice" });
+    h.store.registerEntrant(t.id, { coachId: "Bob", ffbCoachId: "Bob", verifiedAt: NOW.toISOString() }, "team-bob", NOW, { nafNumber: "12" });
+    const [alice, bob] = h.store.entrants(t.id);
+    const res = await h.call("DELETE", `/api/tournaments/${t.id}/entrants/${encodeURIComponent(alice!.id)}`, player("Alice"));
+    expect(res?.status).toBe(200);
+    expect(JSON.stringify(res?.body)).not.toContain("nafSnapshot");
+    await h.call("DELETE", `/api/tournaments/${t.id}/entrants/${encodeURIComponent(bob!.id)}`, co);
+    const stored = Object.fromEntries(h.store.entrants(t.id).map((e) => [e.coach.ffbCoachId, e.nafSnapshot]));
+    expect(stored.Alice).toEqual({ nafName: "Alice Fake", nafNumber: "77", at: NOW.toISOString() });
+    expect(stored.Bob).toEqual({ nafNumber: "12", at: NOW.toISOString() });
+    // A later profile change does not touch the snapshot, and nothing shows it (or the live profile) on reads.
+    h.naf.alice = { nafName: "Alice Changed", nafId: "78" };
+    await h.call("DELETE", `/api/tournaments/${t.id}/entrants/${encodeURIComponent(alice!.id)}`, player("Alice")); // repeat: no-op
+    expect(h.store.entrants(t.id)[0]!.nafSnapshot).toMatchObject({ nafName: "Alice Fake", nafNumber: "77" });
+    const view = JSON.stringify((await h.call("GET", `/api/tournaments/${t.id}`, co))!.body);
+    expect(view).not.toMatch(/nafSnapshot|Alice Fake|Alice Changed/);
+    const dump = JSON.stringify((await h.call("GET", `/api/tournaments/${t.id}/export`, co, undefined))!.body);
+    expect(dump).not.toContain("nafSnapshot");
+  });
+
+  it("no snapshot on a tournament that is not sanctioned, or for a coach who is not a NAF member", async () => {
+    const h = harness();
+    const plain = await createTournament(h);
+    h.naf.alice = { nafName: "Alice Fake", nafId: "77" };
+    await h.call("POST", `/api/tournaments/${plain.id}/entrants`, player("Alice"), { teamId: "team-alice" });
+    await h.call("DELETE", `/api/tournaments/${plain.id}/entrants/${encodeURIComponent(h.store.entrants(plain.id)[0]!.id)}`, player("Alice"));
+    expect(h.store.entrants(plain.id)[0]!.nafSnapshot).toBeUndefined();
+    const t = await createTournament(h, true);
+    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Bob"), { teamId: "team-bob", notNafMember: true });
+    await h.call("DELETE", `/api/tournaments/${t.id}/entrants/${encodeURIComponent(h.store.entrants(t.id)[0]!.id)}`, player("Bob"));
+    expect(h.store.entrants(t.id)[0]!.nafSnapshot).toBeUndefined();
+  });
+});

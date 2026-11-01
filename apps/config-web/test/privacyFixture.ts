@@ -121,7 +121,7 @@ export async function seed(root: string, opts: SeedOptions = {}): Promise<void> 
       t2: { id: "t2", name: "Old Cup", status: opts.aliceOwnsActiveTournament ? "draft" : "completed", ownerCoachId: "Alice", organizerCoachId: "Alice" },
     },
     entrants: {
-      e1: { id: "e1", tournamentId: "t1", seed: 1, coach: id("Alice", ALICE_DISCORD), teamId: "save:s1", registeredAt: "", nafNumber: "1001" },
+      e1: { id: "e1", tournamentId: "t1", seed: 1, coach: id("Alice", ALICE_DISCORD), teamId: "save:s1", registeredAt: "", nafNumber: "1001", nafSnapshot: { nafName: "Alice Fake", nafNumber: "1001", at: "2026-10-02T00:00:00Z" } },
       e2: { id: "e2", tournamentId: "t1", seed: 2, coach: id("Bob", BOB_DISCORD), teamId: "save:b1", registeredAt: "", notNafMember: true },
     },
     rounds: {},

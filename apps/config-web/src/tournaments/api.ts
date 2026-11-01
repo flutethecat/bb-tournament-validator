@@ -1,6 +1,6 @@
 import { bb2025 } from "@bb/validator/dataset";
 import { generateTournamentPairings } from "./pairing.js";
-import { NafExportError, renderNafTournamentXml } from "./nafExport.js";
+import { NafExportError, renderNafTournamentReport } from "./nafExport.js";
 import { isTournamentManager, tournamentOwner, TournamentStore, TournamentStoreError, type TournamentUpdate } from "./store.js";
 import { bannerUrl, NEWS_MAX_POSTS, newNewsPost, orderedNews, PAGE_FIELDS, parseNewsInput, parsePagePatch } from "./page.js";
 import { DEFAULT_ENTRANT_FLAGS, DEFAULT_TOURNAMENT_TURN_TIMER, TOURNAMENT_PAIRING_SYSTEMS, TOURNAMENT_SEEDING_MODES } from "./types.js";
@@ -212,7 +212,7 @@ function submissionView(entrant: TournamentEntrantRecord, private_: boolean) {
  *  details and nafPending are derived from it and the coach's current profile NAF (`profile`): a sanctioned entry shows
  *  the profile's NAF name and number, and owes its answer when there is none (reads never write). */
 function clientEntrant(entrant: TournamentEntrantRecord, deps: Pick<TournamentApiDeps, "teamBuild">, private_: boolean, shared?: SharedContact, tournament?: TournamentRecord, profile?: ProfileNaf) {
-  const { coach, submission: _submission, flags, rosterVerifiedOverride, manualSeed, nafNumber, notNafMember, nafPending, ...rest } = entrant;
+  const { coach, submission: _submission, flags, rosterVerifiedOverride, manualSeed, nafNumber, notNafMember, nafPending, nafSnapshot: _nafSnapshot, ...rest } = entrant;
   const team = deps.teamBuild(entrant.teamId);
   const submission = submissionView(entrant, private_);
   return {
@@ -640,6 +640,12 @@ export function entryNaf(tournament: Pick<TournamentRecord, "nafSanctioned">, en
   return entrant.nafNumber ? { nafNumber: entrant.nafNumber } : undefined;
 }
 
+/** An entry as a response shows it: the frozen NAF details are for the NAF report only. */
+function withoutNafSnapshot(entrant: TournamentEntrantRecord): Omit<TournamentEntrantRecord, "nafSnapshot"> {
+  const { nafSnapshot: _nafSnapshot, ...shown } = entrant;
+  return shown;
+}
+
 const nafFields = (naf: ProfileNaf | undefined) => (naf
   ? { nafNumber: naf.nafNumber, ...(naf.nafName ? { nafName: naf.nafName } : {}), ...(naf.nafChecked ? { nafChecked: true as const } : {}) }
   : {});
@@ -1041,12 +1047,18 @@ export async function tournamentApi(
       if (!entrant) return { status: 404, body: { error: "Tournament entrant not found." } };
       const selfDrop = coachKey(entrant.coach.ffbCoachId) === coachKey(identity.coach);
       if (!selfDrop) requireTournamentManager(tournament, identity);
-      const dropped = deps.store.dropEntrant(tournamentId, entrantId, identity.coach, !selfDrop, now);
+      // NAF sanctioned: the coach agreed to share their NAF details by entering, and the NAF report must carry every game
+      // they played, so the details at withdrawal (profile, else the entry's number) are frozen onto the entry.
+      const snapshot = tournament.nafSanctioned && entrant.droppedAt === undefined
+        ? entryNaf(tournament, entrant, profileNaf(deps, entrant.coach.ffbCoachId))
+        : undefined;
+      const dropped = deps.store.dropEntrant(tournamentId, entrantId, identity.coach, !selfDrop, now,
+        snapshot ? { nafNumber: snapshot.nafNumber, ...(snapshot.nafName ? { nafName: snapshot.nafName } : {}) } : undefined);
       // Only the drop itself notifies: a repeated DELETE of an already-withdrawn entry sends nothing.
       if (entrant.droppedAt === undefined && dropped.droppedAt !== undefined) notifyWithdrawal(deps, tournament, entrant, identity.coach, selfDrop);
       return {
         status: 200,
-        body: { entrant: dropped },
+        body: { entrant: withoutNafSnapshot(dropped) },
       };
     }
 
@@ -1214,7 +1226,7 @@ export async function tournamentApi(
           headers,
           body: {
             tournament,
-            entrants: deps.store.entrants(tournament.id),
+            entrants: deps.store.entrants(tournament.id).map(withoutNafSnapshot),
             rounds: deps.store.rounds(tournament.id),
             standings,
             matches: deps.store.matches(tournament.id),
@@ -1222,25 +1234,28 @@ export async function tournamentApi(
         };
       }
       if (format === "naf") {
-        // The NAF report carries coaches' profile NAF details: only a NAF-sanctioned tournament has them shared, and
-        // only its active entrants (withdrawn coaches, and the games they played, are left out).
+        // The NAF report carries coaches' NAF details: only a NAF-sanctioned tournament has them shared. Every completed
+        // game is reported: active entrants from their profile, withdrawn ones from the details frozen when they left
+        // (never the live profile); a withdrawn coach with none is reported empty and named in the warnings
+        // (x-naf-export-warnings: how many; the XML carries them as comments).
         if (!tournament.nafSanctioned)
           return { status: 409, body: { error: NAF_EXPORT_UNSANCTIONED_MESSAGE } };
         if (!deps.identityRecord)
           return { status: 503, body: { error: "Canonical identity storage is unavailable." } };
         try {
+          const report = renderNafTournamentReport({
+            tournament,
+            organizerCoachId: tournament.organizerCoachId ?? identity.coach,
+            entrants: deps.store.entrants(tournament.id),
+            matches: deps.store.matches(tournament.id),
+            identityRecord: deps.identityRecord,
+            teamBuild: deps.teamBuild,
+          });
           return {
             status: 200,
-            headers,
+            headers: { ...headers, ...(report.warnings.length ? { "x-naf-export-warnings": String(report.warnings.length) } : {}) },
             contentType: "application/xml; charset=utf-8",
-            body: renderNafTournamentXml({
-              tournament,
-              organizerCoachId: tournament.organizerCoachId ?? identity.coach,
-              entrants: deps.store.entrants(tournament.id).filter((e) => e.droppedAt === undefined),
-              matches: deps.store.matches(tournament.id),
-              identityRecord: deps.identityRecord,
-              teamBuild: deps.teamBuild,
-            }),
+            body: report.xml,
           };
         } catch (error) {
           if (error instanceof NafExportError)

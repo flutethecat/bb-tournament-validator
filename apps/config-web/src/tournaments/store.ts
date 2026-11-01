@@ -645,6 +645,7 @@ export class TournamentStore {
     authenticatedCoach: string,
     organizer: boolean,
     now = new Date(),
+    nafSnapshot?: { nafName?: string; nafNumber: string },
   ): TournamentEntrantRecord {
     return this.mutate((data) => {
       const entrant = data.entrants[entrantId];
@@ -652,7 +653,11 @@ export class TournamentStore {
         throw new TournamentStoreError(404, "Tournament entrant not found.");
       if (!organizer && coachKey(entrant.coach.ffbCoachId) !== coachKey(authenticatedCoach))
         throw new TournamentStoreError(403, "You may withdraw only your own tournament entry.");
-      if (!entrant.droppedAt) entrant.droppedAt = now.toISOString();
+      if (!entrant.droppedAt) {
+        entrant.droppedAt = now.toISOString();
+        // NAF-sanctioned: freeze the entry's NAF details for the NAF report (the caller resolves them).
+        if (nafSnapshot) entrant.nafSnapshot = { ...nafSnapshot, at: now.toISOString() };
+      }
       const tournament = data.tournaments[tournamentId];
       if (tournament) tournament.updatedAt = now.toISOString();
       delete data.standings[tournamentId];

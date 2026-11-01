@@ -219,21 +219,60 @@ describe("NAF submission export", () => {
     expect(JSON.stringify(result)).not.toContain("Alice <Ace>");
   });
 
-  it("lists active entrants only: a withdrawn coach and the games they played are left out", async () => {
+  it("reports a withdrawn coach's games with the NAF details frozen at withdrawal, never the live profile", async () => {
     const store = newStore();
     const record = completedTournament(store);
     // A withdrawn Carol who played (and lost) one completed game against Alice before leaving.
+    const withCarol = (carol: Record<string, unknown>) => {
+      const snapshot = store.snapshot();
+      const alice = Object.values(snapshot.entrants).find((e) => e.tournamentId === record.id && e.coach.ffbCoachId === "Alice")!;
+      snapshot.entrants["carol-entry"] = { ...alice, id: "carol-entry", seed: 3, coach: { ...alice.coach, coachId: "Carol", ffbCoachId: "Carol" }, teamId: "team-carol", droppedAt: now.toISOString(), ...carol };
+      const played = Object.values(snapshot.scheduledMatches).find((m) => m.tournamentId === record.id && m.status === "completed" && m.id !== "carol-game")!;
+      snapshot.scheduledMatches["carol-game"] = { ...played, id: "carol-game", home: { ...played.home, entrantId: alice.id }, away: { ...played.away!, entrantId: "carol-entry", coach: { ...played.away!.coach, coachId: "Carol", ffbCoachId: "Carol" } } };
+      store.writeSnapshot(snapshot);
+    };
+    const identities = { ...identityRows, carol: { ffbCoachId: "Carol", identities: { nafName: "Carol Live", nafId: "999" } } };
+    const naf = () => call(store, "GET", `/api/tournaments/${record.id}/export`, owner, undefined, "format=naf", identities);
+
+    withCarol({ nafSnapshot: { nafName: "Carol Frozen", nafNumber: "303", at: now.toISOString() } });
+    let result = await naf();
+    expect(result?.status).toBe(200);
+    expect(result?.body).toContain("<name>Carol Frozen</name>");
+    expect(result?.body).toContain("<number>303</number>");
+    expect(result?.body).not.toContain("Carol Live");
+    expect(String(result?.body).match(/<game>/g)).toHaveLength(2);
+    expect(result?.headers?.["x-naf-export-warnings"]).toBeUndefined();
+
+    // An old withdrawal without a snapshot: the number stored on the entry, the name empty and a warning.
+    withCarol({ nafNumber: "304" });
+    result = await naf();
+    expect(result?.status).toBe(200);
+    expect(result?.body).toContain("<number>304</number>");
+    expect(result?.body).toContain("<!-- warning: Carol (withdrawn): missing NAF name, reported empty -->");
+    expect(result?.headers?.["x-naf-export-warnings"]).toBe("1");
+    expect(String(result?.body).match(/<game>/g)).toHaveLength(2);
+
+    // Nothing at all: the game is still reported, with empty NAF fields, and both are warned about.
+    withCarol({});
+    result = await naf();
+    expect(result?.status).toBe(200);
+    expect(result?.body).toContain("<name></name>");
+    expect(result?.body).toContain("<number></number>");
+    expect(result?.headers?.["x-naf-export-warnings"]).toBe("2");
+    expect(result?.body).not.toContain("Carol Live");
+    expect(String(result?.body).match(/<game>/g)).toHaveLength(2);
+  });
+
+  it("a withdrawn coach with no completed game is not listed", async () => {
+    const store = newStore();
+    const record = completedTournament(store);
     const snapshot = store.snapshot();
     const alice = Object.values(snapshot.entrants).find((e) => e.tournamentId === record.id && e.coach.ffbCoachId === "Alice")!;
-    snapshot.entrants["carol-entry"] = { ...alice, id: "carol-entry", seed: 3, coach: { ...alice.coach, coachId: "Carol", ffbCoachId: "Carol" }, teamId: "team-carol", droppedAt: now.toISOString() };
-    const played = Object.values(snapshot.scheduledMatches).find((m) => m.tournamentId === record.id && m.status === "completed")!;
-    snapshot.scheduledMatches["carol-game"] = { ...played, id: "carol-game", home: { ...played.home, entrantId: alice.id }, away: { ...played.away!, entrantId: "carol-entry", coach: { ...played.away!.coach, coachId: "Carol", ffbCoachId: "Carol" } } };
+    snapshot.entrants["dan-entry"] = { ...alice, id: "dan-entry", seed: 4, coach: { ...alice.coach, coachId: "Dan", ffbCoachId: "Dan" }, droppedAt: now.toISOString(), nafSnapshot: { nafName: "Dan Frozen", nafNumber: "404", at: now.toISOString() } };
     store.writeSnapshot(snapshot);
-    const identities = { ...identityRows, carol: { ffbCoachId: "Carol", identities: { nafName: "Carol Fake", nafId: "303" } } };
-    const result = await call(store, "GET", `/api/tournaments/${record.id}/export`, owner, undefined, "format=naf", identities);
+    const result = await call(store, "GET", `/api/tournaments/${record.id}/export`, owner, undefined, "format=naf");
     expect(result?.status).toBe(200);
-    expect(result?.body).not.toContain("Carol Fake");
-    expect(result?.body).toContain("<name>Alice &lt;Ace&gt;</name>");
+    expect(result?.body).not.toContain("Dan Frozen");
   });
 
   it("returns 400 with the full missing-number problems list verbatim", async () => {
