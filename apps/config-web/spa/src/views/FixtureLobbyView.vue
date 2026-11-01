@@ -11,6 +11,7 @@ import { usePageTitle } from "../shell/pageTitle";
 import LobbyChat from "../components/LobbyChat.vue";
 import LobbyCoachPanel from "../components/LobbyCoachPanel.vue";
 import LobbyFixtureCentre from "../components/LobbyFixtureCentre.vue";
+import LobbyInducements from "../components/LobbyInducements.vue";
 import LobbyStart from "../components/LobbyStart.vue";
 import { crestFor, day, initials } from "../leagues/league";
 import { createFixtureLobby, FIXTURE_LOBBY_KEY, kGold, mySide, otherSide, type LobbySide } from "../leagues/lobby";
@@ -92,6 +93,7 @@ const midLine = computed(() => {
       <div class="fl-grid">
         <div class="fl-col">
           <LobbyCoachPanel :view="view" :side="left" :mine="true" />
+          <LobbyInducements :view="view" :side="left" />
         </div>
         <div class="fl-col">
           <LobbyFixtureCentre :view="view" :left="left" />
@@ -104,6 +106,7 @@ const midLine = computed(() => {
         </div>
         <div class="fl-col">
           <LobbyCoachPanel :view="view" :side="right" :mine="false" />
+          <LobbyInducements :view="view" :side="right" />
         </div>
       </div>
     </template>

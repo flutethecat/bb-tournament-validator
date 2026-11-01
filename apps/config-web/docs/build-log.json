@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-01",
+    "title": "Fixture lobbies with pre-match inducements",
+    "body": "Every pending league fixture now has a lobby where the two coaches chat, lock their rosters, buy inducements against the team value gap (with Auto-Buy for the underdog) and press Ready, then start the match. Open it from Lobby on the Fixtures tab or your next fixture in the sidebar.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-01",
     "title": "Choose a new Team Captain",
     "body": "If your Team Captain is killed, fired, retired or not re-hired at a redraft, your team sheet now shows a Captain vacant chip and asks you to choose a new captain the next time you open it. Pick any roster player who is not a Big Guy or a Star: they gain Team Captain and Pro for free, and the old captain keeps theirs in the team's history.",
     "links": [
