@@ -395,6 +395,8 @@ function browserSaveBlob(blob: Blob, fileName: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+const STAT_KEYS = ["MA", "ST", "AG", "PA", "AV"] as const;
+export const STATS_OFF_REASON = "This ruleset doesn't allow stat increases.";
 export function createTournamentBuilder(deps: BuilderDeps) {
   const api = deps.api;
   const state = reactive<BuilderState>(blankState());
@@ -437,8 +439,16 @@ export function createTournamentBuilder(deps: BuilderDeps) {
   const ownTierRow = (): TierRow | undefined => (state.roster ? state.tierRows.find((r) => core.norm(r.name) === core.norm(state.roster!.raceName)) : undefined);
   /** Tier knobs for the current race: the authoritative preview echo first, then the /tiers row. */
   const tierRules = (): TierRules | null => (free() ? null : core.normalizeTierRules(state.preview?.package?.rules) ?? core.normalizeTierRules(ownTierRow()?.raw));
-  const statRules = (): StatRules | null => (free() ? freeStatRules(state.ignoreLimits) : tierRules()?.statIncreases ?? null);
+  const statRules = (): StatRules | null => (free() ? freeStatRules(state.ignoreLimits) : statsRuleAllowed() ? tierRules()?.statIncreases ?? null : null);
   const allowedStats = (): string[] => core.allowedStatList(statRules());
+  /** The package's master switch for stat increases ("Allow stat increases" in the Tournament Creator; Free Create is always on).
+   *  Only an explicit false from the server counts as off, so a server that doesn't send it keeps the knob-driven behaviour. */
+  const statsRuleAllowed = (): boolean => {
+    if (free()) return true;
+    const flag = (state.preview?.package?.rules as { statIncreasesAllowed?: unknown } | undefined)?.statIncreasesAllowed
+      ?? (ownTierRow()?.raw as { statIncreasesAllowed?: unknown } | undefined)?.statIncreasesAllowed;
+    return flag !== false;
+  };
   const packSummary = (): SkillPack | null => {
     const race = raceRules();
     return race && state.skillPack ? race.packs.find((p) => p.label === state.skillPack) ?? null : null;
@@ -1179,6 +1189,26 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     state.slots = state.slots.map((s, i) => (i === index ? { ...s, chosenStatIncreases: s.chosenStatIncreases.filter((k) => k !== stat) } : s));
     changed();
   }
+  /** What a reset would remove from this player: added skills and stat increases (printed skills and the captain's free Pro
+   *  are not advancements and never count). */
+  function resetSummary(index: number): { skills: number; stats: number } {
+    const slot = state.slots[index];
+    if (!slot || isStarSlot(slot)) return { skills: 0, stats: 0 };
+    return { skills: slot.chosenSkills.length, stats: slot.chosenStatIncreases.length + Object.keys(slot.chosenStats ?? {}).length };
+  }
+  /** The Advance dialog's Reset (owner 11-01): back to the position's base profile. Drops every added skill and stat
+   *  increase; the name, row number and Team Captain flag stay (the captain's free Pro is granted by the flag, not stored). */
+  function resetPlayer(index: number): { skills: number; stats: number } {
+    const was = resetSummary(index);
+    if (!was.skills && !was.stats) return was;
+    state.slots = state.slots.map((s, i) => {
+      if (i !== index) return s;
+      const { chosenStats: _cs, ...rest } = s;
+      return { ...rest, chosenSkills: [], chosenStatIncreases: [] };
+    });
+    changed();
+    return was;
+  }
   function stepStaff(key: keyof Staff, delta: number): void {
     const row = staffRows(state.roster).find((r) => r.key === key);
     if (!row || (key === "apothecary" && state.roster && !state.roster.apothecaryAllowed)) return;
@@ -1283,16 +1313,20 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     if (!slot || !position) return [];
     const chosen = slot.chosenStatIncreases.filter((k) => allowedStats().includes(k));
     const now = core.improvedStats(position, chosen);
-    return allowedStats().map((stat) => {
+    const ruleOff = !statsRuleAllowed();
+    // Always the five tiles. A ruleset that disallows increases (or a race with none set up) shows them greyed out, each
+    // "+" carrying the reason; "−" still works on increases the player already has, so a stale one can be removed.
+    return STAT_KEYS.map((stat) => {
       const has = chosen.includes(stat);
-      const block = statBlock(slot, position, stat);
+      const offered = !ruleOff && allowedStats().includes(stat);
+      const block = offered ? statBlock(slot, position, stat) : ruleOff ? STATS_OFF_REASON : `${stat} increases aren't available here.`;
       const reason = has && block === "Already taken." ? `${stat} already has its increase.` : block;
       const next = core.improvedStats(position, [...chosen, stat]);
-      const cost = core.statIncreaseCost(statRules(), stat);
+      const cost = offered ? core.statIncreaseCost(statRules(), stat) : null;
       return {
         stat, reason, has, value: String(now[stat as Stat].value), up: now[stat as Stat].improved,
         to: String(reason ? now[stat as Stat].value : next[stat as Stat].value), cost: cost != null ? `+${core.gold(cost)}` : "",
-        removeReason: has ? "" : `No ${stat} increase to remove.`,
+        removeReason: has ? "" : ruleOff ? STATS_OFF_REASON : `No ${stat} increase to remove.`,
       };
     });
   }
@@ -1622,7 +1656,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     free, ignoring, capped, canShare, skillBlock, moreSkills, rulesetCards, rulesetLabel, freeRaces, canAddStar,
     // actions
     init, boot, choosePackage, chooseRace, setTeamName, selectLeague, setSkillPack, addPosition, removeSlot, addStar, removeStar, moveSlot,
-    toggleCaptain, openSkills, addSkill, removeSkill, addStat, removeStat, renameSlot, rerollName, stepStaff, stepInducement, setIgnoreLimits, schedulePreview, flushPreview,
+    toggleCaptain, openSkills, addSkill, removeSkill, addStat, removeStat, resetSummary, resetPlayer, renameSlot, rerollName, stepStaff, stepInducement, setIgnoreLimits, schedulePreview, flushPreview,
     loadSave, saveTeam, share, unshare, copyShare, build, exportPdf,
   };
 }

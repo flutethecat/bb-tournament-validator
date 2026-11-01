@@ -1,6 +1,21 @@
 [
   {
     "date": "2026-11-01",
+    "title": "Reset a player, and stat increases follow the ruleset",
+    "body": "The Advance dialog has a RESET switch that takes a player back to base: every added skill and stat increase goes, while the name, number and Team Captain stay. Rulesets that don't allow stat increases now show the stat bar greyed out with the reason, and the Tournament Creator has an Allow stat increases switch (Advanced) that the validator enforces.",
+    "links": [
+      {
+        "label": "Roster Builder",
+        "href": "/app/tournament-team-builder"
+      },
+      {
+        "label": "Tournament Creator",
+        "href": "/app/tournament-creator"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-01",
     "title": "Discord messages for game-time proposals",
     "body": "When a coach proposes, changes or accepts a game time with you, the Super FUMBBL bot now also messages you on Discord with a link to answer it. It's on for everyone with Discord linked; turn it off on your Account page under Notifications. You need to share a Discord server with the bot.",
     "links": [

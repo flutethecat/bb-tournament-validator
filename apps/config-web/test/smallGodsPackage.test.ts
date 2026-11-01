@@ -301,6 +301,7 @@ describe("Small Gods package", () => {
       eliteMaxSameSkill: 6,
       maxStackedPlayers: 4,
       stackedPlayer: { maxSkills: 3, maxSecondary: 2, maxElite: 2 },
+      statIncreasesAllowed: true,
       statIncreases: { allowed: ["AV", "PA"], costGold: { MA: 20000, PA: 20000, AV: 10000 } },
       starPacks: [{ id: "free", label: "Free", fee: 0, feeMode: "each", max: 2, stars: pkg.starPacks![0]!.stars }],
       maxStars: 2,
@@ -368,8 +369,16 @@ describe("stat-increase hardening (review 10-22)", () => {
     const result = validate(composed.roster, legacy, bb2025);
     expect(result.valid).toBe(false);
     expect(ruleErrors(result, "stat-increases")[0]!.message).toBe(
-      "#1 Dwarf Blocker Lineman has a characteristic increase (+ST); stat increases are not allowed in this package.",
+      "#1 Dwarf Blocker Lineman has a characteristic increase (+ST); this ruleset doesn't allow stat increases.",
     );
+    // The master switch wins over the knobs: a package that configures stat increases but leaves "Allow stat increases"
+    // off refuses them too.
+    const { pkg: off } = loadPackage({ name: "Off Cup", eligibleRosters: ["*"], statIncreases: { allowed: ["ST"], costGold: { ST: 80000 } } });
+    const refused = validate(composed.roster, off, bb2025);
+    expect(refused.valid).toBe(false);
+    expect(ruleErrors(refused, "stat-increases")[0]!.message).toContain("this ruleset doesn't allow stat increases.");
+    const { pkg: on } = loadPackage({ name: "On Cup", eligibleRosters: ["*"], statIncreases: { allowed: ["ST"], costGold: { ST: 80000 } }, special: { statIncreasesAllowed: true } } as never);
+    expect(ruleErrors(validate(composed.roster, on, bb2025), "stat-increases")).toEqual([]);
     // The composer refuses increases on a Star pick outright.
     expect(() =>
       composeTeam(
@@ -427,7 +436,8 @@ describe("stat-increase overflow is an error, not a clamp (re-review 10-22)", ()
       name: "Lax Cup",
       eligibleRosters: ["*"],
       statIncreases: { allowed: ["MA"], costGold: { MA: 20000 }, maxPerPlayer: 10 },
-    });
+      special: { statIncreasesAllowed: true },
+    } as never);
     const composed = composeTeam(
       { forkRosterXml: forkXml("Dwarf"), coach: "C", teamName: "T", picks: [{ positionId: "1", count: 11 }], reRolls: 0, apothecary: false },
       bb2025,
@@ -440,7 +450,7 @@ describe("stat-increase overflow is an error, not a clamp (re-review 10-22)", ()
       "#1 Dwarf Blocker Lineman: MA is more than 10 steps above the position — over the characteristic limit.",
     );
     // A double +MA within maxPerPlayer 2 stays legal (repeats are allowed when the package allows them).
-    const { pkg: two } = loadPackage({ name: "Two Cup", eligibleRosters: ["*"], statIncreases: { allowed: ["MA"], maxPerPlayer: 2 } });
+    const { pkg: two } = loadPackage({ name: "Two Cup", eligibleRosters: ["*"], statIncreases: { allowed: ["MA"], maxPerPlayer: 2 }, special: { statIncreasesAllowed: true } } as never);
     const ok = composeTeam(
       { forkRosterXml: forkXml("Dwarf"), coach: "C", teamName: "T", picks: [{ positionId: "1", count: 11, chosenStatIncreases: ["MA", "MA"] }], reRolls: 0, apothecary: false },
       bb2025,

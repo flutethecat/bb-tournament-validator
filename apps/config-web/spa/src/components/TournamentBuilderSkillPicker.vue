@@ -21,6 +21,7 @@ const dialog = ref<HTMLElement | null>(null);
 async function openSkill(index: number, from: HTMLElement | null): Promise<void> {
   opener.value = from;
   picker.value = { index, error: "", loading: true };
+  confirming.value = false;
   statLive.value = "";
   category.value = "";
   const error = await builder.openSkills(index);
@@ -30,6 +31,7 @@ defineExpose({ openSkill });
 async function close(): Promise<void> {
   const index = picker.value?.index;
   picker.value = null;
+  confirming.value = false;
   await nextTick();
   const back = opener.value && document.contains(opener.value) && !(opener.value as HTMLButtonElement).disabled ? opener.value
     : document.querySelector<HTMLElement>(`.tb-rows [data-row="${index}"] .tb-advance:not(:disabled)`) ?? document.querySelector<HTMLElement>(`.tb-rows [data-row="${index}"] .tb-grip`);
@@ -59,7 +61,7 @@ function pick(skill: string): void {
 }
 // ── the stat bar (only where the ruleset allows stat increases) ──
 const statsOn = computed(() => (picker.value ? builder.advanceLock(picker.value.index).stats : false));
-const steps = computed(() => (picker.value && statsOn.value ? builder.statSteps(picker.value.index) : []));
+const steps = computed(() => (picker.value ? builder.statSteps(picker.value.index) : [])); // always the five tiles; greyed where the ruleset says no
 const skillLockNote = computed(() => (picker.value && statsOn.value && builder.slotLocks(picker.value.index).skillLocked ? "A player with a stat increase can't also have an added skill. Remove it to pick a skill." : ""));
 /** AG / PA are roll targets: improving lowers the number (3+ → 2+). AV is "9+" but rises (9+ → 10+). */
 const isTarget = (stat: string): boolean => stat === "AG" || stat === "PA";
@@ -91,9 +93,38 @@ function statDown(stat: string): void {
   statLive.value = `${stat} increase removed.`;
   void refocus(stat, "down");
 }
+// ── Reset to base (owner 11-01): an inline confirm, never a second dialog ──
+const confirming = ref(false);
+const resetBtn = ref<HTMLElement | null>(null);
+const cancelBtn = ref<HTMLElement | null>(null);
+const summary = computed(() => (picker.value ? builder.resetSummary(picker.value.index) : { skills: 0, stats: 0 }));
+const nothingToReset = computed(() => !summary.value.skills && !summary.value.stats);
+const plural = (n: number, w: string): string => `${n} ${w}${n === 1 ? "" : "s"}`;
+const resetTitle = computed(() => (nothingToReset.value ? "Nothing to reset: this player has no added skills or stat increases." : "Remove every added skill and stat increase from this player"));
+const confirmText = computed(() => `Reset #${(picker.value?.index ?? 0) + 1} to base? Removes ${plural(summary.value.skills, "skill")} and ${plural(summary.value.stats, "stat increase")}.`);
+async function askReset(): Promise<void> {
+  if (nothingToReset.value) return;
+  confirming.value = true;
+  await nextTick();
+  cancelBtn.value?.focus({ preventScroll: true });
+}
+async function stopReset(): Promise<void> {
+  confirming.value = false;
+  await nextTick();
+  resetBtn.value?.focus({ preventScroll: true });
+}
+async function doReset(): Promise<void> {
+  if (!picker.value) return;
+  const gone = builder.resetPlayer(picker.value.index);
+  picker.value = { ...picker.value, error: "" };
+  statLive.value = `Reset to base: removed ${plural(gone.skills, "skill")} and ${plural(gone.stats, "stat increase")}.`;
+  confirming.value = false;
+  await nextTick();
+  resetBtn.value?.focus({ preventScroll: true }); // stays focusable (aria-disabled), so focus never falls to the page
+}
 const heading = computed(() => {
   if (!picker.value || !slot.value) return "";
-  return `${statsOn.value ? "Advance" : "Add skill"}: #${picker.value.index + 1} ${builder.shortName(position.value)}`;
+  return `Advance: #${picker.value.index + 1} ${builder.shortName(position.value)}`;
 });
 
 // Focus (aria-modal): focus moves into the dialog; Tab wraps inside; Escape closes.
@@ -105,7 +136,7 @@ function onKey(e: KeyboardEvent): void {
   if (action.type === "stop") { e.stopPropagation(); return; }
   e.preventDefault();
   e.stopPropagation();
-  if (action.type === "close") void close();
+  if (action.type === "close") { if (confirming.value) void stopReset(); else void close(); }
   else if (action.type === "focus") action.target.focus({ preventScroll: true });
 }
 watch(picker, async (p, was) => {
@@ -125,7 +156,7 @@ onUnmounted(() => { if (typeof window !== "undefined") window.removeEventListene
       <h3 id="tb-picker-h" class="tn-band">{{ heading }}<button type="button" class="tn-modal-x" aria-label="Close" @click="close()">×</button></h3>
       <div class="tn-panel-body">
         <p v-if="picker.error" class="lobby-error" role="alert">{{ picker.error }}</p>
-        <div class="tb-adv-top" :class="{ 'with-stats': statsOn && steps.length }">
+        <div class="tb-adv-top" :class="{ 'with-stats': steps.length }">
           <div class="tb-adv-blades">
             <p v-if="picker.loading" class="muted" role="status">Loading legal skills...</p>
             <p v-else-if="sections && !sections.length" class="muted">No selectable skills for this position.</p>
@@ -139,8 +170,7 @@ onUnmounted(() => { if (typeof window !== "undefined") window.removeEventListene
               </div>
             </template>
           </div>
-          <div v-if="statsOn && steps.length" class="tb-adv-stats" role="group" aria-labelledby="tb-adv-stats-k">
-            <span id="tb-adv-stats-k" class="tb-k">Stat increases</span>
+          <div v-if="steps.length" class="tb-adv-stats" role="group" aria-label="Stat increases">
             <div class="tb-adv-bar">
               <span v-for="o in steps" :key="o.stat" class="tb-adv-col">
                 <small class="tb-adv-cost" :class="{ off: Boolean(o.reason) }" aria-hidden="true">{{ o.cost }}</small>
@@ -152,9 +182,9 @@ onUnmounted(() => { if (typeof window !== "undefined") window.removeEventListene
                   :title="o.has ? `Remove the ${o.stat} increase` : o.removeReason" :aria-label="downLabel(o)" @click="statDown(o.stat)"><span aria-hidden="true">−</span></button>
               </span>
             </div>
-            <p class="tn-sr" role="status" aria-live="polite">{{ statLive }}</p>
           </div>
         </div>
+        <p class="tn-sr" role="status" aria-live="polite">{{ statLive }}</p>
         <p v-if="skillLockNote" class="muted tb-adv-note">{{ skillLockNote }}</p>
         <div v-if="sections && activeGroup" class="tb-chips">
           <span v-for="k in activeGroup.skills" :key="k.skill" class="tb-chip-cell">
@@ -169,6 +199,20 @@ onUnmounted(() => { if (typeof window !== "undefined") window.removeEventListene
             </button>
             <button v-if="chip(k).added" type="button" class="tb-chip-x" :aria-label="`Remove ${k.skill}`" @click="builder.removeSkill(picker.index, k.skill)">×</button>
           </span>
+        </div>
+        <div class="tb-adv-foot" role="group" aria-label="Reset this player">
+          <template v-if="!confirming">
+            <span class="tb-reset-plate" :class="{ off: nothingToReset }">
+              <span class="tb-reset-caption" aria-hidden="true">Reset</span>
+              <button ref="resetBtn" type="button" class="tb-adv-reset" :aria-disabled="nothingToReset ? 'true' : undefined"
+                :title="resetTitle" aria-label="Reset player to base" @click="askReset()"></button>
+            </span>
+          </template>
+          <template v-else>
+            <span class="tb-adv-confirm-text" role="alert">{{ confirmText }}</span>
+            <button type="button" class="sf-btn small danger" @click="doReset()">Confirm</button>
+            <button ref="cancelBtn" type="button" class="sf-btn small" @click="stopReset()">Cancel</button>
+          </template>
         </div>
       </div>
     </div>

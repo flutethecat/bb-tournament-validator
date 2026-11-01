@@ -544,11 +544,12 @@ export const statIncreasesRule: Rule = {
   needsDatasetRoster: true,
   check: ({ players, pkg, roster, data }) => {
     const cfg = resolveTeamConfig(pkg, roster.rosterName);
-    const si = cfg.statIncreases;
-    // No `statIncreases` knob anywhere: only the legacy `special.statIncreasesAllowed: true`
-    // leaves increases unchecked; otherwise ANY increase is illegal (the builder applies
-    // chosenStatIncreases regardless of package, so this must fail closed).
-    if (!si && pkg.special.statIncreasesAllowed === true) return [];
+    // `special.statIncreasesAllowed` ("Allow stat increases" in the Tournament Creator) is the package's master switch: unless it
+    // is true, ANY increase is illegal, whatever `statIncreases` knobs say (the builder applies chosenStatIncreases
+    // regardless of package, so this must fail closed). With it on and no knob anywhere, increases stay unchecked.
+    const allowed = pkg.special.statIncreasesAllowed === true;
+    const si = allowed ? cfg.statIncreases : undefined;
+    if (!si && allowed) return [];
     const where = sourceLabel(cfg);
     const findings: Finding[] = [];
     for (const rp of players) {
@@ -571,7 +572,7 @@ export const statIncreasesRule: Rule = {
       const shown = incs.map((k) => `+${k}`).join(", ");
       if (!si) {
         findings.push(
-          err("stat-increases", `${label} has a characteristic increase (${shown}); stat increases are not allowed in this package.`, {
+          err("stat-increases", `${label} has a characteristic increase (${shown}); this ruleset doesn't allow stat increases.`, {
             playerRef: rp.player.number,
             suggestion: `Remove the increase from ${label}.`,
           }),

@@ -39,7 +39,7 @@ const HUMAN = {
     { positionId: "sgrim", name: "Grim Ironjaw", type: "Star", cost: 200000, max: 1, MA: 5, ST: 4, AG: "3+", PA: "-", AV: "9+", skills: ["Block"], isStar: true, playsFor: ["(any)"] },
   ],
 };
-const TIER_ROW = { name: "Human", tier: 1, gold: 1150000, maxSecondary: 0, maxStackedPlayers: 1, stackedPlayer: { maxSkills: 2, maxSecondary: 0, maxElite: 0 } };
+const TIER_ROW = { name: "Human", tier: 1, statIncreasesAllowed: false, gold: 1150000, maxSecondary: 0, maxStackedPlayers: 1, stackedPlayer: { maxSkills: 2, maxSecondary: 0, maxElite: 0 } };
 const RULES = {
   name: "Test Cup", budget: 1150000,
   tierSummary: [{ tier: 1, label: "Tier 1", rosters: ["Human"], gold: 1150000 }],
@@ -177,6 +177,36 @@ describe("tournament builder controller", () => {
     expect(b.state.slots[1]!.captain).toBe(true);
     expect(b.requestBody().picks.find((p) => p.captain)).toEqual({ positionId: "hbli", count: 1, captain: true, names: [expect.any(String)] });
     expect(b.valueLines().find((l) => l.label === "Team Captain")?.value).toBe("#2 Blitzer");
+  });
+
+  it("Reset to base (owner 11-01): drops added skills, keeps name, number and Team Captain, updates costs; nothing to reset is a no-op", async () => {
+    const { b } = await ready(mockFetcher(routes()));
+    b.setTeamName("Reavers");
+    b.addPosition("hbli");
+    b.addPosition("hlin");
+    b.renameSlot(0, "Ironhide");
+    b.toggleCaptain(0);
+    expect(b.resetSummary(0)).toEqual({ skills: 0, stats: 0 });
+    expect(b.resetPlayer(0)).toEqual({ skills: 0, stats: 0 }); // nothing to reset
+    await b.openSkills(0);
+    await b.openSkills(1);
+    expect(b.addSkill(0, "Tackle")).toBe("");
+    expect(b.addSkill(1, "Wrestle")).toBe("");
+    const before = b.totals().skillsCost;
+    const beforeCount = b.totals().primary + b.totals().secondary;
+    expect(b.resetSummary(0)).toEqual({ skills: 1, stats: 0 });
+    expect(b.resetPlayer(0)).toEqual({ skills: 1, stats: 0 });
+    const s0 = b.state.slots[0]!;
+    expect(s0.chosenSkills).toEqual([]);
+    expect(s0.chosenStatIncreases).toEqual([]);
+    expect(s0.name).toBe("Ironhide");
+    expect(s0.captain).toBe(true); // the captain's free Pro comes from the flag, so it stays
+    expect(b.captainIndex()).toBe(0);
+    expect(b.state.slots[1]!.chosenSkills).toEqual(["Wrestle"]); // other rows untouched
+    expect(b.totals().skillsCost).toBeLessThan(before);
+    expect(b.totals().primary + b.totals().secondary).toBe(beforeCount - 1);
+    expect(b.resetSummary(0)).toEqual({ skills: 0, stats: 0 });
+    expect(b.sheetModel().rows[0]!.name).toBe("Ironhide");
   });
 
   it("Team Captain: no direct reassignment; clearing the captain (or firing them) frees the toggle (owner 10-31)", async () => {
@@ -1120,7 +1150,7 @@ describe("tournament builder page (client behaviour)", () => {
     } finally { page.app.unmount(); }
   });
 
-  it("the Advance dialog (owner 11-01): Free Create shows the stat bar with + / − per characteristic; a tier without increases keeps Add skill", async () => {
+  it("the Advance dialog (owner 11-01): Free Create shows the stat bar with + / − per characteristic; a ruleset without increases keeps the bar visible but greyed out", async () => {
     const free = await mount("/tournament-team-builder?package=free-create&race=human", mockFetcher(routes()));
     try {
       await free.fire(free.find((e) => e.attrs.id === "tb-team-name"), "input", { value: "Reavers" });
@@ -1149,8 +1179,14 @@ describe("tournament builder page (client behaviour)", () => {
       await cup.fire(cup.find((e) => e.attrs.id === "tb-team-name"), "input", { value: "Reavers" });
       await cup.fire(cup.find((e) => String(e.attrs["aria-label"]).startsWith("Add Human Lineman,")), "click");
       await cup.fire(cup.find((e) => e.attrs["aria-label"] === "Add skill for #1 Lineman"), "click");
-      expect(textOf(cup.find((e) => e.attrs.id === "tb-picker-h"))).toContain("Add skill: #1 Lineman");
-      expect(cup.all().filter((e) => e.attrs["data-step"])).toEqual([]);
+      expect(textOf(cup.find((e) => e.attrs.id === "tb-picker-h"))).toContain("Advance: #1 Lineman");
+      const off = cup.all().filter((e) => e.attrs["data-step"]);
+      expect(off).toHaveLength(10); // the tiles stay (current values), every + and − greyed out
+      expect(off.every((e) => e.attrs["aria-disabled"] === "true")).toBe(true);
+      expect(off.find((e) => e.attrs["data-step"] === "up-ST")!.attrs.title).toBe("This ruleset doesn't allow stat increases.");
+      expect(off.find((e) => e.attrs["data-step"] === "down-ST")!.attrs.title).toBe("This ruleset doesn't allow stat increases.");
+      expect(cup.all().some((e) => e.attrs["aria-label"] === "Stat increases")).toBe(true);
+      expect(cup.all().some((e) => e.tag === "#text" && e.text === "Stat increases")).toBe(false); // no caption (owner 11-01)
       // the elite tag is the diamond (owner 11-01), not the word
       const elite = cup.all().filter((e) => e.tag === "img" && e.attrs.class === "tb-elite");
       expect(elite.length).toBeGreaterThan(0);

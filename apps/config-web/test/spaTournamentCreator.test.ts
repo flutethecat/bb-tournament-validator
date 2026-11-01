@@ -85,6 +85,24 @@ describe("tournament creator core + controller", () => {
     expect(c.serialize()).toEqual(NUT_CUP);
   });
 
+  it("Allow stat increases: the toggle saves special.statIncreasesAllowed and reopens as set; off by default", async () => {
+    let sent: any;
+    const f = mockFetcher({ ...API, "POST /api/packages": (b: unknown) => { sent = b; return { ok: true, savedAs: "/data/nut-cup.json", name: "Nut Cup", problems: [], revision: "rev-2" }; } });
+    const c = createTournamentCreator({ api: f });
+    await c.init();
+    await c.open("Nut Cup");
+    expect(c.state.pkg!.special.statIncreasesAllowed).toBe(false);
+    c.toggleSpecial("statIncreasesAllowed");
+    expect(c.state.pkg!.special.statIncreasesAllowed).toBe(true);
+    expect(c.dirty()).toBe(true);
+    await c.save();
+    expect(sent.special.statIncreasesAllowed).toBe(true);
+    const again = normalizePackage(sent);
+    expect(again.special.statIncreasesAllowed).toBe(true);
+    c.toggleSpecial("statIncreasesAllowed");
+    expect((c.serialize().special as { statIncreasesAllowed?: boolean }).statIncreasesAllowed).toBe(false);
+  });
+
   it("a field edit + save: the body is the document as edited, If-Match carries the revision", async () => {
     let sent: unknown;
     const f = mockFetcher({ ...API, "POST /api/packages": (b: unknown) => { sent = b; return { ok: true, savedAs: "/data/nut-cup.json", name: "Nut Cup", problems: [], revision: "rev-2" }; } });

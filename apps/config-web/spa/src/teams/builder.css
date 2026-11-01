@@ -11,12 +11,29 @@
   --tb-badge-ink: #ffffff; --tb-badge-line: rgb(0 0 0 / 75%); --tb-badge-drop: rgb(0 0 0 / 50%);
   --tb-secondary-bar: #ffffff;
   --tb-skillbar-muted: #d0d3d8; /* muted ink on the band: 5.4:1 */
+  /* the console-panel Reset: a physical grey plate and black cap, the same in both themes; label 5:1 on the plate */
+  --tb-reset-plate: #b9b9b4;
+  --tb-reset-plate-hi: #e6e6e1;
+  --tb-reset-plate-line: #6b6b67;
+  --tb-reset-label: #8f0008;
+  --tb-reset-cap-top: #3c3c3e;
+  --tb-reset-cap-bottom: #0a0a0b;
+  --tb-reset-cap-line: #000000;
+  --tb-reset-cap-drop: #000000;
   --tb-num-outline: -1px -1px 0 #000000, 1px -1px 0 #000000, -1px 1px 0 #000000, 1px 1px 0 #000000, 0 0 4px rgb(0 0 0 / 80%);
 }
 :root[data-theme="light"] .tb-page {
   /* generated from the block above by tools/theme/derive-light.mjs */
   --tb-skillbar: #e8e8e8;
   --tb-badge-ink: #ffffff; --tb-badge-line: rgb(0 0 0 / 60%); --tb-badge-drop: rgb(0 0 0 / 40%);
+  --tb-reset-plate: #b9b9b4;
+  --tb-reset-plate-hi: #e6e6e1;
+  --tb-reset-plate-line: #6b6b67;
+  --tb-reset-label: #8f0008;
+  --tb-reset-cap-top: #3c3c3e;
+  --tb-reset-cap-bottom: #0a0a0b;
+  --tb-reset-cap-line: #000000;
+  --tb-reset-cap-drop: #000000;
   --tb-skillbar-muted: #232529; /* >= 4.5:1 on the light band */
   --tb-secondary-bar: #121212; /* white would vanish on the light chips: the light preset's ink */
   --tb-num-outline: -1px -1px 0 #000000, 1px -1px 0 #000000, -1px 1px 0 #000000, 1px 1px 0 #000000, 0 0 4px rgb(0 0 0 / 80%);
@@ -433,6 +450,25 @@
 .tb-adv-step[data-dir="up"] { color: var(--ui-text-on-primary); background: var(--ui-primary); }
 .tb-adv-step:hover:not([aria-disabled="true"]) { border-color: var(--ui-heading); }
 .tb-adv-step[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.tb-adv-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 10px; padding-top: 8px; border-top: 1px solid var(--sf-panel-line); }
+.tb-adv-confirm-text { flex: 1 1 220px; font-size: 14px; color: var(--ui-text); }
+/* Reset: an old-school console reset switch, CSS only. A grey plate with the red caption printed on it and a black push cap. */
+.tb-reset-plate {
+  display: inline-flex; align-items: center; gap: 12px; padding: 6px 8px 6px 12px; box-sizing: border-box;
+  background: linear-gradient(var(--tb-reset-plate-hi), var(--tb-reset-plate) 28%, var(--tb-reset-plate));
+  border: 2px solid var(--tb-reset-plate-line); border-radius: 3px; box-shadow: inset 0 1px 0 var(--tb-reset-plate-hi), inset 0 -2px 0 rgb(0 0 0 / 18%), 0 2px 0 var(--tb-reset-plate-line);
+}
+.tb-reset-caption { font: 11px/1 var(--sf-band-font); text-transform: uppercase; letter-spacing: .22em; color: var(--tb-reset-label); }
+.tb-adv-reset {
+  box-sizing: border-box; width: 52px; height: 28px; margin: 0 0 3px; padding: 0; cursor: pointer; border-radius: 5px;
+  background: linear-gradient(var(--tb-reset-cap-top), var(--tb-reset-cap-bottom)); border: 2px solid var(--tb-reset-cap-line);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 22%), 0 3px 0 var(--tb-reset-cap-drop); transition: transform .06s ease, box-shadow .06s ease, filter .06s ease;
+}
+.tb-adv-reset:hover:not([aria-disabled="true"]) { filter: brightness(1.35); }
+.tb-adv-reset:active:not([aria-disabled="true"]) { transform: translateY(2px); box-shadow: inset 0 1px 0 rgb(255 255 255 / 12%), 0 1px 0 var(--tb-reset-cap-drop); }
+.tb-adv-reset:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 3px; }
+.tb-reset-plate.off { border-style: dashed; background: var(--tb-reset-plate); }
+.tb-adv-reset[aria-disabled="true"] { cursor: not-allowed; background: var(--tb-reset-cap-top); border-color: var(--tb-reset-plate-line); box-shadow: none; margin-bottom: 0; transform: translateY(3px); }
 .tb-adv-note { margin: 0; font-size: 14px; }
 @media (max-width: 640px) {
   .tb-adv-top.with-stats { grid-template-columns: minmax(0, 1fr); }

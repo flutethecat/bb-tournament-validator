@@ -349,6 +349,31 @@ describe("Roster Builder: the single + and the Advance dialog's stat bar (owner 
     expect(b.statSteps(0).find((o) => o.stat === "AG")).toMatchObject({ value: "3+", has: false });
   });
 
+  it("Reset to base: removes stat increases and added skills (Ignore in-game limits allows both), keeps printed skills, name and number", async () => {
+    const { b } = await freeHuman();
+    b.setTeamName("Resetters");
+    await b.setIgnoreLimits(true);
+    b.addPosition("hogr");
+    b.addPosition("hlin");
+    b.renameSlot(0, "Grimm");
+    await b.openSkills(0);
+    expect(b.resetSummary(0)).toEqual({ skills: 0, stats: 0 });
+    expect(b.addStat(0, "ST")).toBe("");
+    expect(b.addStat(0, "AV")).toBe("");
+    expect(b.addSkill(0, "Block")).toBe("");
+    expect(b.resetSummary(0)).toEqual({ skills: 1, stats: 2 });
+    expect(b.totals().statCost).toBe(CHARACTERISTIC_VALUE.ST + CHARACTERISTIC_VALUE.AV);
+    expect(b.addStat(1, "MA")).toBe("");
+    expect(b.resetPlayer(0)).toEqual({ skills: 1, stats: 2 });
+    const s = b.state.slots[0]!;
+    expect([s.chosenSkills, s.chosenStatIncreases, s.name]).toEqual([[], [], "Grimm"]);
+    expect(b.positionById("hogr")!.skills).toContain("Bone Head"); // printed skills are the position's, not the slot's
+    expect(b.totals().statCost).toBe(CHARACTERISTIC_VALUE.MA); // only #2's increase is left
+    expect(b.statSteps(0).every((o) => !o.has && o.value === (o.stat === "MA" ? "5" : o.value))).toBe(true);
+    expect(b.sheetModel().rows[0]!.statIncreases).toEqual([]);
+    expect(b.state.slots[1]!.chosenStatIncreases).toEqual(["MA"]);
+  });
+
   it("caps hold on the + (MA 9 Sprinter, AG 1+ floor) with Ignore in-game limits", async () => {
     const { b } = await freeHuman();
     b.setTeamName("Sprinters");

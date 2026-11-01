@@ -106,6 +106,9 @@ export interface BuilderRaceRules {
   stackedPlayer: { maxSkills: number | null; maxSecondary: number | null; maxElite: number | null };
   /** null when no characteristic increase is open to the race. */
   statIncreases: { allowed: StatKey[]; costGold: Partial<Record<StatKey, number>> } | null;
+  /** The package's master switch (special.statIncreasesAllowed, "Allow stat increases" in the Tournament Creator). When false
+   *  the Advance dialog shows the stat bar greyed out and the validator refuses any increase. */
+  statIncreasesAllowed: boolean;
   /** Only the packs open to the race ([] when stars are not allowed or no packs are configured). */
   starPacks: BuilderStarPack[];
   /** Overall star cap (counts picks when packs are configured); 0 when stars are not allowed. */
@@ -134,7 +137,8 @@ export function builderRaceRules(pkg: TournamentPackage, race: string): BuilderR
     eliteMaxSameSkill: cfg.eliteMaxSameSkill,
     maxStackedPlayers: cfg.maxStackedPlayers,
     stackedPlayer: { ...cfg.stackedPlayer },
-    statIncreases: si && si.allowed.length ? { allowed: [...si.allowed], costGold: { ...si.costGold } } : null,
+    statIncreasesAllowed: pkg.special.statIncreasesAllowed === true,
+    statIncreases: pkg.special.statIncreasesAllowed === true && si && si.allowed.length ? { allowed: [...si.allowed], costGold: { ...si.costGold } } : null,
     starPacks,
     maxStars: cfg.starPlayersAllowed ? pkg.starPlayers.maxCount : 0,
   };
