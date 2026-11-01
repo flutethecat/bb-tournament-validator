@@ -1,5 +1,5 @@
 // The data inventory (spec-privacy-gdpr §0) as one typed list. The privacy notice renders its "What we collect" table
-// from it, and the export/delete lanes import the same list (src/privacy/export.ts must have a collector per `id`), so
+// from it, and the export/delete registry (src/privacy/collectors.ts INVENTORY_ROWS) must cover every `id`, so
 // the page and the export cannot drift. No personal data lives here: only the kinds of data the site stores.
 
 /**
@@ -17,7 +17,7 @@ export interface PrivacyFeatures {
   consentWithdrawal: boolean;
 }
 
-export const FEATURES: PrivacyFeatures = { export: false, delete: false, consentRecording: true, consentWithdrawal: true };
+export const FEATURES: PrivacyFeatures = { export: true, delete: true, consentRecording: true, consentWithdrawal: true };
 
 export type PublicVisibility = "no" | "yes" | "partly";
 
@@ -139,6 +139,19 @@ export const INVENTORY: readonly InventoryRow[] = [
     retention: HISTORY_RETENTION,
   },
   {
+    id: "tabletop-teams", store: "data-store/tabletop/teams/",
+    data: "The revision history of the teams you used in tabletop matches (roster changes after each match), tied to your coach name.",
+    purpose: "Keeping your tabletop team up to date after each match, with undo.",
+    public: "no", retention: ACCOUNT_LIFETIME,
+  },
+  {
+    id: "tournament-matches", store: "data-store/tournament-matches.json",
+    data: "Which online games were tournament matches, with the two coach names and teams.",
+    purpose: "Counting games in tournaments and tournament ratings.",
+    public: "yes", publicNote: "Tournament results are public standings.",
+    retention: HISTORY_RETENTION,
+  },
+  {
     id: "notifications", store: "data-store/notifications/",
     data: "Your notifications (the bell and inbox).",
     purpose: "Telling you about fixtures, deadlines and league events.",
@@ -189,6 +202,19 @@ export const INVENTORY: readonly InventoryRow[] = [
     public: "partly", publicNote: "Game records appear on the site's game pages.",
     retention: "Game records are kept as history; the account is disabled when you delete yours.",
   },
+  {
+    id: "fork-teams-xml", store: "Fork server team files (FORK_TEAMS_DIR)",
+    data: "The team files the game server plays with, including the coach name.",
+    purpose: "Playing games.",
+    public: "partly", publicNote: "Team and coach names appear in games and on game pages.",
+    retention: "Kept as game records.",
+  },
+  {
+    id: "bot-registry", store: "Discord bot data (coaches.json, validated-rosters.csv)",
+    data: "The Discord bot's coach registry (Discord id, FUMBBL and NAF names) and the rosters it validated.",
+    purpose: "Tournament roster checks in Discord.",
+    public: "no", retention: "Held by the Discord bot, not by this site; ask the contact to remove it.",
+  },
 ] as const;
 
 /** The notice's "What we collect" groups, in plain language, each pointing at the inventory rows behind it. */
@@ -196,8 +222,8 @@ export interface CollectGroup { title: string; text: string; ids: readonly strin
 
 export const COLLECT_GROUPS: readonly CollectGroup[] = [
   { title: "Your account", text: "Your Discord user id and username, the verified email on your Discord account, and your Discord avatar. If you add them: your preferred name, a contact email, and up to three phone numbers.", ids: ["identities", "contact-details", "consents", "sessions", "discord-sso", "organizers"] },
-  { title: "What you create", text: "Rosters, teams, logos, avatars, match records, and league and tournament entries.", ids: ["coach-avatars", "team-avatars", "builder-saves", "team-library", "tournaments", "leagues", "tabletop"] },
-  { title: "Game results and ratings", text: "Who played, who won, and the ratings and titles that follow.", ids: ["results", "fork-db"] },
+  { title: "What you create", text: "Rosters, teams, logos, avatars, match records, and league and tournament entries.", ids: ["coach-avatars", "team-avatars", "builder-saves", "team-library", "tournaments", "leagues", "tabletop", "tabletop-teams"] },
+  { title: "Game results and ratings", text: "Who played, who won, and the ratings and titles that follow.", ids: ["results", "tournament-matches", "fork-db", "fork-teams-xml"] },
   { title: "Notifications, email, chat and bug reports", text: "Notices we send you on the site, emails we send you (only if you opt in and confirm an address), lobby chat messages, and the bug reports you choose to send.", ids: ["notifications", "mail", "bug-reports", "lobby-chat"] },
   { title: "Technical data", text: "A session cookie, and your IP address held in memory only, for abuse limits.", ids: ["logs", "desktop-claims", "translation-cache"] },
 ];

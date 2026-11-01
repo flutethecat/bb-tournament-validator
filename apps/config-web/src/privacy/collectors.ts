@@ -265,7 +265,7 @@ export const STORE_COLLECTORS: StoreCollector[] = [
     erase: ["builder-saves"],
   },
   {
-    id: "library",
+    id: "team-library",
     location: "FORK_LIBRARY_DIR",
     export: (ctx) => [{ name: "team-library.json", content: json(ownLibraryFiles(ctx.deps.libraryDir, ctx.keys).flatMap((f) => f.teams)) }],
     erase: ["library"],
@@ -343,7 +343,7 @@ export const STORE_COLLECTORS: StoreCollector[] = [
       const teams = listFiles(join(ctx.deps.tabletopDir, "teams"), ".json").map((p) => readJson<{ coach?: string }>(p)).filter((c) => c && isMine(ctx.keys, c.coach));
       return [{ name: "tabletop-matches.json", content: json({ matches: out, teamRevisions: teams }) }];
     },
-    erase: ["tabletop-teams", "anonymise-tabletop"],
+    erase: ["anonymise-tabletop"],
   },
   {
     id: "tournament-results",
@@ -392,20 +392,44 @@ export const STORE_COLLECTORS: StoreCollector[] = [
     erase: { none: "Kept as game records (spec §3.3); the coach name inside stays with the fork's game history." },
   },
   {
-    id: "coach-registry",
-    location: "COACH_REGISTRY_JSON (discord-bot data-store/coaches.json)",
+    id: "bot-registry",
+    location: "COACH_REGISTRY_JSON (discord-bot data-store/coaches.json) and VALIDATED_CSV (validated-rosters.csv)",
     export: { none: "Owned by the Discord bot, not this site." },
     erase: { none: "Owned by the Discord bot; flagged for the owner." },
   },
   { id: "privacy-blocklist", location: "FORK_STATE_DIR/privacy/blocklist.json", export: { none: "Salted hashes only." }, erase: ["blocklist"] },
+  // Fields of the identity record the onboarding lane adds: exported and deleted with the whole record.
+  { id: "contact-details", location: "identities.json (profile.preferredName, contact.*)", export: { none: "In account.json (the whole identity record)." }, erase: ["identity"] },
+  { id: "consents", location: "identities.json (consent.*)", export: { none: "In account.json (the whole identity record)." }, erase: ["identity"] },
+  { id: "tabletop-teams", location: "TABLETOP_DIR/teams/<sha256>.json (team revision chains)", export: { none: "In tabletop-matches.json (teamRevisions)." }, erase: ["tabletop-teams"] },
+  // Memory only (never written to disk): nothing to export, gone on expiry or restart.
+  { id: "lobby-chat", location: "server memory (Start Game lobby)", export: { none: "Memory only; expires within 24 hours." }, erase: { none: "Memory only; expires within 24 hours or on restart." } },
+  { id: "desktop-claims", location: "server memory (desktop sign-in)", export: { none: "Memory only; expires within 10 minutes." }, erase: { none: "Memory only; expires within 10 minutes." } },
+  { id: "translation-cache", location: "server memory (chat translation cache)", export: { none: "Memory only; not kept per coach." }, erase: { none: "Memory only; expires within 24 hours." } },
 ];
 
 /** Every store the site is known to keep (spec §0 rows + stores found in the code). The registry must cover each. */
 export const KNOWN_STORES = [
-  "identities", "sessions", "discord-sso", "organizers", "coach-avatars", "team-avatars", "builder-saves", "library", "fork-db",
-  "tournaments", "leagues", "tabletop", "tournament-results", "tournament-matches", "naf-games", "coach-titles", "replay-moments",
-  "notifications", "bug-reports", "test-games", "logs", "fork-teams-xml", "coach-registry", "privacy-blocklist",
+  "identities", "contact-details", "consents", "sessions", "discord-sso", "organizers", "coach-avatars", "team-avatars", "builder-saves",
+  "team-library", "fork-db", "tournaments", "leagues", "tabletop", "tabletop-teams", "tournament-results", "tournament-matches", "naf-games",
+  "coach-titles", "replay-moments", "notifications", "bug-reports", "test-games", "logs", "fork-teams-xml", "bot-registry",
+  "privacy-blocklist", "lobby-chat", "desktop-claims", "translation-cache",
 ] as const;
+
+/**
+ * Registry store -> the privacy notice inventory rows it stands behind (spa/src/privacy/inventory.ts INVENTORY ids).
+ * Internal stores the notice does not list map to []. test/privacy.test.ts checks every inventory row is covered.
+ */
+export const INVENTORY_ROWS: Record<(typeof KNOWN_STORES)[number], string[]> = {
+  identities: ["identities"], "contact-details": ["contact-details"], consents: ["consents"], sessions: ["sessions"],
+  "discord-sso": ["discord-sso"], organizers: ["organizers"], "coach-avatars": ["coach-avatars"], "team-avatars": ["team-avatars"],
+  "builder-saves": ["builder-saves"], "team-library": ["team-library"], "fork-db": ["fork-db"], tournaments: ["tournaments"],
+  leagues: ["leagues"], tabletop: ["tabletop"], "tabletop-teams": ["tabletop-teams"], "tournament-results": ["results"],
+  "tournament-matches": ["tournament-matches"], "naf-games": ["results"], "coach-titles": ["results"], "replay-moments": ["results"],
+  notifications: ["notifications"], "bug-reports": ["bug-reports"], "test-games": [], logs: ["logs"], "fork-teams-xml": ["fork-teams-xml"],
+  "bot-registry": ["bot-registry"], "privacy-blocklist": [], "lobby-chat": ["lobby-chat"], "desktop-claims": ["desktop-claims"],
+  "translation-cache": ["translation-cache"],
+};
 
 /** Team keys whose logos belong to the coach: their builder saves and library teams. */
 export function teamKeysFor(deps: PrivacyDeps, names: Set<string>): string[] {

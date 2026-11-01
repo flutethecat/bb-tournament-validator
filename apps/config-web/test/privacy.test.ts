@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createAnonymiser } from "../src/privacy/anonymise.js";
-import { buildPlan, collectExport, DELETE_STEPS, KNOWN_STORES, STORE_COLLECTORS } from "../src/privacy/collectors.js";
+import { buildPlan, collectExport, DELETE_STEPS, INVENTORY_ROWS, KNOWN_STORES, STORE_COLLECTORS } from "../src/privacy/collectors.js";
+import { INVENTORY } from "../spa/src/privacy/inventory";
 import { PrivacyService } from "../src/privacy/service.js";
 import {
   appendJournal, blocklistHash, isDiscordBlocked, listJobs, readAudit, readJournal,
@@ -51,6 +52,25 @@ describe("collector registry", () => {
     const claimed = new Set(STORE_COLLECTORS.flatMap((c) => (Array.isArray(c.erase) ? c.erase : [])));
     for (const s of claimed) expect(steps.has(s), s).toBe(true);
     for (const s of steps) expect(claimed.has(s), s).toBe(true);
+  });
+});
+
+describe("privacy notice inventory vs the registry", () => {
+  it("every inventory row has a collector (export files or an explicit not-exported reason, and a delete decision)", () => {
+    for (const row of INVENTORY) {
+      const stores = Object.entries(INVENTORY_ROWS).filter(([, rows]) => rows.includes(row.id)).map(([id]) => id);
+      expect(stores.length, `inventory row ${row.id} has no collector`).toBeGreaterThan(0);
+      for (const id of stores) {
+        const c = STORE_COLLECTORS.find((x) => x.id === id)!;
+        expect(typeof c.export === "function" || Boolean((c.export as { none?: string }).none), `${id} export`).toBe(true);
+        expect(Array.isArray(c.erase) || Boolean((c.erase as { none?: string }).none), `${id} erase`).toBe(true);
+      }
+    }
+  });
+  it("every registry mapping names a real inventory row, and every known store is mapped", () => {
+    const ids = new Set(INVENTORY.map((r) => r.id));
+    for (const [store, rows] of Object.entries(INVENTORY_ROWS)) for (const r of rows) expect(ids.has(r), `${store} -> ${r}`).toBe(true);
+    expect(Object.keys(INVENTORY_ROWS).sort()).toEqual([...KNOWN_STORES].sort());
   });
 });
 
