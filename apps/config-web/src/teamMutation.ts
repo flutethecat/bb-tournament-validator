@@ -20,7 +20,7 @@ import { injuryStatOf, playerProgression, type Characteristic } from "./teamAdva
 import { skillCatalog } from "./data.js";
 import { findRoster, isStarName, normName, rosterHasTeamCaptain, TEAM_CAPTAIN, TEAM_CAPTAIN_FREE_SKILL } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
-import { appointedSkills, blockSkills, captainIneligibility, hasTeamCaptain, setXmlCaptainVacantMark, xmlCaptainVacant } from "./captain.js";
+import { appointedSkills, blockCaptainGrants, blockSkills, captainGrantsFor, captainGrantsNode, captainIneligibility, setXmlCaptainVacantMark, xmlCaptainVacant, xmlRosterHasCaptain } from "./captain.js";
 import { shiftStoredPlayerValue } from "./storedPlayerValue.js";
 
 export type TeamMutationOperation =
@@ -773,8 +773,22 @@ function rosterXmlHasTeamCaptain(rosterXml: string | undefined, teamXml: string)
   return Boolean(roster && rosterHasTeamCaptain(roster.specialRules));
 }
 
-/** The block without its Team Captain trait and the trait's free Pro (the first Pro after the trait: splitCaptainGrants). */
+/** The block without its Team Captain trait and the trait's free Pro: the recorded grants, else the trait and the first Pro after it. */
 function withoutCaptainGrantNodes(block: string): string {
+  const recorded = blockCaptainGrants(block);
+  if (recorded) {
+    let out = block.replace(/<captainGrants\b[^>]*>[^<]*<\/captainGrants>/i, "");
+    const items = playerListItems(out, "skill");
+    const left = recorded.map(normName);
+    for (let i = items.length - 1; i >= 0; i -= 1) {
+      const at = left.indexOf(normName(items[i]!.text));
+      if (at < 0) continue;
+      left.splice(at, 1);
+      const idx = out.lastIndexOf(items[i]!.full);
+      out = out.slice(0, idx) + out.slice(idx + items[i]!.full.length);
+    }
+    return out;
+  }
   let out = block;
   let seenTrait = false;
   let proFree = true;
@@ -959,7 +973,7 @@ function applyRosterOperation(
       .replace(/<\/firedRace>/i, "</race>")
       .replace(/\breason="[^"]*"\s?/i, "");
     // A re-hired former Team Captain comes back without the trait and its free Pro while another player is captain.
-    if (activePlayerBlocks(xml).some((player) => hasTeamCaptain(blockSkills(player.block)))) restored = withoutCaptainGrantNodes(restored);
+    if (xmlRosterHasCaptain(xml)) restored = withoutCaptainGrantNodes(restored);
     restored = withPlayerStatus(restored, "Active");
     restored = withPlayerNumber(restored, lowestFreeNumber(new Set(players.map((player) => player.nr).filter((n): n is number => n !== undefined))));
     xml = insertPlayerNode(xml, restored);
@@ -986,7 +1000,8 @@ function applyRosterOperation(
     // Team Captain replacement in league play (owner 10-30; ./captain.ts): only while the captaincy is vacant, a roster
     // player (not a journeyman, not a Star, not a Big Guy) on a roster with the Team Captain rule. The trait and Pro are
     // free: no treasury, no value change (the player's stored value and the team value aggregates stay as they are).
-    if (players.some((player) => hasTeamCaptain(blockSkills(player.block)))) return fail(409, "This team already has a Team Captain.");
+    // Dead (and journeyman) blocks never count: the same roster test the vacancy uses.
+    if (xmlRosterHasCaptain(teamXml)) return fail(409, "This team already has a Team Captain.");
     if (!xmlCaptainVacant(teamXml)) return fail(409, "A new Team Captain is appointed only when the captain has left the team.");
     if (!rosterXmlHasTeamCaptain(rosterXml, teamXml)) return fail(400, "This team's roster has no Team Captain.");
     if (/journeyman/i.test(target.status)) return fail(400, "A journeyman cannot be Team Captain.");
@@ -1002,6 +1017,8 @@ function applyRosterOperation(
     const skills = appointedSkills(owned);
     let nextBlock = target.block;
     for (const skill of skills.slice(owned.length)) nextBlock = appendPlayerListItem(nextBlock, "skillList", `<skill>${encodeXml(skill)}</skill>`);
+    // Record what the captaincy granted free (never inferred from list order): an owned Pro stays an earned skill.
+    nextBlock = nextBlock.replace(/<captainGrants\b[^>]*>[^<]*<\/captainGrants>/i, "").replace(/<\/player>$/i, `${captainGrantsNode(captainGrantsFor(owned))}</player>`);
     return { xml: setXmlCaptainVacantMark(teamXml.replace(target.block, nextBlock), false), extra: { playerId, skills } };
   }
 

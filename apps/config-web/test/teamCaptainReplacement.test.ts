@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { upsertLibraryTeam, type LibraryTeam } from "@bb/fork-ops";
 import { withoutCaptainGrants } from "@bb/validator";
-import { appointedSkills, nextCaptainVacancy, xmlCaptainVacant } from "../src/captain.js";
+import { appointedSkills, captainGrantsFor, nextCaptainVacancy, withoutRecordedCaptainGrants, xmlCaptainVacant } from "../src/captain.js";
+import { playerProgression } from "../src/teamAdvancement.js";
 import { leagueApi, type LeagueApiDeps, type LeagueApiResult } from "../src/leagues/api.js";
 import { leagueTeamCaptainVacant, markCaptainVacancy } from "../src/leagues/captain.js";
 import { appointLeagueCaptain, eligibleCaptainIds, leagueCaptainIneligibility } from "../src/leagues/captainApi.js";
@@ -54,16 +55,22 @@ describe("captain helpers", () => {
   it("appointedSkills adds Team Captain + Pro, and only the trait when Pro is already owned (no double Pro)", () => {
     expect(appointedSkills(["Block"])).toEqual(["Block", "Team Captain", "Pro"]);
     expect(appointedSkills(["Pass", "Pro"])).toEqual(["Pass", "Pro", "Team Captain"]);
-    // The owned Pro is listed before the trait, so it stays an earned (valued) skill; the draft-order grant stays free.
-    expect(withoutCaptainGrants(appointedSkills(["Pass", "Pro"]))).toEqual(["Pass", "Pro"]);
-    expect(withoutCaptainGrants(appointedSkills(["Block"]))).toEqual(["Block"]);
+    // The free grants are RECORDED (captainGrantsFor), so an owned Pro stays an earned skill whatever the list order.
+    expect(captainGrantsFor(["Pass", "Pro"])).toEqual(["Team Captain"]);
+    expect(withoutRecordedCaptainGrants(appointedSkills(["Pass", "Pro"]), captainGrantsFor(["Pass", "Pro"]))).toEqual(["Pass", "Pro"]);
+    expect(withoutRecordedCaptainGrants(appointedSkills(["Block"]), captainGrantsFor(["Block"]))).toEqual(["Block"]);
   });
-  it("nextCaptainVacancy: captain lost -> vacant; captain present -> not; otherwise the prior state stands", () => {
-    const cap = [{ skills: ["Team Captain", "Pro"] }];
-    expect(nextCaptainVacancy(cap, [{ skills: [] }], false)).toBe(true);
-    expect(nextCaptainVacancy([{ skills: [] }], cap, true)).toBe(false);
-    expect(nextCaptainVacancy([{ skills: [] }], [{ skills: [] }], true)).toBe(true);
-    expect(nextCaptainVacancy(undefined, [{ skills: [] }], false)).toBe(false);
+  it("existing data without a record keeps the old reading: the trait and one Pro are free, in any order", () => {
+    expect(withoutRecordedCaptainGrants(["Pro", "Team Captain", "Block"], undefined)).toEqual(["Block"]);
+    expect(withoutCaptainGrants(["Pro", "Team Captain"])).toEqual([]);
+  });
+  it("nextCaptainVacancy: by player id; missing skill data is no departure; the prior state stands otherwise", () => {
+    const cap = [{ ids: ["c"], skills: ["Team Captain", "Pro"] }];
+    expect(nextCaptainVacancy(cap, [{ ids: ["x"], skills: [] }], false)).toBe(true);
+    expect(nextCaptainVacancy(cap, [{ ids: ["c"], skills: [] }], false)).toBe(false); // re-import without skills, same player
+    expect(nextCaptainVacancy([{ ids: ["x"], skills: [] }], cap, true)).toBe(false);
+    expect(nextCaptainVacancy([{ ids: ["x"], skills: [] }], [{ ids: ["x"], skills: [] }], true)).toBe(true);
+    expect(nextCaptainVacancy(undefined, [{ ids: ["x"], skills: [] }], false)).toBe(false);
   });
 });
 
@@ -102,6 +109,18 @@ describe("league: vacancy set by every roster path", () => {
     expect(kept.captainVacant).toBeUndefined();
     expect(kept.players.find((p) => p.name === "Name p1")?.skills).toContain("Team Captain");
   });
+  it("a re-import that omits the captain's skills is no departure; a re-import without the flag keeps an existing vacancy", () => {
+    const reimport = humans();
+    reimport.players = reimport.players.map((p) => ({ ...p, skills: [] }));
+    markCaptainVacancy(humans(), reimport);
+    expect(reimport.captainVacant).toBeUndefined();
+    const fresh = humans({ players: [lp("p2", "Lineman")] }); // no flag, no captain
+    markCaptainVacancy(vacantHumans(), fresh);
+    expect(fresh.captainVacant).toBe(true);
+    const appointed = humans({ players: [lp("p2", "Lineman", ["Team Captain", "Pro"])] });
+    markCaptainVacancy(vacantHumans(), appointed);
+    expect(appointed.captainVacant).toBeUndefined();
+  });
   it("any other roster write (the store's season write) that drops the captain sets it; a team with no captain before stays clear", () => {
     const t = humans();
     markCaptainVacancy(humans(), t);
@@ -135,11 +154,13 @@ describe("league: eligibility and appointment", () => {
     const done = appointLeagueCaptain(t, "p2");
     expect(done.ok).toBe(true);
     expect(t.players.find((p) => p.playerId === "p2")!.skills).toEqual(["Team Captain", "Pro"]);
+    expect(t.players.find((p) => p.playerId === "p2")!.captainGrants).toEqual(["Team Captain", "Pro"]);
     expect(t.players.find((p) => p.playerId === "p2")!.value).toBe(50_000);
     expect(t.captainVacant).toBeUndefined();
     const u = vacantHumans();
     appointLeagueCaptain(u, "p4");
     expect(u.players.find((p) => p.playerId === "p4")!.skills).toEqual(["Sure Hands", "Pass", "Pro", "Team Captain"]);
+    expect(u.players.find((p) => p.playerId === "p4")!.captainGrants).toEqual(["Team Captain"]);
   });
 });
 
@@ -306,7 +327,20 @@ describe("library team: fire / retire, appoint, re-hire", () => {
     await teamMutationEndpoint(auth, "firePlayer", { teamId: "42", playerId: "p1" }, deps);
     expect((await teamMutationEndpoint(auth, "appointCaptain", { teamId: "42", playerId: "p4" }, deps)).status).toBe(200);
     const xml = readFileSync(teamFile, "utf8");
-    expect(xml).toMatch(/id="p4"[^>]*>[\s\S]*?<skillList><skill>Pro<\/skill><skill>Team Captain<\/skill><\/skillList>/);
+    expect(xml).toMatch(/id="p4"[^>]*>[\s\S]*?<skillList><skill>Pro<\/skill><skill>Team Captain<\/skill><\/skillList>[\s\S]*?<captainGrants>Team Captain<\/captainGrants><\/player>/);
+    // The recorded grant keeps the owned Pro valued (20k) and counted as an advancement.
+    const p4 = xml.match(/<player\b[^>]*id="p4"[\s\S]*?<\/player>/)![0];
+    expect(playerProgression(p4, ROSTER).currentValue).toBe(70_000);
+    expect(playerProgression(p4, ROSTER).advancements).toBe(1);
+  });
+  it("a dead player still stored in the XML never counts as an existing captain", async () => {
+    const dead = TEAM.replace(pl("p1", 1, "line", ["Team Captain", "Pro"]), pl("p1", 1, "line", ["Team Captain", "Pro"], "Dead"));
+    const { deps, teamFile } = setup(dead);
+    expect(xmlCaptainVacant(dead)).toBe(true);
+    expect(await teamMutationEndpoint(auth, "appointCaptain", { teamId: "42", playerId: "p2" }, deps)).toMatchObject({ status: 200 });
+    const xml = readFileSync(teamFile, "utf8");
+    expect(xml).toMatch(/id="p2"[^>]*>[\s\S]*?<captainGrants>Team Captain\|Pro<\/captainGrants>/);
+    expect(xmlCaptainVacant(xml)).toBe(false);
   });
   it("re-hiring the old captain while another player is captain brings him back without Team Captain and its Pro", async () => {
     const { deps, teamFile } = setup();

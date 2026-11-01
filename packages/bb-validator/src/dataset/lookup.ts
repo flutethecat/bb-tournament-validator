@@ -159,19 +159,16 @@ export function addedSkills(position: DatasetPosition, printedSkills: string[]):
 /**
  * Split a player's skill list into the Team Captain's free grants (the trait and ONE Pro, present only when the
  * list carries the trait) and everything else, in order. Use the WHOLE list: a lone "Pro" is never a grant.
- * The free Pro is the first Pro listed AFTER the trait (every writer lists the trait first, then its Pro): a Pro the
- * player already owned before a league-play appointment (listed before the trait) stays an earned skill.
  */
 export function splitCaptainGrants(skills: readonly string[]): { grants: string[]; rest: string[] } {
   const captain = skills.some((s) => normName(s) === normName(TEAM_CAPTAIN));
   if (!captain) return { grants: [], rest: [...skills] };
   const grants: string[] = [];
   const rest: string[] = [];
-  let seenTrait = false;
   let proFree = true;
   for (const s of skills) {
-    if (normName(s) === normName(TEAM_CAPTAIN)) { grants.push(s); seenTrait = true; }
-    else if (seenTrait && proFree && normName(s) === normName(TEAM_CAPTAIN_FREE_SKILL)) {
+    if (normName(s) === normName(TEAM_CAPTAIN)) grants.push(s);
+    else if (proFree && normName(s) === normName(TEAM_CAPTAIN_FREE_SKILL)) {
       proFree = false;
       grants.push(s);
     } else rest.push(s);

@@ -8,11 +8,16 @@
  * Pure helpers shared by the three team stores (league seasons: leagues/captain.ts; fork library team XML:
  * teamMutation.ts appointCaptain + teamManageView.ts; tabletop team files: tabletop/postMatch.ts). No I/O.
  *
- * Choice (the rules page is silent): a new captain who ALREADY owns Pro gains only the trait, never a second Pro. The
- * trait is appended AFTER the owned Pro, so splitCaptainGrants (the free Pro = the first Pro after the trait) keeps the
- * owned Pro an earned, valued skill.
+ * Choice (the rules page is silent): a new captain who ALREADY owns Pro gains only the trait, never a second Pro. Which
+ * skills the captaincy granted free is RECORDED on the player (league: LeaguePlayer.captainGrants; library XML: a
+ * <captainGrants> element), never inferred from list order. Records without it keep the old reading
+ * (withoutCaptainGrants: the trait and one Pro).
+ *
+ * Vacancy follows the captain's PLAYER ID leaving the roster (died, defected, fired / retired, not re-hired); missing
+ * skill data on a re-import never implies a departure, and an existing vacancy carries over until a roster player
+ * carries the trait again.
  */
-import { normName, TEAM_CAPTAIN, TEAM_CAPTAIN_FREE_SKILL } from "@bb/validator";
+import { normName, TEAM_CAPTAIN, TEAM_CAPTAIN_FREE_SKILL, withoutCaptainGrants } from "@bb/validator";
 
 const isTrait = (s: string): boolean => normName(s) === normName(TEAM_CAPTAIN);
 const isPro = (s: string): boolean => normName(s) === normName(TEAM_CAPTAIN_FREE_SKILL);
@@ -39,18 +44,38 @@ export function captainIneligibility(p: { star?: boolean; bigGuy?: boolean; posi
   return "";
 }
 
+/** A skill list without the captaincy's free grants: the recorded ones when known, else the trait and one Pro. */
+export function withoutRecordedCaptainGrants(skills: readonly string[], grants: readonly string[] | undefined): string[] {
+  if (!grants) return withoutCaptainGrants(skills);
+  const left = grants.map(normName);
+  const out: string[] = [];
+  // Remove from the END: the grants are appended after anything the player already owned.
+  for (let i = skills.length - 1; i >= 0; i -= 1) {
+    const at = left.indexOf(normName(skills[i]!));
+    if (at >= 0) left.splice(at, 1);
+    else out.unshift(skills[i]!);
+  }
+  return out;
+}
+
+export interface CaptainVacancyPlayer {
+  /** Every id this player is known by (league: playerId plus previousIds, so a redraft's fresh id still matches). */
+  ids: readonly string[];
+  skills: readonly string[];
+}
+
 /**
- * The vacancy after a roster change: `true` when the roster before had a captain and the roster after has none (the
- * captain died, defected, was fired / retired, or was not re-hired at a redraft); `false` when the roster after has a
- * captain (an appointment, or the captain came back); otherwise the prior vacancy stands.
+ * The vacancy after a roster change: `false` when a player on the roster after carries the trait; `true` when a captain
+ * of the roster before is no longer on the roster after (by id); otherwise the prior vacancy stands.
  */
 export function nextCaptainVacancy(
-  before: ReadonlyArray<{ skills: readonly string[] }> | undefined,
-  after: ReadonlyArray<{ skills: readonly string[] }>,
+  before: ReadonlyArray<CaptainVacancyPlayer> | undefined,
+  after: ReadonlyArray<CaptainVacancyPlayer>,
   priorVacant: boolean,
 ): boolean {
   if (after.some((p) => hasTeamCaptain(p.skills))) return false;
-  if (before?.some((p) => hasTeamCaptain(p.skills))) return true;
+  const present = new Set(after.flatMap((p) => p.ids));
+  if (before?.some((p) => hasTeamCaptain(p.skills) && !p.ids.some((id) => present.has(id)))) return true;
   return priorVacant;
 }
 
@@ -65,6 +90,23 @@ export const blockSkills = (block: string): string[] => [...block.matchAll(/<ski
 const statusOf = (block: string): string => decodeXml(block.match(/<(?:fired)?player\b[^>]*\bstatus="([^"]*)"/i)?.[1] ?? "");
 /** A stored player who is off the roster for good: a dead player left in the team file (the fork's own banking). */
 const deadStatus = (status: string): boolean => /\b(?:dead|rip|deceased)\b/i.test(status);
+const rosterBlock = (b: string): boolean => !deadStatus(statusOf(b)) && !/journeyman/i.test(statusOf(b));
+const playerBlocks = (xml: string): string[] => [...xml.matchAll(/<player\b[^>]*>[\s\S]*?<\/player>/gi)].map((m) => m[0]!);
+
+/** Does a player on the library roster (not dead, not a journeyman, not fired) carry the trait? */
+export function xmlRosterHasCaptain(teamXml: string): boolean {
+  return playerBlocks(teamXml).some((b) => rosterBlock(b) && hasTeamCaptain(blockSkills(b)));
+}
+
+/** The captaincy's recorded free grants on a player block (<captainGrants>Team Captain|Pro</captainGrants>), if recorded. */
+export function blockCaptainGrants(block: string): string[] | undefined {
+  const raw = block.match(/<captainGrants\b[^>]*>([^<]*)<\/captainGrants>/i)?.[1];
+  return raw === undefined ? undefined : decodeXml(raw).split("|").map((s) => s.trim()).filter(Boolean);
+}
+
+/** The <captainGrants> element an appointment writes into the player block (an unknown tag the Java team parser skips, like <pendingAdvancement>). */
+export const captainGrantsNode = (grants: readonly string[]): string =>
+  `<captainGrants>${grants.map((g) => g.replace(/&/g, "&amp;").replace(/</g, "&lt;")).join("|")}</captainGrants>`;
 
 /**
  * Library team XML: the captaincy is vacant when a departed player (a <firedPlayer>: fired / retired through team
@@ -72,9 +114,8 @@ const deadStatus = (status: string): boolean => /\b(?:dead|rip|deceased)\b/i.tes
  * file on every read, so every path that removes the captain (team management, the fork's result banking) counts.
  */
 export function xmlCaptainVacant(teamXml: string): boolean {
-  const players = [...teamXml.matchAll(/<player\b[^>]*>[\s\S]*?<\/player>/gi)].map((m) => m[0]!);
-  const roster = players.filter((b) => !deadStatus(statusOf(b)) && !/journeyman/i.test(statusOf(b)));
-  if (roster.some((b) => hasTeamCaptain(blockSkills(b)))) return false;
+  const players = playerBlocks(teamXml);
+  if (xmlRosterHasCaptain(teamXml)) return false;
   // Result banking deletes a dead player's block, so it leaves this mark on <team> (markXmlCaptainVacant).
   if (/^true$/i.test(teamOpening(teamXml).match(/\bcaptainVacant="([^"]*)"/i)?.[1] ?? "")) return true;
   const departed = [...players.filter((b) => deadStatus(statusOf(b))), ...[...teamXml.matchAll(/<firedPlayer\b[^>]*>[\s\S]*?<\/firedPlayer>/gi)].map((m) => m[0]!)];
@@ -93,7 +134,6 @@ export function setXmlCaptainVacantMark(teamXml: string, vacant: boolean): strin
 /** After a roster write that removed `removedBlocks`: marks the team vacant when one carried the trait and no player left does. */
 export function markXmlCaptainVacant(teamXml: string, removedBlocks: readonly string[]): string {
   if (!removedBlocks.some((b) => hasTeamCaptain(blockSkills(b)))) return teamXml;
-  const players = [...teamXml.matchAll(/<player\b[^>]*>[\s\S]*?<\/player>/gi)].map((m) => m[0]!);
-  if (players.some((b) => !deadStatus(statusOf(b)) && hasTeamCaptain(blockSkills(b)))) return teamXml;
+  if (xmlRosterHasCaptain(teamXml)) return teamXml;
   return setXmlCaptainVacantMark(teamXml, true);
 }

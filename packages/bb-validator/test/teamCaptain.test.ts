@@ -113,8 +113,6 @@ describe("Team Captain nomination (composer)", () => {
     const lineman = findPosition(findRoster(bb2025, "Human")!, "Human Lineman")!;
     expect(addedSkills(lineman, ["Team Captain", "Pro", "Block"])).toEqual(["Block"]);
     expect(addedSkills(lineman, ["Pro", "Block"])).toEqual(["Pro", "Block"]);
-    // A Pro owned before a league-play appointment (listed before the trait) stays an earned skill.
-    expect(addedSkills(lineman, ["Pro", "Block", "Team Captain"])).toEqual(["Pro", "Block"]);
   });
 
   it("the team-captain rule flags a forged nomination (Big Guy, second captain, wrong roster)", () => {

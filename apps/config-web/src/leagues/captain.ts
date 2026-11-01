@@ -9,9 +9,16 @@
 import { hasTeamCaptain, nextCaptainVacancy } from "../captain.js";
 import type { LeagueTeam, SeasonRecord } from "./types.js";
 
-/** Sets / clears `after.captainVacant` from the roster change `before` -> `after` (in place). Idempotent. */
-export function markCaptainVacancy(before: Pick<LeagueTeam, "players"> | undefined, after: LeagueTeam): void {
-  const vacant = nextCaptainVacancy(before?.players, after.players ?? [], after.captainVacant === true);
+const vacancyPlayers = (players: LeagueTeam["players"] | undefined) =>
+  (players ?? []).map((p) => ({ ids: [p.playerId, ...(p.previousIds ?? [])], skills: p.skills ?? [] }));
+
+/**
+ * Sets / clears `after.captainVacant` from the roster change `before` -> `after` (in place). Idempotent. Departure is by
+ * player id (a re-import that omits the captain's skills is no departure), and a vacancy on `before` carries over (a
+ * fresh import has no flag) until a roster player carries the trait again.
+ */
+export function markCaptainVacancy(before: Pick<LeagueTeam, "players" | "captainVacant"> | undefined, after: LeagueTeam): void {
+  const vacant = nextCaptainVacancy(vacancyPlayers(before?.players), vacancyPlayers(after.players), after.captainVacant === true || before?.captainVacant === true);
   if (vacant) after.captainVacant = true;
   else delete after.captainVacant;
 }

@@ -97,7 +97,7 @@ export interface TabletopTeamFile {
 /** Is this team file waiting for a new Team Captain? The flag, confirmed against the living players. Pre-game reminder. */
 export function teamFileCaptainVacant(file: Pick<TabletopTeamFile, "players" | "captainVacant"> | undefined): boolean {
   if (!file) return false;
-  const living = file.players.filter((p) => !p.dead && !p.journeyman);
+  const living = file.players.filter((p) => !p.dead && !p.journeyman).map((p) => ({ ids: [p.id], skills: p.skills }));
   return nextCaptainVacancy(undefined, living, file.captainVacant === true);
 }
 
@@ -340,7 +340,8 @@ export function applyPostMatch(
   });
   const { captainVacant: _wasVacant, ...rest } = teamFile;
   // A Team Captain killed in this match leaves the captaincy vacant (../captain.ts); the dead player keeps the trait + Pro.
-  const vacant = nextCaptainVacancy(teamFile.players.filter((p) => !p.dead), players.filter((p) => !p.dead), teamFile.captainVacant === true);
+  const living = (list: TabletopPlayer[]) => list.filter((p) => !p.dead).map((p) => ({ ids: [p.id], skills: p.skills }));
+  const vacant = nextCaptainVacancy(living(teamFile.players), living(players), teamFile.captainVacant === true);
   const out: TabletopTeamFile = {
     ...rest,
     treasury: summary.treasuryAfter,

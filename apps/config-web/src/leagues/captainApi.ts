@@ -12,7 +12,7 @@
  */
 import { findPosition, isStarName, rosterHasTeamCaptain } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
-import { appointedSkills, captainIneligibility, hasTeamCaptain } from "../captain.js";
+import { appointedSkills, captainGrantsFor, captainIneligibility, hasTeamCaptain } from "../captain.js";
 import type { LeagueApiDeps, LeagueApiIdentity, LeagueApiResult } from "./api.js";
 import { leagueTeamCaptainVacant } from "./captain.js";
 import { readJsonObject, requestRevision } from "./http.js";
@@ -48,6 +48,8 @@ export function appointLeagueCaptain(team: LeagueTeam, playerId: string): { ok: 
   if (!player) return { ok: false, status: 400, error: "That player is not on this team's roster." };
   const why = leagueCaptainIneligibility(team, player);
   if (why) return { ok: false, status: 400, error: why };
+  // Recorded, never inferred from list order: an owned Pro stays an earned skill.
+  player.captainGrants = captainGrantsFor(player.skills ?? []);
   player.skills = appointedSkills(player.skills ?? []);
   delete team.captainVacant;
   return { ok: true, player };

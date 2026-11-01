@@ -20,7 +20,8 @@ import {
   type ReloadResult,
   type TeamXmlTransactionHandle,
 } from "@bb/fork-ops";
-import { withoutCaptainGrants, type SkillCategory } from "@bb/validator";
+import type { SkillCategory } from "@bb/validator";
+import { blockCaptainGrants, withoutRecordedCaptainGrants } from "./captain.js";
 import type { SessionIdentity } from "./auth/requireSession.js";
 import { shiftStoredPlayerValue } from "./storedPlayerValue.js";
 
@@ -161,7 +162,7 @@ const coachNamesEqual = (left: string, right: string): boolean => left.trim().to
 const skillNames = (scope: string): string[] => [...scope.matchAll(/<skill\b[^>]*>([^<]*)<\/skill>/gi)].map((match) => decodeXml(match[1]!).trim()).filter(Boolean);
 /** A player's skills minus the Team Captain draft grants (the trait + its free Pro): owned, but never bought or
  *  earned, so they carry no value and are no advancement (https://bloodbowlbase.ru/bb2025/core_rules/the_teams/#team-captain). */
-const acquiredSkillNames = (player: string): string[] => withoutCaptainGrants(skillNames(player));
+const acquiredSkillNames = (player: string): string[] => withoutRecordedCaptainGrants(skillNames(player), blockCaptainGrants(player));
 export const teamRevision = (xml: string): string => createHash("sha256").update(xml).digest("hex");
 
 function teamFile(teamsDir: string, teamId: string): { path: string; xml: string } | undefined {

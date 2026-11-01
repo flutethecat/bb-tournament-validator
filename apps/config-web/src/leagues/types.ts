@@ -493,6 +493,8 @@ export interface LeaguePlayer extends PlayerIdentity {
    * the career links (playerIds.ts assignSeasonsPlayed); a redraft carries it forward with the finished season added.
    */
   seasonsPlayed?: number;
+  /** A league-play Team Captain appointment: the skills the captaincy granted free ("Team Captain", plus "Pro" unless already owned). */
+  captainGrants?: string[];
 }
 
 /** A player who appears in the season honours but not on the final roster (dead, fired, retired). */
