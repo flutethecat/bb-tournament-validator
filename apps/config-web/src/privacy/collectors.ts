@@ -1022,14 +1022,16 @@ export const DELETE_STEPS: DeleteStep[] = [
   },
   {
     // Fixture lobby chats stay with the fixture (league history) with this coach shown as their pseudonym, in the
-    // coach list, as the writer, on side stamps and in the text.
+    // coach list, as the writer, on side stamps and in the text. System lines are templates ({home} / {away} /
+    // {actor}): their names live only in structured fields (from, actor) and the league fixture, so no name survives
+    // in them whatever its length.
     id: "anonymise-fixture-lobbies",
     run: ({ deps, an, text }) => {
       const tx = text();
       for (const path of listFiles(join(deps.stateDir, "fixture-lobbies"), ".json")) {
         rewriteJson(path, (l) => [
           an.list(l.coaches),
-          ...objs(l.chat).map((m) => [an.fields(m, ["from"], []), tx.texts(m, ["text"])].some(Boolean)),
+          ...objs(l.chat).map((m) => [an.fields(m, ["from", "actor"], []), tx.texts(m, ["text"])].some(Boolean)),
           ...vals(l.sides).map((st) => an.fields(st, ["by"], [])),
           isObj(l.started) ? an.fields(l.started, ["by"], []) : false,
           isObj(l.starting) ? an.fields(l.starting, ["by"], []) : false,

@@ -40,6 +40,7 @@ export interface LeagueLobbyDeps extends LobbyDeps {
 }
 
 const enc = encodeURIComponent;
+const norm = (v: string): string => v.normalize("NFC").trim().replace(/\s+/g, " ").toLowerCase();
 const same = (a: string | undefined, b: string | undefined): boolean => Boolean(a && b && a.trim().toLowerCase() === b.trim().toLowerCase());
 const fail = (status: number, error: string): LeagueApiResult => ({ status, headers: { "cache-control": "private, no-store" }, body: { error } });
 
@@ -101,6 +102,7 @@ export function leagueLobbyFixture(
       },
     };
   };
+  const lobbySides = { home: side("home"), away: side("away") };
   const played = fixturePlayed(f);
   const closedReason = played ? "This fixture has been played."
     : f.suspended ? "This fixture is not being played."
@@ -124,7 +126,7 @@ export function leagueLobbyFixture(
       standings: `${base}${seasonQuery(store, league, season, { tab: "standings" })}`,
       rules: `${base}${seasonQuery(store, league, season, {})}`,
     },
-    sides: { home: side("home"), away: side("away") },
+    sides: lobbySides,
     // Owner ruling §9.2: treasury top-up allowed in leagues by default. Highlander is a tournament package option.
     rules: { treasuryTopUp: true, highlander: false, starClash: "refund" },
     noInducements: "",
@@ -132,6 +134,14 @@ export function leagueLobbyFixture(
     isOrganiser: (coach) => isLeagueOrganiser(league, coach) || Boolean(auth?.admin && same(auth.coach, coach)),
     headToHead: headToHead(history.meetings, coachIds),
     organisers: [...new Set([...(league.owner ? [league.owner] : []), ...league.organisers])],
+    // the recorder team must be this season's league team: same name, same roster (race)
+    recorderTeamAllowed: (s, t) => {
+      const lt = lobbySides[s].team;
+      if (norm(t.name) !== norm(lt.name)) return false;
+      if (!t.race) return true;
+      const a = teamValueRoster(t.race)?.id, b = teamValueRoster(lt.race)?.id;
+      return a && b ? a === b : norm(t.race) === norm(lt.race);
+    },
     start: {
       fixtureRef: leagueFixtureRef(league.id, season.id, f.id),
       extra: { leagueSeason: { leagueId: league.id, seasonId: season.id }, league: league.name },

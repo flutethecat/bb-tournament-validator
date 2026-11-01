@@ -614,6 +614,8 @@ export interface CreateMatchOptions {
   /** Fixture lobby START only (never from a request body): each coach's resolved inducements, keyed by lower-cased coach;
    *  stored on the match by the drawn seats. */
   inducementsByCoach?: Record<string, LobbyInducements>;
+  /** The fixture lobby's START (never a request body): the only way to create a match for a league fixture. */
+  fromLobby?: boolean;
 }
 
 export async function createMatch(
@@ -638,6 +640,9 @@ export async function createMatch(
     return v && typeof v.coach === "string" && v.coach.trim() && ref ? { coach: v.coach.trim(), teamSaveId: ref.ref, kind: ref.kind } : undefined;
   };
   if (options.test && b.fixtureRef) return err(400, "A test match cannot be linked to a fixture.");
+  // A league fixture starts from its lobby only (the start gate, the inducement hold and the presence rule live there).
+  if (typeof b.fixtureRef === "string" && b.fixtureRef.startsWith("league:") && !options.fromLobby)
+    return err(409, "Start this league fixture from its fixture lobby.");
   let home = side(b.home);
   let away = side(b.away);
   if (!home || !away) return err(400, b.fixtureRef ? "Choose both teams: a fixture team could not be found automatically (send home.team / away.team as library:<id> or save:<id>)." : "home and away each need {coach, team}, team being library:<id> or save:<id>.");
@@ -680,6 +685,9 @@ export async function createMatch(
     if (!straight && !fixtureSwap) return err(409, "The fixture's coaches do not match this match's home and away coaches.");
     league ??= fixture.packageName;
   }
+  // One unfinished match per fixture.
+  if (b.fixtureRef && (await deps.repo.listMatches()).some((m) => m.fixtureRef === b.fixtureRef && (m.state === "recording" || m.state === "submitted")))
+    return err(409, "This fixture already has a match in progress.");
   const at = now().toISOString();
   const chainHome = await ensureChain(deps, home.coach, home.teamSaveId, at);
   const chainAway = await ensureChain(deps, away.coach, away.teamSaveId, at);
@@ -715,7 +723,17 @@ export async function createMatch(
     baseRevision: { home: chainHome.head, away: chainAway.head },
   };
   await deps.repo.createMatch(match);
-  await deps.repo.appendEvents(match.id, [seatsEvent(match, "pg-seats", { stage: "draw", swapped, rolledBy: "site" }, me, at)]);
+  const seeded: TabletopEvent[] = match.inducements
+    ? (["home", "away"] as const).map((side) => {
+      const ind = match.inducements![side];
+      return {
+        id: `pg-inducement-${side}`, matchId: match.id, type: "inducement" as const, team: side, ts: at, by: me,
+        payload: { picks: ind.picks, total: ind.total, treasury: ind.treasury, pettyCash: ind.pettyCash, skipped: ind.picks.length === 0, submittedBy: me, lobby: true },
+      };
+    })
+    : [];
+  // the lobby's resolved inducements are the pre-game submissions (treasury spent as resolved); the step is skipped later
+  await deps.repo.appendEvents(match.id, [seatsEvent(match, "pg-seats", { stage: "draw", swapped, rolledBy: "site" }, me, at), ...seeded]);
   // a fixture is starting: refresh the NAF cache of both coaches in the background (never awaited, never fails the request)
   try { void Promise.resolve(deps.naf?.refreshFor?.([home.coach, away.coach])).catch((e) => console.warn(`[naf] refresh failed: ${(e as Error).message}`)); }
   catch (e) { console.warn(`[naf] refresh failed: ${(e as Error).message}`); }
@@ -1419,7 +1437,9 @@ async function pregameAdvance(
       if ("error" in made) return err(422, `${match[side].coach}: ${made.error}`);
       made.players.forEach((player, i) => mk(`pg-journeyman-${side}-${i + 1}`, "journeyman", side, { player, cost: made.cost / need }));
     }
-    next = "pregame:inducements";
+    // Inducements bought in the fixture lobby are already recorded (createMatch seeds both submissions): the step is done.
+    const seeded = match.inducements && sides.every((sd) => all().some((e) => e.type === "inducement" && e.team === sd));
+    next = seeded ? (prayersBought("home") + prayersBought("away") > 0 ? "pregame:prayers" : "pregame:coin") : "pregame:inducements";
   } else if (phase === "pregame:inducements") {
     if (b.team !== "home" && b.team !== "away") return err(400, 'team must be "home" or "away".');
     const side: Side = b.team;

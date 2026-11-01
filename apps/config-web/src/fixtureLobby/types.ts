@@ -43,6 +43,8 @@ export interface LobbyChatMessage {
   at: string;
   /** A system line (lock, Auto-Buy, hold, start): `from` names the coach it is about, if any. */
   system?: true;
+  /** System lines: the coach who did it, for the {actor} token (templates never hold names). */
+  actor?: string;
   /** Who the writer is in this fixture (seat colour of the bubble). */
   role?: LobbySide | "organiser";
 }
@@ -200,6 +202,11 @@ export interface LobbyFixture {
   isOrganiser: (coach: string) => boolean;
   headToHead: LobbyHeadToHead;
   organisers: string[];
+  /**
+   * Tabletop fixtures: whether a recorder team (library team / Roster Builder save) IS this side's competition team.
+   * Inducement budgets come from the competition team, so only that team may be locked for the recorder.
+   */
+  recorderTeamAllowed: (side: LobbySide, team: { ref: string; name: string; race?: string }) => boolean;
   /** How START creates the match: the recorder's fixtureRef and the extra createMatch fields (league season, league name). */
   start: { fixtureRef: string; extra: Record<string, unknown> };
 }

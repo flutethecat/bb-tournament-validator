@@ -31,6 +31,7 @@ import { applyForkResult, type ForkGameResult } from "./forkResult.js";
 import { buildLeagueForkTeam, forkTeamIdFor, ForkTeamBuildError, leagueTeamRevision, rulesetBlocker, type LeagueForkTeamFile } from "./forkTeam.js";
 import { kGold, signedK } from "./teamValue.js";
 import { fixturePlayed } from "./tourplay.js";
+import { leagueFixtureRef } from "./tabletopFixtures.js";
 import { isLeagueOrganiser, leagueOwner, type LeagueStore } from "./store.js";
 import type { FixtureForkState, FixtureForkStatus, ForkSide, LeagueFixture, LeagueRecord, SeasonRecord } from "./types.js";
 
@@ -72,6 +73,8 @@ export interface ForkRouteDeps extends BodyDeps {
   identities?: () => Array<{ coach: string; level: string; banned?: boolean }>;
   postWebhook?: WebhookPoster;
   now?: () => Date;
+  /** Fixture lobby store (src/fixtureLobby): a fixture that has a lobby launches only after the lobby's START. */
+  lobby?: { store: { get(key: string): { started?: unknown } | undefined } };
 }
 
 const NO_STORE = { "cache-control": "no-store" };
@@ -745,6 +748,13 @@ export async function leagueForkRoutes(
     const now = locate(deps.store, leagueId, seasonId, fixtureId);
     if (isResult(now)) return now;
     return res(200, { ok: true, applied: out.applied, errors: out.errors, fork: fixtureForkView(now.league, now.season, now.fixture, auth) });
+  }
+  // A fixture with a lobby launches only after the lobby's START (both rosters locked + both Ready, or an organiser's
+  // force): the launch and the launch file are refused until then. Fixtures nobody opened a lobby for keep the old path.
+  if (action === "launch" || action === "jnlp") {
+    let lobby: { started?: unknown } | undefined;
+    try { lobby = deps.lobby?.store.get(leagueFixtureRef(leagueId, seasonId, fixtureId)); } catch { return fail(500, "Could not read the fixture lobby right now."); }
+    if (lobby && !lobby.started) return fail(409, "Start this match from the fixture lobby first.");
   }
   if (action === "launch") return withFixtureLock(key, () => launch(deps, client, leagueId, seasonId, fixtureId, auth));
   return withFixtureLock(key, () => launchFileRoute(deps, client, leagueId, seasonId, fixtureId, auth));

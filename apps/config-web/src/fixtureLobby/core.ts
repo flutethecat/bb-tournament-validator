@@ -234,7 +234,8 @@ export interface GateView {
   blockers: string[];
 }
 
-export function gateOf(fx: LobbyFixture, rec: LobbyRecord): GateView {
+/** `online`: who is in the lobby now (presence); the underdog must be, even with Auto-Buy (§9.3). Omitted = not checked. */
+export function gateOf(fx: LobbyFixture, rec: LobbyRecord, online?: Record<LobbySide, boolean>): GateView {
   const step = !inducementStep(fx);
   const r = tvRoles(fx);
   const rosters = { home: rosterDone(fx, rec, "home"), away: rosterDone(fx, rec, "away") };
@@ -251,6 +252,8 @@ export function gateOf(fx: LobbyFixture, rec: LobbyRecord): GateView {
   // The overdog locks first; the underdog may pre-lock with Auto-Buy or pick when START holds.
   if (step && r.overdog && !inducements[r.overdog]) blockers.push(`${name(r.overdog)} has not locked their inducements.`);
   if (step && r.underdog && rec.hold && !rec.sides[r.underdog].locked) blockers.push(`Waiting for ${name(r.underdog)} to lock inducements.`);
+  // §9.3: the underdog must be present at START (Auto-Buy included); nobody forces past it
+  else if (step && r.underdog && online && !online[r.underdog]) blockers.push(`Waiting for ${name(r.underdog)} to be in the lobby.`);
   const hard = [...blockers];
   for (const s of LOBBY_SIDES) if (!ready[s]) blockers.push(`${name(s)} is not ready.`);
   return {
@@ -275,8 +278,8 @@ export type StartOutcome =
  * Decides what a START does to the lobby (no I/O): refuse, hold for the underdog's pick, or go with the resolved lists.
  * `force` = an organiser starting without both Ready presses (never past a roster, an inducement lock or a hold).
  */
-export function resolveStart(fx: LobbyFixture, rec: LobbyRecord, opts: { force: boolean; now: Date }): StartOutcome {
-  const g = gateOf(fx, rec);
+export function resolveStart(fx: LobbyFixture, rec: LobbyRecord, opts: { force: boolean; now: Date; online?: Record<LobbySide, boolean> }): StartOutcome {
+  const g = gateOf(fx, rec, opts.online);
   if (rec.started) return { kind: "refused", status: 409, error: "The match has already started." };
   if (!(opts.force ? g.forceArmed : g.armed)) return { kind: "refused", status: 409, error: g.blockers[0] ?? "Not ready to start." };
   const empty = (pettyCash = 0): ResolvedSide => ({ picks: [], total: 0, treasury: 0, pettyCash });

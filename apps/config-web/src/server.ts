@@ -983,7 +983,7 @@ function fixtureLobbyDeps(): LeagueLobbyDeps {
     startTabletop: async (input) => {
       const deps = await tabletopDeps();
       const body = { ...input.extra, fixtureRef: input.fixtureRef, home: input.home, away: input.away };
-      return createMatch(input.actor, input.organiser || deps.isOrganizer(input.actor), body, deps, () => new Date(), { inducementsByCoach: input.inducementsByCoach });
+      return createMatch(input.actor, input.organiser || deps.isOrganizer(input.actor), body, deps, () => new Date(), { inducementsByCoach: input.inducementsByCoach, fromLobby: true });
     },
     findMatchFor: async (fixtureRef) => {
       const deps = await tabletopDeps();

@@ -59,6 +59,9 @@ const NO_STORE = { "cache-control": "private, no-store" };
 const fail = (status: number, error: string, extra: Record<string, unknown> = {}): LobbyResult => ({ status, headers: NO_STORE, body: { error, ...extra } });
 const same = (a: string | undefined, b: string | undefined): boolean => Boolean(a && b && a.trim().toLowerCase() === b.trim().toLowerCase());
 
+const onlineOf = (fx: LobbyFixture, deps: Pick<LobbyDeps, "presence">): Record<LobbySide, boolean> =>
+  ({ home: deps.presence.online(fx.key, fx.sides.home.coachId), away: deps.presence.online(fx.key, fx.sides.away.coachId) });
+
 export function viewerOf(fx: LobbyFixture, auth: LobbyAuth | undefined): LobbyViewer {
   if (!auth) return { kind: "spectator" };
   const side = LOBBY_SIDES.find((s) => same(fx.sides[s].coachId, auth.coach));
@@ -76,7 +79,7 @@ export function lobbyView(fx: LobbyFixture, stored: LobbyRecord | undefined, aut
   const organiser = Boolean(auth && fx.isOrganiser(auth.coach));
   const step = inducementStep(fx);
   const roles = tvRoles(fx);
-  const gate = gateOf(fx, rec);
+  const gate = gateOf(fx, rec, onlineOf(fx, deps));
   const side = (s: LobbySide) => {
     const f = fx.sides[s];
     const st = rec.sides[s];
@@ -104,7 +107,7 @@ export function lobbyView(fx: LobbyFixture, stored: LobbyRecord | undefined, aut
     };
   };
   const recorderTeams = viewer.kind === "side" && fx.mode === "tabletop" && auth
-    ? (deps.recorderTeams?.(auth.coach) ?? []).map((t) => ({ ref: t.ref, name: t.name, race: t.race ?? "", tv: t.tv ?? null }))
+    ? (deps.recorderTeams?.(auth.coach) ?? []).filter((t) => fx.recorderTeamAllowed(viewer.side, t)).map((t) => ({ ref: t.ref, name: t.name, race: t.race ?? "", tv: t.tv ?? null }))
     : undefined;
   return {
     key: fx.key, source: fx.source, mode: fx.mode, open: fx.open, ...(fx.closedReason ? { closedReason: fx.closedReason } : {}),
@@ -127,7 +130,7 @@ export function lobbyView(fx: LobbyFixture, stored: LobbyRecord | undefined, aut
     hold: rec.hold ? { ...rec.hold, banner: holdBanner(fx, rec.hold) } : null,
     started: rec.started ? { ...rec.started, to: rec.started.matchId ? `/tabletop/${encodeURIComponent(rec.started.matchId)}` : fx.links.fixture } : null,
     resolved: rec.started && rec.resolved ? rec.resolved : null,
-    chat: insider && auth ? rec.chat.slice(-200) : null,
+    chat: insider && auth ? rec.chat.slice(-200).map((m) => (m.system ? { ...m, text: renderSystem(fx, m) } : m)) : null,
     headToHead: fx.headToHead,
     organisers: fx.organisers,
     ...(recorderTeams ? { recorderTeams } : {}),
@@ -195,14 +198,15 @@ export async function lobbyRoute(
         if (input.locked) {
           if (fx.mode === "tabletop") {
             const ref = typeof input.teamRef === "string" ? input.teamRef : st.teamRef;
-            const teams = deps.recorderTeams?.(fx.sides[s].coachId) ?? [];
-            if (!ref || !teams.some((t) => t.ref === ref)) return fail(400, "Choose the team you will record this match with.");
+            const teams = (deps.recorderTeams?.(fx.sides[s].coachId) ?? []).filter((t) => fx.recorderTeamAllowed(s, t));
+            if (!ref || !teams.some((t) => t.ref === ref))
+              return fail(400, `Lock the roster with your ${fx.sides[s].team.name} team (${fx.sides[s].team.race}). Add it to My teams if it is not listed.`);
             st.teamRef = ref;
           }
-          if (!st.rosterLocked) system(rec, fx, s, `${fx.sides[s].coach} locked their roster.`, at);
+          if (!st.rosterLocked) system(rec, fx, s, `{${s}} locked their roster.`, at);
           st.rosterLocked = true;
         } else {
-          if (st.rosterLocked) system(rec, fx, s, `${fx.sides[s].coach} unlocked their roster.`, at);
+          if (st.rosterLocked) system(rec, fx, s, `{${s}} unlocked their roster.`, at);
           st.rosterLocked = false;
           st.ready = false;
         }
@@ -216,7 +220,7 @@ export async function lobbyRoute(
         if (typeof input.ready !== "boolean") return fail(400, "ready must be true or false.");
         const st = rec.sides[s];
         if (input.ready && !st.rosterLocked) return fail(409, "Lock the roster first.");
-        if (st.ready !== input.ready) system(rec, fx, s, `${fx.sides[s].coach} is ${input.ready ? "ready" : "no longer ready"}.`, at);
+        if (st.ready !== input.ready) system(rec, fx, s, `{${s}} is ${input.ready ? "ready" : "no longer ready"}.`, at);
         st.ready = input.ready;
         stamp(s);
         return ok();
@@ -251,8 +255,17 @@ async function write(fx: LobbyFixture, auth: LobbyAuth, deps: LobbyDeps, mutate:
 function say(rec: LobbyRecord, m: Omit<LobbyChatMessage, "id">): void {
   rec.chat.push({ id: randomBytes(6).toString("hex"), ...m });
 }
-function system(rec: LobbyRecord, fx: LobbyFixture, about: LobbySide | undefined, text: string, at: string): void {
-  say(rec, { from: about ? fx.sides[about].coachId : "", text, at, system: true, ...(about ? { role: about } : {}) });
+/**
+ * A system line, stored as a template (privacy finding 11-01): coach names are never written into the text. Tokens
+ * {home} / {away} render as that seat's coach and {actor} as `actor`, at read time (renderSystem), so deletion only has
+ * to anonymise the structured fields (from, actor) and the league fixture's own coach names.
+ */
+function system(rec: LobbyRecord, fx: LobbyFixture, about: LobbySide | undefined, template: string, at: string, actor?: string): void {
+  say(rec, { from: about ? fx.sides[about].coachId : "", text: template, at, system: true, ...(about ? { role: about } : {}), ...(actor ? { actor } : {}) });
+}
+
+export function renderSystem(fx: Pick<LobbyFixture, "sides">, m: LobbyChatMessage): string {
+  return m.text.replace(/\{(home|away|actor)\}/g, (_x, k: string) => (k === "actor" ? m.actor ?? "Someone" : fx.sides[k as LobbySide].coach || `The ${k} coach`));
 }
 
 async function inducementsWrite(
@@ -274,7 +287,7 @@ async function inducementsWrite(
     st.locked = false;
     delete st.lockedAt;
     if (s === roles.overdog) { delete rec.hold; delete rec.overdogFinal; }
-    system(rec, fx, s, `An organiser unlocked ${coach}'s inducements.`, at);
+    system(rec, fx, s, `An organiser unlocked {${s}}'s inducements.`, at);
     stamp(s);
     if (input.picks === undefined) return "ok";
   } else if (st.locked) {
@@ -291,7 +304,7 @@ async function inducementsWrite(
     if (typeof input.autoBuy !== "boolean") return fail(400, "autoBuy must be true or false.");
     if (input.autoBuy && s !== roles.underdog) return fail(400, "Only the underdog (the lower team value) has Auto-Buy.");
     if (input.autoBuy && rec.hold) return fail(409, "START is already held for your pick: lock your list.");
-    if (st.autoBuy !== input.autoBuy) system(rec, fx, s, `${coach} ${input.autoBuy ? "armed" : "turned off"} Auto-Buy.`, at);
+    if (st.autoBuy !== input.autoBuy) system(rec, fx, s, `{${s}} ${input.autoBuy ? "armed" : "turned off"} Auto-Buy.`, at);
     st.autoBuy = input.autoBuy;
   }
   if (input.lock === true) {
@@ -304,8 +317,8 @@ async function inducementsWrite(
     if ("error" in plan) return fail(409, plan.error);
     st.locked = true;
     st.lockedAt = at;
-    const spent = plan.total ? ` (${kGold(plan.total)})` : "";
-    system(rec, fx, s, rec.hold && s === roles.underdog ? `${coach} locked inducements${spent}. START is armed again.` : `${coach} locked inducements${spent}.`, at);
+    // never the amount: the picks (and their total) stay hidden until both sides lock
+    system(rec, fx, s, rec.hold && s === roles.underdog ? `{${s}} locked inducements. START is armed again.` : `{${s}} locked inducements.`, at);
   } else if (input.lock !== undefined && input.lock !== false) {
     return fail(400, "lock must be true or false.");
   }
@@ -332,7 +345,8 @@ async function startWrite(
     }
     delete rec.starting;
   }
-  const outcome = resolveStart(fx, rec, { force, now });
+  deps.presence.beat(fx.key, auth.coach); // the coach pressing START is here
+  const outcome = resolveStart(fx, rec, { force, now, online: onlineOf(fx, deps) });
   if (outcome.kind === "refused") return fail(outcome.status, outcome.error);
   if (outcome.kind === "held") {
     const under = outcome.hold.underdog;
@@ -344,8 +358,8 @@ async function startWrite(
     rec.sides[under].autoBuy = false;
     const over = otherSide(under);
     system(rec, fx, over, outcome.hold.overdogSpend > 0
-      ? `${fx.sides[over].coach} spent ${kGold(outcome.hold.overdogSpend)} · ${fx.sides[under].coach} gets ${kGold(outcome.hold.overdogSpend)} more petty cash.`
-      : `START held: ${fx.sides[under].coach} picks inducements now.`, at);
+      ? `{${over}} spent ${kGold(outcome.hold.overdogSpend)} · {${under}} gets ${kGold(outcome.hold.overdogSpend)} more petty cash.`
+      : `START held: {${under}} picks inducements now.`, at);
     return { ok: true, extra: { held: true, banner: outcome.banner } };
   }
   const resolution = outcome.resolution;
@@ -353,7 +367,7 @@ async function startWrite(
   if (fx.mode === "fork") {
     rec.resolved = resolution;
     rec.started = { at, by: auth.coach, mode: "fork", ...(admin ? { admin: true as const } : {}) };
-    system(rec, fx, undefined, `${auth.coach} started the match${admin ? " (organiser)" : ""}. Launch it from the fixture page.`, at);
+    system(rec, fx, undefined, `{actor} started the match${admin ? " (organiser)" : ""}. Launch it from the fixture page.`, at, auth.coach);
     return startedBody();
   }
   if (!deps.startTabletop) return fail(503, "The match recorder is not available on this server.");
@@ -371,19 +385,26 @@ async function startWrite(
       },
     });
   } catch {
-    made = { status: 500, body: { error: "Could not create the match right now." } };
+    // unknown outcome (the match may exist): the starting marker stays, and the next START adopts the match if there is one
+    return fail(500, "Could not create the match right now. Press START again.");
   }
-  const matchId = (made.body as { match?: { id?: unknown } } | null)?.match?.id;
+  let matchId = (made.body as { match?: { id?: unknown } } | null)?.match?.id;
   if (made.status !== 201 || typeof matchId !== "string") {
-    delete rec.starting;
-    try { deps.store.put({ ...rec }); } catch { /* the starting marker is retried on the next START */ }
-    const error = (made.body as { error?: unknown } | null)?.error;
-    return fail(made.status >= 400 ? made.status : 500, typeof error === "string" ? error : "Could not create the match.");
+    // the recorder allows one unfinished match per fixture: a refusal because one exists means an earlier START made it
+    const existing = await deps.findMatchFor?.(fx.start.fixtureRef).catch(() => undefined);
+    if (existing) matchId = existing;
+    else {
+      delete rec.starting; // a clean refusal: createMatch made nothing
+      try { deps.store.put({ ...rec }); } catch { /* the marker is checked again on the next START */ }
+      const error = (made.body as { error?: unknown } | null)?.error;
+      return fail(made.status >= 400 ? made.status : 500, typeof error === "string" ? error : "Could not create the match.");
+    }
   }
+  if (typeof matchId !== "string") return fail(500, "Could not create the match.");
   delete rec.starting;
   rec.resolved = resolution;
   rec.started = { at, by: auth.coach, mode: "tabletop", matchId, ...(admin ? { admin: true as const } : {}) };
-  const removed = resolution.stars.map((c) => `${c.name} (${c.kept ? `kept by ${fx.sides[c.kept].coach}` : "plays for neither team"})`);
-  system(rec, fx, undefined, `${auth.coach} started the match${admin ? " (organiser)" : ""}.${removed.length ? ` Star picked by both: ${removed.join(", ")}.` : ""}`, at);
+  const removed = resolution.stars.map((c) => `${c.name} (${c.kept ? `kept by {${c.kept}}` : "plays for neither team"})`);
+  system(rec, fx, undefined, `{actor} started the match${admin ? " (organiser)" : ""}.${removed.length ? ` Star picked by both: ${removed.join(", ")}.` : ""}`, at, auth.coach);
   return startedBody();
 }
