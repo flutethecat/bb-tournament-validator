@@ -439,14 +439,48 @@ describe("league routes (server-rendered against a mocked API)", () => {
     const { html } = await render("/leagues/tabbl", loadedDetail(), ORGANISER);
     expect(html).toContain("League artwork");
     expect(html).toContain("Upload header bar");
-    // Message members (newest season only): the composer, plain text, and the no-address promise.
-    expect(html).toContain('id="lg-message-h"');
-    expect(html).toContain("All members");
-    expect(html).toContain("you never see their address");
+    // Announcement megaphone next to the cog (organisers only); no news composer or Message members panel on the page.
+    expect(html).toMatch(/<button[^>]*class="lg-cog lg-announce"[^>]*aria-label="Announcement"/);
+    expect(html.indexOf('aria-label="Announcement"')).toBeLessThan(html.indexOf('aria-label="League settings"'));
+    expect(html).not.toContain("lg-message");
+    expect(html).not.toContain("Pin to the top");
+    expect(html).not.toContain('id="lg-news-h"'); // no news, no panel, organisers too
     const visitor = await render("/leagues/tabbl", loadedDetail());
-    expect(visitor.html).not.toContain('id="lg-message-h"');
-    const older = await render("/leagues/tabbl?season=season-1", loadedDetail("season-1"), ORGANISER);
-    expect(older.html).not.toContain('id="lg-message-h"');
+    expect(visitor.html).not.toContain('aria-label="Announcement"');
+  });
+
+  it("Announcement dialog: News post / Message members strip, each composer, Message members newest season only", async () => {
+    const [dialog, appMod, sessionMod] = await Promise.all([
+      vite.ssrLoadModule("/src/components/LeagueAnnounce.vue"), vite.ssrLoadModule("/src/app.ts"), vite.ssrLoadModule("/src/session.ts"),
+    ]);
+    const f = mockFetcher({ ...API, ...ORGANISER });
+    const d = mods.league.createLeagueDetail({ api: f });
+    await d.load("tabbl");
+    await d.ensureSeason("season-6");
+    const show = (props: Record<string, unknown>) => {
+      const app = createSSRApp(dialog.default, { leagueId: "tabbl", season: d.state.season["season-6"], ...props });
+      app.provide(mods.league.LEAGUE_DETAIL_KEY, d);
+      app.provide(appMod.API_KEY, f);
+      app.provide(sessionMod.SESSION_KEY, { coach: () => "Jay", state: {} });
+      return mods.renderToString(app);
+    };
+    const news = await show({ canMessage: true });
+    expect(news).toContain('aria-labelledby="lg-announce-h"');
+    expect(news).toContain(">Announcement</h2>");
+    expect(news).toMatch(/aria-pressed="true"[^>]*>News post</);
+    expect(news).toMatch(/aria-pressed="false"[^>]*>Message members</);
+    expect(news).toContain("Pin to the top");
+    expect(news).toContain("goes to Discord when League news is on");
+    expect(news).toMatch(/type="submit"[^>]*>Post news<\/button>/);
+    const message = await show({ canMessage: true, initial: "message" });
+    expect(message).toMatch(/aria-pressed="true"[^>]*>Message members</);
+    expect(message).toContain("All members");
+    expect(message).toContain("you never see their address");
+    expect(message).toMatch(/type="submit"[^>]*>Send message<\/button>/);
+    const older = await show({ canMessage: false, initial: "message" });
+    expect(older).toMatch(/aria-pressed="true"[^>]*>News post</); // falls back to the news post
+    expect(older).toMatch(/disabled[^>]*>Message members</);
+    expect(older).toContain("Message members works from the newest season.");
   });
 
   it("standings, fixtures (cards + an unplayed row), teams, a team roster and honours tabs", async () => {

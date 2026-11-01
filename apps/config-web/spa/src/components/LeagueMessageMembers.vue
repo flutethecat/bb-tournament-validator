@@ -1,5 +1,6 @@
 <script setup lang="ts">
-// League page, Overview (organisers and site admins, newest season only): "Message members". The message goes to every
+// Announcement dialog, "Message members" choice (organisers and site admins, newest season only; the dialog's footer
+// button calls submit()). The message goes to every
 // recipient's notifications, and by email (sent by the site) to members who opted in with a confirmed address. The
 // organiser never sees an address nor any email count; large all-members messages show how many were notified
 // (src/mail/leagueMessages.ts).
@@ -15,6 +16,7 @@ import {
 import type { SeasonRecord } from "../leagues/types";
 
 const props = defineProps<{ leagueId: string; season: SeasonRecord }>();
+const emit = defineEmits<{ done: [notice: string] }>();
 const api = inject(API_KEY)!;
 const session = inject(SESSION_KEY)!;
 const me = computed(() => session.coach());
@@ -55,6 +57,7 @@ async function send(): Promise<void> {
     Object.assign(draft, { subject: "", body: "" });
     requestId = newRequestId();
     void refresh();
+    emit("done", notice.value);
   } catch (e) {
     error.value = e instanceof ApiError ? e.message : "Could not send the message.";
   } finally {
@@ -64,43 +67,37 @@ async function send(): Promise<void> {
 
 const scopeLabel = (s: MessageScope): string => (s === "all" ? "All members" : s === "team" ? "One team" : "One coach");
 onMounted(refresh);
+defineExpose({ submit: send, ready, busy });
 </script>
 
 <template>
-  <section class="hm-panel lg-message" aria-labelledby="lg-message-h">
-    <header class="hm-band"><h2 id="lg-message-h">Message members</h2><span class="hm-cap">{{ season.name }}</span></header>
-    <form class="ls-form lg-news-form" @submit.prevent="send">
-      <fieldset class="ls-field lg-message-scope">
-        <span>To</span>
-        <div class="ls-actions" role="radiogroup" aria-label="Recipients">
-          <label v-for="s in (['all', 'team', 'coach'] as const)" :key="s" class="ls-check"><input v-model="draft.scope" type="radio" name="lg-message-scope" :value="s" /> {{ scopeLabel(s) }}</label>
-        </div>
-      </fieldset>
-      <label v-if="draft.scope === 'team'" class="ls-field"><span>Team</span>
-        <select v-model="draft.teamId"><option value="" disabled>Pick a team</option><option v-for="t in teams" :key="t.id" :value="t.id">{{ t.label }}</option></select>
-      </label>
-      <label v-if="draft.scope === 'coach'" class="ls-field"><span>Coach</span>
-        <select v-model="draft.coach"><option value="" disabled>Pick a coach</option><option v-for="c in coaches" :key="c" :value="c">{{ c }}</option></select>
-      </label>
-      <label class="ls-field"><span>Subject</span><input v-model="draft.subject" type="text" :maxlength="LEAGUE_SUBJECT_MAX" autocomplete="off" /></label>
-      <label class="ls-field"><span>Message</span><textarea v-model="draft.body" rows="6" :maxlength="LEAGUE_BODY_MAX" /></label>
-      <div class="ls-actions">
-        <button class="sf-btn primary" type="submit" :disabled="!ready || busy">{{ busy ? "Sending..." : "Send message" }}</button>
-        <span class="hm-small hm-empty">{{ bodyLength }} / {{ LEAGUE_BODY_MAX }}</span>
+  <div class="ls-form lg-announce-form lg-message">
+    <fieldset class="ls-field lg-message-scope">
+      <span>To</span>
+      <div class="ls-actions" role="radiogroup" aria-label="Recipients">
+        <label v-for="s in (['all', 'team', 'coach'] as const)" :key="s" class="ls-check"><input v-model="draft.scope" type="radio" name="lg-message-scope" :value="s" /> {{ scopeLabel(s) }}</label>
       </div>
-      <p class="hm-small hm-empty">
-        Plain text. Every recipient sees it in their notifications.
-        <template v-if="emailEnabled !== false">Members who opted in to league emails with a confirmed address also get it by email from Super FUMBBL; you never see their address or how many were emailed.</template>
-        <template v-else>Email is not set up on this site yet.</template>
-      </p>
-    </form>
+    </fieldset>
+    <label v-if="draft.scope === 'team'" class="ls-field"><span>Team</span>
+      <select v-model="draft.teamId"><option value="" disabled>Pick a team</option><option v-for="t in teams" :key="t.id" :value="t.id">{{ t.label }}</option></select>
+    </label>
+    <label v-if="draft.scope === 'coach'" class="ls-field"><span>Coach</span>
+      <select v-model="draft.coach"><option value="" disabled>Pick a coach</option><option v-for="c in coaches" :key="c" :value="c">{{ c }}</option></select>
+    </label>
+    <label class="ls-field"><span>Subject</span><input v-model="draft.subject" type="text" :maxlength="LEAGUE_SUBJECT_MAX" autocomplete="off" /></label>
+    <label class="ls-field"><span>Message</span><textarea v-model="draft.body" rows="5" :maxlength="LEAGUE_BODY_MAX" /></label>
+    <p class="hm-small hm-empty lg-message-count">{{ bodyLength }} / {{ LEAGUE_BODY_MAX }}</p>
+    <p class="hm-small hm-empty">
+      Plain text. Every recipient sees it in their notifications.
+      <template v-if="emailEnabled !== false">Members who opted in to league emails with a confirmed address also get it by email from Super FUMBBL; you never see their address or how many were emailed.</template>
+      <template v-else>Email is not set up on this site yet.</template>
+    </p>
     <p v-if="error" class="sf-error" role="alert">{{ error }}</p>
-    <p v-else-if="notice" class="hm-notice" role="status">{{ notice }}</p>
     <details v-if="recent.length" class="lg-message-recent">
       <summary>Recent messages</summary>
       <ul>
         <li v-for="r in recent" :key="r.id" class="hm-small">{{ day(r.at) }} · {{ r.sender }} · {{ scopeLabel(r.scope) }} · {{ logCounts(r) }}</li>
       </ul>
     </details>
-  </section>
+  </div>
 </template>

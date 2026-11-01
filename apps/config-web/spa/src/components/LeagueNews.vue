@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // League page, Overview: the season's league news (pinned first, then newest first; markdown-lite bodies). Organisers
-// and site admins get the composer and per-post Pin / Edit / Delete; a new post notifies the season's coaches and posts
-// to the league's Discord channel when "League news" is on. Hidden for visitors when there is no news.
-import { computed, inject, reactive, ref } from "vue";
+// and site admins get per-post Pin / Edit / Delete; new posts come from the Announcement dialog (LeagueAnnounce.vue).
+// No news, no panel, for everyone.
+import { computed, inject, reactive, ref, watch } from "vue";
 import { day, LEAGUE_DETAIL_KEY, newsList } from "../leagues/league";
 import type { SeasonRecord } from "../leagues/types";
 import MarkdownLite from "./MarkdownLite.vue";
@@ -13,13 +13,8 @@ const { state } = detail;
 const news = computed(() => newsList(props.season));
 const busy = computed(() => state.editBusy === "news" || state.editBusy.startsWith("news:"));
 const mine = ref(false);
-
-const draft = reactive({ title: "", body: "", pinned: false });
-async function post(): Promise<void> {
-  if (!draft.title.trim() || !draft.body.trim()) return;
-  mine.value = true;
-  if (await detail.postNews(props.season.id, { title: draft.title.trim(), body: draft.body.trim(), pinned: draft.pinned })) Object.assign(draft, { title: "", body: "", pinned: false });
-}
+// A post from the Announcement dialog reports on the page, not here.
+watch(() => state.editBusy, (k) => { if (k === "news") mine.value = false; });
 
 const confirming = ref("");
 async function remove(id: string): Promise<void> { mine.value = true; await detail.deleteNews(props.season.id, id); confirming.value = ""; }
@@ -41,23 +36,12 @@ async function saveEdit(): Promise<void> {
 </script>
 
 <template>
-  <section v-if="news.length || manage" class="hm-panel lg-news" aria-labelledby="lg-news-h">
+  <section v-if="news.length" class="hm-panel lg-news" aria-labelledby="lg-news-h">
     <header class="hm-band"><h2 id="lg-news-h">League news</h2><span class="hm-cap">{{ season.name }}</span></header>
     <div class="lg-news-body">
-      <form v-if="manage" class="ls-sub ls-form lg-news-form" aria-labelledby="lg-news-new-h" @submit.prevent="post">
-        <h3 id="lg-news-new-h" class="ls-sub-h">Post news</h3>
-        <label class="ls-field"><span>Title</span><input v-model="draft.title" type="text" maxlength="120" autocomplete="off" /></label>
-        <label class="ls-field"><span>Post</span><textarea v-model="draft.body" rows="4" maxlength="4000" /></label>
-        <div class="ls-actions">
-          <label class="ls-check"><input v-model="draft.pinned" type="checkbox" /> Pin to the top</label>
-          <button class="sf-btn primary" type="submit" :disabled="!draft.title.trim() || !draft.body.trim() || busy">Post news</button>
-        </div>
-        <p class="hm-small hm-empty">The season's coaches are notified; the post also goes to Discord when League news is on.</p>
-      </form>
       <p v-if="mine && state.editError" class="sf-error" role="alert">{{ state.editError }}</p>
       <p v-else-if="mine && state.editNotice" class="hm-notice" role="status">{{ state.editNotice }}</p>
-      <p v-if="!news.length" class="hm-empty">No news yet.</p>
-      <ol v-else class="lg-news-list">
+      <ol class="lg-news-list">
         <li v-for="n in news" :key="n.id" class="lg-news-item" :data-pinned="n.pinned ? 'true' : null">
           <form v-if="editing === n.id" class="ls-form lg-news-form" @submit.prevent="saveEdit">
             <label class="ls-field"><span>Title</span><input v-model="edit.title" type="text" maxlength="120" autocomplete="off" /></label>

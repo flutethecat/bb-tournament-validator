@@ -36,7 +36,15 @@
 /* With a header bar: the bar shows whole, at its own proportions (its art carries its own lettering), and the logo
    and name sit on a panel strip under it rather than over it. */
 .lg-front[data-banner="image"] { display: block; min-height: 0; }
-.lg-front[data-banner="image"] .lg-front-img { position: static; z-index: auto; display: block; width: 100%; height: auto; max-height: 360px; object-fit: contain; background: var(--ui-surface-2); }
+/* The bar never crops: narrower than the frame, it sits centred on a blurred, darkened copy of itself (::before), so the
+   frame has no flat side bars. The copy is darkened with --sf-panel-drop in both themes. */
+.lg-front-art { position: relative; isolation: isolate; overflow: hidden; background: var(--sf-panel-drop); }
+.lg-front-art::before {
+  content: ""; position: absolute; inset: -40px; z-index: -1; background: var(--lg-banner) center / cover no-repeat;
+  filter: blur(22px) saturate(1.15) brightness(.62);
+}
+.lg-front-art::after { content: ""; position: absolute; inset: 0; z-index: -1; background: color-mix(in srgb, var(--sf-panel-drop) 28%, transparent); }
+.lg-front[data-banner="image"] .lg-front-img { position: relative; z-index: auto; display: block; width: 100%; height: auto; max-height: 360px; object-fit: contain; background: transparent; }
 .lg-front[data-banner="image"] .lg-front-body { align-items: center; padding: 12px 16px; border-top: 2px solid var(--sf-panel-line); background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface); }
 /* §0 (10-30): the logo sits centred in its strip (no longer pulled up over the header bar). */
 .lg-front[data-banner="image"] .lg-front-logo { width: 88px; height: 88px; }
@@ -48,13 +56,28 @@
 .lg-front-text { display: grid; gap: 4px; min-width: 0; }
 .lg-front-name { margin: 0; font: 26px/1.1 var(--sf-band-font); letter-spacing: .08em; text-transform: uppercase; color: var(--ui-text); overflow-wrap: anywhere; }
 .lg-front-text { flex: 1 1 auto; }
-/* League settings cog (organisers, admins): 44 px bevelled button at the right end of the strip. */
+/* League settings cog and the Announcement megaphone (organisers, admins): 44 px bevelled buttons at the right end of the strip. */
+.lg-front-actions { flex: none; align-self: center; margin-left: auto; display: flex; gap: 8px; }
 .lg-cog {
-  flex: none; align-self: center; margin-left: auto; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px;
+  flex: none; align-self: center; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px;
   background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: var(--sf-bevel);
 }
 .lg-cog img { width: 28px; height: 28px; image-rendering: pixelated; }
 .lg-cog:hover { border-color: var(--ui-heading); }
+button.lg-cog { margin: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+.lg-announce-icon { width: 28px; height: 28px; }
+.lg-announce-icon .mg-rear, .lg-announce-icon .mg-wave { fill: var(--ui-heading); }
+.lg-announce-icon .mg-cone { fill: var(--sf-gold); }
+.lg-announce-icon .mg-shade { fill: color-mix(in srgb, var(--sf-gold) 62%, var(--sf-panel-drop)); }
+.lg-announce-icon .mg-rim { fill: var(--ui-text); }
+.lg-announce-icon .mg-grip { fill: var(--ui-muted); }
+/* Announcement dialog: the News post / Message members strip, then the picked composer. */
+.lg-announce-kind { justify-self: stretch; }
+.lg-announce-kind .sf-tab { flex: 1 1 0; justify-content: center; }
+.lg-announce-form { gap: 10px; }
+.lg-announce-form > p { margin: 0; }
+.lg-announce-form textarea { min-height: 120px; padding-top: 8px; padding-bottom: 8px; resize: vertical; }
+.lg-message-count { justify-self: end; }
 .lg-cog:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .lg-front-full { margin: 0; font-size: 15px; color: var(--ui-text); overflow-wrap: anywhere; }
 /* League name line (owner 10-31): the full name in the Nuffle face, white with the hard drop shadow, two lines at most; the
@@ -186,6 +209,12 @@
   .lg-front-logo { width: 72px; height: 72px; }
   .lg-front[data-banner="image"] .lg-front-body { padding: 10px 12px; }
   .lg-front[data-banner="image"] .lg-front-logo { width: 64px; height: 64px; }
+  /* Phones: the name keeps the row's width; the megaphone and cog wrap to their own row at the right. */
+  .lg-front-body { flex-wrap: wrap; }
+  .lg-front-text { flex: 1 1 calc(100% - 80px); }
+  .lg-front-actions { margin-left: auto; }
+  /* League tabs wrap (as the settings tabs do) instead of hiding Teams / Honours / Statistics off the edge. */
+  .lg-page > .lg-tabs { flex-wrap: wrap; overflow: visible; }
   .lg-toolbar { flex-direction: column; align-items: stretch; }
   .lg-select select { flex: 1 1 auto; }
   .lg-scope { justify-self: stretch; }
@@ -398,7 +427,6 @@
 }
 
 /* League news (Overview) and the fixtures editor (Fixtures, organisers). */
-.lg-news { margin-bottom: 16px; }
 .lg-news-body { display: grid; gap: 12px; padding: 0; }
 .lg-news-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
 .lg-news-item {

@@ -2,8 +2,8 @@
 // League page (/app/leagues/:id?season=&tab=&team=&player=): public read. The league front (header bar, logo, name), the
 // Season field (every season, newest first, with its rules edition), then the season's tabs: Overview, Standings,
 // Fixtures, Teams (a team's roster via ?team=, a player via ?player=<playerId>), Honours. Organisers and admins get the artwork controls on Overview,
-// the League settings cog at the right end of the header strip, the per-fixture Super FUMBBL switch, the League news
-// composer and "Message members" (Overview, newest season) and the fixtures editor (Fixtures). A fixture's summary (?tab=fixtures&fixture=<id>) replaces
+// the League settings cog and the Announcement megaphone (News post / Message members, newest season) at the right end of
+// the header strip, the per-fixture Super FUMBBL switch, Pin / Edit / Delete on published news and the fixtures editor (Fixtures). A fixture's summary (?tab=fixtures&fixture=<id>) replaces
 // the fixtures list: the match, its result, and Play on Super FUMBBL.
 import { computed, inject, nextTick, onMounted, provide, ref, watch } from "vue";
 import { usePageTitle } from "../shell/pageTitle";
@@ -15,7 +15,7 @@ import LeagueFixtures from "../components/LeagueFixtures.vue";
 import LeagueFixtureSummary from "../components/LeagueFixtureSummary.vue";
 import LeagueFront from "../components/LeagueFront.vue";
 import LeagueHonours from "../components/LeagueHonours.vue";
-import LeagueMessageMembers from "../components/LeagueMessageMembers.vue";
+import LeagueAnnounce from "../components/LeagueAnnounce.vue";
 import LeagueNews from "../components/LeagueNews.vue";
 import LeagueOverview from "../components/LeagueOverview.vue";
 import LeagueTabs from "../components/LeagueTabs.vue";
@@ -99,6 +99,13 @@ onMounted(async () => {
   if (current.value) await detail.ensureSeason(current.value.id);
 });
 usePageTitle(() => state.league?.name);
+
+// Announcement dialog (organisers): closes on success; the confirmation shows under the header strip.
+const announcing = ref(false);
+const announced = ref("");
+const openAnnounce = (): void => { announced.value = ""; announcing.value = true; };
+const onAnnounced = (notice: string): void => { announcing.value = false; announced.value = notice; };
+watch(() => route.fullPath, () => { announced.value = ""; });
 </script>
 
 <template>
@@ -107,7 +114,12 @@ usePageTitle(() => state.league?.name);
     <p v-if="state.error" class="lobby-error" role="alert">{{ state.error }}</p>
     <p v-else-if="!state.loaded || !state.league" class="hm-empty" role="status">Loading league...</p>
     <template v-else>
-      <LeagueFront :id="id" :league="state.league" :seasons="state.seasons" :manage="manage" />
+      <LeagueFront :id="id" :league="state.league" :seasons="state.seasons" :manage="manage" :announce="Boolean(season)" @announce="openAnnounce" />
+      <p v-if="announced" class="sf-notice lg-announced" role="status">{{ announced }}</p>
+      <LeagueAnnounce
+        v-if="announcing && manage && season" :league-id="id" :season="season" :can-message="season.id === state.seasons[0]?.id"
+        @close="announcing = false" @done="onAnnounced"
+      />
 
       <section class="hm-panel lg-seasons" aria-labelledby="lg-season-h">
         <header class="hm-band"><h2 id="lg-season-h">Season</h2><span v-if="current" class="hm-cap">{{ seasonDates(current) }}</span></header>
@@ -134,7 +146,6 @@ usePageTitle(() => state.league?.name);
         <template v-if="tab === 'overview'">
           <LeagueNews :season="season" :manage="manage" />
           <LeagueOverview :league="state.league" :season="season" :summary="current!" :crests="state.crests" />
-          <LeagueMessageMembers v-if="manage && season.id === state.seasons[0]?.id" :league-id="id" :season="season" />
           <LeagueArtEdit v-if="manage" />
         </template>
         <LeagueStandings v-else-if="tab === 'standings'" :season="season" />

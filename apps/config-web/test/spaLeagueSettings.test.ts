@@ -335,7 +335,7 @@ describe("league settings routes (server-rendered)", () => {
     expect(html).toMatch(/<option value="season-6">Season 6<\/option>/);
   });
 
-  it("league page: League news on Overview (composer for organisers), fixtures editor on Fixtures", async () => {
+  it("league page: League news on Overview (manage controls for organisers), fixtures editor on Fixtures", async () => {
     const withNews = () => ({ league: league(), season: { ...season6(), news: [
       { id: "n1", title: "Old news", body: "Plain.", by: "Jay", at: "2026-10-01T00:00:00.000Z", pinned: false },
       { id: "n2", title: "Pinned rules", body: "Read **this**.", by: "Jay", at: "2026-09-01T00:00:00.000Z", pinned: true },
@@ -343,7 +343,9 @@ describe("league settings routes (server-rendered)", () => {
     const extra = { "/api/leagues/tabbl/seasons/season-6": withNews };
     const org = await render("/leagues/tabbl", detail, ORGANISER, extra);
     expect(org.html).toContain("League news");
-    expect(org.html).toContain(">Post news</button>");
+    expect(org.html).toContain('aria-label="Announcement"'); // new posts come from the Announcement dialog
+    expect(org.html).not.toContain("Pin to the top"); // no inline composer on the page
+    expect(org.html).toContain(">Edit</button>"); // published posts keep Pin / Edit / Delete
     expect(org.html.indexOf("Pinned rules")).toBeLessThan(org.html.indexOf("Old news"));
     expect(org.html).toContain('class="tn-md"'); // MarkdownLite body
     const anon = await render("/leagues/tabbl", detail, ANON);
