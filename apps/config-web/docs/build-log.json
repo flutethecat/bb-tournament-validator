@@ -1,7 +1,17 @@
 [
   {
     "date": "2026-11-01",
-<<<<<<< HEAD
+    "title": "League standings update live and seasons crown a champion",
+    "body": "The league Standings tab now builds its tables from the results as they come in (fixtures editor and Super FUMBBL results): points (win 3, draw 1, loss 0), games, wins, draws, losses, touchdowns, casualties, the stats the results recorded, the last six results as coloured dots, and your own team highlighted. Ties go to touchdown difference, casualty difference, then head-to-head. Finish season now proposes a podium (Champion, Runner-up, Consolation) from the playoff final or the final standings; organisers can change it before confirming, and the champion shows on the league Overview, Honours and the statistics page. A season finished here can be reopened, which clears its podium.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-01",
     "title": "Your leagues in the sidebar",
     "body": "The Leagues section of the sidebar now lists each league you play in this season, with your team, its win-draw-loss record and your next fixture, which opens its summary. Two dead links are gone: the Series chip on a tournament is plain text until series pages exist, and league registration settings now point to the Teams tab.",
     "links": [
@@ -318,10 +328,6 @@
     "date": "2026-10-30",
     "title": "More detail from league games on Super FUMBBL",
     "body": "Results of league games played on Super FUMBBL now record whether a concession was legal, casualties suffered, attendance and extra player counters, and show them on the fixture summary, the game page and the roster. Slann teams and the Ball & Chain now build correctly for those games.",
-=======
-    "title": "League standings update live and seasons crown a champion",
-    "body": "The league Standings tab now builds its tables from the results as they come in (fixtures editor and Super FUMBBL results): points (win 3, draw 1, loss 0), games, wins, draws, losses, touchdowns, casualties, the stats the results recorded, the last six results as coloured dots, and your own team highlighted. Ties go to touchdown difference, casualty difference, then head-to-head. Finish season now proposes a podium (Champion, Runner-up, Consolation) from the playoff final or the final standings; organisers can change it before confirming, and the champion shows on the league Overview, Honours and the statistics page. A season finished here can be reopened, which clears its podium.",
->>>>>>> bbd4a86 (Derive league standings from fixture results and crown a podium when a season finishes)
     "links": [
       {
         "label": "Leagues",
