@@ -96,7 +96,7 @@ const call = (coach: string | undefined, method: string, path: string, body?: un
     headers: { ...(coach ? { cookie: cookie(coach) } : {}), ...(method !== "GET" ? { "x-cw-auth": "1", "content-type": "application/json" } : {}), ...extra },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
-const okBody = { preferredName: "New Bie", email: "newbie@example.test", phones: [{ number: "+1 555 123 4567", label: "mobile" }], leagueContact: false, privacyAccepted: true, privacyVersion: PRIVACY_VERSION };
+const okBody = { preferredName: "New Bie", email: "newbie@example.test", country: "US", phones: [{ number: "555 123 4567" }], leagueContact: false, privacyAccepted: true, privacyVersion: PRIVACY_VERSION };
 
 describe("GET /api/me/onboarding", () => {
   it("401 signed out; needed + prefill for a new coach; needed again for an older accepted version", async () => {
@@ -137,7 +137,8 @@ describe("POST /api/me/onboarding", () => {
     expect((await call(undefined, "POST", "/api/me/onboarding", okBody)).status).toBe(401);
     for (const bad of [
       { ...okBody, privacyAccepted: false },
-      { ...okBody, phones: [{ number: "555-1234" }] },
+      { ...okBody, phones: [{ number: "12" }] },
+      { ...okBody, country: undefined },
       { ...okBody, preferredName: "x".repeat(41) },
       { ...okBody, email: "nope@" },
     ]) {
@@ -154,7 +155,7 @@ describe("POST /api/me/onboarding", () => {
     expect(await res.json()).toMatchObject({ needed: false, prefill: { preferredName: "New Bie" } });
     const stored = identities().coaches.newbie!;
     expect(stored.profile.preferredName).toBe("New Bie");
-    expect(stored.contact).toEqual({ email: "newbie@example.test", emailSource: "discord", emailVerified: true, phones: [{ number: "+15551234567", label: "mobile" }] });
+    expect(stored.contact).toEqual({ email: "newbie@example.test", emailSource: "discord", emailVerified: true, country: "US", phones: [{ number: "+15551234567", country: "US" }] });
     expect(stored.consent).toMatchObject({ privacy: { acceptedVersion: PRIVACY_VERSION }, leagueContact: { granted: false } });
     expect((await call("Newbie", "PATCH", "/api/me/profile", { displayName: "Now Fine" })).status).toBe(200);
 

@@ -179,7 +179,7 @@ describe("league registration step (section 3) and its notices (section 6)", () 
 describe("onboarding without a phone", () => {
   it("completes with no phone number", () => {
     seed(record("NoPhone", { identities: { email: "np@example.test" } }));
-    const r = completeOnboarding("NoPhone", { preferredName: "Np", email: "np@example.test", privacyAccepted: true }, NOW);
+    const r = completeOnboarding("NoPhone", { preferredName: "Np", email: "np@example.test", country: "US", privacyAccepted: true }, NOW);
     expect(r.consent?.privacy?.acceptedVersion).toBe(PRIVACY_VERSION);
     expect(r.contact?.phones).toEqual([]);
     expect(sharingView(r, sources).phoneOnFile).toBe(false);

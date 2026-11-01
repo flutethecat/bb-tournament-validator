@@ -36,7 +36,7 @@ const stored = (coach: string) => readIdentities().coaches[coach.toLowerCase()]!
 const raw = () => JSON.parse(readFileSync(file, "utf8")) as { coaches: Record<string, Record<string, unknown>> };
 const NOW = new Date("2026-11-01T10:00:00.000Z");
 const LATER = new Date("2026-11-05T09:00:00.000Z");
-const okBody = { preferredName: "Grim", email: "grim@example.test", phones: [], leagueContact: false, privacyAccepted: true };
+const okBody = { preferredName: "Grim", email: "grim@example.test", country: "US", phones: [], leagueContact: false, privacyAccepted: true };
 
 beforeEach(() => seed());
 
@@ -87,7 +87,7 @@ describe("onboarding needed", () => {
 });
 
 describe("validation", () => {
-  it("preferred name 1-40 after trimming; email format; phones E.164 (+ and 8-15 digits), labels, max 3, no duplicates", () => {
+  it("preferred name 1-40 after trimming; email format; phone: national number for the country, or + international; one number", () => {
     expect(parsePreferredName("  Grim   Gutrot ")).toBe("Grim Gutrot");
     expect(() => parsePreferredName("   ")).toThrow(/Enter a preferred name/);
     expect(() => parsePreferredName("x".repeat(41))).toThrow(/at most 40/);
@@ -97,15 +97,23 @@ describe("validation", () => {
     expect(parseEmail("")).toBeNull();
     expect(parseEmail(null)).toBeNull();
     for (const bad of ["nope", "a@b", "a b@c.de", "@c.de"]) expect(() => parseEmail(bad)).toThrow(/valid email/);
+    // Country + national number -> E.164 (fake 555-style numbers only).
+    expect(normalizePhoneNumber("555 123 4567", "US")).toBe("+15551234567");
+    expect(normalizePhoneNumber("(555) 123-4567", "us")).toBe("+15551234567");
+    expect(normalizePhoneNumber("07700 900555", "GB")).toBe("+447700900555"); // UK trunk 0 dropped
+    expect(normalizePhoneNumber("030 5551234", "DE")).toBe("+49305551234"); // Germany trunk 0 dropped
+    expect(normalizePhoneNumber("06 5551234", "IT")).toBe("+39065551234"); // Italy keeps its 0
+    // A leading "+" is the full international number: the country is ignored.
+    expect(normalizePhoneNumber("+44 (20) 7946-0555", "US")).toBe("+442079460555");
     expect(normalizePhoneNumber("+1 555 123 4567")).toBe("+15551234567");
-    expect(normalizePhoneNumber("+44 (20) 7946-0000")).toBe("+442079460000");
-    for (const bad of ["555 123 4567", "+1234567", "+1234567890123456", "+1 555 CALL ME", "+00000000", "+0123456789", "+0 555 123 4567"]) expect(() => normalizePhoneNumber(bad)).toThrow(/\+1 555 123 4567/);
-    expect(normalizePhoneNumber("+12345678")).toBe("+12345678"); // 8 digits in all, country code 1
-    expect(normalizePhoneNumber("+123456789012345")).toBe("+123456789012345"); // 15 digits
-    expect(parsePhones([{ number: "+15551234567", label: "mobile" }, { number: "+442079460000" }])).toEqual([{ number: "+15551234567", label: "mobile" }, { number: "+442079460000" }]);
-    expect(() => parsePhones([{ number: "+15551234567", label: "work" }])).toThrow(/mobile, home or other/);
-    expect(() => parsePhones(Array.from({ length: 4 }, (_, i) => ({ number: `+1555123456${i}` })))).toThrow(/At most 3/);
-    expect(() => parsePhones([{ number: "+15551234567" }, { number: "+1 555 123 4567" }])).toThrow(/twice/);
+    expect(() => normalizePhoneNumber("555 123 4567")).toThrow(/Choose your country first/);
+    for (const bad of ["555 CALL ME", "12", "1".repeat(16)]) expect(() => normalizePhoneNumber(bad, "US")).toThrow("Enter the number without the country code, for example 555 123 4567.");
+    for (const bad of ["+1234567", "+1234567890123456", "+00000000", "+0 555 123 4567"]) expect(() => normalizePhoneNumber(bad, "US")).toThrow(/international number/);
+    expect(parsePhones([{ number: "555 123 4567" }], "US")).toEqual([{ number: "+15551234567", country: "US" }]);
+    expect(parsePhones([{ number: "07700 900555", country: "GB" }], "US")).toEqual([{ number: "+447700900555", country: "GB" }]); // per-number override
+    expect(parsePhones([{ number: "+49 30 5551234" }], "US")).toEqual([{ number: "+49305551234" }]);
+    expect(() => parsePhones([{ number: "555 123 4567" }, { number: "555 123 4568" }], "US")).toThrow(/One phone number only/);
+    expect(() => parsePhones([{ number: "555 123 4567", country: "ZZ" }], "US")).toThrow(/country from the list/);
   });
 
   it("POST validation: privacy acceptance required, stale version refused, bad phone / long name / bad email refused, nothing written", () => {
@@ -114,7 +122,10 @@ describe("validation", () => {
     expect(() => completeOnboarding("V", { ...okBody, privacyAccepted: false })).toThrow(/privacy notice/);
     expect(() => completeOnboarding("V", { ...okBody, privacyAccepted: undefined })).toThrow(/privacy notice/);
     expect(() => completeOnboarding("V", { ...okBody, privacyVersion: "2025-01-01" })).toThrow(/changed/);
-    expect(() => completeOnboarding("V", { ...okBody, phones: [{ number: "12345" }] })).toThrow(/\+1 555 123 4567/);
+    expect(() => completeOnboarding("V", { ...okBody, phones: [{ number: "12" }] })).toThrow(/without the country code/);
+    const { country: _c, ...noCountry } = okBody;
+    expect(() => completeOnboarding("V", noCountry)).toThrow(/Choose your country/);
+    expect(() => completeOnboarding("V", { ...okBody, country: "Narnia" })).toThrow(/country from the list/);
     expect(() => completeOnboarding("V", { ...okBody, preferredName: "n".repeat(41) })).toThrow(/at most 40/);
     expect(() => completeOnboarding("V", { ...okBody, email: "not-an-email" })).toThrow(/valid email/);
     expect(() => completeOnboarding("V", { ...okBody, leagueContact: "yes" })).toThrow(/true or false/);
@@ -128,10 +139,10 @@ describe("validation", () => {
 describe("onboarding and contact writers", () => {
   it("POST saves every field: Discord email kept = source discord + verified; consent records with timestamps and versions", () => {
     seed(record("Ann", { identities: { discordUsername: "ann_dc", email: "Ann@Example.test" } }));
-    completeOnboarding("Ann", { ...okBody, preferredName: "Annie", email: "ann@example.test", phones: [{ number: "+1 555 123 4567", label: "home" }], leagueContact: true, privacyVersion: PRIVACY_VERSION }, NOW);
+    completeOnboarding("Ann", { ...okBody, preferredName: "Annie", email: "ann@example.test", phones: [{ number: "555 123 4567" }], leagueContact: true, privacyVersion: PRIVACY_VERSION }, NOW);
     const r = stored("Ann");
     expect(r.profile.preferredName).toBe("Annie");
-    expect(r.contact).toEqual({ email: "Ann@Example.test", emailSource: "discord", emailVerified: true, phones: [{ number: "+15551234567", label: "home" }] });
+    expect(r.contact).toEqual({ email: "Ann@Example.test", emailSource: "discord", emailVerified: true, country: "US", phones: [{ number: "+15551234567", country: "US" }] });
     expect(r.consent).toEqual({
       leagueContact: { granted: true, at: NOW.toISOString(), version: "2026-10-31" },
       privacy: { acceptedVersion: PRIVACY_VERSION, at: NOW.toISOString() },
@@ -159,6 +170,7 @@ describe("onboarding and contact writers", () => {
     const { phones: _p, leagueContact: _l, ...noPhones } = okBody;
     completeOnboarding("Re", { ...noPhones, email: "re@example.test" }, LATER);
     expect(stored("Re").contact?.phones).toEqual([{ number: "+15551234567", label: "home" }]);
+    expect(stored("Re").contact?.country).toBe("US");
     expect(stored("Re").consent?.leagueContact).toEqual({ granted: true, at: NOW.toISOString(), version: "2026-10-31" });
     expect(stored("Re").consent?.privacy).toEqual({ acceptedVersion: PRIVACY_VERSION, at: LATER.toISOString() });
     // Sending an empty list does clear them.
@@ -169,8 +181,8 @@ describe("onboarding and contact writers", () => {
   it("PATCH edits any field; the consent timestamp changes only when the choice changes; privacy stays put", () => {
     seed(record("Cy", { identities: { email: "cy@discord.test" } }));
     completeOnboarding("Cy", { ...okBody, email: "cy@discord.test", leagueContact: false }, NOW);
-    updateOwnContact("Cy", { phones: [{ number: "+44 20 7946 0000", label: "mobile" }] }, LATER);
-    expect(stored("Cy").contact?.phones).toEqual([{ number: "+442079460000", label: "mobile" }]);
+    updateOwnContact("Cy", { phones: [{ number: "+44 20 7946 0555" }] }, LATER);
+    expect(stored("Cy").contact?.phones).toEqual([{ number: "+442079460555" }]);
     expect(stored("Cy").consent?.leagueContact?.at).toBe(NOW.toISOString()); // unchanged choice keeps its time
     updateOwnContact("Cy", { leagueContact: false }, LATER);
     expect(stored("Cy").consent?.leagueContact?.at).toBe(NOW.toISOString());
@@ -185,7 +197,7 @@ describe("onboarding and contact writers", () => {
     expect(stored("Cy").contact).toMatchObject({ email: "cy@discord.test", emailSource: "discord", emailVerified: true });
     expect(() => updateOwnContact("Cy", {})).toThrow(/Nothing to change/);
     expect(() => updateOwnContact("Cy", { privacyAccepted: true })).toThrow(/Unknown field/);
-    expect(() => updateOwnContact("Cy", { phones: [{ number: "nope" }] })).toThrow(/\+1 555 123 4567/);
+    expect(() => updateOwnContact("Cy", { phones: [{ number: "nope" }] })).toThrow(/without the country code/);
     expect(contactView(stored("Cy"))).toMatchObject({ preferredName: "Cyrus", leagueContact: { granted: true }, privacy: { acceptedVersion: PRIVACY_VERSION }, privacyVersion: PRIVACY_VERSION });
   });
 
@@ -456,5 +468,36 @@ describe("stored shape", () => {
     const r = raw().coaches.shape!;
     expect(Object.keys(r)).toEqual(expect.arrayContaining(["contact", "consent", "profile"]));
     expect((r.profile as Record<string, string>).preferredName).toBe("Grim");
+  });
+});
+
+describe("country and the one phone number (owner 10-31)", () => {
+  it("changing the country never rewrites a stored number; a new number takes the new prefix", () => {
+    seed(record("Gb", { identities: { email: "gb@example.test" } }));
+    completeOnboarding("Gb", { ...okBody, email: "gb@example.test", country: "GB", phones: [{ number: "07700 900555" }] }, NOW);
+    expect(stored("Gb").contact).toMatchObject({ country: "GB", phones: [{ number: "+447700900555", country: "GB" }] });
+    updateOwnContact("Gb", { country: "DE" }, LATER);
+    expect(stored("Gb").contact).toMatchObject({ country: "DE", phones: [{ number: "+447700900555", country: "GB" }] });
+    expect(contactView(stored("Gb"))).toMatchObject({ country: "DE", phones: [{ number: "+447700900555", country: "GB" }] });
+    updateOwnContact("Gb", { phones: [{ number: "030 5551234" }] }, LATER);
+    expect(stored("Gb").contact?.phones).toEqual([{ number: "+49305551234", country: "DE" }]);
+  });
+
+  it("an older record with three numbers is read as stored and keeps only the first on its next contact save", () => {
+    const three = [{ number: "+15551230001", label: "mobile" as const }, { number: "+15551230002" }, { number: "+15551230003" }];
+    seed(record("Old3", { contact: { email: null, emailSource: "discord", emailVerified: false, phones: three }, consent: { privacy: { acceptedVersion: PRIVACY_VERSION, at: NOW.toISOString() } } }));
+    expect(stored("Old3").contact?.phones).toHaveLength(3);
+    expect(contactView(stored("Old3")).phones).toEqual([three[0]]);
+    updateOwnContact("Old3", { preferredName: "Old Three" }, LATER);
+    expect(stored("Old3").contact?.phones).toEqual([three[0]]);
+  });
+
+  it("a coach onboarded before Country existed is not re-gated and can save without one, but needs one for a national number", () => {
+    seed(record("NoC", { identities: { email: "noc@example.test" }, consent: { privacy: { acceptedVersion: PRIVACY_VERSION, at: NOW.toISOString() } } }));
+    expect(onboardingNeeded(stored("NoC"))).toBe(false);
+    updateOwnContact("NoC", { preferredName: "No C" }, LATER);
+    expect(() => updateOwnContact("NoC", { phones: [{ number: "555 123 4567" }] }, LATER)).toThrow(/Choose your country first/);
+    updateOwnContact("NoC", { country: "US", phones: [{ number: "555 123 4567" }] }, LATER);
+    expect(stored("NoC").contact?.phones).toEqual([{ number: "+15551234567", country: "US" }]);
   });
 });

@@ -30,17 +30,17 @@ function mockFetcher(routes: Routes): Fetcher & { calls: Array<{ path: string; m
 
 const INFO = (needed = true, extra: Record<string, unknown> = {}) => ({
   needed, privacyVersion: "2026-10-31",
-  prefill: { preferredName: "alice_dc", email: "alice@example.test", emailSource: "discord" },
+  prefill: { preferredName: "alice_dc", email: "alice@example.test", emailSource: "discord", country: "US" },
   leagueContactText: "Organisers of leagues and tournaments I join may contact me by email or phone about fixtures and league business.",
   ...extra,
 });
 const CONTACT = {
-  preferredName: "Alice", email: "alice@example.test", emailSource: "discord", emailVerified: true, phones: [{ number: "+15551234567", label: "mobile" }],
+  preferredName: "Alice", email: "alice@example.test", emailSource: "discord", emailVerified: true, country: "US", phones: [{ number: "+15551234567", country: "US" }],
   leagueContact: { granted: true, at: "2026-11-01T10:00:00.000Z", version: "2026-10-31" }, privacy: { acceptedVersion: "2026-10-31", at: "2026-11-01T10:00:00.000Z" },
   privacyVersion: "2026-10-31", leagueContactText: "Organisers of leagues and tournaments I join may contact me by email or phone about fixtures and league business.",
 };
 const form = (extra: Partial<OnboardingForm> = {}): OnboardingForm => ({
-  preferredName: "Alice", email: "alice@example.test", editingEmail: false, phones: [], leagueContact: false, privacyAccepted: true, ...extra,
+  preferredName: "Alice", email: "alice@example.test", editingEmail: false, country: "US", phones: [], leagueContact: false, privacyAccepted: true, ...extra,
 });
 
 describe("onboarding controller", () => {
@@ -70,28 +70,28 @@ describe("onboarding controller", () => {
     expect(canSubmit(form({ preferredName: "x".repeat(41) }))).toBe(false);
     expect(canSubmit(form({ email: "nope" }))).toBe(false);
     expect(canSubmit(form({ email: "" }))).toBe(true);
-    expect(canSubmit(form({ phones: [{ number: "", label: "mobile" }] }))).toBe(false);
-    expect(canSubmit(form({ phones: [{ number: "5551234567", label: "mobile" }] }))).toBe(false);
-    expect(canSubmit(form({ phones: [{ number: "+1 555 123 4567", label: "mobile" }] }))).toBe(true);
-    expect(onboardingProblems(form({ phones: [{ number: "+15551234567", label: "" }, { number: "+1 555 123 4567", label: "home" }] })).phones).toEqual(["", "Listed twice."]);
-    expect(onboardingProblems(form({ phones: [{ number: "123", label: "" }] })).phones[0]).toContain("+1 555 123 4567");
+    expect(canSubmit(form({ country: "" }))).toBe(false); // country is required
+    expect(onboardingProblems(form({ country: "" })).country).toBe("Choose your country.");
+    expect(canSubmit(form({ phones: [{ number: "", country: "" }] }))).toBe(false);
+    expect(canSubmit(form({ phones: [{ number: "555 123 4567", country: "" }] }))).toBe(true); // national, US prefix
+    expect(canSubmit(form({ phones: [{ number: "+44 20 7946 0555", country: "" }] }))).toBe(true);
+    expect(onboardingProblems(form({ phones: [{ number: "12", country: "" }] })).phones[0]).toBe("Enter the number without the country code, for example 555 123 4567.");
   });
 
-  it("phones: add up to 3, remove; submit POSTs normalised phones and the privacy version, then closes", async () => {
+  it("one phone: add, remove; submit POSTs the country, the number as typed and the privacy version, then closes", async () => {
     const f = mockFetcher({ "/api/me/onboarding": INFO(), "POST /api/me/onboarding": INFO(false) });
     const o = createOnboarding({ api: f });
     await o.load("Alice");
     expect(o.canSubmit()).toBe(false);
     for (let i = 0; i < 5; i++) o.addPhone();
-    expect(o.state.form.phones).toHaveLength(3);
-    o.removePhone(2);
-    o.removePhone(1);
-    o.state.form.phones[0]!.number = "+44 20 7946 0000";
+    expect(o.state.form.phones).toHaveLength(1);
+    o.state.form.phones[0]!.number = "07700 900555";
+    o.state.form.phones[0]!.country = "GB";
     o.state.form.privacyAccepted = true;
     expect(o.canSubmit()).toBe(true);
     expect(await o.submit()).toBe(true);
     expect(f.calls.at(-1)).toEqual({ path: "/api/me/onboarding", method: "POST", body: {
-      preferredName: "alice_dc", email: "alice@example.test", phones: [{ number: "+442079460000", label: "mobile" }], leagueContact: false, privacyAccepted: true, privacyVersion: "2026-10-31",
+      preferredName: "alice_dc", email: "alice@example.test", country: "US", phones: [{ number: "07700 900555", country: "GB" }], leagueContact: false, privacyAccepted: true, privacyVersion: "2026-10-31",
     } });
     expect(o.open()).toBe(false);
     expect(onboardingBody(form({ email: "  " }), "v")).toMatchObject({ email: null });
@@ -127,33 +127,42 @@ describe("contact editor (Account page)", () => {
     const f = mockFetcher({ "/api/me/contact": CONTACT, "PATCH /api/me/contact": { ...CONTACT, leagueContact: { granted: false, at: "2026-11-02T00:00:00.000Z", version: "2026-10-31" } } });
     const e = createContactEditor({ api: f });
     await e.load();
-    expect(e.state.form).toEqual({ preferredName: "Alice", email: "alice@example.test", phones: [{ number: "+15551234567", label: "mobile" }], leagueContact: true });
+    expect(e.state.form).toEqual({ preferredName: "Alice", email: "alice@example.test", country: "US", phones: [{ number: "5551234567", country: "US" }], leagueContact: true });
     expect(e.dirty()).toBe(false);
     e.state.form.phones[0]!.number = "bad";
     expect(e.valid()).toBe(false);
     expect(await e.save()).toBe(false);
     expect(f.calls.some((c) => c.method === "PATCH")).toBe(false);
-    e.state.form.phones[0]!.number = "+1 555 123 4567";
+    e.state.form.phones[0]!.number = "5551234567";
     e.state.form.leagueContact = false;
     expect(e.dirty()).toBe(true);
     expect(await e.save()).toBe(true);
-    // Partial: only the changed field goes up (the phone was re-typed to the same number).
+    // Partial: only the changed field goes up (the phone was put back as it was).
     expect(f.calls.at(-1)?.body).toEqual({ leagueContact: false });
     expect(e.state.notice).toBe("Saved.");
     expect(dateOf("2026-11-02T00:00:00.000Z")).toBe("2026-11-02");
-    expect(contactBody({ preferredName: " A ", email: "", phones: [{ number: "+15551234567", label: "" }], leagueContact: false })).toEqual({ preferredName: "A", email: null, phones: [{ number: "+15551234567" }], leagueContact: false });
+    expect(contactBody({ preferredName: " A ", email: "", country: "US", phones: [{ number: " 555 123 4567 ", country: "" }], leagueContact: false })).toEqual({ preferredName: "A", email: null, country: "US", phones: [{ number: "555 123 4567" }], leagueContact: false });
+    // A per-number country goes up when set (a saved number keeps the country it was entered for).
+    expect(contactBody({ preferredName: "A", email: "", country: "US", phones: [{ number: "07700 900555", country: "GB" }], leagueContact: false }).phones).toEqual([{ number: "07700 900555", country: "GB" }]);
+    // Changing only the country never sends the stored phone again (so it is never rewritten).
+    e.state.form.country = "DE";
+    expect(changedFields(e.state.form, e.state.view!)).toEqual({ country: "DE" });
   });
 
   it("a name edit never resubmits consent, phones or email", () => {
     const view = CONTACT as never;
-    expect(changedFields({ preferredName: "Alicia", email: "alice@example.test", phones: [{ number: "+15551234567", label: "mobile" }], leagueContact: true }, view)).toEqual({ preferredName: "Alicia" });
-    expect(changedFields({ preferredName: "Alice", email: "alice@example.test", phones: [], leagueContact: true }, view)).toEqual({ phones: [] });
+    expect(changedFields({ preferredName: "Alicia", email: "alice@example.test", country: "US", phones: [{ number: "5551234567", country: "US" }], leagueContact: true }, view)).toEqual({ preferredName: "Alicia" });
+    expect(changedFields({ preferredName: "Alice", email: "alice@example.test", country: "US", phones: [], leagueContact: true }, view)).toEqual({ phones: [] });
   });
 
-  it("re-acceptance prefills the stored phones and league-contact choice in the modal", async () => {
-    const o = createOnboarding({ api: mockFetcher({ "/api/me/onboarding": INFO(true, { prefill: { preferredName: "a", email: "a@b.cd", emailSource: "discord", phones: [{ number: "+15551234567", label: "home" }, { number: "+442079460000" }], leagueContact: true } }) }) });
+  it("re-acceptance prefills the stored phone (national part for its country) and league-contact choice in the modal", async () => {
+    const o = createOnboarding({ api: mockFetcher({ "/api/me/onboarding": INFO(true, { prefill: { preferredName: "a", email: "a@b.cd", emailSource: "discord", country: "US", phones: [{ number: "+447700900555", country: "GB" }], leagueContact: true } }) }) });
     await o.load("Alice");
-    expect(o.state.form.phones).toEqual([{ number: "+15551234567", label: "home" }, { number: "+442079460000", label: "" }]);
+    expect(o.state.form.phones).toEqual([{ number: "7700900555", country: "GB" }]);
+    expect(o.state.form.country).toBe("US");
+    const old = createOnboarding({ api: mockFetcher({ "/api/me/onboarding": INFO(true, { prefill: { preferredName: "a", email: "a@b.cd", emailSource: "discord", country: null, phones: [{ number: "+15551234567", label: "home" }] } }) }) });
+    await old.load("Bob");
+    expect(old.state.form.phones).toEqual([{ number: "+15551234567", country: "" }]); // typed with + : kept international
     expect(o.state.form.leagueContact).toBe(true);
   });
 
@@ -229,21 +238,24 @@ describe("views (server-rendered against a mocked API)", () => {
     }
   });
 
-  it("valid + privacy ticked enables Save; an edited email shows the 'verify later' note; phone rows have labels and Remove", async () => {
+  it("valid + privacy ticked enables Save; an edited email shows the 'verify later' note; the one phone has its prefix, country override and Remove", async () => {
     const html = await render("/home", { "/api/me/onboarding": INFO() }, (o) => {
       o.state.form.privacyAccepted = true;
       o.state.form.editingEmail = true;
       o.state.form.email = "other@example.test";
-      o.state.form.phones.push({ number: "+15551234567", label: "home" });
+      o.state.form.phones.push({ number: "555 123 4567", country: "" });
     });
     const m = modalOf(html);
     expect(m).toMatch(/<button class="lobby-btn primary" type="submit"[^>]*>Save and continue<\/button>/);
     expect(m).not.toMatch(/type="submit" disabled/);
     expect(m).toMatch(/<input id="ob-email"[^>]*type="email"/);
     expect(m).toContain("We&#39;ll verify this address later.");
-    expect(m).toContain('<label for="ob-phone-0">Number 1</label>');
-    expect(m).toContain('<label for="ob-phone-0-label">Type</label>');
-    expect(m).toContain('aria-label="Remove number 1"');
+    expect(m).toMatch(/<label for="ob-country">Country<\/label>/);
+    expect(m).toContain('<span class="ob-phone-prefix" aria-hidden="true">+1</span>');
+    expect(m).toContain('<label for="ob-phone-country">Number&#39;s country</label>');
+    expect(m).toContain("Same as mine (United States)");
+    expect(m).toContain('aria-label="Remove phone number"');
+    expect(m).not.toContain(">Type</label>"); // no phone type any more
   });
 
   it("no modal once onboarding is done; the shell is not inert", async () => {
@@ -258,7 +270,9 @@ describe("views (server-rendered against a mocked API)", () => {
     const sec = html.slice(html.indexOf('id="contact"'), html.indexOf('id="calendar"')).replace(/<!--[^>]*-->/g, "");
     expect(sec).toMatch(/<input id="acc-name"[^>]*value="Alice"/);
     expect(sec).toMatch(/<input id="acc-email"[^>]*value="alice@example.test"/);
-    expect(sec).toMatch(/<input id="acc-phone-0"[^>]*value="\+15551234567"/);
+    expect(sec).toMatch(/<input id="acc-phone-number"[^>]*value="5551234567"/);
+    expect(sec).toContain("+1</span>");
+    expect(sec).toMatch(/<input id="acc-country"[^>]*value="United States"/);
     expect(checkboxes(sec)).toHaveLength(1);
     expect(checkboxes(sec)[0]).toMatch(/\schecked/);
     expect(sec).toContain('data-consent="league">Allowed · since 2026-11-01');

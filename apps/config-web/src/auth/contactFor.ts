@@ -20,7 +20,7 @@
 // Nothing public includes email or phones; an organiser gets them only through sharedContactFor. Never Discord ids.
 
 import {
-  contactOf, leagueContactGranted, preferredNameOf, SHARE_SCOPE, sharesWithLeague, type CoachPhone, type ShareField,
+  contactOf, leagueContactGranted, MAX_PHONES, preferredNameOf, SHARE_SCOPE, sharesWithLeague, type CoachPhone, type ShareField,
 } from "./contactSchema.js";
 import { normalizeFfbCoachId, readIdentities, type CoachIdentityRecord } from "./identitiesStore.js";
 import { isTournamentManager } from "../tournaments/store.js";
@@ -199,7 +199,8 @@ export function sharedFieldsOf(record: CoachIdentityRecord, fields: readonly Sha
     coach: record.ffbCoachId,
     ...(fields.includes("preferredName") ? { preferredName: preferredNameOf(record) } : {}),
     ...(fields.includes("email") && contact.email ? { email: contact.email } : {}),
-    ...(fields.includes("phone") && contact.phones.length ? { phones: contact.phones } : {}),
+    // "phone" = the coach's one number (an older record with more shares only the first, as its next save keeps).
+    ...(fields.includes("phone") && contact.phones.length ? { phones: contact.phones.slice(0, MAX_PHONES) } : {}),
   };
 }
 

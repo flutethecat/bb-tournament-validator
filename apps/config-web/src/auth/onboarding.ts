@@ -9,7 +9,7 @@
 
 import {
   contactOf, contactWithEmail, ContactValidationError, LEAGUE_CONTACT_TEXT, LEAGUE_CONTACT_VERSION, onboardingNeeded,
-  parseEmail, parsePhones, parsePreferredName, preferredNameOf, PRIVACY_VERSION, withContactDefaults,
+  MAX_PHONES, parseCountry, parseEmail, parsePhones, parsePreferredName, preferredNameOf, PRIVACY_VERSION, withContactDefaults,
   type CoachConsent, type CoachContact, type CoachPhone, type LeagueContactConsent, type PrivacyAcceptance,
 } from "./contactSchema.js";
 import { normalizeFfbCoachId, ownIdentityRecord, upsertIdentity, type CoachIdentityRecord } from "./identitiesStore.js";
@@ -43,7 +43,7 @@ export function onboardingGateApplies(method: string, path: string): boolean {
 export interface OnboardingView {
   needed: boolean;
   /** phones and leagueContact carry what is stored, so a re-acceptance after a privacy-version bump keeps them. */
-  prefill: { preferredName: string; email: string | null; emailSource: CoachContact["emailSource"]; phones: CoachPhone[]; leagueContact: boolean };
+  prefill: { preferredName: string; email: string | null; emailSource: CoachContact["emailSource"]; country: string | null; phones: CoachPhone[]; leagueContact: boolean };
   privacyVersion: string;
   leagueContactText: string;
   leagueContactVersion: string;
@@ -54,8 +54,8 @@ export function onboardingView(record: CoachIdentityRecord): OnboardingView {
   return {
     needed: onboardingNeeded(record),
     prefill: {
-      preferredName: preferredNameOf(record), email: contact.email, emailSource: contact.emailSource,
-      phones: contact.phones, leagueContact: record.consent?.leagueContact?.granted === true,
+      preferredName: preferredNameOf(record), email: contact.email, emailSource: contact.emailSource, country: contact.country ?? null,
+      phones: contact.phones.slice(0, MAX_PHONES), leagueContact: record.consent?.leagueContact?.granted === true,
     },
     privacyVersion: PRIVACY_VERSION,
     leagueContactText: LEAGUE_CONTACT_TEXT,
@@ -69,6 +69,7 @@ export interface ContactView {
   email: string | null;
   emailSource: CoachContact["emailSource"];
   emailVerified: boolean;
+  country: string | null;
   phones: CoachPhone[];
   leagueContact: LeagueContactConsent | null;
   privacy: PrivacyAcceptance | null;
@@ -83,7 +84,8 @@ export function contactView(record: CoachIdentityRecord): ContactView {
     email: contact.email,
     emailSource: contact.emailSource,
     emailVerified: contact.emailVerified,
-    phones: contact.phones,
+    country: contact.country ?? null,
+    phones: contact.phones.slice(0, MAX_PHONES),
     leagueContact: record.consent?.leagueContact ?? null,
     privacy: record.consent?.privacy ?? null,
     privacyVersion: PRIVACY_VERSION,
@@ -123,13 +125,13 @@ function save(previous: CoachIdentityRecord, next: { preferredName: string; cont
 }
 
 /**
- * POST /api/me/onboarding: { preferredName, email (string | null), phones?, leagueContact?, privacyAccepted: true,
- * privacyVersion? }. phones / leagueContact absent = keep what is stored. Saves every field in one write; throws ContactValidationError (400) on any problem, including a
+ * POST /api/me/onboarding: { preferredName, email (string | null), country, phones?, leagueContact?, privacyAccepted: true,
+ * privacyVersion? }. country (ISO alpha-2) is required (owner 10-31); phones are national numbers for it (or "+..."). phones / leagueContact absent = keep what is stored. Saves every field in one write; throws ContactValidationError (400) on any problem, including a
  * missing privacy acceptance or a privacyVersion other than the current one (the page was stale).
  */
 export function completeOnboarding(coach: string, body: unknown, now = new Date()): CoachIdentityRecord {
   if (!isObject(body)) throw new ContactValidationError("A JSON object is required.");
-  onlyKeys(body, ["preferredName", "email", "phones", "leagueContact", "privacyAccepted", "privacyVersion"]);
+  onlyKeys(body, ["preferredName", "email", "country", "phones", "leagueContact", "privacyAccepted", "privacyVersion"]);
   if (body.privacyAccepted !== true) throw new ContactValidationError("Accept the privacy notice to continue.");
   if (body.privacyVersion !== undefined && body.privacyVersion !== PRIVACY_VERSION)
     throw new ContactValidationError("The privacy notice has changed. Reload the page and read it again.");
@@ -137,13 +139,16 @@ export function completeOnboarding(coach: string, body: unknown, now = new Date(
   const preferredName = parsePreferredName(body.preferredName);
   const email = parseEmail(body.email);
   const previous = ownIdentityRecord(coach);
-  // Phones are replaced only when the client sends the field (a missing field keeps the stored numbers).
-  const phones = "phones" in body ? parsePhones(body.phones) : contactOf(previous).phones;
+  const country = parseCountry(body.country) ?? contactOf(previous).country;
+  if (!country) throw new ContactValidationError("Choose your country.");
+  // Phones are replaced only when the client sends the field (a missing field keeps the stored number; older records
+  // with more than one keep the first).
+  const phones = "phones" in body ? parsePhones(body.phones, country) : contactOf(previous).phones.slice(0, MAX_PHONES);
   // The league-contact choice likewise: absent keeps the stored choice (a first onboarding = not granted).
   const granted = "leagueContact" in body ? parseLeagueContact(body.leagueContact) : previous.consent?.leagueContact?.granted === true;
   return save(previous, {
     preferredName,
-    contact: contactWithEmail(email, previous.identities.email, phones),
+    contact: contactWithEmail(email, previous.identities.email, phones, country),
     consent: {
       ...previous.consent,
       leagueContact: leagueConsent(previous.consent?.leagueContact, granted, now),
@@ -153,20 +158,22 @@ export function completeOnboarding(coach: string, body: unknown, now = new Date(
 }
 
 /**
- * PATCH /api/me/contact: any of { preferredName, email, phones, leagueContact }. Phones replace the list; a changed
+ * PATCH /api/me/contact: any of { preferredName, email, country, phones, leagueContact }. Phones replace the list (one
+ * number; national for the coach's country, or "+..."); a new country never rewrites a stored number; a changed
  * league-contact choice gets a new timestamp. Privacy acceptance is not editable here (read-only on the Account page).
  */
 export function updateOwnContact(coach: string, body: unknown, now = new Date()): CoachIdentityRecord {
   if (!isObject(body)) throw new ContactValidationError("A JSON object is required.");
-  onlyKeys(body, ["preferredName", "email", "phones", "leagueContact"]);
+  onlyKeys(body, ["preferredName", "email", "country", "phones", "leagueContact"]);
   if (!Object.keys(body).length) throw new ContactValidationError("Nothing to change.");
   const previous = ownIdentityRecord(coach);
   const current = contactOf(previous);
   const preferredName = "preferredName" in body ? parsePreferredName(body.preferredName) : preferredNameOf(previous);
-  const phones = "phones" in body ? parsePhones(body.phones) : current.phones;
+  const country = "country" in body ? parseCountry(body.country) ?? current.country : current.country;
+  const phones = "phones" in body ? parsePhones(body.phones, country) : current.phones.slice(0, MAX_PHONES);
   const contact = "email" in body
-    ? contactWithEmail(parseEmail(body.email), previous.identities.email, phones)
-    : { ...current, phones };
+    ? contactWithEmail(parseEmail(body.email), previous.identities.email, phones, country)
+    : { ...current, ...(country ? { country } : {}), phones };
   let consent: CoachConsent = { ...previous.consent };
   if ("leagueContact" in body) {
     if (typeof body.leagueContact !== "boolean") throw new ContactValidationError("leagueContact must be true or false.");

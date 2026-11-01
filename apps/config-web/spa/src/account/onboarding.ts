@@ -7,37 +7,58 @@ import { reactive, type InjectionKey } from "vue";
 import type { Fetcher } from "../session";
 import { ApiError } from "../shared/api";
 import {
-  MAX_PHONES, normalizePhoneNumber, parseEmail, parsePreferredName, PHONE_LABELS, PREFERRED_NAME_MAX, type PhoneLabel,
+  MAX_PHONES, nationalPart, normalizePhoneNumber, parseEmail, parsePreferredName, PHONE_LABELS, PREFERRED_NAME_MAX, type PhoneLabel,
 } from "../../../src/auth/contactSchema";
+import { COUNTRIES, countryByCode, type Country } from "../../../src/auth/countries";
 import { dialogKey } from "../teams/manage";
 
-export { MAX_PHONES, PHONE_LABELS, PREFERRED_NAME_MAX };
-export type { PhoneLabel };
+export { COUNTRIES, countryByCode, MAX_PHONES, PHONE_LABELS, PREFERRED_NAME_MAX };
+export type { Country, PhoneLabel };
 
-export const PHONE_HINT = "Start with + and your country code, for example +1 555 123 4567.";
+export const PHONE_HINT = "Without the country code, for example 555 123 4567. Start with + for a full international number.";
+export const COUNTRY_REQUIRED = "Choose your country.";
+
+/** The calling-code prefix shown left of the phone field ("+44"); "" when the number is typed with "+" or no country. */
+export function phonePrefix(row: Pick<PhoneRow, "number" | "country">, profileCountry: string): string {
+  if (row.number.trim().startsWith("+")) return "";
+  const c = countryByCode(row.country || profileCountry);
+  return c ? `+${c.dial}` : "";
+}
+
+/** A stored phone back into the form: the national part for its country, or the full "+..." number. */
+export const phoneRowOf = (p: { number: string; country?: string }): PhoneRow =>
+  ({ number: p.country ? nationalPart(p) : p.number, country: p.country ?? "" });
+
+/** The phone as the server takes it: the number as typed, and the number's own country when one is set (a saved number
+ *  keeps the country it was entered for, so changing the coach's country never changes it). */
+export const phoneBody = (p: PhoneRow, _profileCountry?: string) =>
+  ({ number: p.number.trim(), ...(p.country && !p.number.trim().startsWith("+") ? { country: p.country } : {}) });
 export const EMAIL_UNVERIFIED_NOTE = "We'll verify this address later.";
 
 export interface OnboardingInfo {
   needed: boolean;
-  prefill: { preferredName: string; email: string | null; emailSource: "discord" | "user"; phones?: Array<{ number: string; label?: PhoneLabel }>; leagueContact?: boolean };
+  prefill: { preferredName: string; email: string | null; emailSource: "discord" | "user"; country?: string | null; phones?: Array<{ number: string; country?: string; label?: PhoneLabel }>; leagueContact?: boolean };
   privacyVersion: string;
   leagueContactText: string;
   leagueContactVersion?: string;
 }
 
-export interface PhoneRow { number: string; label: PhoneLabel | "" }
+/** One phone (owner 10-31: a single optional number). country "" = the coach's own country. */
+export interface PhoneRow { number: string; country: string }
 
 export interface OnboardingForm {
   preferredName: string;
   email: string;
   /** The email field is an input (the coach pressed Edit, or there was no address to show). */
   editingEmail: boolean;
+  /** ISO alpha-2 ("" = not chosen yet; required to finish onboarding). */
+  country: string;
   phones: PhoneRow[];
   leagueContact: boolean;
   privacyAccepted: boolean;
 }
 
-export interface OnboardingProblems { preferredName: string; email: string; phones: string[] }
+export interface OnboardingProblems { preferredName: string; email: string; country: string; phones: string[] }
 
 export interface OnboardingState {
   /** The coach the last read was for ("" = none). */
@@ -55,12 +76,10 @@ export function onboardingProblems(form: OnboardingForm): OnboardingProblems {
   return {
     preferredName: msg(() => parsePreferredName(form.preferredName)),
     email: msg(() => parseEmail(form.email)),
-    phones: form.phones.map((p, i) => {
-      if (!p.number.trim()) return "Enter a number or remove this row.";
-      const problem = msg(() => normalizePhoneNumber(p.number));
-      if (problem) return problem;
-      const n = normalizePhoneNumber(p.number);
-      return form.phones.slice(0, i).some((q) => msg(() => normalizePhoneNumber(q.number)) === "" && normalizePhoneNumber(q.number) === n) ? "Listed twice." : "";
+    country: countryByCode(form.country) ? "" : COUNTRY_REQUIRED,
+    phones: form.phones.map((p) => {
+      if (!p.number.trim()) return "Enter a number or remove it.";
+      return msg(() => normalizePhoneNumber(p.number, p.country || form.country));
     }),
   };
 }
@@ -68,14 +87,15 @@ export function onboardingProblems(form: OnboardingForm): OnboardingProblems {
 /** "Save and continue" is enabled only with a valid form and the privacy notice accepted. */
 export function canSubmit(form: OnboardingForm): boolean {
   const p = onboardingProblems(form);
-  return form.privacyAccepted && !p.preferredName && !p.email && p.phones.every((x) => !x);
+  return form.privacyAccepted && !p.preferredName && !p.email && !p.country && p.phones.every((x) => !x);
 }
 
 export function onboardingBody(form: OnboardingForm, privacyVersion: string) {
   return {
     preferredName: form.preferredName.trim(),
     email: form.email.trim() || null,
-    phones: form.phones.map((p) => ({ number: normalizePhoneNumber(p.number), ...(p.label ? { label: p.label } : {}) })),
+    country: form.country,
+    phones: form.phones.slice(0, MAX_PHONES).map((p) => phoneBody(p, form.country)),
     leagueContact: form.leagueContact,
     privacyAccepted: form.privacyAccepted,
     privacyVersion,
@@ -87,7 +107,7 @@ export function onboardingKey<T>(e: { key: string; shiftKey: boolean }, focusabl
   return dialogKey(e, focusables, active, true);
 }
 
-const blankForm = (): OnboardingForm => ({ preferredName: "", email: "", editingEmail: false, phones: [], leagueContact: false, privacyAccepted: false });
+const blankForm = (): OnboardingForm => ({ preferredName: "", email: "", editingEmail: false, country: "", phones: [], leagueContact: false, privacyAccepted: false });
 
 export function createOnboarding(deps: { api: Fetcher; onSignedOut?: () => void }) {
   const state = reactive<OnboardingState>({ coach: "", info: null, form: blankForm(), busy: false, error: "" });
@@ -113,7 +133,8 @@ export function createOnboarding(deps: { api: Fetcher; onSignedOut?: () => void 
         email: info.prefill.email ?? "",
         editingEmail: !info.prefill.email,
         // After a privacy-version bump the stored numbers and choice come back prefilled (never wiped on submit).
-        phones: (info.prefill.phones ?? []).map((p) => ({ number: p.number, label: p.label ?? "" })),
+        country: info.prefill.country ?? "",
+        phones: (info.prefill.phones ?? []).slice(0, MAX_PHONES).map(phoneRowOf),
         leagueContact: info.prefill.leagueContact === true,
       };
     } catch {
@@ -128,7 +149,7 @@ export function createOnboarding(deps: { api: Fetcher; onSignedOut?: () => void 
     problems: (): OnboardingProblems => onboardingProblems(state.form),
     canSubmit: (): boolean => !state.busy && canSubmit(state.form),
     editEmail(): void { state.form.editingEmail = true; },
-    addPhone(): void { if (state.form.phones.length < MAX_PHONES) state.form.phones.push({ number: "", label: "mobile" }); },
+    addPhone(): void { if (state.form.phones.length < MAX_PHONES) state.form.phones.push({ number: "", country: "" }); },
     removePhone(i: number): void { state.form.phones.splice(i, 1); },
     async submit(): Promise<boolean> {
       if (!state.info || state.busy || !canSubmit(state.form)) return false;

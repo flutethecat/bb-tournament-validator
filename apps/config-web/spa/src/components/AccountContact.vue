@@ -4,7 +4,9 @@
 import { computed, onMounted, onServerPrefetch, ref } from "vue";
 import "../account/onboarding.css";
 import { dateOf, type ContactEditor } from "../account/contact";
-import { EMAIL_UNVERIFIED_NOTE, MAX_PHONES, PHONE_HINT, PHONE_LABELS, PREFERRED_NAME_MAX } from "../account/onboarding";
+import { EMAIL_UNVERIFIED_NOTE, PREFERRED_NAME_MAX } from "../account/onboarding";
+import CountryField from "./CountryField.vue";
+import PhoneField from "./PhoneField.vue";
 
 const props = defineProps<{ editor: ContactEditor }>();
 const { state } = props.editor;
@@ -17,8 +19,10 @@ const emailNote = computed(() => {
   if (state.form.email.trim().toLowerCase() === (v.email ?? "").toLowerCase()) return v.emailSource === "discord" ? "From your Discord account." : v.emailVerified ? "Verified." : EMAIL_UNVERIFIED_NOTE;
   return EMAIL_UNVERIFIED_NOTE;
 });
+// Adding the phone asks for the country first when none is set (coaches onboarded before Country existed).
+function addPhone(): void { props.editor.addPhone(); if (!state.form.country) touched.value = { ...touched.value, country: true }; }
 async function save(): Promise<void> {
-  touched.value = { name: true, email: true, ...Object.fromEntries(state.form.phones.map((_, i) => [`phone-${i}`, true])) };
+  touched.value = { name: true, email: true, country: true, ...Object.fromEntries(state.form.phones.map((_, i) => [`phone-${i}`, true])) };
   await props.editor.save();
 }
 
@@ -47,31 +51,19 @@ onServerPrefetch(() => props.editor.load());
           />
           <small id="acc-email-help" class="hm-small" :class="show('email', problems.email) ? 'lobby-error' : 'muted'">{{ show('email', problems.email) || emailNote }}</small>
         </div>
-        <button v-if="!state.form.phones.length" class="lobby-btn small ob-phone-open" type="button" @click="editor.addPhone()">Add a phone number (optional)</button>
-        <fieldset v-else class="ob-phones">
-          <legend class="ob-legend">Phone numbers <span class="muted hm-small">(optional, up to {{ MAX_PHONES }})</span></legend>
-          <p id="acc-phone-hint" class="muted hm-small ob-hint">{{ PHONE_HINT }}</p>
-          <div v-for="(phone, i) in state.form.phones" :key="i" class="ob-phone-row">
-            <div class="ob-field">
-              <label :for="`acc-phone-${i}`">Number {{ i + 1 }}</label>
-              <input
-                :id="`acc-phone-${i}`" v-model="phone.number" type="tel" autocomplete="tel" inputmode="tel" maxlength="24" placeholder="+1 555 123 4567"
-                :aria-invalid="show(`phone-${i}`, problems.phones[i] ?? '') ? 'true' : undefined"
-                :aria-describedby="show(`phone-${i}`, problems.phones[i] ?? '') ? `acc-phone-${i}-err` : 'acc-phone-hint'" @blur="touched[`phone-${i}`] = true"
-              />
-              <small v-if="show(`phone-${i}`, problems.phones[i] ?? '')" :id="`acc-phone-${i}-err`" class="lobby-error hm-small">{{ problems.phones[i] }}</small>
-            </div>
-            <div class="ob-field ob-phone-label">
-              <label :for="`acc-phone-${i}-label`">Type</label>
-              <select :id="`acc-phone-${i}-label`" v-model="phone.label">
-                <option value="">None</option>
-                <option v-for="l in PHONE_LABELS" :key="l" :value="l">{{ l[0]!.toUpperCase() + l.slice(1) }}</option>
-              </select>
-            </div>
-            <button class="lobby-btn small ob-phone-remove" type="button" :aria-label="`Remove number ${i + 1}`" @click="editor.removePhone(i)">Remove</button>
-          </div>
-          <button v-if="state.form.phones.length < MAX_PHONES" class="lobby-btn small ob-phone-add" type="button" @click="editor.addPhone()">Add phone number</button>
-        </fieldset>
+        <div class="ob-field">
+          <label for="acc-country">Country</label>
+          <CountryField
+            id="acc-country" v-model="state.form.country" :invalid="Boolean(show('country', problems.country))"
+            describedby="acc-country-help" @blur="touched.country = true"
+          />
+          <small id="acc-country-help" class="hm-small" :class="show('country', problems.country) ? 'lobby-error' : 'muted'">{{ show('country', problems.country) || "Sets the prefix for a new phone number. A saved number keeps its own." }}</small>
+        </div>
+        <button v-if="!state.form.phones.length" class="lobby-btn small ob-phone-open" type="button" @click="addPhone">Add a phone number (optional)</button>
+        <PhoneField
+          v-else :row="state.form.phones[0]!" :profile-country="state.form.country" id-prefix="acc-phone"
+          :problem="show('phone-0', problems.phones[0] ?? '')" @blur="touched['phone-0'] = true" @remove="editor.removePhone(0)"
+        />
         <label class="ob-check">
           <input v-model="state.form.leagueContact" type="checkbox" />
           <span>{{ state.view.leagueContactText }}</span>

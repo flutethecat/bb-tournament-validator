@@ -53,9 +53,9 @@ export const INVENTORY: readonly InventoryRow[] = [
   },
   {
     id: "contact-details", store: "identities.json (profile and contact fields)",
-    data: "The name you prefer to be called, a contact email you enter (it can differ from your Discord email, and we note whether it is verified), and up to three phone numbers if you add any (a phone number is optional).",
+    data: "The name you prefer to be called, a contact email you enter (it can differ from your Discord email, and we note whether it is verified), your country (it sets the prefix for your phone number), and one phone number if you add one (a phone number is optional).",
     purpose: "So Super FUMBBL can send you league messages from the organisers of leagues you join, if you allow it, and so you can choose to show your details to the organisers of a league or tournament you join.",
-    public: "no", publicNote: "Organisers of a league or tournament you join see your coach name and teams. Anything else (your preferred name, email or phone numbers) they see only if you chose to share it with that league or tournament, and only while you are in it; you choose per league and per tournament, and can change it on the Account page under Sharing. Your NAF number is shared with the organisers of NAF-sanctioned tournaments you enter. Nothing here is made public. League messages are sent by Super FUMBBL through our email delivery provider, so organisers can message you without seeing your address. Tournament organisers can also record NAF details for the coaches entered in their tournament.",
+    public: "no", publicNote: "Organisers of a league or tournament you join see your coach name and teams. Anything else (your preferred name, email or phone number) they see only if you chose to share it with that league or tournament, and only while you are in it; you choose per league and per tournament, and can change it on the Account page under Sharing. Your NAF number is shared with the organisers of NAF-sanctioned tournaments you enter. Nothing here is made public. League messages are sent by Super FUMBBL through our email delivery provider, so organisers can message you without seeing your address. Tournament organisers can also record NAF details for the coaches entered in their tournament.",
     retention: ACCOUNT_LIFETIME,
   },
   {
@@ -221,7 +221,7 @@ export const INVENTORY: readonly InventoryRow[] = [
 export interface CollectGroup { title: string; text: string; ids: readonly string[] }
 
 export const COLLECT_GROUPS: readonly CollectGroup[] = [
-  { title: "Your account", text: "Your Discord user id and username, the verified email on your Discord account, and your Discord avatar. If you add them: your preferred name, a contact email, and up to three phone numbers.", ids: ["identities", "contact-details", "consents", "sessions", "discord-sso", "organizers"] },
+  { title: "Your account", text: "Your Discord user id and username, the verified email on your Discord account, and your Discord avatar. If you add them: your preferred name, a contact email, your country and one phone number.", ids: ["identities", "contact-details", "consents", "sessions", "discord-sso", "organizers"] },
   { title: "What you create", text: "Rosters, teams, logos, avatars, match records, and league and tournament entries.", ids: ["coach-avatars", "team-avatars", "builder-saves", "team-library", "tournaments", "leagues", "tabletop", "tabletop-teams"] },
   { title: "Game results and ratings", text: "Who played, who won, and the ratings and titles that follow.", ids: ["results", "tournament-matches", "fork-db", "fork-teams-xml"] },
   { title: "Notifications, email, chat and bug reports", text: "Notices we send you on the site, emails we send you (only if you opt in and confirm an address), lobby chat messages, and the bug reports you choose to send.", ids: ["notifications", "mail", "bug-reports", "lobby-chat"] },

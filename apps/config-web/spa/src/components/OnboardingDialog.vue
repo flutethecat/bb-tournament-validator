@@ -1,15 +1,15 @@
 <script setup lang="ts">
 // "Welcome to Super FUMBBL" (owner 10-31): the blocking new-user modal over the shell (App.vue makes the shell inert).
-// One form: preferred name, the email we hold (Discord's, with Edit), optional phone numbers (collapsed behind "Add a phone
-// number (optional)", up to 3), the league-contact opt-in
+// One form: preferred name, the email we hold (Discord's, with Edit), the required country, one optional phone number
+// (collapsed behind "Add a phone number (optional)"; national number with the country's prefix), the league-contact opt-in
 // (never pre-ticked) and the required privacy acceptance. Escape does nothing; Tab stays inside (onboardingKey); the only
 // ways out are "Save and continue" and "Sign out". Controller: src/account/onboarding.ts.
 import { computed, inject, nextTick, onMounted, onUnmounted, ref } from "vue";
 import "../account/onboarding.css";
 import { FOCUSABLE } from "../home/shell";
-import {
-  EMAIL_UNVERIFIED_NOTE, MAX_PHONES, ONBOARDING_KEY, onboardingKey, PHONE_HINT, PHONE_LABELS, PREFERRED_NAME_MAX,
-} from "../account/onboarding";
+import { EMAIL_UNVERIFIED_NOTE, ONBOARDING_KEY, onboardingKey, PREFERRED_NAME_MAX } from "../account/onboarding";
+import CountryField from "./CountryField.vue";
+import PhoneField from "./PhoneField.vue";
 
 const emit = defineEmits<{ signOut: []; done: [] }>();
 const onboarding = inject(ONBOARDING_KEY)!;
@@ -32,10 +32,10 @@ async function editEmail(): Promise<void> {
 async function addPhone(): Promise<void> {
   onboarding.addPhone();
   await nextTick();
-  root.value?.querySelector<HTMLInputElement>(`#ob-phone-${state.form.phones.length - 1}`)?.focus();
+  root.value?.querySelector<HTMLInputElement>("#ob-phone-number")?.focus();
 }
 async function save(): Promise<void> {
-  touched.value = { name: true, email: true, ...Object.fromEntries(state.form.phones.map((_, i) => [`phone-${i}`, true])) };
+  touched.value = { name: true, email: true, country: true, ...Object.fromEntries(state.form.phones.map((_, i) => [`phone-${i}`, true])) };
   if (await onboarding.submit()) emit("done");
 }
 
@@ -89,32 +89,21 @@ onUnmounted(() => window.removeEventListener("keydown", onKey, true));
               }}</small>
             </div>
 
-            <!-- Phone is optional (owner 10-31): collapsed until the coach adds one; onboarding completes with none. -->
+            <div class="ob-field">
+              <label for="ob-country">Country</label>
+              <CountryField
+                id="ob-country" v-model="state.form.country" required :invalid="Boolean(show('country', problems.country))"
+                describedby="ob-country-help" @blur="touched.country = true"
+              />
+              <small id="ob-country-help" class="hm-small" :class="show('country', problems.country) ? 'lobby-error' : 'muted'">{{ show('country', problems.country) || "Sets the prefix for your phone number." }}</small>
+            </div>
+
+            <!-- One optional phone (owner 10-31): collapsed until the coach adds it; onboarding completes with none. -->
             <button v-if="!state.form.phones.length" class="lobby-btn small ob-phone-open" type="button" @click="addPhone">Add a phone number (optional)</button>
-            <fieldset v-else class="ob-phones">
-              <legend class="ob-legend">Phone numbers <span class="muted hm-small">(optional, up to {{ MAX_PHONES }})</span></legend>
-              <p id="ob-phone-hint" class="muted hm-small ob-hint">{{ PHONE_HINT }}</p>
-              <div v-for="(phone, i) in state.form.phones" :key="i" class="ob-phone-row">
-                <div class="ob-field">
-                  <label :for="`ob-phone-${i}`">Number {{ i + 1 }}</label>
-                  <input
-                    :id="`ob-phone-${i}`" v-model="phone.number" type="tel" autocomplete="tel" inputmode="tel" maxlength="24" placeholder="+1 555 123 4567"
-                    :aria-invalid="show(`phone-${i}`, problems.phones[i] ?? '') ? 'true' : undefined"
-                    :aria-describedby="show(`phone-${i}`, problems.phones[i] ?? '') ? `ob-phone-${i}-err` : 'ob-phone-hint'" @blur="touched[`phone-${i}`] = true"
-                  />
-                  <small v-if="show(`phone-${i}`, problems.phones[i] ?? '')" :id="`ob-phone-${i}-err`" class="lobby-error hm-small">{{ problems.phones[i] }}</small>
-                </div>
-                <div class="ob-field ob-phone-label">
-                  <label :for="`ob-phone-${i}-label`">Type</label>
-                  <select :id="`ob-phone-${i}-label`" v-model="phone.label">
-                    <option value="">None</option>
-                    <option v-for="l in PHONE_LABELS" :key="l" :value="l">{{ l[0]!.toUpperCase() + l.slice(1) }}</option>
-                  </select>
-                </div>
-                <button class="lobby-btn small ob-phone-remove" type="button" :aria-label="`Remove number ${i + 1}`" @click="onboarding.removePhone(i)">Remove</button>
-              </div>
-              <button v-if="state.form.phones.length < MAX_PHONES" class="lobby-btn small ob-phone-add" type="button" @click="addPhone">Add phone number</button>
-            </fieldset>
+            <PhoneField
+              v-else :row="state.form.phones[0]!" :profile-country="state.form.country" id-prefix="ob-phone"
+              :problem="show('phone-0', problems.phones[0] ?? '')" @blur="touched['phone-0'] = true" @remove="onboarding.removePhone(0)"
+            />
 
             <label class="ob-check">
               <input v-model="state.form.leagueContact" type="checkbox" />

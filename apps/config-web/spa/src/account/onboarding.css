@@ -19,7 +19,11 @@
 .ob-email-value { overflow-wrap: anywhere; font-weight: 600; }
 .ob-phones { display: grid; gap: 8px; }
 .ob-hint { margin: 0; }
-.ob-phone-row { display: grid; grid-template-columns: minmax(0, 1fr) 120px auto; gap: 8px; align-items: start; }
+.ob-phone { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 200px) auto; gap: 8px; align-items: start; }
+.ob-phone-input { display: flex; align-items: stretch; min-width: 0; }
+.ob-phone-input input { flex: 1 1 auto; min-width: 0; }
+.ob-phone-prefix { display: inline-flex; align-items: center; padding: 0 10px; border: 1px solid var(--ui-border); border-right: 0; border-radius: 4px 0 0 4px; background: var(--ui-surface-2, var(--ui-surface)); color: var(--ui-muted); font-variant-numeric: tabular-nums; }
+.ob-phone-input[data-prefixed] input { border-top-left-radius: 0; border-bottom-left-radius: 0; }
 .ob-phone-remove { margin-top: 19px; min-height: 44px; }
 .ob-phone-add { justify-self: start; min-height: 40px; }
 .ob-check { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; line-height: 1.4; }
@@ -30,13 +34,13 @@
 .ob-actions .lobby-btn { min-height: 44px; }
 
 @media (max-width: 520px) {
-  .ob-phone-row { grid-template-columns: minmax(0, 1fr) 100px; }
+  .ob-phone { grid-template-columns: minmax(0, 1fr); }
   .ob-phone-remove { grid-column: 1 / -1; justify-self: start; margin-top: 0; }
 }
 
 /* ---- Account page: Contact & consent */
 .ac-contact .ob-field input, .ac-contact .ob-field select { max-width: 420px; }
-.ac-contact .ob-phone-row { max-width: 560px; }
+.ac-contact .ob-phone { max-width: 640px; }
 .ac-consent { display: grid; gap: 4px; margin: 0; }
 .ac-consent dt { font: 11px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-heading); }
 .ac-consent dd { margin: 0 0 6px; }

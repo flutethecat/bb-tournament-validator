@@ -4,7 +4,10 @@
 // Stored on CoachIdentityRecord:
 //   profile.preferredName   string, 1-40 chars; default = the Discord username (else display name, else coach name)
 //   contact                 { email: string | null, emailSource: "discord" | "user", emailVerified: boolean,
-//                             phones: Array<{ number: E.164, label?: "mobile" | "home" | "other" }> (max 3) }
+//                             country?: ISO 3166-1 alpha-2 (drives the phone prefix; required at onboarding),
+//                             phones: Array<{ number: E.164, country?: alpha-2, label? }> }
+//                           ONE phone for new writes (owner 10-31); older records may hold up to 3 (label from the old
+//                           form) and keep only the first on their next contact save
 //                           absent = derived from identities.email (the Discord VERIFIED email), source "discord"
 //   consent.leagueContact   { granted: boolean, at: ISO, version: LEAGUE_CONTACT_VERSION } (opt-in; absent = not granted)
 //   consent.privacy         { acceptedVersion: PRIVACY_VERSION, at: ISO } (required; absent or older = onboarding needed)
@@ -18,6 +21,7 @@
  *  (spa/src/privacy/version.ts). Bumping it there asks every coach again at their next visit (accepted versions are ISO
  *  dates and compare as strings). */
 import { PRIVACY_VERSION } from "../../spa/src/privacy/version.js";
+import { countryByCode, KEEPS_LEADING_ZERO } from "./countries.js";
 export { PRIVACY_VERSION };
 /** The wording version of the league-contact consent. */
 export const LEAGUE_CONTACT_VERSION = "2026-10-31";
@@ -26,13 +30,20 @@ export const LEAGUE_CONTACT_TEXT =
 
 export const PREFERRED_NAME_MAX = 40;
 export const EMAIL_MAX = 200;
-export const MAX_PHONES = 3;
+/** One optional phone number (owner 10-31). */
+export const MAX_PHONES = 1;
+/** What older stored records may hold (read as stored; trimmed to MAX_PHONES on the next contact save). */
+const STORED_MAX_PHONES = 3;
+/** Labels from the older form (read, never asked for any more). */
 export const PHONE_LABELS = ["mobile", "home", "other"] as const;
 export type PhoneLabel = (typeof PHONE_LABELS)[number];
+export const PHONE_NATIONAL_MESSAGE = "Enter the number without the country code, for example 555 123 4567.";
 
 export interface CoachPhone {
   /** E.164: "+" then 8 to 15 digits. */
   number: string;
+  /** The country the number was entered for (the prefix shown back to the coach); absent = typed with "+". */
+  country?: string;
   label?: PhoneLabel;
 }
 
@@ -42,6 +53,8 @@ export interface CoachContact {
   emailSource: "discord" | "user";
   /** No mail provider yet: a user-typed address stays unverified ("We'll verify this address later"). */
   emailVerified: boolean;
+  /** The coach's country (ISO 3166-1 alpha-2): the default phone prefix. */
+  country?: string;
   phones: CoachPhone[];
 }
 
@@ -135,28 +148,71 @@ export function parseEmail(value: unknown): string | null {
   return email;
 }
 
-/** A phone number as typed ("+1 555 123 4567", "+44 (20) 7946-0000") to E.164, or an error naming the format. */
-export function normalizePhoneNumber(value: unknown): string {
-  if (typeof value !== "string") throw new ContactValidationError("Phone number must be text.");
-  const compact = value.trim().replace(/[\s().-]/g, "");
-  if (!E164.test(compact))
-    throw new ContactValidationError("Phone numbers start with + and the country code (not 0), then 8 to 15 digits in all (for example +1 555 123 4567).");
-  return compact;
+/** A country code (ISO 3166-1 alpha-2) from a request; undefined for "" / null. */
+export function parseCountry(value: unknown): string | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  const country = countryByCode(value);
+  if (!country) throw new ContactValidationError("Choose a country from the list.");
+  return country.code;
 }
 
-export function parsePhones(value: unknown): CoachPhone[] {
+/**
+ * A phone number to E.164. Typed with a leading "+": the full international number ("+44 20 7946 0000"), the country is
+ * ignored. Otherwise the NATIONAL number for `country` (spaces, dashes, dots and brackets allowed; one leading trunk 0
+ * dropped, e.g. UK "07946 000000" -> +447946000000), prefixed with that country's calling code.
+ */
+export function normalizePhoneNumber(value: unknown, country?: string): string {
+  if (typeof value !== "string") throw new ContactValidationError("Phone number must be text.");
+  const compact = value.trim().replace(/[\s().-]/g, "");
+  if (compact.startsWith("+")) {
+    if (!E164.test(compact))
+      throw new ContactValidationError("An international number is + and the country code (not 0), then 8 to 15 digits in all.");
+    return compact;
+  }
+  const c = countryByCode(country);
+  if (!c) throw new ContactValidationError("Choose your country first.");
+  if (!/^\d+$/.test(compact)) throw new ContactValidationError(PHONE_NATIONAL_MESSAGE);
+  const national = KEEPS_LEADING_ZERO.has(c.code) ? compact : compact.replace(/^0/, "");
+  const e164 = `+${c.dial}${national}`;
+  if (!national || !E164.test(e164)) throw new ContactValidationError(PHONE_NATIONAL_MESSAGE);
+  return e164;
+}
+
+/** The national part of a stored number for its country ("+447946000000", GB -> "7946000000"); the full number else. */
+export function nationalPart(phone: Pick<CoachPhone, "number" | "country">): string {
+  const c = countryByCode(phone.country);
+  return c && phone.number.startsWith(`+${c.dial}`) ? phone.number.slice(c.dial.length + 1) : phone.number;
+}
+
+/**
+ * Phones from a request: at most MAX_PHONES items of { number, country? }. A number with "+" is international; else
+ * national for the item's country, else the coach's `country`. Stored as { number: E.164, country? } (no label).
+ */
+export function parsePhones(value: unknown, country?: string): CoachPhone[] {
   if (value === undefined || value === null) return [];
   if (!Array.isArray(value)) throw new ContactValidationError("Phones must be a list.");
-  if (value.length > MAX_PHONES) throw new ContactValidationError(`At most ${MAX_PHONES} phone numbers.`);
+  if (value.length > MAX_PHONES) throw new ContactValidationError(MAX_PHONES === 1 ? "One phone number only." : `At most ${MAX_PHONES} phone numbers.`);
   const seen = new Set<string>();
   return value.map((item) => {
     if (!isObject(item)) throw new ContactValidationError("Each phone must be an object with a number.");
-    const number = normalizePhoneNumber(item.number);
+    const itemCountry = item.country === undefined || item.country === null || item.country === "" ? country : parseCountry(item.country);
+    const typed = typeof item.number === "string" ? item.number.trim() : item.number;
+    const number = normalizePhoneNumber(typed, itemCountry);
     if (seen.has(number)) throw new ContactValidationError("That phone number is listed twice.");
     seen.add(number);
-    if (item.label === undefined || item.label === null || item.label === "") return { number };
-    if (!PHONE_LABELS.includes(item.label as PhoneLabel)) throw new ContactValidationError("Phone label must be mobile, home or other.");
-    return { number, label: item.label as PhoneLabel };
+    const international = typeof typed === "string" && typed.startsWith("+");
+    return { number, ...(!international && itemCountry ? { country: itemCountry } : {}) };
+  });
+}
+
+/** Stored phones (E.164, up to the older limit of 3, labels kept): read as stored, never trimmed here. */
+function parseStoredPhones(value: unknown): CoachPhone[] {
+  if (!Array.isArray(value) || value.length > STORED_MAX_PHONES) throw new ContactValidationError("bad stored phones");
+  return value.map((item) => {
+    if (!isObject(item) || typeof item.number !== "string" || !E164.test(item.number)) throw new ContactValidationError("bad stored phone");
+    const country = countryByCode(item.country)?.code;
+    const label = PHONE_LABELS.includes(item.label as PhoneLabel) ? item.label as PhoneLabel : undefined;
+    return { number: item.number, ...(country ? { country } : {}), ...(label ? { label } : {}) };
   });
 }
 
@@ -165,10 +221,11 @@ const sameEmail = (a: string | null | undefined, b: string | null | undefined) =
 
 /** The stored contact for an email the coach confirmed or typed: the Discord address (case-insensitive) stays
  *  Discord-sourced and verified; anything else is the coach's own, unverified. */
-export function contactWithEmail(email: string | null, discordEmail: string | undefined, phones: CoachPhone[]): CoachContact {
-  if (sameEmail(email, discordEmail)) return { email: discordEmail!, emailSource: "discord", emailVerified: true, phones };
-  if (email === null && !discordEmail) return { email: null, emailSource: "discord", emailVerified: false, phones };
-  return { email, emailSource: "user", emailVerified: false, phones };
+export function contactWithEmail(email: string | null, discordEmail: string | undefined, phones: CoachPhone[], country?: string): CoachContact {
+  const c = country ? { country } : {};
+  if (sameEmail(email, discordEmail)) return { email: discordEmail!, emailSource: "discord", emailVerified: true, ...c, phones };
+  if (email === null && !discordEmail) return { email: null, emailSource: "discord", emailVerified: false, ...c, phones };
+  return { email, emailSource: "user", emailVerified: false, ...c, phones };
 }
 
 /** At a Discord sign-in: refresh a Discord-sourced email; a coach-typed one is never overwritten. */
@@ -185,8 +242,9 @@ export function normalizedContact(value: unknown): CoachContact | undefined {
   if (value.emailSource !== "discord" && value.emailSource !== "user") return undefined;
   if (typeof value.emailVerified !== "boolean") return undefined;
   let phones: CoachPhone[];
-  try { phones = parsePhones(value.phones ?? []); } catch { return undefined; }
-  return { email, emailSource: value.emailSource, emailVerified: value.emailVerified, phones };
+  try { phones = parseStoredPhones(value.phones ?? []); } catch { return undefined; }
+  const country = countryByCode(value.country)?.code;
+  return { email, emailSource: value.emailSource, emailVerified: value.emailVerified, ...(country ? { country } : {}), phones };
 }
 
 export function normalizedConsent(value: unknown): CoachConsent | undefined {
