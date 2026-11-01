@@ -152,9 +152,9 @@ describe("completed match reporter: tabletop and tournament", () => {
     const m = reporterModel(g);
     expect(m.ordered).toBe(true);
     expect(m.logTitle).toBe(ORDERED_LOG_TITLE);
-    // newest first, as the recorder's feed: MVP, then the casualty (causer above, victim beneath), then the touchdown
+    // oldest first, reading top to bottom: the touchdown, the casualty (causer above, victim beneath), then the MVP
     expect(m.rows.map((r) => [r.type, r.part, r.when])).toEqual([
-      ["mvp", "main", ""], ["casualty", "main", "H2 T2"], ["casualty", "victim", "H2 T2"], ["touchdown", "main", "H1 T3"],
+      ["touchdown", "main", "H1 T3"], ["casualty", "main", "H2 T2"], ["casualty", "victim", "H2 T2"], ["mvp", "main", ""],
     ]);
     expect(m.rows[2]).toMatchObject({ team: "away", player: "Squeak", rest: "is injured: SI." });
     // no confirmed preview: the summaries come from the server's own lines (no post-match step is claimed)

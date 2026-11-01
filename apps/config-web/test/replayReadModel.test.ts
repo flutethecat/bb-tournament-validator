@@ -110,8 +110,8 @@ describe("game page: ordered online moments", () => {
     expect(m.ordered).toBe(true);
     expect(m.logTitle).toBe(ORDERED_LOG_TITLE);
     expect(m.sourceNote).toBe(ONLINE_REPLAY_NOTE);
-    // the feed is newest first: read it top-down in play order
-    const rows = [...m.rows].reverse().filter((r) => r.part === "main");
+    // the feed runs oldest first: top-down in play order
+    const rows = m.rows.filter((r) => r.part === "main");
     expect(rows.map((r) => [r.type, r.when, r.side])).toEqual([
       ["weather", "", "centre"], ["halfStart", "H1", "centre"], ["kickoff", "H1", "centre"], ["casualty", "H1 T1", "away"],
       ["concede", "H1 T5", "away"], ["touchdown", "H1 T5", "home"], ["touchdown", "H1 T5", "home"],
@@ -125,7 +125,7 @@ describe("game page: ordered online moments", () => {
     expect(rows[5]).toMatchObject({ player: "Swiftvine Glimmershard", rest: "is awarded a touchdown (concession)." });
     expect(rows[6]).toMatchObject({ player: "Jordell Freshbreeze", rest: "is awarded a touchdown (concession)." });
     // the casualty's victim line, directly beneath it
-    const victim = [...m.rows].reverse().find((r) => r.part === "victim")!;
+    const victim = m.rows.find((r) => r.part === "victim")!;
     expect(victim).toMatchObject({ team: "home", player: "Gnome Lineman 1", rest: "is Badly Hurt." });
     // one concession row only (the replay's, with its turn)
     expect(m.rows.filter((r) => r.type === "concede")).toHaveLength(1);
@@ -146,7 +146,7 @@ describe("game page: ordered online moments", () => {
     const red = withoutPlayerLines(gameDetail("online", "999", inputs({ replay: { state: "ready", entry } }))!) as unknown as GameDetail;
     const m = reporterModel(red);
     expect(m.ordered).toBe(true);
-    const rows = [...m.rows].reverse().filter((r) => r.part === "main");
+    const rows = m.rows.filter((r) => r.part === "main");
     expect(rows.find((r) => r.type === "casualty")).toMatchObject({ when: "H1 T1", lead: "UAt2 Nurgle", rest: " causes a casualty!", player: "" });
     expect(m.rows.some((r) => r.part === "victim")).toBe(false);
   });

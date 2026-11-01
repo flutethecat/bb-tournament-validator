@@ -337,7 +337,7 @@ describe("tabletop routes (server-rendered)", () => {
     expect(struck.match(/tt-ev--removed/g)).toHaveLength(2);
     // injuries (no causer): the victim line only, with the other wordings
     const inj = (id: string, result: string, extra: Record<string, unknown> = {}) => ({ id, type: "injury", team: "away", player: "a2", payload: { result, ...extra } });
-    const words = rowsOf([inj("i1", "MNG"), inj("i2", "NI"), inj("i3", "stat loss", { stat: "AV" }), inj("i4", "DEAD")], ["i1", "i2", "i3", "i4"]).map((x: any) => x.rest).reverse();
+    const words = rowsOf([inj("i1", "MNG"), inj("i2", "NI"), inj("i3", "stat loss", { stat: "AV" }), inj("i4", "DEAD")], ["i1", "i2", "i3", "i4"]).map((x: any) => x.rest);
     expect(words).toEqual(["is Miss Next Game.", "is Niggled.", "loses AV.", "is Dead."]);
     expect(rowsOf([inj("i1", "BH")], ["i1"])).toHaveLength(1);
     // order guard: an injury recorded BEFORE the casualty on the same victim and turn pairs with it and renders beneath it, once
@@ -346,7 +346,7 @@ describe("tabletop routes (server-rendered)", () => {
     expect(paired.map((x: any) => `${x.id}:${x.part}`)).toEqual(["c1:main", "i0:victim"]);
     expect(paired[1].rest).toBe("is Miss Next Game.");
     // a different turn is not paired: two separate entries
-    expect(rowsOf([{ ...early, turn: 1 }, cas], ["i0", "c1"]).map((x: any) => x.id)).toEqual(["c1", "c1", "i0"]);
+    expect(rowsOf([{ ...early, turn: 1 }, cas], ["i0", "c1"]).map((x: any) => x.id)).toEqual(["i0", "c1", "c1"]);
   });
 
   it("log red: the spine and the card borders use the scarlet token (primary on the light preset)", async () => {
@@ -1008,7 +1008,7 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css1).toMatch(/\.tt-confirm-again \{ background: var\(--ui-danger, #ff4d4d\); color: var\(--ui-on-danger, #ffffff\); \}/); // CHOOSE SOMEONE ELSE is red
     expect(css1).toMatch(/\.tt-x \{ background: var\(--ui-danger, #ff4d4d\); color: var\(--ui-on-danger, #ffffff\); \}/); // the Close X is red with a white X
     // new cards pop in (not on first load); reduced motion: a 120 ms fade and no movement
-    expect(css1).toMatch(/@keyframes tt-ev-in \{ 0% \{ opacity: 0; transform: translateY\(-12px\) scale\(1\.02\); \} 70% \{[^}]*scale\(1\.02\); \} 100% \{ opacity: 1; transform: none; \} \}/);
+    expect(css1).toMatch(/@keyframes tt-ev-in \{ 0% \{ opacity: 0; transform: translateY\(12px\) scale\(1\.02\); \} 70% \{[^}]*scale\(1\.02\); \} 100% \{ opacity: 1; transform: none; \} \}/);
     expect(css1).toMatch(/\.tt-ev--new \{ animation: tt-ev-in 220ms ease-out both; \}/);
     expect(css1).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\s*\.tt-ev--new \{ animation: tt-fade-in 120ms linear both; \}/);
     expect(css1).toMatch(/\.tt-ev \.tt-ev-line, \.tt-ev \.tt-ev-icon \{ transition: opacity 160ms ease; \}/); // a removed card fades to its struck state
@@ -2102,7 +2102,7 @@ describe("tabletop routes (server-rendered)", () => {
     ])).toEqual([
       "Away team Bob Elves (Bob) calls the toss: heads. The coin lands heads. Alice wins the toss.",
       "Alice chooses to kick. Bob Elves will receive.",
-    ].reverse()); // newest first
+    ]); // oldest first, reading down
     // hand mode, merged event
     expect(lines([mk("c", "coinFlip", "away", { mode: "hand", call: "heads", caller: "away", result: "tails", winner: "home", choice: "receive" })])[0])
       .toBe("Away team Bob Elves (Bob) calls the toss: heads. They flipped a real coin: tails. Alice wins the toss. Alice chooses to receive. Bob Elves will kick.");
@@ -2116,7 +2116,7 @@ describe("tabletop routes (server-rendered)", () => {
     expect(lines([mk("j", "prayer", "home", { roll: 4, name: "Fan Interaction" })])[0]).toBe("Alice Orcs prays to Nuffle: Fan Interaction.");
     expect(lines([mk("k", "timers", "home", { agreed: { home: true, away: true }, seconds: 120 })])[0]).toBe("Both coaches agree to turn timers (2:00).");
     expect(lines([mk("l", "timers", "home", { agreed: { home: true, away: false }, seconds: 120 })])[0]).toBe("Turn timers off.");
-    expect(lines([mk("l2", "timerAgree", "home", { agree: true }), mk("l3", "timerAgree", "away", { agree: false })])).toEqual(["Bob Elves declines turn timers.", "Alice Orcs agrees to turn timers."]);
+    expect(lines([mk("l2", "timerAgree", "home", { agree: true }), mk("l3", "timerAgree", "away", { agree: false })])).toEqual(["Alice Orcs agrees to turn timers.", "Bob Elves declines turn timers."]);
     expect(lines([mk("m", "turnEnd", "away", {}, { half: 1, turn: 3 })])[0]).toBe("End of turn 1Ht3 · Bob Elves");
     const rows = mods.feedMod.feedRows([mk("m", "turnEnd", "away", {}, { half: 1, turn: 3 })], ["m"], teams, {}, match);
     expect(rows[0].side).toBe("centre"); // a neutral, full-width row

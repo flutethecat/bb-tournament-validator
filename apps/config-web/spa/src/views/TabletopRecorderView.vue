@@ -27,6 +27,7 @@ import TabletopPlayerPicker from "../components/TabletopPlayerPicker.vue";
 import TabletopSheetHead from "../components/TabletopSheetHead.vue";
 import { assignTitle } from "../tabletop/confirm";
 import { useNewIds } from "../tabletop/newIds";
+import { useStickToBottom } from "../tabletop/stickBottom";
 import TabletopTimeline from "../components/TabletopTimeline.vue";
 import TabletopWeatherBar from "../components/TabletopWeatherBar.vue";
 import { canEditMatch, createViewerSettings, VIEWER_SETTINGS_INJECT } from "../tabletop/settings";
@@ -339,6 +340,13 @@ function setAdminHidden(on: boolean): void {
 }
 /** Event ids that just arrived (not on first load): their cards and timeline markers animate in. */
 const newIds = useNewIds(() => shownRows.value.map((r) => r.id));
+/** The log runs oldest to newest: follow the latest entry while the viewer is at the bottom, else offer the "New events" pill. */
+const feedEl = ref<HTMLElement | null>(null);
+const { unseen: newBelow, onScroll: onFeedScroll, toLatest: feedToLatest } = useStickToBottom(feedEl, () => shownRows.value.map((r) => r.id));
+/** Screen-reader announcement of the newest event (the last row), politely, only after the first load. */
+const latestRow = computed(() => [...shownRows.value].reverse().find((r) => r.part === "main"));
+const announce = ref("");
+watch(() => latestRow.value?.id, (id, prev) => { const r = latestRow.value; announce.value = prev !== undefined && id !== undefined && r ? `${r.lead}${r.rest}`.trim() : ""; });
 const canOverrideEnd = computed(() => recording.value && (state.clock?.turn ?? 0) >= 1 && !!state.clock?.activeTeam);
 const undoById = (id: string): void => { const e = state.events.find((x) => x.id === id); if (e) void rec.undo(e); };
 
@@ -413,7 +421,7 @@ usePageTitle(() => (match.value ? `${match.value.home.teamName} vs ${match.value
 
     <div class="tt-mid">
     <h2 class="tt-label tt-log-h">Match log</h2>
-    <main class="tt-feed">
+    <main ref="feedEl" class="tt-feed" @scroll.passive="onFeedScroll">
       <TabletopWeatherBar :pregame="state.pregame" :events="state.events" />
       <TabletopTimeline :rows="rows" />
       <div v-if="state.pending" class="tt-strip">
@@ -461,6 +469,8 @@ usePageTitle(() => (match.value ? `${match.value.home.teamName} vs ${match.value
       <p v-if="canEdit && editMode" class="tt-edit-bar" role="status">You are in edit mode.<template v-if="match.state === 'confirmed' || match.state === 'published'"> Reopen the match first to undo events.</template></p>
       <TabletopFeed :rows="rows" :show-removed="showRemoved" :new-ids="newIds" :can-undo="canEdit && editMode && (recording || (organiser && match.state === 'submitted'))" :undo-side="organiser ? null : mySide" :compact="viewer.state.compact" :timestamps="viewer.state.timestamps" @undo="undoById" />
     </main>
+    <button v-if="newBelow" class="tt-newpill" type="button" @click="feedToLatest">New events &#8595;</button>
+    <p class="visually-hidden" role="status" aria-live="polite" data-tt-announce>{{ announce }}</p>
     </div>
 
     <TabletopRail

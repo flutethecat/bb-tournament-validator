@@ -126,7 +126,7 @@ export function reporterModel(game: GameDetail): ReporterModel {
   let seq = 0;
   const ev = (type: string, team: Side, extra: Partial<RecordedEvent> & { half?: number | string; turn?: number } = {}): RecordedEvent =>
     ({ id: `r${++seq}`, type, team, payload: {}, ...extra }) as RecordedEvent;
-  /** In reading order (top first); the recorder's feed wants oldest first, so ordered logs keep it and the result log is flipped. */
+  /** In reading order (top first); the recorder's feed wants oldest first, so every log keeps its order. */
   const events: RecordedEvent[] = [];
   const ordered = !!reporter;
   // an online game's replay moments: no recorder behind them, so the result's own post-game rows still follow
@@ -206,8 +206,8 @@ export function reporterModel(game: GameDetail): ReporterModel {
       if (t?.dedicatedFansModifier) events.push(ev("fanChange", s, { payload: { delta: t.dedicatedFansModifier } }));
     }
   }
-  // the feed reverses its input (newest first): an ordered log goes in as recorded; the result log goes in flipped so it reads top-down
-  const input = ordered ? events : [...events].reverse();
+  // the feed lists its input as given (oldest first, reading top to bottom): ordered and result logs alike go in as built
+  const input = events;
 
   const match: MatchView = {
     id: `${game.source}:${game.id}`, state: "published", postMatch: "none", createdBy: "", confirmations: {},

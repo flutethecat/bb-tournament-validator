@@ -323,7 +323,7 @@ export interface FeedRow {
   removed: { by: string; at: string; admin: boolean } | null;
 }
 
-/** Newest first; only events still in force (the server names them in effectiveEventIds). */
+/** Oldest first (reads top to bottom); only events still in force (the server names them in effectiveEventIds). */
 export function feedRows(
   events: readonly RecordedEvent[], effectiveIds: readonly string[], teams: Record<Side, TeamView | undefined>,
   spp: Readonly<Record<string, number>> = {}, match?: { home: { coach: string; teamName: string }; away: { coach: string; teamName: string } },
@@ -417,18 +417,18 @@ export function feedRows(
     if (!isLive && e.type === "journeyman") continue;
     if (consumed.has(e.id)) continue; // listed beneath its casualty instead
     if (e.type === "casualty") {
-      // two lines from the one event: the causer's line on top, the victim's line directly beneath (rows are reversed below, so the victim goes in first)
+      // two lines from the one event: the causer's line on top, the victim's line directly beneath (the victim goes in right after it)
       const inj = pairedInjury.get(e.id);
+      rows.push(build(e, "main", isLive, retraction));
       if (inj) {
         const r = inj.removed ?? undoOf.get(inj.id);
         rows.push({ ...build(inj, "victim", live.has(inj.id), r), undoable: true });
       } else if (e.payload?.victim !== undefined) rows.push(build(e, "victim", isLive, retraction, e)); // a game page's casualty may name no victim
-      rows.push(build(e, "main", isLive, retraction));
       continue;
     }
     rows.push(build(e, "main", isLive, retraction));
   }
-  return rows.reverse();
+  return rows;
 }
 
 export const PREGAME_STEPS = ["fans", "weather", "journeymen", "inducements", "prayers", "coin", "timers"] as const;
@@ -476,5 +476,5 @@ export interface TimelineMarker { id: string; label: string; lane: "home" | "awa
 
 /** Markers in play order (kick-off first, end of match last) from the feed rows, which arrive newest first. */
 export function timelineMarkers(rows: readonly FeedRow[]): TimelineMarker[] {
-  return [...rows].filter((r) => r.part === "main").reverse().map((r) => ({ id: r.id, label: r.label, lane: r.side === "centre" ? "both" : r.side, glyph: r.glyph, mark: r.when, admin: r.admin, removed: r.removed !== null }));
+  return rows.filter((r) => r.part === "main").map((r) => ({ id: r.id, label: r.label, lane: r.side === "centre" ? "both" : r.side, glyph: r.glyph, mark: r.when, admin: r.admin, removed: r.removed !== null }));
 }

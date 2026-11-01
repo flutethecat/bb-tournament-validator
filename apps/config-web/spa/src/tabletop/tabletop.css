@@ -184,7 +184,7 @@
 .tt-towait { opacity: 0.6; padding: 0 4px; }
 .tt-towait b { font-size: 12px; overflow-wrap: anywhere; }
 /* the middle region is the log, full height */
-.tt-mid { min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); }
+.tt-mid { position: relative; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); }
 /* turn-timer mode: the End Turn button IS the timer - mm:ss large, "End turn" small, a background that drains with the time */
 .tt-endturn[data-timed="true"] { --tt-fill: 100%; background: linear-gradient(90deg, var(--ui-scarlet, var(--tt-accent)) var(--tt-fill), color-mix(in srgb, var(--ui-scarlet, var(--tt-accent)) 25%, var(--tt-btn)) var(--tt-fill)); }
 .tt-endturn[data-alert="true"] { background: linear-gradient(90deg, var(--ui-danger, #ff4d4d) var(--tt-fill), color-mix(in srgb, var(--ui-danger, #ff4d4d) 25%, var(--tt-btn)) var(--tt-fill)); }
@@ -1225,9 +1225,9 @@
   .tt-rec .tt-rail-label.tt-rail-label-sm { font-size: calc(var(--tt-rail-label-fs, 22px) - 4px); line-height: 1; margin: 0; }
 }
 
-/* new log cards drop in from the top and fade in with a small scale overshoot; their timeline marker fades in; a card that becomes removed fades to its struck state.
+/* new log cards rise in from the bottom and fade in with a small scale overshoot; their timeline marker fades in; a card that becomes removed fades to its struck state.
    Only ids that arrive after the first render animate (spa/src/tabletop/newIds.ts); reduced motion gets a short fade and no movement */
-@keyframes tt-ev-in { 0% { opacity: 0; transform: translateY(-12px) scale(1.02); } 70% { opacity: 1; transform: translateY(0) scale(1.02); } 100% { opacity: 1; transform: none; } }
+@keyframes tt-ev-in { 0% { opacity: 0; transform: translateY(12px) scale(1.02); } 70% { opacity: 1; transform: translateY(0) scale(1.02); } 100% { opacity: 1; transform: none; } }
 @keyframes tt-fade-in { from { opacity: 0; } to { opacity: 1; } }
 .tt-ev--new { animation: tt-ev-in 220ms ease-out both; }
 .tt-tl-item[data-new="true"] { animation: tt-fade-in 220ms ease-out both; }
@@ -1680,3 +1680,8 @@
 
 /* a popup is open: the page behind does not scroll (it is inert too, see sheetFocus.ts) */
 .tt-rec[data-sheet-open] .tt-feed, .tt-rec[data-sheet-open] .tt-stripbar .tt-tl { overflow: hidden; }
+
+/* "New events" pill: the log reads top to bottom, a viewer scrolled up is told the latest is below */
+.tt-newpill { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 3; padding: 6px 14px; border: 1px solid var(--tt-line, currentColor); border-radius: 999px; background: var(--ui-surface); color: var(--tt-ink, inherit); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; box-shadow: var(--tt-lift); }
+.tt-newpill:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.tt-rec .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }

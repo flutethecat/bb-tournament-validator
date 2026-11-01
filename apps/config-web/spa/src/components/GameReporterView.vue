@@ -4,7 +4,7 @@
 // games/reporter.ts from the game page's GameDetail: breadcrumb, context bar, scoreboard (final score, CAS, "Final"),
 // stripbar with the timeline, the Match log, each side's finished-game summary and the Rosters popout. No rail, clock,
 // turn controls, edit / undo / confirm or pre-game: nothing here writes.
-import { computed, inject, ref } from "vue";
+import { computed, inject, onMounted, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 import TabletopContextBar from "./TabletopContextBar.vue";
 import TabletopFeed from "./TabletopFeed.vue";
@@ -39,6 +39,12 @@ const spaPath = (href: string) => routerPathOf(href) ?? href;
 const sourceNote = computed(() => model.value.sourceNote);
 // an online game's replay log has no recorder behind it
 const recorderHref = computed(() => (props.game.reporter && props.game.reporter.source !== "replay" ? props.game.reporter.href : ""));
+
+/** A finished game opens at the top: the start of the match, the log reading down to the final whistle. */
+const feedEl = ref<HTMLElement | null>(null);
+const toTop = (): void => { if (feedEl.value) feedEl.value.scrollTop = 0; };
+onMounted(toTop);
+watch(() => props.game.id, toTop, { flush: "post" });
 
 const rosters = ref(false);
 const rostersSide = ref<Side | undefined>(undefined);
@@ -75,7 +81,7 @@ function openRosters(side?: Side): void { rostersSide.value = side; rosters.valu
 
     <div class="tt-mid">
       <h2 class="tt-label tt-log-h">{{ model.hasLog ? model.logTitle : "Match log" }}</h2>
-      <main class="tt-feed">
+      <main ref="feedEl" class="tt-feed">
         <TabletopTimeline :rows="model.rows" />
         <p class="tt-match-row" data-state="published" role="status">{{ model.finalLine }}</p>
         <TabletopMatchSummary v-for="s in model.summaries" :key="s.side" :heading="s.heading" :summary="s.summary" />
