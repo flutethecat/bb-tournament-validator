@@ -426,7 +426,11 @@ export const STORE_COLLECTORS: StoreCollector[] = [
       const awards = Object.values(data?.tournaments ?? {}).flatMap((t) => objs(t.awards)
         .filter((a) => isMine(ctx.keys, a.toCoach) || isMine(ctx.keys, a.by))
         .map((a) => ({ tournament: t.name ?? a.tournamentId, ...a })));
-      return [{ name: "tournament-entries.json", content: json({ entries, matches, managed, series, ...(awards.length ? { awards } : {}) }) }];
+      // Result edits the coach made as an organiser (each tournament's activity log, admin-stamped).
+      const resultEdits = Object.values(data?.tournaments ?? {}).flatMap((t) => objs(t.activity)
+        .filter((e) => isMine(ctx.keys, e.by))
+        .map((e) => ({ tournament: t.name ?? "", ...e })));
+      return [{ name: "tournament-entries.json", content: json({ entries, matches, managed, series, ...(awards.length ? { awards } : {}), ...(resultEdits.length ? { resultEdits } : {}) }) }];
     },
     erase: ["organiser-roles", "anonymise-tournaments"],
   },
@@ -762,6 +766,8 @@ function anonymiseTournaments(an: Anonymiser, tx: TextReplacer, data: Obj): bool
     for (const n of objs(t.news)) { mark(an.fields(n, ["by"], [])); mark(tx.texts(n, ["title", "body"])); }
     // Awards: recipient and giver accounts become the pseudonym; the organisers' free text loses the coach's names.
     for (const a of objs(t.awards)) { mark(an.fields(a, ["by", "toCoach"], [])); mark(tx.texts(a, ["title", "note"])); }
+    // Organiser result edits (activity log): the acting manager becomes the pseudonym, the reason loses the coach's names.
+    for (const e of objs(t.activity)) { mark(an.fields(e, ["by"], [])); mark(tx.texts(e, ["reason"])); }
   }
   const identity = ["coachId", "ffbCoachId"];
   for (const e of vals(data.entrants)) {
@@ -774,6 +780,7 @@ function anonymiseTournaments(an: Anonymiser, tx: TextReplacer, data: Obj): bool
   for (const m of vals(data.scheduledMatches)) {
     for (const s of [m.home, m.away]) if (isObj(s)) mark(an.fields(s.coach, identity, ["discordUserId"]));
     mark(an.fields(m.edited, ["byCoachId"], []));
+    if (isObj(m.edited)) mark(tx.texts(m.edited, ["reason"]));
   }
   for (const st of vals(data.standings)) for (const r of objs(st.rows)) mark(an.fields(r, ["coachId"], []));
   // Tournament Series: the creator becomes the pseudonym (organiser seats were removed by organiser-roles; any left over

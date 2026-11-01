@@ -20,6 +20,7 @@ import { tournamentLink, type TournamentNotify } from "../notifications.js";
 import { myTournamentAwards, tournamentHonoursRoutes } from "./honours.js";
 import type { StoredTournamentResult } from "../tournamentResults.js";
 import { canonicalNafId } from "../auth/identitiesStore.js";
+import { requestRevision } from "../leagues/http.js";
 import { ContactValidationError, parseShareFields, type ShareField } from "../auth/contactSchema.js";
 import type { SharedContact } from "../auth/contactFor.js";
 
@@ -282,7 +283,13 @@ function publicMatch(match: ScheduledMatchRecord) {
         ...(match.result.awayCasualties === undefined ? {} : { awayCasualties: match.result.awayCasualties }),
       },
     } : {}),
+    ...(match.edited?.kind === "result" ? { edited: publicEdit(match.edited) } : {}),
   };
+}
+
+/** The Edited chip everyone who sees the fixture gets: who changed the result and when (no reason, no old values). */
+function publicEdit(edited: NonNullable<ScheduledMatchRecord["edited"]>) {
+  return { kind: "result" as const, byCoachId: edited.byCoachId, at: edited.at, ...(edited.cleared ? { cleared: true as const } : {}) };
 }
 
 /** A fixture side without the stored coach's Discord id (never shown to coaches or organisers). */
@@ -347,7 +354,7 @@ function clientTournament(
   entrants: TournamentEntrantRecord[],
   auth?: TournamentApiIdentity,
 ) {
-  const { startsAt, endsAt, bannerPath: _bannerPath, news, ...record } = tournament;
+  const { startsAt, endsAt, bannerPath: _bannerPath, news, activity: _activity, ...record } = tournament;
   const banner = bannerUrl(tournament);
   const ownEntrant = auth
     ? entrants.find((entrant) => coachKey(entrant.coach.ffbCoachId) === coachKey(auth.coach))
@@ -710,6 +717,54 @@ function notifyResult(deps: TournamentApiDeps, match: ScheduledMatchRecord, acto
     deps.notify!.coach(match.home.coach.ffbCoachId, input);
     deps.notify!.coach(match.away!.coach.ffbCoachId, input);
   });
+}
+
+/** Organiser result edit / clear: both coaches of the fixture once (not the editing manager, who made the change). */
+function notifyResultEdit(deps: TournamentApiDeps, match: ScheduledMatchRecord, actor: string): void {
+  if (!deps.notify || !match.away) return;
+  quietly(() => {
+    const name = deps.store.tournament(match.tournamentId)?.name ?? "Tournament";
+    const cleared = !match.result;
+    const score = match.result ? ` ${match.result.homeScore} - ${match.result.awayScore} ` : " v ";
+    const body = cleared
+      ? `An organiser cleared the result of ${match.home.coach.ffbCoachId} v ${match.away!.coach.ffbCoachId} (round ${match.roundNumber}). The fixture is unplayed again.`
+      : `An organiser changed the result to ${match.home.coach.ffbCoachId}${score}${match.away!.coach.ffbCoachId} (round ${match.roundNumber}).`;
+    const input = { type: "result-edited" as const, title: `${name}: result ${cleared ? "cleared" : "edited"} by an organiser`, body, link: tournamentLink(match.tournamentId, "rounds"), from: actor };
+    const seen = new Set<string>();
+    for (const coach of [match.home.coach.ffbCoachId, match.away!.coach.ffbCoachId]) {
+      if (coachKey(coach) === coachKey(actor) || seen.has(coachKey(coach))) continue;
+      seen.add(coachKey(coach));
+      deps.notify!.coach(coach, input);
+    }
+  });
+}
+
+/** The edit body's optional reason (trimmed; "" = none). */
+function editReason(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string") throw new TournamentStoreError(400, "reason must be text.");
+  const text = value.trim();
+  return text ? text : undefined;
+}
+
+/** The fixture revision a result edit names (body `revision` or If-Match): 428 missing, 400 malformed. */
+function editRevision(input: Record<string, unknown>, ifMatch: string | undefined): number {
+  const asked = requestRevision(input, ifMatch);
+  if (asked === "missing") throw new TournamentStoreError(428, "Send the fixture revision you loaded (revision or If-Match).");
+  if (asked === "bad") throw new TournamentStoreError(400, "revision must be a whole number.");
+  return asked;
+}
+
+/** The activity log a viewer of the detail page gets: everyone who sees every fixture (managers, organisers,
+ *  entrants) the whole log; another signed-in coach only entries about their own fixtures; anonymous none. */
+function visibleActivity(
+  tournament: TournamentRecord, store: TournamentStore, auth: TournamentApiIdentity | undefined, seesAll: boolean,
+) {
+  const log = tournament.activity ?? [];
+  if (!auth || !log.length) return [];
+  if (seesAll) return log;
+  const mine = new Set(store.matches(tournament.id).filter((m) => isParticipant(m, auth.coach)).map((m) => m.id));
+  return log.filter((entry) => mine.has(entry.fixtureId));
 }
 
 export async function tournamentApi(
@@ -1351,6 +1406,7 @@ export async function tournamentApi(
           rounds: deps.store.rounds(tournament.id),
           standings: deps.store.standings(tournament.id),
           scheduledMatches,
+          activity: visibleActivity(tournament, deps.store, auth, Boolean(auth && (auth.organizer || manager || entered))),
           capabilities: {
             manage: manager,
             assignRoles: Boolean(auth && (auth.admin || (tournamentOwner(tournament) && coachKey(auth.coach) === coachKey(tournamentOwner(tournament)!)))),
@@ -1571,6 +1627,42 @@ export async function tournamentApi(
         ...(typeof input.gameId === "string" ? { gameId: input.gameId } : {}),
         ...(typeof input.error === "string" ? { error: input.error } : {}),
       }, now);
+      return { status: 200, body: { match: clientMatch(deps.store, match, identity, now, deps.teamBuild) } };
+    }
+
+    // Organiser result edit (owner ruling 10-29 §7): managers of the tournament override or clear a recorded result.
+    //   PATCH /api/tournaments/:id/fixtures/:mid/result        { revision, homeScore, awayScore, homeCasualties?, awayCasualties?, reason?, confirmFinished? }
+    //   POST  /api/tournaments/:id/fixtures/:mid/result/clear  { revision, reason?, confirmFinished? }
+    // revision = the fixture's (body or If-Match): 428 missing, 409 stale. CSRF and onboarding run in server.ts.
+    const editMatch = path.match(/^\/api\/tournaments\/([^/]+)\/fixtures\/([^/]+)\/result(\/clear)?$/);
+    if (editMatch && ((method === "PATCH" && !editMatch[3]) || (method === "POST" && editMatch[3]))) {
+      const identity = authenticated(auth);
+      const tournamentId = decoded(editMatch[1]!);
+      const matchId = decoded(editMatch[2]!);
+      const tournament = tournamentId ? deps.store.tournament(tournamentId) : undefined;
+      if (!tournament) return { status: 404, body: { error: "Tournament not found." } };
+      requireTournamentManager(tournament, identity);
+      const existing = matchId ? deps.store.match(matchId) : undefined;
+      if (!existing || existing.tournamentId !== tournament.id) return { status: 404, body: { error: "Fixture not found." } };
+      const input = jsonObject(body);
+      const common = {
+        expectedRevision: editRevision(input, deps.ifMatch),
+        by: identity.coach,
+        ...(editReason(input.reason) ? { reason: editReason(input.reason)! } : {}),
+        confirmFinished: input.confirmFinished === true,
+      };
+      const optional = (field: "homeCasualties" | "awayCasualties") =>
+        input[field] === undefined || input[field] === null ? {} : { [field]: integer(input[field], field) };
+      const { match } = editMatch[3]
+        ? deps.store.clearEditedResult(existing.id, common, now)
+        : deps.store.editResult(existing.id, {
+          ...common,
+          homeScore: integer(input.homeScore, "homeScore"),
+          awayScore: integer(input.awayScore, "awayScore"),
+          ...optional("homeCasualties"),
+          ...optional("awayCasualties"),
+        }, now);
+      notifyResultEdit(deps, match, identity.coach);
       return { status: 200, body: { match: clientMatch(deps.store, match, identity, now, deps.teamBuild) } };
     }
 

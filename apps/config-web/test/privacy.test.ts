@@ -370,6 +370,8 @@ describe("export", () => {
     // Tournament Series she created or co-organises (never another coach's series)
     expect(t.series.map((s: { id: string; role: string }) => `${s.id}:${s.role}`).sort()).toEqual(["sr1:creator", "sr2:organiser"]);
     expect(t.series[0].tournaments).toEqual([{ id: "t1", name: "Autumn Open" }]);
+    // Result edits she made as an organiser (the activity log), never Bob's
+    expect(t.resultEdits.map((e: { id: string; tournament: string; admin: boolean }) => `${e.id}:${e.tournament}:${e.admin}`)).toEqual(["ra1:Autumn Open:true"]);
     // Tournament awards to her or given by her (never one between two other coaches)
     expect(t.awards.map((a: { id: string; tournament: string }) => `${a.id}:${a.tournament}`)).toEqual(["ta1:Autumn Open", "ta2:Autumn Open"]);
     const leagues = JSON.parse(text("league-teams.json"));
@@ -496,6 +498,10 @@ describe("delete", () => {
     expect(tf.tournaments.t1.awards[0]).toMatchObject({ toCoach: P, by: "Bob", toTeam: "Green Orcs", note: `${P} never complained` });
     expect(tf.tournaments.t1.awards[1]).toMatchObject({ toCoach: "Bob", by: P });
     expect(tf.tournaments.t1.awards[2]).toMatchObject({ toCoach: "Carol", by: "Bob" });
+    // Organiser result edits: the acting account becomes the pseudonym and the reason loses her name; Bob's stay.
+    expect(tf.tournaments.t1.activity[0]).toMatchObject({ by: P, reason: `${P} fixed a typo`, admin: true });
+    expect(tf.tournaments.t1.activity[1]).toMatchObject({ by: "Bob" });
+    expect(tf.scheduledMatches.m1.edited).toMatchObject({ byCoachId: P, reason: `Agreed with ${P} and Bob`, previous: { homeScore: 1, awayScore: 1 } });
     expect(Object.keys(tf.waitingPresence)).toEqual(["m1\u0000bob"]);
     const season = readJ(join(deps.stateDir, "leagues", "l1", "seasons", "s1.json"));
     expect(season.teams[0]).toMatchObject({ id: "green-orcs", name: "Green Orcs", coach: P, coachId: P });

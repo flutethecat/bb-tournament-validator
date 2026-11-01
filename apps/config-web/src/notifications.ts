@@ -22,6 +22,7 @@ export const NOTIFICATION_TYPES = [
   "proposal-accepted",
   "proposal-countered",
   "result-confirmed",
+  "result-edited",
   "tournament-news",
   "league-broadcast",
   "registration",

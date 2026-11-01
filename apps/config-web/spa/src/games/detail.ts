@@ -36,6 +36,23 @@ export interface GameSummary {
   /** The server's legal-concession verdict for the conceding side, when known. */
   concededLegally?: boolean;
   home: GameTeamSummary | null; away: GameTeamSummary | null;
+  /** An organiser changed the result the tournament counts for this game (the page keeps the game as played). */
+  edited?: GameResultEdit;
+}
+export interface GameResultEdit {
+  by: string; at: string; cleared?: true;
+  result?: { home: { coach: string; score: number; cas: number | null }; away: { coach: string; score: number; cas: number | null } };
+}
+
+/** "Edited by organiser" line on the game page: the result the tournament counts, or that it was cleared. */
+export function editedLine(e: GameResultEdit | undefined): string {
+  if (!e) return "";
+  const day = Number.isFinite(Date.parse(e.at)) ? new Date(e.at).toISOString().slice(0, 10) : "";
+  const who = `${e.by || "An organiser"}${day ? ` on ${day}` : ""}`;
+  if (e.cleared || !e.result) return `The tournament result of this game was cleared by ${who}. The game below is shown as played.`;
+  const { home, away } = e.result;
+  const cas = home.cas !== null && away.cas !== null ? ` (CAS ${home.cas} - ${away.cas})` : "";
+  return `The tournament counts ${home.coach} ${home.score} - ${away.score} ${away.coach}${cas}, set by ${who}. The game below is shown as played.`;
 }
 export type ReporterMomentKind =
   | "touchdown" | "casualty" | "sendOff"

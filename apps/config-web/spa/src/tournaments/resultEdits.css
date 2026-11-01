@@ -1,0 +1,70 @@
+/* Organiser result edits (Manage → Rounds, the Edit result dialog, the Edited chip, the Rounds-tab activity feed).
+   Tokens only (design.md §3). */
+
+/* The admin chip (organiser-made change): admin edge on the panel tint, text colour for contrast. */
+.sf-chip.tn-edited, .sf-chip[data-tone="admin"] {
+  color: var(--ui-text); border-color: var(--ui-admin); background: color-mix(in srgb, var(--ui-admin) 26%, var(--ui-surface-2));
+}
+.sf-chip.tn-edited { cursor: help; }
+.sf-chip.tn-edited:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.tn-score .tn-edited { margin-top: 2px; }
+
+/* Manage → Rounds */
+.tn-re-round { display: grid; gap: 6px; }
+.tn-re-round-h { margin: 0; }
+.tn-re-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.tn-re-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 10px; padding: 6px 10px;
+  background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--ui-admin); border-radius: 2px;
+  box-shadow: var(--sf-bevel);
+}
+.tn-re-teams { min-width: 0; overflow-wrap: anywhere; }
+.tn-re-teams strong { font-family: var(--font-heading); font-weight: 500; letter-spacing: .02em; }
+.tn-re-score { font-family: var(--font-heading); font-weight: 500; white-space: nowrap; }
+.tn-re-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+
+/* The Edit result dialog */
+.tn-re { display: grid; gap: 12px; }
+.tn-re > p { margin: 0; }
+.tn-re .sf-field { display: grid; gap: 4px; min-width: 0; }
+.tn-re textarea { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; font-size: 15px; }
+.tn-re-pair strong { font-family: var(--font-heading); font-weight: 500; letter-spacing: .02em; }
+.tn-re-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.tn-re-side {
+  display: grid; gap: 8px; align-content: start; padding: 10px;
+  background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface);
+  border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: inset 0 1px 0 var(--sf-panel-hi);
+}
+.tn-re-side:first-child { border-left: 4px solid var(--sf-seat-home); }
+.tn-re-side:last-child { border-left: 4px solid var(--sf-seat-away); }
+.tn-re-side > .sf-k { font-size: 11px; color: var(--ui-text); overflow-wrap: anywhere; }
+.tn-re-side input { width: 100%; box-sizing: border-box; }
+.tn-re-prev { display: grid; gap: 4px; margin: 0; padding: 10px; background: var(--ui-surface-2); border: 1px solid var(--sf-panel-line); border-radius: 2px; }
+.tn-re-prev > div { display: grid; grid-template-columns: 9.5rem minmax(0, 1fr); gap: 8px; }
+.tn-re-prev dt { font: 10px/1.9 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
+.tn-re-prev dd { margin: 0; overflow-wrap: anywhere; }
+.tn-re-help { font-size: 14px; color: var(--ui-muted); }
+.tn-re-confirm { font-size: 15px; }
+.tn-re-clear { display: grid; gap: 8px; padding: 10px; border: 2px solid var(--ui-scarlet); border-radius: 2px; background: var(--ui-surface-2); }
+.tn-re-clear p { margin: 0; }
+.tn-re-stale { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.tn-re-stale p { margin: 0; }
+.ls-dialog-foot > .tn-re-clearbtn { margin-left: 0; }
+.ls-dialog-foot > .tn-re-cancel { margin-left: auto; }
+.ls-dialog-foot > .tn-re-cancel + .primary { margin-left: 0; }
+
+/* Rounds tab: the activity feed (organiser result edits, stamped admin) */
+.tn-activity { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.tn-activity li { display: grid; gap: 2px; padding: 6px 10px; background: var(--ui-surface-2); border-left: 4px solid var(--ui-admin); border-radius: 2px; }
+.tn-activity-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.tn-activity-meta { font-size: 13px; color: var(--ui-muted); }
+
+@media (max-width: 800px) {
+  .tn-re-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .tn-re-meta { grid-column: 1 / -1; }
+  .tn-re-edit { grid-column: 1 / -1; justify-self: start; }
+  .tn-re-prev > div { grid-template-columns: 1fr; gap: 0; }
+}
+@media (max-width: 480px) {
+  .tn-re-grid { grid-template-columns: 1fr; }
+}

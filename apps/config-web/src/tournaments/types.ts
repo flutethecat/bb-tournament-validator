@@ -99,6 +99,8 @@ export interface TournamentRecord {
   awards?: TournamentAward[];
   /** Bumped by every award write; writes send it back (body `revision` or If-Match): 428 missing, 409 stale. */
   awardsRevision?: number;
+  /** Organiser result edits and clears, newest first, capped (TOURNAMENT_ACTIVITY_CAP). Stamped admin. */
+  activity?: TournamentActivityEntry[];
   createdAt: string;
   updatedAt: string;
 }
@@ -229,6 +231,42 @@ export interface ScheduledMatchResult {
   opId?: string;
 }
 
+/** The result values an organiser edit replaces (kept for audit). */
+export type ScheduledMatchResultValues = Pick<ScheduledMatchResult, "homeScore" | "awayScore" | "homeCasualties" | "awayCasualties">;
+
+/** An organiser's change to a fixture. A result edit keeps the source record (fork game id / tabletop match) linked: the
+ *  fixture's launch.gameId and result.opId stay, and the published result row is never rewritten. */
+export interface ScheduledMatchEdit {
+  /** The editing manager's account (anonymised on deletion). */
+  byCoachId: string;
+  at: string;
+  reason?: string;
+  /** Absent = a pairing change (legacy shape). */
+  kind?: "result";
+  /** Result edits: the result before this edit (null = the fixture had none). */
+  previous?: ScheduledMatchResultValues | null;
+  /** Result edits: the result as first reported (fork / tabletop / manual entry), kept across later edits. */
+  original?: ScheduledMatchResultValues | null;
+  /** Result edits: true when the edit cleared the result (the fixture is unplayed again). */
+  cleared?: true;
+}
+
+/** One entry of a tournament's activity log (organiser result edits; newest first, capped). Stamped `admin`. */
+export interface TournamentActivityEntry {
+  id: string;
+  at: string;
+  /** The acting manager's account. */
+  by: string;
+  kind: "result-edited" | "result-cleared";
+  admin: true;
+  fixtureId: string;
+  roundNumber: number;
+  /** The result after the change (absent when cleared). */
+  result?: ScheduledMatchResultValues;
+  previous: ScheduledMatchResultValues | null;
+  reason?: string;
+}
+
 export interface ChallengerLaunchMetadata {
   challengePath: "/api/fork/challenge";
   jnlpPath: "/api/fork/jnlp";
@@ -258,8 +296,10 @@ export interface ScheduledMatchRecord {
   revision: number;
   launch: ChallengerLaunchMetadata;
   result?: ScheduledMatchResult;
-  /** v4: set when an organiser changed the pairing of this fixture (fixtures editor, phase 4). */
-  edited?: { byCoachId: string; at: string; reason?: string };
+  /** v4: set when an organiser changed this fixture: its pairing (fixtures editor, phase 4) or, with `kind: "result"`,
+   *  its confirmed result (organiser result edit, owner ruling 10-29 §7). The latest change only; the full history is
+   *  the tournament's `activity` log. */
+  edited?: ScheduledMatchEdit;
   createdAt: string;
   updatedAt: string;
 }

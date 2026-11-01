@@ -6,7 +6,8 @@
  *   - the fixture's stored result row adds what it carries: a fork game (match.launch.gameId) or a published tabletop
  *     match (row.fixtureRef = the fixture id) brings per-player touchdowns, casualties, completions, interceptions,
  *     fouls and MVPs plus the casualties each side suffered (badly hurt / serious injury / dead); only fork games
- *     record blocks. A manual result carries the score, and the casualties when the organiser typed them.
+ *     record blocks. A manual result carries the score, and the casualties when the organiser typed them. An
+ *     organiser's result edit counts with its edited score and casualties; the source record's player lines stay.
  *   A stat shows only when the results record it (coverage per group of stats), and a counter stat only when someone
  *   scored in it: "hide stats with no data".
  *
@@ -199,7 +200,9 @@ export function tournamentStatistics(x: StatisticsInputs): TournamentStatistics 
     const withPlayers = Boolean(blocks?.home && blocks?.away);
     const fork = Boolean(row && isForkRow(row));
     const casFromRow = withPlayers ? { home: sum(blocks!.home!.players, "casualtiesCaused"), away: sum(blocks!.away!.players, "casualtiesCaused") } : undefined;
-    const cas = casFromRow ?? (r.homeCasualties !== undefined && r.awayCasualties !== undefined ? { home: r.homeCasualties, away: r.awayCasualties } : undefined);
+    const typed = r.homeCasualties !== undefined && r.awayCasualties !== undefined ? { home: r.homeCasualties, away: r.awayCasualties } : undefined;
+    // An organiser's result edit wins over the source record's casualty totals (its player lines stay as played).
+    const cas = (m.edited?.kind === "result" && typed) ? typed : casFromRow ?? typed;
     coverage.games += 1;
     if (cas) coverage.casualties += 1;
     if (withPlayers) coverage.players += 1;

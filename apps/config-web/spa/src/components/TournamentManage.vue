@@ -1,11 +1,12 @@
 <script setup lang="ts">
 // Manage tab (owner, organisers, admins): Summary pane with the event's actions (Start Tournament until it has
 // started, then Edit Tournament; Generate round; Lock / Unlock rosters; Finish), the Start Tournament sub-modal,
-// the Edit Tournament pane (settings + roles), the Tournament page pane (banner, location, dates, summary, notes)
-// and the Participants table.
+// the Edit Tournament pane (settings + roles), the Tournament page pane (banner, location, dates, summary, notes),
+// the Participants table and Rounds (recorded results with Edit result).
 import { computed, inject, nextTick, ref } from "vue";
 import TournamentPageForm from "./TournamentPageForm.vue";
 import TournamentParticipants from "./TournamentParticipants.vue";
+import TournamentResultsEditor from "./TournamentResultsEditor.vue";
 import TournamentSettingsForm from "./TournamentSettingsForm.vue";
 import TournamentStartModal from "./TournamentStartModal.vue";
 import {
@@ -85,6 +86,8 @@ async function editTournament() {
         <header class="hm-band"><h2 id="tn-part-h">Participants</h2><span class="hm-cap">({{ field }})</span></header>
         <div class="tn-panel-body"><TournamentParticipants /></div>
       </section>
+
+      <TournamentResultsEditor :can-write="canWrite" />
     </div>
   </div>
 </template>

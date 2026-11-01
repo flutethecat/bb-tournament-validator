@@ -123,6 +123,11 @@ export async function seed(root: string, opts: SeedOptions = {}): Promise<void> 
           { id: "ta1", tournamentId: "t1", title: "Best sport", icon: "captain", toCoach: "Alice", entrantId: "e1", toTeam: "Green Orcs", note: "Alice never complained", by: "Bob", at: "2026-10-03T00:00:00Z" },
           { id: "ta2", tournamentId: "t1", title: "Iron wall", icon: "guard", toCoach: "Bob", note: "", by: "Alice", at: "2026-10-03T00:00:00Z" },
           { id: "ta3", tournamentId: "t1", title: "Fan favourite", icon: "fans", toCoach: "Carol", note: "", by: "Bob", at: "2026-10-03T00:00:00Z" },
+        ],
+        // Organiser result edits (activity log): one Alice made as an organiser, one Bob made.
+        activity: [
+          { id: "ra1", at: "2026-10-04T00:00:00Z", by: "Alice", kind: "result-edited", admin: true, fixtureId: "m1", roundNumber: 1, result: { homeScore: 2, awayScore: 1 }, previous: { homeScore: 1, awayScore: 1 }, reason: "Alice fixed a typo" },
+          { id: "ra2", at: "2026-10-04T00:00:00Z", by: "Bob", kind: "result-edited", admin: true, fixtureId: "m1", roundNumber: 1, result: { homeScore: 1, awayScore: 1 }, previous: { homeScore: 0, awayScore: 1 } },
         ] },
       t2: { id: "t2", name: "Old Cup", status: opts.aliceOwnsActiveTournament ? "draft" : "completed", ownerCoachId: "Alice", organizerCoachId: "Alice" },
     },
@@ -133,7 +138,8 @@ export async function seed(root: string, opts: SeedOptions = {}): Promise<void> 
     rounds: {},
     standings: { t1: { tournamentId: "t1", rows: [{ rank: 1, entrantId: "e1", coachId: "Alice" }, { rank: 2, entrantId: "e2", coachId: "Bob" }] } },
     scheduledMatches: {
-      m1: { id: "m1", tournamentId: "t1", home: { entrantId: "e1", coach: id("Alice", ALICE_DISCORD), teamId: "save:s1" }, away: { entrantId: "e2", coach: id("Bob", BOB_DISCORD), teamId: "save:b1" }, status: "completed" },
+      m1: { id: "m1", tournamentId: "t1", home: { entrantId: "e1", coach: id("Alice", ALICE_DISCORD), teamId: "save:s1" }, away: { entrantId: "e2", coach: id("Bob", BOB_DISCORD), teamId: "save:b1" }, status: "completed",
+        edited: { byCoachId: "Alice", at: "2026-10-04T00:00:00Z", kind: "result", reason: "Agreed with Alice and Bob", previous: { homeScore: 1, awayScore: 1 }, original: { homeScore: 0, awayScore: 1 } } },
     },
     waitingPresence: { "m1\u0000alice": { scheduledMatchId: "m1", coachId: "Alice", renewedAt: "", expiresAt: "" }, "m1\u0000bob": { scheduledMatchId: "m1", coachId: "Bob", renewedAt: "", expiresAt: "" } },
     // Tournament Series: one Alice created (Bob co-organises), one Bob runs with Alice as co-organiser, one of others only.

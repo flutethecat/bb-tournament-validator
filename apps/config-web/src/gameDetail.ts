@@ -91,8 +91,22 @@ export interface GameSummary {
   perPlayer: boolean;
   /** Shown when the game has no per-player lines. */
   note: string | null;
+  /**
+   * The tournament fixture this game counts for had its result changed by an organiser (owner ruling 10-29 §7): the
+   * page keeps the game as played and shows "Edited by organiser" with the result the tournament counts (coach names
+   * carry the sides, so a game that lists the coaches the other way round reads right), or that it was cleared.
+   */
+  edited?: GameResultEdit;
   home: GameTeamSummary | null;
   away: GameTeamSummary | null;
+}
+
+export interface GameResultEdit {
+  by: string;
+  at: string;
+  /** The result the tournament counts, in fixture order (absent when cleared). */
+  result?: { home: { coach: string; score: number; cas: number | null }; away: { coach: string; score: number; cas: number | null } };
+  cleared?: true;
 }
 
 /** The match reporter's finished-game summary for one team, public subset (no treasury). */
@@ -196,6 +210,30 @@ function findFixture(tournaments: readonly GameTournament[], pred: (m: Scheduled
   for (const t of tournaments) for (const m of t.matches) if (m.away && m.result && pred(m)) return { t, m };
   return undefined;
 }
+
+/** The organiser edit of a fixture's result, for the game page (undefined = not edited). */
+export function fixtureResultEdit(m: ScheduledMatchRecord | undefined): GameResultEdit | undefined {
+  const e = m?.edited;
+  if (!m || !m.away || e?.kind !== "result") return undefined;
+  if (e.cleared || !m.result) return { by: e.byCoachId, at: e.at, cleared: true };
+  const r = m.result;
+  return {
+    by: e.byCoachId, at: e.at,
+    result: {
+      home: { coach: m.home.coach.ffbCoachId, score: r.homeScore, cas: r.homeCasualties ?? null },
+      away: { coach: m.away.coach.ffbCoachId, score: r.awayScore, cas: r.awayCasualties ?? null },
+    },
+  };
+}
+/** Any fixture (played or cleared) matching `pred`: the edit note must show on a game whose fixture was cleared. */
+function anyFixture(tournaments: readonly GameTournament[], pred: (m: ScheduledMatchRecord) => boolean): ScheduledMatchRecord | undefined {
+  for (const t of tournaments) for (const m of t.matches) if (pred(m)) return m;
+  return undefined;
+}
+const withEdit = (s: GameSummary, m: ScheduledMatchRecord | undefined): GameSummary => {
+  const edited = fixtureResultEdit(m);
+  return edited ? { ...s, edited } : s;
+};
 
 const toCard = (r: RecentResult): GameCard => ({
   context: r.context, home: r.home, away: r.away, playedAt: r.playedAt, href: null, concede: r.concede, suspended: r.suspended,
@@ -425,7 +463,7 @@ export function gameDetail(source: GameSource, id: string, inputs: GameInputs): 
       summary = withFork(summary, forkRow, forkRow.home.coach.trim().toLowerCase() !== m.home.coach.ffbCoachId.trim().toLowerCase() &&
         forkRow.away.coach.trim().toLowerCase() === m.home.coach.ffbCoachId.trim().toLowerCase(), inputs.leagueGame);
     }
-    return { source, id, card: gameCard, summary, ...(reporter ? { reporter } : {}) };
+    return { source, id, card: gameCard, summary: withEdit(summary, m), ...(reporter ? { reporter } : {}) };
   }
 
   if (source === "tabletop") {
@@ -439,7 +477,8 @@ export function gameDetail(source: GameSource, id: string, inputs: GameInputs): 
       baseSummary(gameCard, fixture?.m.roundNumber ?? null, fixture ? { id: fixture.t.id, name: fixture.t.name, href: roundsHref(fixture.t.id) } : null, true),
       row,
     );
-    return { source, id, card: gameCard, summary, reporter: reporterFor(row.match, row.events) };
+    const edited = row.match.fixtureRef ? anyFixture(inputs.tournaments, (m) => m.id === row.match.fixtureRef) : undefined;
+    return { source, id, card: gameCard, summary: withEdit(summary, edited), reporter: reporterFor(row.match, row.events) };
   }
 
   const row = inputs.results.find((r) => r.gameId === id && isForkRow(r));
@@ -459,6 +498,7 @@ export function gameDetail(source: GameSource, id: string, inputs: GameInputs): 
   if (typeof verdict === "boolean") summary.concededLegally = verdict;
   const reporter = replayReporter(row, inputs.replay?.entry);
   const replay: ReplayState = reporter ? "ready" : inputs.replay?.state === "pending" ? "pending" : "unavailable";
-  return { source, id, card: gameCard, summary, ...(reporter ? { reporter } : {}), replay };
+  const edited = anyFixture(inputs.tournaments, (m) => m.launch?.gameId === id);
+  return { source, id, card: gameCard, summary: withEdit(summary, edited), ...(reporter ? { reporter } : {}), replay };
 }
 

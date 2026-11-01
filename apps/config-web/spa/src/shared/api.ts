@@ -224,8 +224,31 @@ export interface TournamentFixture {
   home: TournamentFixtureSide;
   /** Absent = bye. */
   away?: TournamentFixtureSide;
-  result?: { homeScore: number; awayScore: number; homeCasualties?: number; awayCasualties?: number };
+  /** opId = the tabletop publication that recorded it (coaches and managers only). */
+  result?: { homeScore: number; awayScore: number; homeCasualties?: number; awayCasualties?: number; opId?: string };
   revision?: number;
+  /** An organiser changed the result (kind "result"): who and when for everyone who sees the fixture; reason and the
+   *  previous / first-reported values for the coaches who play it and the managers. */
+  edited?: TournamentFixtureEdit;
+  /** The source record the result came from (a fork game id), kept linked after an edit. */
+  launch?: { gameId?: string };
+}
+
+export type TournamentResultValues = { homeScore: number; awayScore: number; homeCasualties?: number; awayCasualties?: number };
+export interface TournamentFixtureEdit {
+  kind?: "result";
+  byCoachId: string;
+  at: string;
+  reason?: string;
+  cleared?: true;
+  previous?: TournamentResultValues | null;
+  original?: TournamentResultValues | null;
+}
+
+/** One organiser result edit or clear in the tournament's activity log (stamped admin). */
+export interface TournamentActivityEntry {
+  id: string; at: string; by: string; kind: "result-edited" | "result-cleared"; admin: true;
+  fixtureId: string; roundNumber: number; result?: TournamentResultValues; previous: TournamentResultValues | null; reason?: string;
 }
 
 export interface TournamentStandingRow {
@@ -244,6 +267,8 @@ export interface TournamentDetailResponse {
   rounds: TournamentRound[];
   standings?: TournamentStandingRow[];
   scheduledMatches?: TournamentFixture[];
+  /** Organiser result edits the viewer may see (newest first). */
+  activity?: TournamentActivityEntry[];
   /** What the viewer may do here (the server stays the authority). */
   capabilities?: { manage: boolean; assignRoles: boolean };
 }

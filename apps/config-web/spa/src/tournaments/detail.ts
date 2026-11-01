@@ -15,6 +15,9 @@ import {
   type TournamentRoundPreview,
   type TournamentSeedingMode,
   type TournamentDeadlines,
+  type TournamentActivityEntry,
+  type TournamentFixtureEdit,
+  type TournamentResultValues,
   type TournamentEntrant,
   type TournamentFixture,
   type TournamentLocation,
@@ -49,6 +52,8 @@ export interface TournamentDetailState {
   entrants: TournamentEntrant[];
   rounds: TournamentRound[];
   fixtures: TournamentFixture[];
+  /** Organiser result edits the server let this viewer see (newest first). */
+  activity: TournamentActivityEntry[];
   standings: TournamentStandingRow[];
   standingsStatus: "idle" | "loading" | "ok" | "error";
   standingsError: string;
@@ -165,7 +170,7 @@ export function safeCrestUrl(url: string | undefined | null): string {
  *  deadlines refetch through it. */
 export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () => void; onChanged?: () => void; upload?: RawUploader }) {
   const state = reactive<TournamentDetailState>({
-    id: "", tournament: null, series: null, entrants: [], rounds: [], fixtures: [], standings: [], standingsStatus: "idle", standingsError: "",
+    id: "", tournament: null, series: null, entrants: [], rounds: [], fixtures: [], activity: [], standings: [], standingsStatus: "idle", standingsError: "",
     loaded: false, loading: false, notFound: false, error: "",
     capabilities: { manage: false, assignRoles: false }, busy: "", actionError: "", notice: "", lastAction: "",
     teamOptions: { status: "idle", library: [], saves: [] }, preview: null, startOutcome: "",
@@ -182,7 +187,7 @@ export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () =>
   /** `silent` = a background refresh: a failure other than 404 keeps what is on screen. */
   async function load(id: string, silent = false): Promise<void> {
     if (state.id !== id) {
-      state.tournament = null; state.series = null; state.entrants = []; state.rounds = []; state.fixtures = [];
+      state.tournament = null; state.series = null; state.entrants = []; state.rounds = []; state.fixtures = []; state.activity = [];
       state.standings = []; state.standingsStatus = "idle"; state.standingsError = "";
       state.capabilities = { manage: false, assignRoles: false }; state.preview = null; state.startOutcome = "";
       state.actionError = ""; state.notice = "";
@@ -199,6 +204,7 @@ export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () =>
       state.entrants = res.entrants ?? [];
       state.rounds = [...(res.rounds ?? [])].sort((a, b) => a.number - b.number);
       state.fixtures = res.scheduledMatches ?? [];
+      state.activity = Array.isArray(res.activity) ? res.activity : [];
       state.capabilities = { manage: res.capabilities?.manage === true, assignRoles: res.capabilities?.assignRoles === true };
       state.error = "";
       state.notFound = false;
@@ -365,8 +371,27 @@ export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () =>
     return ok !== undefined;
   }
 
+  // ---- organiser result edits (owner ruling 10-29 §7) ----
+  /** Override a recorded result at the fixture revision the dialog loaded (a stale one answers 409, never a silent
+   *  overwrite); `confirmFinished` is needed on a finished tournament. Answers whether it saved. */
+  async function editResult(fixtureId: string, edit: ResultEditForm, revision: number): Promise<boolean> {
+    const ok = await run(`result:${fixtureId}`, () => deps.api(`${base()}/fixtures/${encodeURIComponent(fixtureId)}/result`, {
+      method: "PATCH", body: resultEditBody({ revision }, edit),
+    }), "Result edited.");
+    return ok !== undefined;
+  }
+  /** Clear a recorded result back to unplayed. */
+  async function clearResult(fixtureId: string, edit: Pick<ResultEditForm, "reason" | "confirmFinished">, revision: number): Promise<boolean> {
+    const reason = edit.reason.trim();
+    const ok = await run(`result:${fixtureId}`, () => deps.api(`${base()}/fixtures/${encodeURIComponent(fixtureId)}/result/clear`, {
+      method: "POST", body: { revision, ...(reason ? { reason } : {}), ...(edit.confirmFinished ? { confirmFinished: true } : {}) },
+    }), "Result cleared.");
+    return ok !== undefined;
+  }
+
   return {
     state, load, loadStandings, ensureTab, refresh, loadTeamOptions,
+    editResult, clearResult,
     register, withdraw, submit, answerNaf,
     saveSettings, setOwner, addOrganizer, removeOrganizer, lockRosters, unlockRosters, finish, patchEntrant,
     start, previewRound, generateRound,
@@ -391,7 +416,7 @@ export function teamLabels(entrants: TournamentEntrant[]): Map<string, TeamLabel
 }
 
 export interface FixtureSideView { team: string; coach: string; logoUrl: string; score: number | null; cas: number | null }
-export interface FixtureView { id: string; status: string; home: FixtureSideView; away: FixtureSideView | null; played: boolean }
+export interface FixtureView { id: string; status: string; home: FixtureSideView; away: FixtureSideView | null; played: boolean; edited: TournamentFixtureEdit | null }
 export interface RoundView { number: number; status: string; fixtures: FixtureView[] }
 
 const sideView = (label: TeamLabel | undefined, side: { teamId: string; coach: { ffbCoachId: string } }, score: number | null, cas: number | null): FixtureSideView => ({
@@ -414,6 +439,7 @@ export function roundViews(s: Pick<TournamentDetailState, "rounds" | "fixtures" 
         played: Boolean(r),
         home: sideView(labels.get(f.home.entrantId), f.home, r ? r.homeScore : null, r ? r.homeCasualties ?? null : null),
         away: f.away ? sideView(labels.get(f.away.entrantId), f.away, r ? r.awayScore : null, r ? r.awayCasualties ?? null : null) : null,
+        edited: f.edited?.kind === "result" ? f.edited : null,
       };
     }),
   }));
@@ -652,5 +678,97 @@ export function safeBannerUrl(url: string | undefined): string {
   return typeof url === "string" && /^\/api\/tournaments\/[\w-]{1,64}\/banner(\?v=[a-f0-9]{1,64})?$/.test(url) ? url : "";
 }
 
-/** Write names whose messages show in their own panel (the page form, the News panel), not in My entry / Summary. */
-export const isPageAction = (name: string): boolean => name === "page" || name === "banner" || name === "news" || name.startsWith("news:");
+/** Write names whose messages show in their own panel (the page form, the News panel, Manage → Rounds and its Edit
+ *  result dialog), not in My entry / Summary. */
+export const isPageAction = (name: string): boolean =>
+  name === "page" || name === "banner" || name === "news" || name.startsWith("news:") || name.startsWith("result:");
+
+// ---- organiser result edits (pure) ----
+
+/** The Edit result dialog's fields (inputs as typed). */
+export interface ResultEditForm { homeScore: string; awayScore: string; homeCas: string; awayCas: string; reason: string; confirmFinished: boolean }
+
+/** The dialog's starting values: the fixture's current result. */
+export function resultEditForm(f: Pick<TournamentFixture, "result">): ResultEditForm {
+  const r = f.result;
+  const n = (v: number | undefined): string => (v === undefined ? "" : String(v));
+  return { homeScore: n(r?.homeScore), awayScore: n(r?.awayScore), homeCas: n(r?.homeCasualties), awayCas: n(r?.awayCasualties), reason: "", confirmFinished: false };
+}
+
+const wholeNumber = (v: string): number | null => (/^\d{1,2}$/.test(v.trim()) ? Number(v.trim()) : null);
+
+/** The problem with the dialog's fields ("" = fine). The server stays the authority. */
+export function resultEditProblem(form: ResultEditForm, f: Pick<TournamentFixture, "result">, finished: boolean): string {
+  if (wholeNumber(form.homeScore) === null || wholeNumber(form.awayScore) === null) return "Enter both scores (0 to 99).";
+  const hc = form.homeCas.trim();
+  const ac = form.awayCas.trim();
+  if ((hc === "") !== (ac === "")) return "Enter both casualty counts, or leave both empty.";
+  if (hc !== "" && (wholeNumber(hc) === null || wholeNumber(ac) === null)) return "Casualties are whole numbers from 0 to 99.";
+  if (form.reason.trim().length > 500) return "Keep the reason under 500 characters.";
+  const r = f.result;
+  if (r && wholeNumber(form.homeScore) === r.homeScore && wholeNumber(form.awayScore) === r.awayScore &&
+    (hc === "" ? undefined : Number(hc)) === r.homeCasualties && (ac === "" ? undefined : Number(ac)) === r.awayCasualties)
+    return "Nothing changed yet.";
+  if (finished && !form.confirmFinished) return "Tick the box to change a finished tournament.";
+  return "";
+}
+
+/** PATCH .../fixtures/:id/result body. */
+export function resultEditBody(f: Pick<TournamentFixture, "revision">, form: ResultEditForm) {
+  const reason = form.reason.trim();
+  const hc = form.homeCas.trim();
+  const ac = form.awayCas.trim();
+  return {
+    revision: f.revision ?? 0,
+    homeScore: Number(form.homeScore.trim()),
+    awayScore: Number(form.awayScore.trim()),
+    ...(hc !== "" && ac !== "" ? { homeCasualties: Number(hc), awayCasualties: Number(ac) } : {}),
+    ...(reason ? { reason } : {}),
+    ...(form.confirmFinished ? { confirmFinished: true } : {}),
+  };
+}
+
+/** Where a fixture's result came from (the source record stays linked after an edit). */
+export function resultSource(f: Pick<TournamentFixture, "launch" | "result">): "Online game" | "Tabletop match" | "Entered by an organiser" | "" {
+  if (f.launch?.gameId) return "Online game";
+  if (f.result?.opId) return "Tabletop match";
+  return f.result ? "Entered by an organiser" : "";
+}
+
+/** "2 - 1 (CAS 3 - 0)" for a result, "No result" for null. */
+export function resultText(r: TournamentResultValues | null | undefined): string {
+  if (!r) return "No result";
+  const cas = r.homeCasualties !== undefined && r.awayCasualties !== undefined ? ` (CAS ${r.homeCasualties} - ${r.awayCasualties})` : "";
+  return `${r.homeScore} - ${r.awayScore}${cas}`;
+}
+
+/** The Edited chip's tooltip: who changed it, when, and why when the server sent the reason. */
+export function editedTitle(e: TournamentFixtureEdit): string {
+  const day = startDate(e.at);
+  const what = e.cleared ? "Result cleared" : "Result edited";
+  const parts = [`${what} by ${e.byCoachId || "an organiser"}${day ? ` on ${day}` : ""}`];
+  if (e.previous !== undefined && e.previous !== null && !e.cleared) parts.push(`was ${resultText(e.previous)}`);
+  if (e.reason) parts.push(`reason: ${e.reason}`);
+  return parts.join(", ") + ".";
+}
+
+/** Rounds drawn after a fixture's round (their pairings stay as drawn when its result changes). */
+export function laterRounds(rounds: TournamentRound[], roundNumber: number): number[] {
+  return rounds.filter((r) => r.number > roundNumber).map((r) => r.number).sort((a, b) => a - b);
+}
+
+export interface ActivityView { id: string; when: string; by: string; text: string; reason: string }
+
+/** The activity feed lines (newest first): "Round 2: Ann's Orcs v Bob's Elves edited to 2 - 1 (was 1 - 1)". */
+export function activityViews(s: Pick<TournamentDetailState, "activity" | "fixtures" | "entrants">): ActivityView[] {
+  const labels = teamLabels(s.entrants);
+  return s.activity.map((a) => {
+    const f = s.fixtures.find((x) => x.id === a.fixtureId);
+    const name = (side: TournamentFixture["home"] | undefined) => (side ? labels.get(side.entrantId)?.team || side.teamId : "");
+    const pairing = f ? `${name(f.home)} v ${name(f.away)}` : "a fixture";
+    const text = a.kind === "result-cleared"
+      ? `Round ${a.roundNumber}: ${pairing} cleared (was ${resultText(a.previous)})`
+      : `Round ${a.roundNumber}: ${pairing} edited to ${resultText(a.result)} (was ${resultText(a.previous)})`;
+    return { id: a.id, when: dateTimeLabel(a.at), by: a.by, text, reason: a.reason ?? "" };
+  });
+}

@@ -2,13 +2,17 @@
 // Rounds tab: per round, fixture rows (home team + coach, crest, score with TD / CAS sub-counts, away team + coach,
 // crest; "vs" for an unplayed fixture). The server sends fixtures only to signed-in coaches (an entrant gets every
 // fixture of the event, others only their own) and organisers, so an anonymous visitor sees the rounds with an empty
-// state. An entrant can switch between all fixtures and their own; their fixtures are highlighted.
+// state. An entrant can switch between all fixtures and their own; their fixtures are highlighted. A result an
+// organiser edited carries an "Edited" chip (who and when; why for the coaches who play it and the managers), and the
+// activity feed under the rounds lists every result edit the viewer may see, stamped admin.
 import { computed, ref } from "vue";
 import Crest from "./Crest.vue";
 import type { TournamentDetailState } from "../tournaments/detail";
-import { onlyMine, remainingRounds, ROUND_TONE, roundViews } from "../tournaments/detail";
+import { activityViews, editedTitle, onlyMine, remainingRounds, ROUND_TONE, roundViews } from "../tournaments/detail";
+import "../tournaments/resultEdits.css";
 
-const props = defineProps<{ data: Pick<TournamentDetailState, "rounds" | "fixtures" | "entrants" | "tournament"> }>();
+const props = defineProps<{ data: Pick<TournamentDetailState, "rounds" | "fixtures" | "entrants" | "tournament"> & Partial<Pick<TournamentDetailState, "activity">> }>();
+const activity = computed(() => activityViews({ activity: props.data.activity ?? [], fixtures: props.data.fixtures, entrants: props.data.entrants }));
 const all = computed(() => roundViews(props.data));
 const myId = computed(() => (props.data.tournament?.myDroppedAt ? "" : props.data.tournament?.myEntrantId ?? ""));
 const mineIds = computed(() => new Set(props.data.fixtures
@@ -47,6 +51,7 @@ const left = computed(() => (props.data.tournament ? remainingRounds(props.data.
             </template>
             <span v-else-if="f.away" class="muted">vs</span>
             <span v-else class="muted">Bye</span>
+            <span v-if="f.edited" class="sf-chip tn-edited" tabindex="0" :title="editedTitle(f.edited)" :aria-label="editedTitle(f.edited)">Edited</span>
           </div>
           <div class="tn-side tn-away">
             <template v-if="f.away">
@@ -54,6 +59,15 @@ const left = computed(() => (props.data.tournament ? remainingRounds(props.data.
               <Crest :url="f.away.logoUrl" />
             </template>
           </div>
+        </li>
+      </ul>
+    </section>
+    <section v-if="activity.length" class="hm-panel tn-round" aria-labelledby="tn-activity-h">
+      <header class="hm-band" data-tone="admin"><h2 id="tn-activity-h">Result changes</h2><span class="hm-cap">({{ activity.length }})</span></header>
+      <ul class="tn-activity">
+        <li v-for="a in activity" :key="a.id">
+          <span class="tn-activity-head"><span class="sf-chip" data-tone="admin">Admin</span><span>{{ a.text }}</span></span>
+          <span class="tn-activity-meta">By {{ a.by }}{{ a.when ? `, ${a.when}` : "" }}<template v-if="a.reason">. Reason: {{ a.reason }}</template></span>
         </li>
       </ul>
     </section>
