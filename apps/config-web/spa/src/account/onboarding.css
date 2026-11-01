@@ -1,0 +1,42 @@
+/* New-user flow: the "Welcome to Super FUMBBL" modal (OnboardingDialog.vue) and the Account page's Contact & consent
+   section (AccountContact.vue). Builds on tn-modal / tn-panel / tn-band (tournaments.css) and ac-* (account.css);
+   tokens only. */
+
+.ob-backdrop { z-index: 90; }
+.tn-modal.ob-modal { width: min(560px, 100%); }
+.ob-modal .tn-band { font-size: 1.05rem; }
+.ob-intro { margin: 0; }
+.ob-form, .ob-fieldset { display: grid; gap: 14px; }
+.ob-fieldset, .ob-phones { min-width: 0; margin: 0; padding: 0; border: 0; }
+.ob-field { display: grid; gap: 4px; min-width: 0; }
+.ob-field label, .ob-legend { font: 11px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-heading); padding: 0; }
+.ob-field input, .ob-field select {
+  min-height: 44px; padding: 4px 8px; color: var(--ui-text); background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line, var(--ui-border));
+  border-radius: 2px; font: inherit; width: 100%; box-sizing: border-box;
+}
+.ob-field input[aria-invalid="true"] { border-color: var(--ui-danger); }
+.ob-email-show { display: flex; align-items: center; gap: 10px; min-height: 44px; flex-wrap: wrap; }
+.ob-email-value { overflow-wrap: anywhere; font-weight: 600; }
+.ob-phones { display: grid; gap: 8px; }
+.ob-hint { margin: 0; }
+.ob-phone-row { display: grid; grid-template-columns: minmax(0, 1fr) 120px auto; gap: 8px; align-items: start; }
+.ob-phone-remove { margin-top: 19px; min-height: 44px; }
+.ob-phone-add { justify-self: start; min-height: 40px; }
+.ob-check { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; line-height: 1.4; }
+.ob-check input { width: 20px; height: 20px; flex: none; margin: 1px 0 0; accent-color: var(--ui-primary); }
+.ob-check a { color: var(--ui-link, var(--ui-accent)); }
+.ob-privacy-help { margin-top: -8px; padding-left: 30px; }
+.ob-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.ob-actions .lobby-btn { min-height: 44px; }
+
+@media (max-width: 520px) {
+  .ob-phone-row { grid-template-columns: minmax(0, 1fr) 100px; }
+  .ob-phone-remove { grid-column: 1 / -1; justify-self: start; margin-top: 0; }
+}
+
+/* ---- Account page: Contact & consent */
+.ac-contact .ob-field input, .ac-contact .ob-field select { max-width: 420px; }
+.ac-contact .ob-phone-row { max-width: 560px; }
+.ac-consent { display: grid; gap: 4px; margin: 0; }
+.ac-consent dt { font: 11px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-heading); }
+.ac-consent dd { margin: 0 0 6px; }

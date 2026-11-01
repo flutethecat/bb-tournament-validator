@@ -11,6 +11,8 @@ import RecentGames from "./components/RecentGames.vue";
 import SignInPrompt from "./components/SignInPrompt.vue";
 import TestSignInCard from "./components/TestSignInCard.vue";
 import TournamentCreateDialog from "./components/TournamentCreateDialog.vue";
+import OnboardingDialog from "./components/OnboardingDialog.vue";
+import { ONBOARDING_KEY } from "./account/onboarding";
 import { canCreateTournament, TOURNAMENT_CREATOR_KEY } from "./tournaments/create";
 import { appPath, discordLoginUrl, SESSION_KEY } from "./session";
 import { THEME_KEY, themeLabel } from "./theme";
@@ -35,7 +37,12 @@ const creator = inject(TOURNAMENT_CREATOR_KEY, null);
 // "Create tournament" in the account menu: organisers only, the server's POST /api/tournaments rule. The rule gates
 // opening only: once open, the dialog stays until Cancel / Escape even if the session lapses (its 401 error shows).
 const canCreate = computed(() => Boolean(creator) && canCreateTournament(session));
-const createOpen = computed(() => creator?.state.open === true);
+// New-user flow (owner 10-31): while the signed-in coach has not completed onboarding, the welcome modal blocks the shell
+// on every route (header and body inert). Read once per coach, in the browser only.
+const onboarding = inject(ONBOARDING_KEY, null);
+const onboardingOpen = computed(() => onboarding?.open() === true);
+onMounted(() => watch(() => session.coach(), (coach) => void onboarding?.load(coach), { immediate: true }));
+const createOpen = computed(() => creator?.state.open === true || onboardingOpen.value);
 function openCreate(): void {
   menuOpen.value = false;
   if (canCreate.value) creator?.show();
@@ -222,5 +229,6 @@ async function signOut(): Promise<void> {
       <RouterView v-else :key="route.path" />
     </main>
   </div>
-  <TournamentCreateDialog v-if="creator?.state.open" />
+  <TournamentCreateDialog v-if="creator?.state.open && !onboardingOpen" />
+  <OnboardingDialog v-if="onboardingOpen" @sign-out="signOut" />
 </template>
