@@ -10,6 +10,7 @@ import { API_KEY } from "../app";
 import { usePageTitle } from "../shell/pageTitle";
 import LobbyChat from "../components/LobbyChat.vue";
 import LobbyCoachPanel from "../components/LobbyCoachPanel.vue";
+import LobbyFixtureCentre from "../components/LobbyFixtureCentre.vue";
 import LobbyStart from "../components/LobbyStart.vue";
 import { crestFor, day, initials } from "../leagues/league";
 import { createFixtureLobby, FIXTURE_LOBBY_KEY, kGold, mySide, otherSide, type LobbySide } from "../leagues/lobby";
@@ -93,6 +94,7 @@ const midLine = computed(() => {
           <LobbyCoachPanel :view="view" :side="left" :mine="true" />
         </div>
         <div class="fl-col">
+          <LobbyFixtureCentre :view="view" :left="left" />
           <LobbyStart :view="view" />
           <LobbyChat v-if="view.chat" :view="view" />
           <section v-else class="hm-panel fl-panel" aria-labelledby="fl-chat-off">
