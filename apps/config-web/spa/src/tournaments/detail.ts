@@ -26,12 +26,15 @@ import {
 import type { Fetcher } from "../session";
 import type { ShareField } from "../account/sharing";
 
-export type DetailTab = "overview" | "entrants" | "rounds" | "standings" | "manage";
+export type DetailTab = "overview" | "entrants" | "rounds" | "standings" | "statistics" | "honours" | "awards" | "manage";
 export const DETAIL_TABS: ReadonlyArray<{ id: DetailTab; label: string }> = [
   { id: "overview", label: "Overview" },
   { id: "entrants", label: "Entrants" },
   { id: "rounds", label: "Rounds" },
   { id: "standings", label: "Standings" },
+  { id: "statistics", label: "Statistics" },
+  { id: "honours", label: "Honours" },
+  { id: "awards", label: "Awards" },
 ];
 /** The organiser tab, shown only when the server says the viewer manages this tournament. */
 export const MANAGE_TAB: { id: DetailTab; label: string } = { id: "manage", label: "Manage" };

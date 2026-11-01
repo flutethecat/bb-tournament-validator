@@ -422,7 +422,11 @@ export const STORE_COLLECTORS: StoreCollector[] = [
           createdAt: s.createdAt,
           role: isMine(ctx.keys, s.createdBy) ? "creator" : "organiser",
         }));
-      return [{ name: "tournament-entries.json", content: json({ entries, matches, managed, series }) }];
+      // Tournament awards given to the coach or by them (organiser awards on tournaments.json awards[]).
+      const awards = Object.values(data?.tournaments ?? {}).flatMap((t) => objs(t.awards)
+        .filter((a) => isMine(ctx.keys, a.toCoach) || isMine(ctx.keys, a.by))
+        .map((a) => ({ tournament: t.name ?? a.tournamentId, ...a })));
+      return [{ name: "tournament-entries.json", content: json({ entries, matches, managed, series, ...(awards.length ? { awards } : {}) }) }];
     },
     erase: ["organiser-roles", "anonymise-tournaments"],
   },
@@ -640,7 +644,7 @@ avatar.<ext>            The avatar image you uploaded (if any).
 builder-saves.json      Your saved rosters (Roster Builder). "shared": true marks a save with a public link.
 team-library.json       Your teams for Play on Super FUMBBL.
 team-logos/             Team logos you uploaded.
-tournament-entries.json Your tournament entries, fixtures, and the tournaments you run.
+tournament-entries.json Your tournament entries, fixtures, the tournaments you run, and tournament awards to or by you.
 league-teams.json       League teams, fixtures, standings and awards linked to your account, awards you gave,
                         Hall of Fame entries you pinned, and leagues you run.
 tabletop-matches.json   Tabletop matches you played or recorded, with their event logs, and your tabletop team history.
@@ -736,6 +740,8 @@ function anonymiseTournaments(an: Anonymiser, tx: TextReplacer, data: Obj): bool
     mark(an.fields(t, ["ownerCoachId", "organizerCoachId"], []));
     mark(an.list(t.organizerCoachIds));
     for (const n of objs(t.news)) { mark(an.fields(n, ["by"], [])); mark(tx.texts(n, ["title", "body"])); }
+    // Awards: recipient and giver accounts become the pseudonym; the organisers' free text loses the coach's names.
+    for (const a of objs(t.awards)) { mark(an.fields(a, ["by", "toCoach"], [])); mark(tx.texts(a, ["title", "note"])); }
   }
   const identity = ["coachId", "ffbCoachId"];
   for (const e of vals(data.entrants)) {

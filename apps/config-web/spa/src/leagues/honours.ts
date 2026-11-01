@@ -196,3 +196,10 @@ export function createHonours(deps: { api: Fetcher }) {
 }
 export type LeagueHonours = ReturnType<typeof createHonours>;
 export const LEAGUE_HONOURS_KEY: InjectionKey<LeagueHonours> = Symbol("league-honours");
+
+/** What the Give award dialog needs (the league honours controller, or the tournament awards controller). */
+export interface AwardGiver {
+  state: { view: { recipients?: HonoursRecipients } | null; busy: string; writeError: string };
+  give(input: GiveAwardInput): Promise<boolean>;
+}
+export const AWARD_GIVER_KEY: InjectionKey<AwardGiver> = Symbol("award-giver");

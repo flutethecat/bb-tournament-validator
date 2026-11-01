@@ -17,6 +17,8 @@ import type {
   VerifiedCoachIdentity,
 } from "./types.js";
 import { tournamentLink, type TournamentNotify } from "../notifications.js";
+import { myTournamentAwards, tournamentHonoursRoutes } from "./honours.js";
+import type { StoredTournamentResult } from "../tournamentResults.js";
 import { canonicalNafId } from "../auth/identitiesStore.js";
 import { ContactValidationError, parseShareFields, type ShareField } from "../auth/contactSchema.js";
 import type { SharedContact } from "../auth/contactFor.js";
@@ -55,6 +57,10 @@ export interface TournamentApiDeps {
     /** The same for many coaches at once (one identity read; the Participants table). Absent = contact() per coach. */
     contacts?(viewer: TournamentApiIdentity, coaches: readonly string[], tournamentId: string): Array<SharedContact | undefined>;
   };
+  /** Counted result rows (TournamentResultStore.list()) for Statistics / Honours (src/tournaments/honours.ts). */
+  results?(): StoredTournamentResult[];
+  /** The request's If-Match header (award DELETE carries its revision there). */
+  ifMatch?: string;
   now?: () => Date;
 }
 
@@ -770,6 +776,13 @@ export async function tournamentApi(
           }, now),
         },
       };
+    }
+
+    // Statistics, Honours and Awards (src/tournaments/honours.ts): public reads, organiser/admin award writes.
+    const honours = tournamentHonoursRoutes(method, path, query, auth, body, deps);
+    if (honours) return honours;
+    if (path === "/api/tournaments" && method === "GET" && query.get("awards") === "mine") {
+      return { status: 200, headers: { "cache-control": "private, no-store" }, body: { awards: auth ? myTournamentAwards(deps.store, auth.coach, deps.teamBuild) : [] } };
     }
 
     if (path === "/api/tournaments" && method === "GET") {

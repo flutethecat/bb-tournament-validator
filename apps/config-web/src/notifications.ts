@@ -221,7 +221,7 @@ export class NotificationStore {
 // ---- tournament notifier: who gets what, and the SPA link ----------------------------------------------------------
 
 /** The SPA path of a tournament page, with ?tab= where the tab exists. */
-export function tournamentLink(tournamentId: string, tab?: "overview" | "entrants" | "rounds" | "standings" | "manage"): string {
+export function tournamentLink(tournamentId: string, tab?: "overview" | "entrants" | "rounds" | "standings" | "statistics" | "honours" | "awards" | "manage"): string {
   return `/app/tournaments/${encodeURIComponent(tournamentId)}${tab ? `?tab=${tab}` : ""}`;
 }
 

@@ -68,7 +68,7 @@ export const AWARD_ICONS: Readonly<Record<string, { label: string; src: string }
 export const isAwardIcon = (v: unknown): v is string => typeof v === "string" && Object.prototype.hasOwnProperty.call(AWARD_ICONS, v);
 
 /** The icon a season award shows (podium places by slot; every other imported award a star). */
-const seasonAwardIcon = (a: Pick<LeagueAward, "type">): string =>
+export const seasonAwardIcon = (a: Pick<LeagueAward, "type">): string =>
   a.type === PODIUM_AWARD.champion ? "legend" : a.type === PODIUM_AWARD.runnerUp ? "super-star" : a.type === PODIUM_AWARD.consolation ? "star" : "emerging-star";
 
 // ---- read model ----------------------------------------------------------------------------------------------------
@@ -271,11 +271,12 @@ export function myAwards(store: LeagueStore, coach: string): Array<AwardView & {
 
 // ---- writes ---------------------------------------------------------------------------------------------------------
 
-class HonoursError extends Error {
+export class HonoursError extends Error {
   constructor(readonly status: number, message: string, readonly field?: string) { super(message); }
 }
 
-const text = (v: unknown, field: string, max: number, required: boolean, label: string): string => {
+/** Award text: control characters folded to spaces, trimmed, length-capped (also the tournament awards' check). */
+export const text = (v: unknown, field: string, max: number, required: boolean, label: string): string => {
   if (v === undefined || v === null || v === "") {
     if (required) throw new HonoursError(400, `${label} is required.`, field);
     return "";

@@ -7,6 +7,7 @@ import { DEFAULT_ENTRANT_FLAGS, SERIES_SEEDING_PAIRING, TOURNAMENT_PAIRING_SYSTE
 import type { NewsInput, TournamentPagePatch } from "./page.js";
 import type {
   ScheduledMatchRecord,
+  TournamentAward,
   TournamentDataFileV2,
   TournamentDataFileV3,
   TournamentDataFileV4,
@@ -570,6 +571,23 @@ export class TournamentStore {
       tournament.news = news.filter((candidate) => candidate.id !== newsId);
       if (!tournament.news.length) delete tournament.news;
       tournament.updatedAt = now.toISOString();
+    });
+  }
+
+  /** Award writes (src/tournaments/honours.ts): checks awardsRevision inside the write (409 stale), then bumps it. */
+  updateAwards(tournamentId: string, expectedRevision: number, change: (awards: TournamentAward[]) => TournamentAward[], now = new Date()): TournamentRecord {
+    return this.mutate((data) => {
+      const tournament = data.tournaments[tournamentId];
+      if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
+      const current = tournament.awardsRevision ?? 0;
+      if (current !== expectedRevision)
+        throw new TournamentStoreError(409, "The awards changed since you opened them. Reload to see the latest.");
+      const next = change([...(tournament.awards ?? [])]);
+      if (next.length) tournament.awards = next;
+      else delete tournament.awards;
+      tournament.awardsRevision = current + 1;
+      tournament.updatedAt = now.toISOString();
+      return tournament;
     });
   }
 

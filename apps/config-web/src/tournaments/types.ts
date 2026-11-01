@@ -95,8 +95,32 @@ export interface TournamentRecord {
   /** NAF sanctioned (owner 10-31): coach registration needs the NAF name and number on the coach's profile (shared with
    *  the organisers), or the "I am not a NAF member" box. Absent = false. */
   nafSanctioned?: boolean;
+  /** Custom awards organisers and admins gave (src/tournaments/honours.ts). The podium is derived, never stored here. */
+  awards?: TournamentAward[];
+  /** Bumped by every award write; writes send it back (body `revision` or If-Match): 428 missing, 409 stale. */
+  awardsRevision?: number;
   createdAt: string;
   updatedAt: string;
+}
+
+/** A custom tournament award (same model as a league award, spec-main-landing-nav §2 item 4, with `tournamentId`). */
+export interface TournamentAward {
+  id: string;
+  tournamentId: string;
+  title: string;
+  /** A key of the shared award icon table (src/leagues/awards.ts AWARD_ICONS). */
+  icon: string;
+  /** The recipient's account (ffbCoachId): every tournament seat has one. */
+  toCoach: string;
+  /** Team awards: the entrant and its team as shown when given. */
+  entrantId?: string;
+  teamId?: string;
+  toTeam?: string;
+  race?: string;
+  note: string;
+  /** The giving organiser's (or admin's) account. */
+  by: string;
+  at: string;
 }
 
 export interface TournamentLocation { venue?: string; address?: string; mapUrl?: string }

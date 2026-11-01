@@ -348,3 +348,20 @@ td.tn-shared > span + span { margin-top: 2px; }
 .tn-reg-share { display: grid; gap: 6px; min-width: 0; }
 .tn-check-field .tn-check-line { display: flex; align-items: center; gap: 8px; min-height: 44px; }
 .tn-check-field .tn-check-line input { width: 20px; height: 20px; min-height: 0; flex: none; accent-color: var(--ui-primary); }
+
+/* Statistics / Honours / Awards tabs (TournamentStatistics, TournamentHonours, TournamentAwards). Tokens only. */
+.tn-stats .tl-seg, .tn-honours .tl-seg { justify-self: start; margin-bottom: 10px; }
+.tn-honours > .tl-seg { margin-bottom: 0; }
+.tn-coverage { margin: 10px 0 0; color: var(--ui-muted); }
+.tn-records abbr { text-decoration: none; }
+.tn-records th:nth-child(n+2), .tn-races th:nth-child(n+2) { text-align: right; white-space: nowrap; }
+.tn-podium { grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); gap: 10px; }
+.tn-podium > li { grid-template-columns: 48px minmax(0, 1fr); align-items: center; gap: 12px; padding: 10px 12px; border-left-width: 4px; }
+.tn-podium > li[data-award="Consolation"] { border-left-color: var(--sf-gold); }
+.tn-podium-icon { width: 48px; height: 48px; object-fit: contain; image-rendering: pixelated; }
+.tn-podium-text { display: grid; gap: 2px; min-width: 0; }
+.tn-podium-team { font: 500 18px/1.2 var(--font-heading); letter-spacing: .03em; overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  .tn-stats .tl-seg, .tn-honours .tl-seg { justify-self: stretch; display: flex; width: 100%; max-width: 100%; }
+  .tn-stats .tl-seg-btn, .tn-honours .tl-seg-btn { flex: 1 1 0; padding: 0 8px; min-width: 0; }
+}

@@ -370,6 +370,8 @@ describe("export", () => {
     // Tournament Series she created or co-organises (never another coach's series)
     expect(t.series.map((s: { id: string; role: string }) => `${s.id}:${s.role}`).sort()).toEqual(["sr1:creator", "sr2:organiser"]);
     expect(t.series[0].tournaments).toEqual([{ id: "t1", name: "Autumn Open" }]);
+    // Tournament awards to her or given by her (never one between two other coaches)
+    expect(t.awards.map((a: { id: string; tournament: string }) => `${a.id}:${a.tournament}`)).toEqual(["ta1:Autumn Open", "ta2:Autumn Open"]);
     const leagues = JSON.parse(text("league-teams.json"));
     expect(leagues[0].role).toBe("organiser");
     expect(leagues[0].seasons[0].teams.map((x: { id: string }) => x.id)).toEqual(["green-orcs"]);
@@ -490,6 +492,10 @@ describe("delete", () => {
     expect(tf.tournaments.t2.ownerCoachId).toBe(P); // a completed tournament keeps its record
     expect(tf.standings.t1.rows[0].coachId).toBe(P);
     expect(tf.tournaments.t1.news[0].body).toBe(`${P} wins the opener; well played Alicent.`);
+    // Tournament awards: recipient and giver accounts become the pseudonym; free text loses her name; others untouched.
+    expect(tf.tournaments.t1.awards[0]).toMatchObject({ toCoach: P, by: "Bob", toTeam: "Green Orcs", note: `${P} never complained` });
+    expect(tf.tournaments.t1.awards[1]).toMatchObject({ toCoach: "Bob", by: P });
+    expect(tf.tournaments.t1.awards[2]).toMatchObject({ toCoach: "Carol", by: "Bob" });
     expect(Object.keys(tf.waitingPresence)).toEqual(["m1\u0000bob"]);
     const season = readJ(join(deps.stateDir, "leagues", "l1", "seasons", "s1.json"));
     expect(season.teams[0]).toMatchObject({ id: "green-orcs", name: "Green Orcs", coach: P, coachId: P });

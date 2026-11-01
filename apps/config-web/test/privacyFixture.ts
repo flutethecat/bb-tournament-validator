@@ -118,7 +118,12 @@ export async function seed(root: string, opts: SeedOptions = {}): Promise<void> 
   w(join(d.tournamentsDir, "tournaments.json"), {
     version: 4,
     tournaments: {
-      t1: { id: "t1", name: "Autumn Open", status: "active", ownerCoachId: "Bob", organizerCoachId: "Bob", organizerCoachIds: ["Alice"], news: [{ id: "p1", title: "Round 1", body: "Alice wins the opener; well played Alicent.", by: "Bob", at: "", pinned: false }] },
+      t1: { id: "t1", name: "Autumn Open", status: "active", ownerCoachId: "Bob", organizerCoachId: "Bob", organizerCoachIds: ["Alice"], news: [{ id: "p1", title: "Round 1", body: "Alice wins the opener; well played Alicent.", by: "Bob", at: "", pinned: false }],
+        awards: [
+          { id: "ta1", tournamentId: "t1", title: "Best sport", icon: "captain", toCoach: "Alice", entrantId: "e1", toTeam: "Green Orcs", note: "Alice never complained", by: "Bob", at: "2026-10-03T00:00:00Z" },
+          { id: "ta2", tournamentId: "t1", title: "Iron wall", icon: "guard", toCoach: "Bob", note: "", by: "Alice", at: "2026-10-03T00:00:00Z" },
+          { id: "ta3", tournamentId: "t1", title: "Fan favourite", icon: "fans", toCoach: "Carol", note: "", by: "Bob", at: "2026-10-03T00:00:00Z" },
+        ] },
       t2: { id: "t2", name: "Old Cup", status: opts.aliceOwnsActiveTournament ? "draft" : "completed", ownerCoachId: "Alice", organizerCoachId: "Alice" },
     },
     entrants: {

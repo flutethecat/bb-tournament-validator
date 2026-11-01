@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-01",
+    "title": "Tournament statistics, honours and awards",
+    "body": "Every tournament page has three new tabs. Statistics shows records by team and by coach (touchdowns, casualties, completions, interceptions, fouls, injuries and deaths, best defence) and race win rates, with only the stats its results record. Honours shows the top five for each stat for teams, players and coaches. Awards shows the podium once the tournament finishes, and organisers can give their own awards, which also appear on the coach's page.",
+    "links": [
+      {
+        "label": "Tournaments",
+        "href": "/app/tournaments"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-01",
     "title": "League inducements, including your own",
     "body": "League organisers and admins have a new Inducements tab in league settings: turn each standard inducement on or off, set its cap and price per season, and add the league's own inducement types with an icon, a category and a short effect. Coaches see the season's table on the league page.",
     "links": [

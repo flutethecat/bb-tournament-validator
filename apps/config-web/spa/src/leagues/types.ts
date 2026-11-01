@@ -392,6 +392,8 @@ export interface StatsCard {
   icon: string;
   link: StatsCardLink;
 }
+/** A spotlight card without a league link (tournament Statistics: src/tournaments/honours.ts SpotCard). */
+export type SpotCard = Omit<StatsCard, "id" | "link" | "seasons"> & { id: string; link?: StatsCardLink; seasons?: number[] };
 
 // ---- League settings (organisers; server: src/leagues/settings.ts LeagueSettingsView) ----
 

@@ -100,6 +100,8 @@ function isPublicRequest(method: string, pathname: string): boolean {
       /^\/api\/tournaments\/[^/]+\/standings$/.test(pathname) ||
       /^\/api\/fork\/tournaments\/[^/]+$/.test(pathname) ||
       /^\/api\/fork\/tournaments\/[^/]+\/standings$/.test(pathname) ||
+      // Tournament Statistics / Honours and Awards: public reads (award POST/DELETE stay session-gated, organisers in-handler).
+      /^\/api\/(?:fork\/)?tournaments\/[^/]+\/(?:statistics|awards)$/.test(pathname) ||
       // Tournament banner image: a public read (PUT/DELETE stay session-gated and manager-checked in-handler).
       /^\/api\/tournaments\/[^/]+\/banner$/.test(pathname) ||
       /^\/api\/fork\/tournaments\/[^/]+\/banner$/.test(pathname) ||

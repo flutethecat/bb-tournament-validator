@@ -1,14 +1,17 @@
 <script setup lang="ts">
 // Give award (organisers of the league and site admins): title, an icon from our own set, the season (or league-wide),
 // the recipient (a team or a coach of the league; only that season's when one is picked) and a note. The recipient's
-// account is notified once by the server.
+// account is notified once by the server. Tournaments reuse it (scope "tournament"): no season, the tournament's
+// entrants as teams and coaches, through AWARD_GIVER_KEY.
 import { computed, inject, nextTick, reactive, ref, watch } from "vue";
 import LeagueDialog from "./LeagueDialog.vue";
-import { AWARD_ICONS, AWARD_TITLE_MAX, LEAGUE_HONOURS_KEY } from "../leagues/honours";
+import { AWARD_GIVER_KEY, AWARD_ICONS, AWARD_TITLE_MAX, LEAGUE_HONOURS_KEY } from "../leagues/honours";
 import "../leagues/honours.css";
 
+const props = withDefaults(defineProps<{ scope?: "league" | "tournament" }>(), { scope: "league" });
 const emit = defineEmits<{ close: [] }>();
-const honours = inject(LEAGUE_HONOURS_KEY)!;
+const honours = inject(AWARD_GIVER_KEY, null) ?? inject(LEAGUE_HONOURS_KEY)!;
+const league = computed(() => props.scope === "league");
 const { state } = honours;
 const recipients = computed(() => state.view?.recipients ?? { seasons: [], teams: [], coaches: [] });
 const iconKeys = Object.keys(AWARD_ICONS);
@@ -67,7 +70,7 @@ async function submit(): Promise<void> {
           ><img :src="AWARD_ICONS[k]!.src" alt="" width="32" height="32" /></button>
         </div>
       </fieldset>
-      <label class="sf-field"><span class="sf-k">Season</span>
+      <label v-if="league" class="sf-field"><span class="sf-k">Season</span>
         <select v-model="draft.seasonId">
           <option value="">League-wide (no season)</option>
           <option v-for="s in recipients.seasons" :key="s.id" :value="s.id">{{ s.name }}</option>
@@ -81,7 +84,7 @@ async function submit(): Promise<void> {
       <label v-if="draft.kind === 'team'" class="sf-field"><span class="sf-k">Team</span>
         <select v-model="draft.team">
           <option value="" disabled>Pick a team</option>
-          <option v-for="t in teams" :key="teamKey(t)" :value="teamKey(t)">{{ t.name }} ({{ t.coach || "no coach" }}, {{ t.race }}){{ draft.seasonId ? "" : ` · ${seasonName(t.seasonId)}` }}</option>
+          <option v-for="t in teams" :key="teamKey(t)" :value="teamKey(t)">{{ t.name }} ({{ t.coach || "no coach" }}, {{ t.race }}){{ draft.seasonId || !league ? "" : ` · ${seasonName(t.seasonId)}` }}</option>
         </select>
       </label>
       <label v-else class="sf-field"><span class="sf-k">Coach</span>
@@ -90,9 +93,9 @@ async function submit(): Promise<void> {
           <option v-for="c in coaches" :key="c.id" :value="c.id">{{ coachLabel(c) }}</option>
         </select>
       </label>
-      <p v-if="(draft.kind === 'team' ? teams : coaches).length === 0" class="aw-help">{{ draft.seasonId ? "No one in this season yet." : "This league has no teams yet." }}</p>
+      <p v-if="(draft.kind === 'team' ? teams : coaches).length === 0" class="aw-help">{{ !league ? "This tournament has no entrants yet." : draft.seasonId ? "No one in this season yet." : "This league has no teams yet." }}</p>
       <label class="sf-field"><span class="sf-k">Note (optional)</span><textarea v-model="draft.note" rows="3" maxlength="280" /></label>
-      <p class="aw-help">The coach is notified, and the award shows on their coach page. Coaches without an account are reached through their team.</p>
+      <p class="aw-help">The coach is notified, and the award shows on their coach page.{{ league ? " Coaches without an account are reached through their team." : "" }}</p>
       <p v-if="tried && missing" class="sf-error" role="alert">{{ missing }}</p>
       <p v-else-if="error" class="sf-error" role="alert">{{ error }}</p>
     </div>

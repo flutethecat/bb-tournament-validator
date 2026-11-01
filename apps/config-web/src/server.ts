@@ -1428,7 +1428,7 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
   if (pathname.startsWith("/api/packages/")) return true;
   if (
     (req.method === "GET" || req.method === "HEAD") &&
-    (/^\/api\/(?:fork\/)?tournaments\/[^/]+$/.test(pathname) || /^\/api\/(?:fork\/)?tournaments\/[^/]+\/standings$/.test(pathname))
+    (/^\/api\/(?:fork\/)?tournaments\/[^/]+$/.test(pathname) || /^\/api\/(?:fork\/)?tournaments\/[^/]+\/(?:standings|statistics|awards)$/.test(pathname))
   ) return true;
   if ((req.method === "GET" || req.method === "HEAD") && teamDetailIdFromPath(pathname)) return true;
   if (req.method === "POST" && advancementPath(pathname)) return true;
@@ -2048,6 +2048,8 @@ async function handleApi(
       packageRevision: (name) => { try { return packages.getRaw(name)?.revision; } catch { return undefined; } },
       submissionTeamView: (coach, submission, packageName) => tournamentSubmissionView(coach, submission, packageName),
       notify: tournamentNotifier,
+      results: () => tournamentResults.list(),
+      ifMatch: typeof req.headers["if-match"] === "string" ? req.headers["if-match"] : undefined,
       sharing: {
         grant: (coach, scope, fields, at) => { storeGrant(coach, scope, fields, at); },
         contact: (viewer, coach, tournamentId) => sharedContact(viewer, coach, `tournament:${tournamentId}`),
