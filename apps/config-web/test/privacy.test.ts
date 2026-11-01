@@ -12,6 +12,8 @@ import {
   appendAudit, appendJournal, blocklistHash, deletedPseudonymFor, isDiscordBlocked, isRecentlyDeleted, listJobs, readAudit, readJournal, sealForJob,
 } from "../src/privacy/state.js";
 import { NafRecordStore, setNafIdFilter } from "../src/nafRecords.js";
+import { Outbox } from "../src/mail/outbox.js";
+import { MailPrefsStore } from "../src/mail/stores.js";
 import { ReplayMomentStore, setReplayCoachFilter } from "../src/replay/store.js";
 import {
   clearFences, coachKey, DeletionFenceError, fenceCoachHash, coachKeyHash, isReservedCoachName, ReservedNameError,
@@ -193,6 +195,37 @@ describe("round 3 regressions", () => {
     expect(listJobs(deps.stateDir)).toEqual([]);
     // a job planned on a host without a fork: the step is skipped
     expect((await new PrivacyService(deps).deleteCoach("Carol", "Carol", "self")).pending).toEqual([]);
+  });
+});
+
+describe("portal mail store", () => {
+  it("exports the coach's mail prefs and deliveries; deletion drops them, keeps Bob's, anonymises the audit sender", async () => {
+    await seed(root);
+    const deps = depsFor(root);
+    const mailDir = join(deps.stateDir, "mail");
+    const outbox = new Outbox(mailDir);
+    const prefs = new MailPrefsStore(mailDir);
+    const msg = (to: string) => ({ to, subject: "League news", text: "Hello", html: "<p>Hello</p>", template: "league-message" });
+    outbox.enqueue([
+      { key: "k1", message: msg(ALICE_EMAIL), recipient: { coach: "Alice", leagueId: "l1" }, leagueId: "l1" },
+      { key: "k2", message: msg(BOB_EMAIL), recipient: { coach: "Bob", leagueId: "l1" }, leagueId: "l1" },
+    ]);
+    prefs.update("Alice", () => ({ email: { address: ALICE_EMAIL, verifiedAt: "2026-10-01T00:00:00Z" } }));
+    prefs.update("Bob", () => ({ email: { address: BOB_EMAIL, verifiedAt: "2026-10-01T00:00:00Z" } }));
+    (await import("node:fs")).appendFileSync(join(mailDir, "audit.jsonl"), `${JSON.stringify({ id: "a1", leagueId: "l1", sender: "Alice", at: "", scope: "all", notified: 2, queued: 2, skipped: { noConsent: 0, unverified: 0, suppressed: 0 } })}\n`);
+    const mailDeps = { exportFor: (c: string) => ({ prefs: prefs.get(c), deliveries: outbox.forCoach(c).map((e) => ({ to: e.message?.to })) }), forgetCoach: (c: string) => { prefs.remove(c); outbox.forgetCoach(c); } };
+    const files = new Map((await collectExport({ ...deps, mail: mailDeps }, "Alice")).map((f) => [f.name, String(f.content)]));
+    const exported = JSON.parse(files.get("mail.json")!);
+    expect(exported.prefs.email.address).toBe(ALICE_EMAIL);
+    expect(exported.deliveries).toEqual([{ to: ALICE_EMAIL }]);
+    expect(files.get("mail.json")).not.toContain(BOB_EMAIL);
+    expect((await new PrivacyService({ ...deps, mail: mailDeps }).deleteCoach("Alice", "Alice", "self")).pending).toEqual([]);
+    expect(prefs.get("Alice")).toEqual({});
+    expect(prefs.get("Bob").email?.address).toBe(BOB_EMAIL);
+    expect(outbox.forCoach("Alice")).toEqual([]);
+    expect(outbox.forCoach("Bob")).toHaveLength(1);
+    expect(readFileSync(join(mailDir, "audit.jsonl"), "utf8")).toContain(`"sender":"${P}"`);
+    for (const re of [new RegExp(ALICE_EMAIL), /"Alice"/]) expect(filesContaining(mailDir, re), String(re)).toEqual([]);
   });
 });
 

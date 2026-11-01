@@ -682,6 +682,7 @@ const privacyService = new PrivacyService({
   tabletopDir: TABLETOP_DIR,
   organizersFile: organizersFile(),
   pendingSso: pendingDiscordSso,
+  mail: { exportFor: (coach) => mail.exportCoach(coach), forgetCoach: (coach) => mail.forgetCoach(coach) },
   // No admin-exchange command disables a coach, so the fork account is disabled the way a password reset works: the
   // stored join digest becomes a random one nobody knows (only when the account exists; never creates one).
   disableForkAccount: forkDbConfigFromEnv()

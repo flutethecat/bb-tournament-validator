@@ -401,8 +401,18 @@ export function createMailService(stateDir: string, env: Record<string, string |
     clearSuppression: (address: string) => suppression.clear(address, "admin", log),
     emailEnabled, absolute, unsubscribeUrl, enqueue,
     isPublicMailPath, isMeMailPath, publicRoute, meRoute,
-    /** Account deletion hook (export/delete lane): forget a coach's mail prefs. Suppression hashes stay. */
-    forgetCoach: (coach: string) => prefs.remove(coach),
+    /** Account deletion hook (export/delete lane): forget a coach's mail prefs and every delivery to them. Suppression
+     *  hashes stay (they only stop mail to an address that bounced or complained). */
+    forgetCoach: (coach: string): void => { prefs.remove(coach); outbox.forgetCoach(coach); },
+    /** Data export: the coach's mail prefs (confirmed address, open confirmation, league email choice) and deliveries. */
+    exportCoach: (coach: string): unknown => ({
+      prefs: prefs.get(coach),
+      deliveries: outbox.forCoach(coach).map((e) => ({
+        template: e.template, status: e.status, leagueId: e.leagueId ?? null, enqueuedAt: new Date(e.enqueuedAt).toISOString(),
+        ...(e.doneAt ? { doneAt: new Date(e.doneAt).toISOString() } : {}),
+        ...(e.message ? { to: e.message.to, subject: e.message.subject, text: e.message.text } : {}),
+      })),
+    }),
     normalizeAddress,
   };
 }

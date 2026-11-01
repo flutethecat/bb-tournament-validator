@@ -11,6 +11,7 @@
 // later "discord" DM transport slots in beside email without touching the queue.
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { mailCoachKey } from "./stores.js";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { atomicWriteTextFile } from "@bb/fork-ops";
@@ -119,6 +120,26 @@ export class Outbox {
     for (const l of lines) this.apply(l);
     this.ops += lines.length;
     if (this.ops > 5_000) this.compact();
+  }
+
+  /** The deliveries addressed to a coach (data export). */
+  forCoach(coach: string): OutboxEntry[] {
+    const key = mailCoachKey(coach);
+    return [...this.entries.values()].filter((e) => e.recipient && mailCoachKey(e.recipient.coach) === key).map((e) => ({ ...e }));
+  }
+
+  /** Account deletion: every delivery to the coach goes (a queued one is never sent), and the journal is rewritten. */
+  forgetCoach(coach: string): number {
+    const key = mailCoachKey(coach);
+    let n = 0;
+    for (const [id, e] of [...this.entries]) {
+      if (!e.recipient || mailCoachKey(e.recipient.coach) !== key) continue;
+      this.entries.delete(id);
+      this.byKey.delete(e.key);
+      n += 1;
+    }
+    this.compact();
+    return n;
   }
 
   /** Rewrites the journal from memory, applying the retention rules. */

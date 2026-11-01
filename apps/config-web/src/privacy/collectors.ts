@@ -48,6 +48,8 @@ export interface PrivacyDeps {
   /** Disables the coach's fork (game server) account. Undefined = no fork on this host (the step is skipped). Throws when
    *  the fork cannot be reached: the step stays pending and is retried. */
   disableForkAccount?: (coach: string) => Promise<void>;
+  /** Portal mail (src/mail): the coach's prefs and deliveries. Undefined = no mail service on this host. */
+  mail?: { exportFor(coach: string): unknown; forgetCoach(coach: string): void };
   /** The "coach deleted" event: store files were rewritten, every derived cache must be dropped. */
   onCoachDeleted?: () => void;
   env?: NodeJS.ProcessEnv;
@@ -493,6 +495,12 @@ export const STORE_COLLECTORS: StoreCollector[] = [
     }],
     erase: ["bug-reports"],
   },
+  {
+    id: "mail",
+    location: "FORK_STATE_DIR/mail/ (outbox/journal.jsonl, prefs.json, suppression.json, audit.jsonl)",
+    export: (ctx) => (ctx.deps.mail ? [{ name: "mail.json", content: json(ctx.deps.mail.exportFor(ctx.coach)) }] : []),
+    erase: ["mail", "final-sweep"],
+  },
   { id: "test-games", location: "FORK_STATE_DIR/test-games.json", export: { none: "Game ids only." }, erase: { none: "No personal data." } },
   { id: "logs", location: "config-web.*.log, data-store/config-web.log", export: { none: "Operational logs, rotated; not per coach." }, erase: { none: "Expire with log rotation (spec §4)." } },
   {
@@ -523,7 +531,7 @@ export const KNOWN_STORES = [
   "identities", "contact-details", "consents", "sessions", "discord-sso", "organizers", "coach-avatars", "team-avatars", "builder-saves",
   "team-library", "fork-db", "tournaments", "leagues", "tabletop", "tabletop-teams", "tournament-results", "tournament-matches", "naf-games",
   "coach-titles", "replay-moments", "notifications", "bug-reports", "test-games", "logs", "fork-teams-xml", "bot-registry",
-  "privacy-blocklist", "lobby-chat", "desktop-claims", "translation-cache",
+  "privacy-blocklist", "lobby-chat", "desktop-claims", "translation-cache", "mail",
 ] as const;
 
 /**
@@ -538,7 +546,7 @@ export const INVENTORY_ROWS: Record<(typeof KNOWN_STORES)[number], string[]> = {
   "tournament-matches": ["tournament-matches"], "naf-games": ["results"], "coach-titles": ["results"], "replay-moments": ["results"],
   notifications: ["notifications"], "bug-reports": ["bug-reports"], "test-games": [], logs: ["logs"], "fork-teams-xml": ["fork-teams-xml"],
   "bot-registry": ["bot-registry"], "privacy-blocklist": [], "lobby-chat": ["lobby-chat"], "desktop-claims": ["desktop-claims"],
-  "translation-cache": ["translation-cache"],
+  "translation-cache": ["translation-cache"], mail: ["mail"],
 };
 
 /** Team keys whose logos belong to the coach: their builder saves and library teams. */
@@ -576,6 +584,8 @@ tabletop-matches.json   Tabletop matches you played or recorded, with their even
 results.json            Game results with you as home or away coach, your rating title, and your cached NAF games
                         (when your NAF link is verified).
 notifications.json      Your notifications.
+mail.json               Your email settings (confirmed address, an open confirmation, league email choice) and the
+                        emails queued or recently sent to you.
 bug-reports-index.json  The bug reports and feedback you sent (id, date, description).
 
 Other coaches' private data (their emails, Discord ids) is never included. Opponent names appear where they are public
@@ -847,6 +857,17 @@ export const DELETE_STEPS: DeleteStep[] = [
   },
   { id: "notifications", run: ({ deps, plan }) => { removeNotifications(deps, plan); return "done"; } },
   {
+    // Mail prefs and deliveries go; the league-message audit keeps its counts with the sender anonymised. Suppression
+    // hashes of bounced / complaining addresses stay (they hold no name and only stop mail to that address).
+    id: "mail",
+    run: ({ deps, plan, an }) => {
+      rewriteNdjson(join(deps.stateDir, "mail", "audit.jsonl"), (e) => an.fields(e, ["sender"], []));
+      if (!deps.mail) return "skipped";
+      for (const n of plan.coachNames) deps.mail.forgetCoach(n);
+      return "done";
+    },
+  },
+  {
     id: "bug-reports",
     run: ({ deps, names }) => { for (const r of bugReportDirs(deps.bugReportsDir, names)) rmSync(r.path, { recursive: true, force: true }); return "done"; },
   },
@@ -1003,6 +1024,7 @@ export const DELETE_STEPS: DeleteStep[] = [
       removeSaves(deps, names);
       removeLibraryRows(deps, names);
       removeNotifications(deps, plan);
+      if (deps.mail) for (const n of plan.coachNames) deps.mail.forgetCoach(n);
       for (const n of plan.coachNames) await deleteCoachAvatarData(deps.coachAvatarsDir, n, plan.proxyKeys);
       return "done";
     },
