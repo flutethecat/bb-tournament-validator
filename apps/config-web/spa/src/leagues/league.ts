@@ -38,6 +38,8 @@ export const LEAGUE_LIST_KEY: InjectionKey<LeagueList> = Symbol("league-list");
 // ---- detail ----
 
 export type LeagueTab = "overview" | "standings" | "fixtures" | "teams" | "honours";
+/** The Statistics tab is a route of its own (/leagues/:id/stats), shown at the end of the same tab bar. */
+export const LEAGUE_STATS_TAB_LABEL = "Statistics";
 export const LEAGUE_TABS: ReadonlyArray<{ id: LeagueTab; label: string }> = [
   { id: "overview", label: "Overview" },
   { id: "standings", label: "Standings" },
@@ -342,6 +344,40 @@ export function day(iso: string | undefined): string {
   if (!iso) return "";
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
+}
+
+/** "Founded" tag: the earliest season start in the league data, as MM-DD-YYYY (US order, UTC day) plus a long date and age. */
+export function leagueFounded(seasons: ReadonlyArray<Pick<SeasonSummary, "startedAt">>, now: Date = new Date()): { short: string; long: string; years: number; title: string } | null {
+  let first: Date | null = null;
+  for (const s of seasons) {
+    if (!s.startedAt) continue;
+    const d = new Date(s.startedAt);
+    if (Number.isNaN(d.getTime())) continue;
+    if (!first || d < first) first = d;
+  }
+  if (!first) return null;
+  const iso = first.toISOString();
+  const short = `${iso.slice(5, 7)}-${iso.slice(8, 10)}-${iso.slice(0, 4)}`;
+  const long = first.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" });
+  let years = now.getUTCFullYear() - first.getUTCFullYear();
+  if (now.getUTCMonth() < first.getUTCMonth() || (now.getUTCMonth() === first.getUTCMonth() && now.getUTCDate() < first.getUTCDate())) years -= 1;
+  years = Math.max(0, years);
+  const age = years < 1 ? "less than a year ago" : years === 1 ? "1 year ago" : `${years} years ago`;
+  return { short, long, years, title: `Founded ${long}, ${age}` };
+}
+
+/** Where the Season row (oldest first, scrolling sideways) should sit: the right end when the latest season is picked,
+ *  otherwise just enough to bring the picked card fully into view (scrollLeft unchanged when it already is). */
+export function seasonRowScroll(
+  row: { scrollLeft: number; scrollWidth: number; clientWidth: number },
+  card: { offsetLeft: number; offsetWidth: number } | null,
+  latestPicked: boolean,
+): number {
+  const end = Math.max(0, row.scrollWidth - row.clientWidth);
+  if (latestPicked || !card) return end;
+  if (card.offsetLeft < row.scrollLeft) return Math.max(0, card.offsetLeft);
+  if (card.offsetLeft + card.offsetWidth > row.scrollLeft + row.clientWidth) return Math.min(end, card.offsetLeft + card.offsetWidth - row.clientWidth);
+  return row.scrollLeft;
 }
 
 export function seasonDates(s: Pick<SeasonSummary, "startedAt" | "endedAt">): string {

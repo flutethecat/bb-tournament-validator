@@ -6,8 +6,11 @@ import { computed, inject, nextTick, onMounted, ref, watch } from "vue";
 import { usePageTitle } from "../shell/pageTitle";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { API_KEY } from "../app";
+import LeagueTabs from "../components/LeagueTabs.vue";
+import LeagueFront from "../components/LeagueFront.vue";
 import LeagueStatsCards from "../components/LeagueStatsCards.vue";
-import { createLeagueStats, isStatsScope, LEAGUE_STATS_KEY, pct, phaseLabel, playerQuery, RULESET_TONE, seasonsLine, STATS_SCOPES } from "../leagues/league";
+import { createLeagueDetail, createLeagueStats, LEAGUE_DETAIL_KEY, isStatsScope, LEAGUE_STATS_KEY, pct, phaseLabel, playerQuery, RULESET_TONE, seasonsLine, STATS_SCOPES } from "../leagues/league";
+import type { LeagueTab } from "../leagues/league";
 import type { LeaderStat, StatsScope } from "../leagues/types";
 import "../leagues/leagues.css";
 
@@ -17,6 +20,10 @@ const route = useRoute();
 const router = useRouter();
 const ctl = inject(LEAGUE_STATS_KEY, null) ?? createLeagueStats({ api: fetcher });
 const { state } = ctl;
+// The league front and tab bar are the league page's own: the league and its seasons come from the detail controller.
+const detail = inject(LEAGUE_DETAIL_KEY, null) ?? createLeagueDetail({ api: fetcher });
+const head = detail.state;
+const tabQuery = (t: LeagueTab): Record<string, string> => (t === "overview" ? {} : { tab: t });
 const scope = computed<StatsScope>(() => (isStatsScope(route.query.scope) ? route.query.scope : "all"));
 const stats = computed(() => state.byScope[scope.value]);
 const scopeLabel = computed(() => STATS_SCOPES.find((s) => s.id === scope.value)?.label ?? "");
@@ -45,13 +52,17 @@ const wdl = (r: { wins: number; draws: number; losses: number }): string => `${r
 const diff = (a: number, b: number): string => (a - b > 0 ? `+${a - b}` : String(a - b));
 
 watch(scope, (s) => void ctl.load(props.id, s));
-onMounted(() => { if (state.id !== props.id || !state.byScope[scope.value]) void ctl.load(props.id, scope.value); });
+onMounted(() => {
+  if (!head.loaded || head.id !== props.id) void detail.load(props.id);
+  if (state.id !== props.id || !state.byScope[scope.value]) void ctl.load(props.id, scope.value); });
 usePageTitle(() => (state.league?.name ? `${state.league.name} statistics` : ""));
 </script>
 
 <template>
   <div class="hm-page lg-page">
     <RouterLink class="tn-back lg-back" :to="{ name: 'league-detail', params: { id } }">{{ state.league?.name ?? "League" }}</RouterLink>
+    <LeagueFront v-if="head.loaded && head.league && head.id === id" :id="id" :league="head.league" :seasons="head.seasons" />
+    <LeagueTabs :id="id" active="stats" :query="tabQuery" />
     <div ref="seg" class="tl-seg lg-scope" role="radiogroup" aria-label="Rules edition" @keydown="onSegKey">
       <button
         v-for="s in STATS_SCOPES" :key="s.id" type="button" role="radio" class="tl-seg-btn"

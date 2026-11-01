@@ -319,7 +319,7 @@ describe("league routes (server-rendered against a mocked API)", () => {
     expect((await render("/leagues")).html).toContain("Loading leagues...");
   });
 
-  it("league page overview: header bar + logo front, season field newest first with rules chips, tabs, latest results cards", async () => {
+  it("league page overview: header bar + logo front, season field oldest first with rules chips, tabs, latest results cards", async () => {
     const { html, spa } = await render("/leagues/tabbl", loadedDetail());
     expect(html).toContain('class="lg-front" data-banner="image"');
     expect(spa.pageTitle.state.text).toBe("TABBL"); // the league's name is the header title now
@@ -328,7 +328,7 @@ describe("league routes (server-rendered against a mocked API)", () => {
     const s6 = html.indexOf(">Season 6<");
     const s1 = html.indexOf(">Season 1<");
     expect(s6).toBeGreaterThan(0);
-    expect(s1).toBeGreaterThan(s6);
+    expect(s1).toBeLessThan(s6); // oldest first, left to right
     expect(html).toContain('data-ruleset="BB2020"');
     expect(html).toContain('data-ruleset="BB2025"');
     for (const t of ["Overview", "Standings", "Fixtures", "Teams", "Honours"]) expect(html).toContain(`>${t}</a>`);
@@ -341,6 +341,62 @@ describe("league routes (server-rendered against a mocked API)", () => {
     expect(html).toContain('href="/app/leagues/tabbl?tab=fixtures"');
     expect(html).toContain("3 played of 4");
     expect(html).not.toContain("League artwork"); // anonymous
+  });
+
+  it("league strip: Nuffle full name, seasons highlight and Founded chip on the name line; no Statistics button; Statistics tab", async () => {
+    const { html } = await render("/leagues/tabbl", loadedDetail());
+    const strip = html.slice(html.indexOf('class="lg-front-body"'), html.indexOf("lg-seasons"));
+    expect(strip).toContain('<h2 class="lg-front-title">Tahoma Area Blood Bowl League</h2>');
+    expect(html).toMatch(/class="lg-front-line"[^]*lg-front-title[^]*lg-seasons-badge[^]*lg-founded/); // one line, in this order
+    expect(html).toContain('<span class="lg-seasons-badge" aria-label="2 seasons"><b class="lg-seasons-num" aria-hidden="true">2</b>');
+    expect(html).toContain('title="Founded May 29, 2026, ');
+    expect(html).toContain(">Founded 05-29-2026</span>");
+    expect(html).not.toContain("lg-stats-link");
+    expect(html).not.toMatch(/tl-action[^>]*>Statistics/);
+    expect(html).toMatch(/<a[^>]*class="lg-tab lg-tab-stats"[^>]*href="\/app\/leagues\/tabbl\/stats"[^>]*>Statistics<\/a>|<a[^>]*href="\/app\/leagues\/tabbl\/stats"[^>]*class="lg-tab lg-tab-stats"[^>]*>Statistics<\/a>/);
+    expect(html).not.toMatch(/lg-tab-stats[^>]*aria-current/); // not active on the league page
+    expect(html.indexOf("lg-tab-stats")).toBeGreaterThan(html.indexOf(">Honours</a>"));
+  });
+
+  it("league strip: Founded hidden when no season has a start date; earliest start wins; singular season", () => {
+    expect(mods.league.leagueFounded([{ }, { startedAt: "nope" }])).toBeNull();
+    const f = mods.league.leagueFounded([{ startedAt: "2026-05-29T00:00:00.000Z" }, { startedAt: "2023-01-02T10:00:00.000Z" }], new Date("2026-10-31T00:00:00Z"))!;
+    expect(f.short).toBe("01-02-2023");
+    expect(f.years).toBe(3);
+    expect(f.title).toBe("Founded January 2, 2023, 3 years ago");
+    expect(mods.league.leagueFounded([{ startedAt: "2026-05-29T00:00:00.000Z" }], new Date("2026-10-31T00:00:00Z"))!.title).toContain("less than a year ago");
+  });
+
+  it("statistics page: league strip and the tab bar with Statistics active", async () => {
+    const { html } = await render("/leagues/tabbl/stats", async (inject, f) => {
+      const d = mods.league.createLeagueDetail({ api: f });
+      await d.load("tabbl");
+      inject(mods.league.LEAGUE_DETAIL_KEY, d);
+    });
+    expect(html).toContain("Tahoma Area Blood Bowl League");
+    expect(html).toMatch(/aria-current="page"[^>]*lg-tab-stats/);
+    expect(html).toContain('href="/app/leagues/tabbl?tab=standings"');
+    expect(html.match(/aria-current="page"/g)).toHaveLength(1);
+    expect(html).toContain(">Overview</a>");
+  });
+
+  it("season row: oldest first left to right, one nowrap scrolling row", async () => {
+    const { html } = await render("/leagues/tabbl", loadedDetail());
+    expect(html.indexOf(">Season 1<")).toBeLessThan(html.indexOf(">Season 6<"));
+    const css = (await import("node:fs")).readFileSync(fileURLToPath(new URL("../spa/src/leagues/leagues.css", import.meta.url)), "utf8");
+    const rule = css.slice(css.indexOf(".lg-season-field {"), css.indexOf("}", css.indexOf(".lg-season-field {")));
+    expect(rule).toContain("flex-wrap: nowrap");
+    expect(rule).toContain("overflow-x: auto");
+    expect(rule).toContain("scroll-snap-type: x");
+  });
+
+  it("season row scroll: right end for the latest, picked older card kept in view, otherwise untouched", () => {
+    const row = { scrollLeft: 0, scrollWidth: 1000, clientWidth: 400 };
+    expect(mods.league.seasonRowScroll(row, { offsetLeft: 880, offsetWidth: 112 }, true)).toBe(600); // latest fully visible
+    expect(mods.league.seasonRowScroll({ ...row, scrollWidth: 300 }, null, true)).toBe(0); // fits: no scroll
+    expect(mods.league.seasonRowScroll({ ...row, scrollLeft: 600 }, { offsetLeft: 120, offsetWidth: 112 }, false)).toBe(120); // older card left of view
+    expect(mods.league.seasonRowScroll(row, { offsetLeft: 500, offsetWidth: 112 }, false)).toBe(212); // right of view
+    expect(mods.league.seasonRowScroll({ ...row, scrollLeft: 300 }, { offsetLeft: 350, offsetWidth: 112 }, false)).toBe(300); // already visible
   });
 
   it("league page: organisers see the artwork controls", async () => {

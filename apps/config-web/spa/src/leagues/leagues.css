@@ -57,13 +57,35 @@
 .lg-cog:hover { border-color: var(--ui-heading); }
 .lg-cog:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .lg-front-full { margin: 0; font-size: 15px; color: var(--ui-text); overflow-wrap: anywhere; }
-.lg-front-links { margin: 4px 0 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.lg-stats-link { text-decoration: none; }
+/* League name line (owner 10-31): the full name in the Nuffle face, white with the hard drop shadow, two lines at most; the
+   seasons highlight badge and the Founded tag sit on the same baseline, wrapping under the name on phones. */
+.lg-front-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; min-width: 0; }
+.lg-front-title {
+  margin: 0; min-width: 0; max-width: 100%; font-family: var(--font-heading, sans-serif); font-weight: 500; font-size: clamp(1.35rem, 1rem + 1.4vw, 1.8rem); line-height: 1.15; letter-spacing: .04em;
+  color: #fff; text-shadow: 2px 2px 0 rgb(0 0 0 / 80%), 0 0 10px rgb(0 0 0 / .45); overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden;
+}
+/* Seasons highlight: big Nuffle number + small-caps label, gold border, bevel and lift. */
+.lg-seasons-badge {
+  flex: none; display: inline-flex; align-items: baseline; gap: 6px; padding: 3px 12px 4px; white-space: nowrap;
+  color: var(--ui-text); background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface-2);
+  border: 2px solid var(--sf-gold, var(--ui-gold, #e8a33d)); border-radius: 2px; box-shadow: var(--sf-bevel), 0 3px 0 var(--sf-panel-drop);
+}
+.lg-seasons-num { font-family: var(--font-heading, sans-serif); font-weight: 500; font-size: 1.6rem; line-height: 1; color: var(--sf-gold, var(--ui-gold, #e8a33d)); text-shadow: 2px 2px 0 rgb(0 0 0 / 80%); }
+.lg-seasons-label { font: 1.05rem/1 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; }
+.lg-founded { color: var(--ui-muted); }
+
 
 /* ---- season field */
-.lg-season-field { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: thin; padding-bottom: 4px; }
+.lg-season-field {
+  display: flex; flex-wrap: nowrap; gap: 8px; overflow-x: auto; overflow-y: hidden; padding-bottom: 6px; overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity; scrollbar-width: thin; scrollbar-color: var(--sf-panel-line) var(--ui-surface-2);
+}
+.lg-season-field::-webkit-scrollbar { height: 8px; }
+.lg-season-field::-webkit-scrollbar-track { background: var(--ui-surface-2); }
+.lg-season-field::-webkit-scrollbar-thumb { background: var(--sf-panel-line); border-radius: 2px; }
 .lg-season-opt {
-  flex: 0 0 auto; display: grid; gap: 4px; justify-items: start; min-width: 112px; min-height: 44px; padding: 8px 10px; text-align: left;
+  flex: 0 0 auto; scroll-snap-align: end; display: grid; gap: 4px; justify-items: start; min-width: 112px; min-height: 44px; padding: 8px 10px; text-align: left;
   font: inherit; color: var(--ui-text); background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: var(--sf-bevel); cursor: pointer;
 }
 .lg-season-opt:hover { border-color: var(--ui-heading); }
@@ -176,7 +198,6 @@
   .lg-front-logo { width: 72px; height: 72px; }
   .lg-front[data-banner="image"] .lg-front-body { padding: 10px 12px; }
   .lg-front[data-banner="image"] .lg-front-logo { width: 64px; height: 64px; }
-  .lg-front-name { font-size: 20px; }
   .lg-tabs { justify-self: stretch; }
   .lg-tab { flex: 1 0 auto; justify-content: center; padding: 0 12px; }
   .lg-toolbar { flex-direction: column; align-items: stretch; }

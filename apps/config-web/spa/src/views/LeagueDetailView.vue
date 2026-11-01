@@ -13,20 +13,20 @@ import { SESSION_KEY, writesAllowed } from "../session";
 import LeagueArtEdit from "../components/LeagueArtEdit.vue";
 import LeagueFixtures from "../components/LeagueFixtures.vue";
 import LeagueFixtureSummary from "../components/LeagueFixtureSummary.vue";
+import LeagueFront from "../components/LeagueFront.vue";
 import LeagueHonours from "../components/LeagueHonours.vue";
 import LeagueNews from "../components/LeagueNews.vue";
 import LeagueOverview from "../components/LeagueOverview.vue";
+import LeagueTabs from "../components/LeagueTabs.vue";
 import LeagueStandings from "../components/LeagueStandings.vue";
 import LeagueTeams from "../components/LeagueTeams.vue";
 import {
-  canManageLeague, createLeagueDetail, initials, isLeagueTab, LEAGUE_DETAIL_KEY, LEAGUE_TABS, pickSeason, RULESET_TONE, safeArtUrl,
-  SEASON_STATUS_LABEL, seasonDates, type LeagueTab,
+  canManageLeague, createLeagueDetail, isLeagueTab, LEAGUE_DETAIL_KEY, LEAGUE_TABS, pickSeason, RULESET_TONE,
+  SEASON_STATUS_LABEL, seasonDates, seasonRowScroll, type LeagueTab,
 } from "../leagues/league";
 import "../leagues/leagues.css";
 
 const props = defineProps<{ id: string }>();
-/** Bound, not a literal src: a literal would be rewritten as a bundled asset (public/icons is served as-is). */
-const COG_ICON = "/icons/league/league-settings.png";
 const fetcher = inject(API_KEY)!;
 const session = inject(SESSION_KEY)!;
 const route = useRoute();
@@ -41,11 +41,6 @@ const tab = computed<LeagueTab>(() => (isLeagueTab(route.query.tab) ? route.quer
 const teamName = computed(() => (typeof route.query.team === "string" ? route.query.team : ""));
 const playerRef = computed(() => (typeof route.query.player === "string" ? route.query.player : ""));
 const fixtureRef = computed(() => (typeof route.query.fixture === "string" ? route.query.fixture : ""));
-const banner = computed(() => safeArtUrl(state.league?.bannerUrl));
-const logo = computed(() => safeArtUrl(state.league?.logoUrl));
-const failed = ref({ banner: false, logo: false });
-watch(banner, () => { failed.value.banner = false; });
-watch(logo, () => { failed.value.logo = false; });
 const manage = computed(() => writesAllowed(session) && canManageLeague(state.league, session.coach(), session.state.info?.admin === true));
 
 const seasonQuery = (id: string): Record<string, string> => {
@@ -64,8 +59,10 @@ const pickSeasonId = (id: string): void => { if (id !== current.value?.id) void 
 
 // Season field = a radio group: one tab stop, arrows / Home / End move the choice.
 const seg = ref<HTMLElement | null>(null);
+// Oldest first, left to right (state.seasons is newest first); DOM order = Tab order = chronological.
+const seasonsAsc = computed(() => [...state.seasons].reverse());
 function onSeasonKey(e: KeyboardEvent): void {
-  const list = state.seasons;
+  const list = seasonsAsc.value;
   const i = list.findIndex((s) => s.id === current.value?.id);
   const last = list.length - 1;
   const to = e.key === "ArrowRight" || e.key === "ArrowDown" ? (i >= last ? 0 : i + 1)
@@ -77,14 +74,22 @@ function onSeasonKey(e: KeyboardEvent): void {
   void nextTick(() => seg.value?.querySelectorAll<HTMLElement>("[role=radio]")[to]?.focus());
 }
 
-// The picked season stays in view in the scrolling field (a deep link to an older season, arrow keys).
-const revealPicked = (): void => {
-  void nextTick(() => seg.value?.querySelector<HTMLElement>('[aria-checked="true"]')?.scrollIntoView?.({ block: "nearest", inline: "nearest" }));
+// The row sits at its right end (latest season fully visible) on load and when the season list changes; a picked older
+// season is kept in view instead. Picking a card never moves the row. Instant: no scroll animation.
+const placeSeasonRow = (): void => {
+  void nextTick(() => {
+    const row = seg.value;
+    if (!row) return;
+    const latest = current.value?.id === state.seasons[0]?.id;
+    const card = row.querySelector<HTMLElement>('[aria-checked="true"]');
+    row.scrollLeft = seasonRowScroll(row, card, latest);
+  });
 };
-watch(current, (s) => { if (s) { void detail.ensureSeason(s.id); revealPicked(); } });
+watch(current, (s) => { if (s) void detail.ensureSeason(s.id); });
+watch(() => state.seasons.map((x) => x.id).join(","), placeSeasonRow);
 onMounted(async () => {
   if (!state.loaded || state.id !== props.id) await detail.load(props.id);
-  revealPicked();
+  placeSeasonRow();
   if (current.value) await detail.ensureSeason(current.value.id);
 });
 usePageTitle(() => state.league?.name);
@@ -96,30 +101,14 @@ usePageTitle(() => state.league?.name);
     <p v-if="state.error" class="lobby-error" role="alert">{{ state.error }}</p>
     <p v-else-if="!state.loaded || !state.league" class="hm-empty" role="status">Loading league...</p>
     <template v-else>
-      <header class="lg-front" :data-banner="banner && !failed.banner ? 'image' : 'gradient'">
-        <img v-if="banner && !failed.banner" class="lg-front-img" :src="banner" alt="" @error="failed.banner = true" />
-        <div class="lg-front-body">
-          <img v-if="logo && !failed.logo" class="lg-front-logo" :src="logo" :alt="`${state.league.name} logo`" @error="failed.logo = true" />
-          <span v-else class="lg-front-logo lg-logo-blank" aria-hidden="true">{{ initials(state.league.name) }}</span>
-          <div class="lg-front-text">
-            <p v-if="state.league.fullName && state.league.fullName !== state.league.name" class="lg-front-full">{{ state.league.fullName }}</p>
-            <p class="lg-front-links">
-              <span class="sf-chip">{{ state.seasons.length }} {{ state.seasons.length === 1 ? "season" : "seasons" }}</span>
-              <RouterLink class="tl-action lg-stats-link" :to="{ name: 'league-stats', params: { id } }">Statistics</RouterLink>
-            </p>
-          </div>
-          <RouterLink v-if="manage" class="lg-cog" :to="{ name: 'league-settings', params: { id } }" aria-label="League settings" title="League settings">
-            <img :src="COG_ICON" alt="" width="28" height="28" />
-          </RouterLink>
-        </div>
-      </header>
+      <LeagueFront :id="id" :league="state.league" :seasons="state.seasons" :manage="manage" />
 
       <section class="hm-panel lg-seasons" aria-labelledby="lg-season-h">
         <header class="hm-band"><h2 id="lg-season-h">Season</h2><span v-if="current" class="hm-cap">{{ seasonDates(current) }}</span></header>
         <p v-if="!state.seasons.length" class="hm-empty">No seasons yet.</p>
         <div v-else ref="seg" class="lg-season-field" role="radiogroup" aria-labelledby="lg-season-h" @keydown="onSeasonKey">
           <button
-            v-for="s in state.seasons" :key="s.id" type="button" role="radio" class="lg-season-opt"
+            v-for="s in seasonsAsc" :key="s.id" type="button" role="radio" class="lg-season-opt"
             :aria-checked="current?.id === s.id ? 'true' : 'false'" :tabindex="current?.id === s.id ? 0 : -1" @click="pickSeasonId(s.id)"
           >
             <span class="lg-season-name">{{ s.name }}</span>
@@ -131,12 +120,7 @@ usePageTitle(() => state.league?.name);
         </div>
       </section>
 
-      <nav v-if="current" class="lg-tabs" aria-label="Season sections">
-        <RouterLink
-          v-for="t in LEAGUE_TABS" :key="t.id" class="lg-tab" :aria-current="tab === t.id ? 'page' : undefined"
-          :to="{ name: 'league-detail', params: { id }, query: tabQuery(t.id) }" replace
-        >{{ t.label }}</RouterLink>
-      </nav>
+      <LeagueTabs v-if="current" :id="id" :active="tab" :query="tabQuery" />
 
       <p v-if="current && !season && state.seasonError" class="lobby-error" role="alert">{{ state.seasonError }}</p>
       <p v-else-if="current && !season" class="hm-empty" role="status">Loading {{ current.name }}...</p>
