@@ -140,8 +140,8 @@ describe("create from a fixtureRef alone", () => {
       fixtureRef: fixtureId, pregame: "skip",
       home: { team: `sv_${fixtureHome[0]!.toLowerCase()}` }, away: { team: `sv_${fixtureAway[0]!.toLowerCase()}` },
     });
-    expect(named.status).toBe(409); // the organiser's swapped match above already holds these teams
-    expect((named.body as { error: string }).error).toMatch(/unfinished recorded match/);
+    expect(named.status).toBe(409); // the organiser's swapped match above already holds this fixture (and these teams)
+    expect((named.body as { error: string }).error).toMatch(/already has a match in progress/); // one unfinished match per fixture
   });
 
   it("a resolved fixture cannot start a match", async () => {
