@@ -268,6 +268,21 @@ export function createLeagueDetail(deps: { api: Fetcher; upload?: RawUploader })
         state.season[seasonId] = season;
         for (const id of changed) if (id !== seasonId) delete state.season[id];
       }, coachId ? `Coach account set to ${coachId}.` : "Coach account cleared."),
+    /**
+     * The team's coach (or an organiser / admin): appoint a new Team Captain while the captaincy is vacant (server
+     * captainApi.ts). Season revision sent; the season is re-read afterwards. Resolves "" on success, else the error.
+     */
+    async appointCaptain(seasonId: string, teamId: string, playerId: string): Promise<string> {
+      try {
+        await deps.api(`${seasonPath(seasonId)}/teams/${encodeURIComponent(teamId)}/captain`, {
+          method: "POST", body: { revision: state.season[seasonId]?.revision ?? 0, playerId },
+        });
+      } catch (err) {
+        return errorText(err, "The Team Captain did not save.");
+      }
+      try { state.season[seasonId] = (await deps.api<{ season: SeasonRecord }>(seasonPath(seasonId))).season; } catch { /* the next visit re-reads it */ }
+      return "";
+    },
     uploadArt: (kind: "logo" | "banner", image: Blob) => art(kind, () => (deps.upload ?? fetchUpload)(`${base()}/${kind}`, image), `${label(kind)} updated.`),
     removeArt: (kind: "logo" | "banner") => art(kind, () => deps.api(`${base()}/${kind}`, { method: "DELETE" }), `${label(kind)} removed.`),
     /** League admins: allow (or stop allowing) one fixture on Super FUMBBL; the server notifies the coaches and admins. */

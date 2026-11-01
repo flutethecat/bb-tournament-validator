@@ -14,6 +14,9 @@ import AdvanceModal from "../components/AdvanceModal.vue";
 import LeagueRedraftPanel from "../components/LeagueRedraftPanel.vue";
 import PlayerSheetModal from "../components/PlayerSheetModal.vue";
 import TeamAvatarModal from "../components/TeamAvatarModal.vue";
+import CaptainVacantChip from "../components/CaptainVacantChip.vue";
+import CaptainVacantDialog from "../components/CaptainVacantDialog.vue";
+import { libraryCaptainRows } from "../shared/captain";
 import { builderHref, canAdvance, createTeamManage, progressLine, shareUrl, TEAM_MANAGE_KEY, teamManagePath, type ManagedPlayer } from "../teams/manage";
 
 interface TeamViewCore { viewHtml: (team: unknown, opts?: Record<string, unknown>) => string }
@@ -129,6 +132,13 @@ async function copy(): Promise<void> {
 const kTv = (n: number) => `${n.toLocaleString("en-US")}k`;
 const gold = (n: number) => `${Math.round(n / 1000).toLocaleString("en-US")}k`;
 
+// Team Captain replacement (owner 10-30): a vacant captaincy shows the chip and opens the Choose a captain dialog each
+// time the sheet opens (per team ref) until one is appointed; "Later" closes it for this visit.
+const captain = computed(() => info.value?.captain);
+const captainOpen = ref(false);
+watch(() => `${props.teamRef}|${Boolean(captain.value?.vacant)}`, () => { captainOpen.value = Boolean(captain.value?.vacant); }, { immediate: true });
+const captainRows = computed(() => (model.value && captain.value ? libraryCaptainRows(model.value.team.players, captain.value.eligible) : []));
+
 onMounted(() => { if (!state.loaded || state.ref !== props.teamRef) void manage.load(props.teamRef); });
 onServerPrefetch(() => manage.load(props.teamRef));
 watch(() => props.teamRef, (ref) => void manage.load(ref));
@@ -162,6 +172,7 @@ watch(() => props.teamRef, (ref) => void manage.load(ref));
       <p v-if="state.shareError" class="lobby-error" role="alert">{{ state.shareError }}</p>
       <LeagueRedraftPanel :team-name="model.team.teamName" :api="fetcher" />
       <p v-if="!info!.advancement.available && info!.advancement.reason" class="tm-note">{{ info!.advancement.reason }}</p>
+      <p v-if="captain?.vacant" class="tm-captain"><CaptainVacantChip action @choose="captainOpen = true" /></p>
       <p v-if="info!.kind === 'library'" class="tm-facts">
         <span v-if="typeof info!.teamValue === 'number'">Team value <b>{{ kTv(info!.teamValue) }}</b></span>
         <span v-if="typeof info!.treasury === 'number'">Treasury <b>{{ gold(info!.treasury) }}</b></span>
@@ -172,5 +183,6 @@ watch(() => props.teamRef, (ref) => void manage.load(ref));
     <TeamAvatarModal v-if="state.avatar.open && model" :manage="manage" />
     <AdvanceModal v-else-if="state.flow && model" :manage="manage" />
     <PlayerSheetModal v-else-if="state.sheet && model" :manage="manage" />
+    <CaptainVacantDialog v-else-if="captainOpen && captain?.vacant && model" :team-name="model.team.teamName" :players="captainRows" :appoint="manage.appointCaptain" @close="captainOpen = false" />
   </div>
 </template>

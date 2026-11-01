@@ -9,7 +9,8 @@
  * optionally `save:`-prefixed: a sheet only; advancement applies once the team is built and plays on the fork).
  */
 
-import { findPosition, findRoster, isStarName, type SkillCategory } from "@bb/validator";
+import { findPosition, findRoster, isStarName, rosterHasTeamCaptain, type SkillCategory } from "@bb/validator";
+import { captainIneligibility } from "./captain.js";
 import { bb2025 } from "@bb/validator/dataset";
 import type { LibraryTeam } from "@bb/fork-ops";
 import { shortPositionName } from "./positionNames.js";
@@ -95,6 +96,11 @@ export interface TeamManageInfo {
   treasury?: number;
   teamValue?: number;
   advancement: { available: boolean; reason?: string };
+  /**
+   * Library teams whose Team Captain left (owner 10-30; captain.ts): the captaincy is vacant and these roster players
+   * (ManagedPlayerProgress.id) may be appointed with POST /api/team/appointCaptain { teamId, playerId }.
+   */
+  captain?: { vacant: true; eligible: string[] };
 }
 
 export interface TeamManageModel {
@@ -209,6 +215,28 @@ export interface LibraryManageInput {
   avatarUrl?: string;
 }
 
+/** The roster XML's <type> of a position ("Big Guy", "Star", "Regular"), letters only, lower-cased. */
+function rosterPositionType(rosterXml: string | undefined, positionId: string): string | undefined {
+  if (!rosterXml || !positionId) return undefined;
+  const block = rosterXml.match(new RegExp(`<position\\b[^>]*\\bid="${escapeRe(positionId)}"[^>]*>[\\s\\S]*?</position>`, "i"))?.[0];
+  const type = block?.match(/<type>([^<]*)<\/type>/i)?.[1];
+  return type === undefined ? undefined : decodeXml(type).toLowerCase().replace(/[^a-z]/g, "");
+}
+
+/** The roster players a vacant captaincy may go to (same rules as teamMutation.ts appointCaptain). */
+function captainCandidates(detail: TeamDetail, race: string, rosterXml: string | undefined): string[] {
+  const rules = [...detail.specialRules, ...(findRoster(bb2025, race)?.specialRules ?? [])];
+  if (!rosterHasTeamCaptain(rules)) return [];
+  return detail.players
+    .filter((p) => !p.journeyman && !/dead|rip/i.test(p.status ?? ""))
+    .filter((p) => {
+      const type = rosterPositionType(rosterXml, p.positionId);
+      const star = type === "star" || type === "mercenary" || (p.position ? isStarName(bb2025, p.position) : false);
+      return !captainIneligibility({ star, bigGuy: type === "bigguy", positionKnown: type !== undefined });
+    })
+    .map((p) => p.id);
+}
+
 /** A fork library team -> the shared view's shape + per-player progression. */
 export function libraryManageView(input: LibraryManageInput): TeamManageModel {
   const { detail, stored } = input;
@@ -270,6 +298,7 @@ export function libraryManageView(input: LibraryManageInput): TeamManageModel {
       treasury: detail.treasury,
       teamValue: detail.teamValue,
       advancement: blocked ? { available: false, reason: blocked } : { available: true },
+      ...(detail.captainVacant && !retired ? { captain: { vacant: true as const, eligible: captainCandidates(detail, race, input.rosterXml) } } : {}),
     },
   };
 }

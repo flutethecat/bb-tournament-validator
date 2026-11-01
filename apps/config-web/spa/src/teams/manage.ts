@@ -81,6 +81,8 @@ export interface TeamManageModel {
     treasury?: number;
     teamValue?: number;
     advancement: Capability;
+    /** The Team Captain left and none is appointed yet (server teamManageView.ts): the players who may be appointed. */
+    captain?: { vacant: true; eligible: string[] };
   };
 }
 
@@ -452,7 +454,20 @@ export function createTeamManage(deps: { api: Fetcher; onSignedOut?: () => void;
     if (res?.ok) finish(flow, choice.type === "skill" ? `${choice.skill} added` : `+${choice.characteristic} added`, res);
   }
 
-  return { state, load, setShared, open, close, openSheet, closeSheet, advanceFromSheet, openAvatar, closeAvatar, uploadAvatar, removeAvatar, rollRandomPrimary, rollCharacteristic, chooseSkill, commit };
+  /** Appoint a new Team Captain on a fork library team while the captaincy is vacant (POST /api/team/appointCaptain); reloads the team. Resolves "" or the error. */
+  async function appointCaptain(playerId: string): Promise<string> {
+    const teamId = state.model?.manage.teamId;
+    if (!teamId) return "This team cannot appoint a captain here.";
+    try {
+      await deps.api("/api/team/appointCaptain", { method: "POST", body: { teamId, playerId } });
+    } catch (err) {
+      return err instanceof Error && err.message ? err.message : "The Team Captain did not save.";
+    }
+    if (state.ref) await load(state.ref);
+    return "";
+  }
+
+  return { state, load, setShared, open, close, openSheet, closeSheet, advanceFromSheet, openAvatar, closeAvatar, uploadAvatar, removeAvatar, rollRandomPrimary, rollCharacteristic, chooseSkill, commit, appointCaptain };
 }
 
 export type TeamManage = ReturnType<typeof createTeamManage>;

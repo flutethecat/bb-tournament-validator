@@ -4,9 +4,13 @@
 // Assign coach account in the roster header (LeagueTeamCoach) and what the team's coach shares with the organisers
 // (LeagueMemberContact). The Super FUMBBL result counters (blocks, rushing, ...)
 // get a column each only when a player in that table has a non-zero value.
-import { computed } from "vue";
+import { computed, inject, ref, watch } from "vue";
 import { RouterLink, useRoute } from "vue-router";
-import { crestFor, initials, kValue, playerByRef, sharedTotalsFor, teamByRef, teamUnattributed, teamValueFigures } from "../leagues/league";
+import { crestFor, initials, kValue, LEAGUE_DETAIL_KEY, playerByRef, sharedTotalsFor, teamByRef, teamUnattributed, teamValueFigures } from "../leagues/league";
+import { SESSION_KEY } from "../session";
+import { canAppointCaptain, leagueCaptainRows, leagueCaptainVacant } from "../shared/captain";
+import CaptainVacantChip from "./CaptainVacantChip.vue";
+import CaptainVacantDialog from "./CaptainVacantDialog.vue";
 import type { LeaguePlayer, PlayerSeasonStats, SeasonRecord } from "../leagues/types";
 import LeagueTeamCoach from "./LeagueTeamCoach.vue";
 import LeagueMemberContact from "./LeagueMemberContact.vue";
@@ -45,6 +49,17 @@ const countersFor = (players: ReadonlyArray<{ stats: PlayerSeasonStats }>) => CO
 const rosterCounters = computed(() => countersFor(picked.value?.players ?? []));
 const formerCounters = computed(() => countersFor(picked.value?.formerPlayers ?? []));
 const count = (p: { stats: PlayerSeasonStats }, key: Counter): number => p.stats[key] ?? 0;
+
+// Team Captain replacement (owner 10-30): while the captaincy is vacant the sheet shows a "Captain vacant" chip, and the
+// team's coach (or an organiser / admin) gets the Choose a captain dialog each time the sheet opens until one is appointed.
+const session = inject(SESSION_KEY, null);
+const detail = inject(LEAGUE_DETAIL_KEY, null);
+const vacant = computed(() => leagueCaptainVacant(picked.value));
+const mayAppoint = computed(() => Boolean(picked.value && detail && canAppointCaptain(picked.value, session?.coach() ?? "", Boolean(props.manage))));
+const captainOpen = ref(false);
+watch(() => `${props.season.id}|${picked.value?.id ?? ""}|${vacant.value}|${mayAppoint.value}`, () => { captainOpen.value = vacant.value && mayAppoint.value; }, { immediate: true });
+const captainRows = computed(() => (picked.value ? leagueCaptainRows(picked.value) : []));
+const appointCaptain = (playerId: string): Promise<string> => detail!.appointCaptain(props.season.id, picked.value!.id, playerId);
 </script>
 
 <template>
@@ -57,7 +72,8 @@ const count = (p: { stats: PlayerSeasonStats }, key: Counter): number => p.stats
       </section>
       <template v-else>
         <section class="hm-panel lg-roster" :aria-label="`${picked.name} roster`">
-          <header class="hm-band"><h2>{{ picked.name }}</h2><span class="hm-cap">{{ picked.race }} · {{ picked.coach }}<template v-if="picked.coachId && picked.coachAssigned"> · {{ picked.coachId }}</template></span></header>
+          <header class="hm-band"><h2>{{ picked.name }}</h2><CaptainVacantChip v-if="vacant" :action="mayAppoint" @choose="captainOpen = true" /><span class="hm-cap">{{ picked.race }} · {{ picked.coach }}<template v-if="picked.coachId && picked.coachAssigned"> · {{ picked.coachId }}</template></span></header>
+          <CaptainVacantDialog v-if="captainOpen && vacant && mayAppoint" :team-name="picked.name" :players="captainRows" :appoint="appointCaptain" @close="captainOpen = false" />
           <LeagueTeamCoach v-if="manage" :season="season" :team="picked" />
           <LeagueMemberContact v-if="manage && picked.coachId" :league-id="leagueId" :coach="picked.coachId" />
           <dl class="lg-team-facts">

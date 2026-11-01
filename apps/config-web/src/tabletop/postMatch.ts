@@ -24,6 +24,7 @@
  */
 
 import { effectiveEvents, LASTING_INJURY_RESULTS, otherSide, type Side, type StatName, type TabletopEvent } from "./events.js";
+import { nextCaptainVacancy } from "../captain.js";
 
 export type PostMatchOption = "none" | "spp-only" | "full";
 export type Ruleset = "bb2025";
@@ -89,6 +90,15 @@ export interface TabletopTeamFile {
   players: TabletopPlayer[];
   /** Id of the match that produced this revision (absent on the baseline). */
   lastMatchId?: string;
+  /** The Team Captain died and no living player carries the trait (owner 10-30; ../captain.ts). Set by applyPostMatch. */
+  captainVacant?: true;
+}
+
+/** Is this team file waiting for a new Team Captain? The flag, confirmed against the living players. Pre-game reminder. */
+export function teamFileCaptainVacant(file: Pick<TabletopTeamFile, "players" | "captainVacant"> | undefined): boolean {
+  if (!file) return false;
+  const living = file.players.filter((p) => !p.dead && !p.journeyman);
+  return nextCaptainVacancy(undefined, living, file.captainVacant === true);
 }
 
 export interface PostMatchOptions {
@@ -328,12 +338,16 @@ export function applyPostMatch(
     }
     return next;
   });
+  const { captainVacant: _wasVacant, ...rest } = teamFile;
+  // A Team Captain killed in this match leaves the captaincy vacant (../captain.ts); the dead player keeps the trait + Pro.
+  const vacant = nextCaptainVacancy(teamFile.players.filter((p) => !p.dead), players.filter((p) => !p.dead), teamFile.captainVacant === true);
   const out: TabletopTeamFile = {
-    ...teamFile,
+    ...rest,
     treasury: summary.treasuryAfter,
     dedicatedFans: fansAfter,
     players,
     ...(options.matchId ? { lastMatchId: options.matchId } : {}),
+    ...(vacant ? { captainVacant: true as const } : {}),
   };
   return { teamFile: out, summary };
 }

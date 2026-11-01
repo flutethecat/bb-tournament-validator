@@ -501,6 +501,8 @@ export interface FormerPlayer extends PlayerIdentity {
   position: string;
   level: string;
   stats: PlayerSeasonStats;
+  /** The skills the player had when they left (a departed Team Captain keeps the trait and its Pro here). Absent on older rows. */
+  skills?: string[];
 }
 
 export interface LeagueTeam {
@@ -538,6 +540,11 @@ export interface LeagueTeam {
   raceLeague: string;
   players: LeaguePlayer[];
   formerPlayers: FormerPlayer[];
+  /**
+   * The Team Captain left the roster (killed, defected, not re-hired) and no new one is appointed yet (owner 10-30; set
+   * and cleared by leagues/captain.ts markCaptainVacancy on every roster write, cleared by an appointment).
+   */
+  captainVacant?: true;
 }
 
 export type HonourKind = "player" | "team" | "coach";

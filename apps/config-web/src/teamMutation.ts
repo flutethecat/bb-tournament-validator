@@ -18,6 +18,9 @@ import {
 import { coachNamesEqual, storedTeamCoach, storedTeamFile } from "./teamDetail.js";
 import { injuryStatOf, playerProgression, type Characteristic } from "./teamAdvancement.js";
 import { skillCatalog } from "./data.js";
+import { findRoster, isStarName, normName, rosterHasTeamCaptain, TEAM_CAPTAIN, TEAM_CAPTAIN_FREE_SKILL } from "@bb/validator";
+import { bb2025 } from "@bb/validator/dataset";
+import { appointedSkills, blockSkills, captainIneligibility, hasTeamCaptain, setXmlCaptainVacantMark, xmlCaptainVacant } from "./captain.js";
 import { shiftStoredPlayerValue } from "./storedPlayerValue.js";
 
 export type TeamMutationOperation =
@@ -40,6 +43,7 @@ export type TeamMutationOperation =
   | "undoTemporaryRetire"
   | "rehirePlayer"
   | "refundPlayer"
+  | "appointCaptain"
   | "player/addSkill"
   | "player/removeSkill"
   | "player/addInjury"
@@ -69,6 +73,7 @@ const MUTATION_OPERATIONS = new Set<TeamMutationOperation>([
   "undoTemporaryRetire",
   "rehirePlayer",
   "refundPlayer",
+  "appointCaptain",
   "player/addSkill",
   "player/removeSkill",
   "player/addInjury",
@@ -411,6 +416,7 @@ const ROSTER_OPERATIONS = new Set<TeamMutationOperation>([
   "undoTemporaryRetire",
   "rehirePlayer",
   "refundPlayer",
+  "appointCaptain",
   "ready",
   "unready",
 ]);
@@ -758,6 +764,27 @@ function applyAdminPlayerOperation(
   return { xml: bumpTeamValueAggregates(teamXml.replace(target.block, shiftStoredPlayerValue(nextBlock, delta)), delta), extra: { playerId, stat, modifier: body.modifier } };
 }
 
+/** Does the team's roster carry the Team Captain special rule (roster XML rules, else the BB2025 dataset roster)? */
+function rosterXmlHasTeamCaptain(rosterXml: string | undefined, teamXml: string): boolean {
+  const rules = [...(rosterXml ?? "").matchAll(/<(?:specialRule|rule)\b[^>]*>([^<]*)<\/(?:specialRule|rule)>/gi)].map((m) => decodeXml(m[1]!).trim());
+  if (rosterHasTeamCaptain(rules)) return true;
+  const race = element(teamXml, "race") ?? (rosterXml ? element(rosterXml, "name") : undefined);
+  const roster = race ? findRoster(bb2025, race) : undefined;
+  return Boolean(roster && rosterHasTeamCaptain(roster.specialRules));
+}
+
+/** The block without its Team Captain trait and the trait's free Pro (the first Pro after the trait: splitCaptainGrants). */
+function withoutCaptainGrantNodes(block: string): string {
+  let out = block;
+  let seenTrait = false;
+  let proFree = true;
+  for (const item of playerListItems(block, "skill")) {
+    if (normName(item.text) === normName(TEAM_CAPTAIN)) { seenTrait = true; out = removePlayerListItem(out, item); }
+    else if (seenTrait && proFree && normName(item.text) === normName(TEAM_CAPTAIN_FREE_SKILL)) { proFree = false; out = removePlayerListItem(out, item); }
+  }
+  return out;
+}
+
 function playerHasHistory(block: string): boolean {
   if (/<skill\b/i.test(block) || /<injury\b/i.test(block)) return true;
   const statistics = block.match(/<playerStatistics\b[^>]*/i)?.[0] ?? "";
@@ -931,6 +958,8 @@ function applyRosterOperation(
       .replace(/<firedRace\b/i, "<race")
       .replace(/<\/firedRace>/i, "</race>")
       .replace(/\breason="[^"]*"\s?/i, "");
+    // A re-hired former Team Captain comes back without the trait and its free Pro while another player is captain.
+    if (activePlayerBlocks(xml).some((player) => hasTeamCaptain(blockSkills(player.block)))) restored = withoutCaptainGrantNodes(restored);
     restored = withPlayerStatus(restored, "Active");
     restored = withPlayerNumber(restored, lowestFreeNumber(new Set(players.map((player) => player.nr).filter((n): n is number => n !== undefined))));
     xml = insertPlayerNode(xml, restored);
@@ -951,6 +980,29 @@ function applyRosterOperation(
     if (!admin && !freshStatReduction) return fail(400, "Temporary retirement requires a fresh stat-reducing injury.");
     // Team value is deliberately unchanged: the fork has no provenance for temporary-retirement TV relief.
     return { xml: teamXml.replace(target.block, withPlayerStatus(target.block, "TemporarilyRetired")) };
+  }
+
+  if (operation === "appointCaptain") {
+    // Team Captain replacement in league play (owner 10-30; ./captain.ts): only while the captaincy is vacant, a roster
+    // player (not a journeyman, not a Star, not a Big Guy) on a roster with the Team Captain rule. The trait and Pro are
+    // free: no treasury, no value change (the player's stored value and the team value aggregates stay as they are).
+    if (players.some((player) => hasTeamCaptain(blockSkills(player.block)))) return fail(409, "This team already has a Team Captain.");
+    if (!xmlCaptainVacant(teamXml)) return fail(409, "A new Team Captain is appointed only when the captain has left the team.");
+    if (!rosterXmlHasTeamCaptain(rosterXml, teamXml)) return fail(400, "This team's roster has no Team Captain.");
+    if (/journeyman/i.test(target.status)) return fail(400, "A journeyman cannot be Team Captain.");
+    const position = rosterXml ? rosterPositions(rosterXml).get(target.positionId) : undefined;
+    const type = (position?.type ?? "").toLowerCase().replace(/[^a-z]/g, "");
+    const why = captainIneligibility({
+      star: type === "star" || type === "mercenary" || (position ? isStarName(bb2025, position.name) : false),
+      bigGuy: type === "bigguy",
+      positionKnown: Boolean(position),
+    });
+    if (why) return fail(400, why);
+    const owned = blockSkills(target.block);
+    const skills = appointedSkills(owned);
+    let nextBlock = target.block;
+    for (const skill of skills.slice(owned.length)) nextBlock = appendPlayerListItem(nextBlock, "skillList", `<skill>${encodeXml(skill)}</skill>`);
+    return { xml: setXmlCaptainVacantMark(teamXml.replace(target.block, nextBlock), false), extra: { playerId, skills } };
   }
 
   if (operation === "undoTemporaryRetire") {

@@ -31,6 +31,7 @@
 import type { GamestateResult } from "@bb/fork-ops";
 import type { ParsedGameResult } from "../site-backend/fumbblResult.js";
 import { kickoffTeamValue, refreshTeamValues, storeFallbackValues } from "./teamValue.js";
+import { markCaptainVacancy } from "./captain.js";
 import { fixturePlayed } from "./tourplay.js";
 import { FORK_PLAYER_COUNTERS } from "./types.js";
 import type {
@@ -201,6 +202,8 @@ const retire = (p: LeaguePlayer): FormerPlayer => ({
   ...(p.careerKey ? { careerKey: p.careerKey } : {}),
   ...(p.previousIds ? { previousIds: [...p.previousIds] } : {}),
   name: p.name, position: p.position, level: p.level, stats: { ...p.stats },
+  // The departed player's skills stay on the record (a dead Team Captain keeps the trait and its Pro: leagues/captain.ts).
+  ...(p.skills?.length ? { skills: [...p.skills] } : {}),
 });
 
 export interface TeamMutation {
@@ -261,6 +264,8 @@ export function mutateLeagueTeam(input: LeagueTeam, side: ForkGameTeamResult, ma
     const [p] = team.players.splice(i, 1);
     team.formerPlayers.push(retire(p!));
   }
+  // A dead or defecting Team Captain leaves the captaincy vacant until the coach appoints a new one (leagues/captain.ts).
+  markCaptainVacancy(input, team);
   // The team value is not adjusted here: applyForkResult recomputes it from the mutated roster (teamValue.ts).
   if (full) team.treasury = Math.max(0, (team.treasury ?? 0) - (side.treasurySpent ?? 0) + side.winnings);
   if (full && side.dedicatedFansModifier) team.fans = (team.fans ?? 1) + side.dedicatedFansModifier;

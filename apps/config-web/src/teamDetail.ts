@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseTeamXmlMeta, readLibrary, type LibraryTeam } from "@bb/fork-ops";
 import { withoutCaptainGrants } from "@bb/validator";
+import { xmlCaptainVacant } from "./captain.js";
 import { bb2025 } from "@bb/validator/dataset";
 import type { SessionIdentity } from "./auth/requireSession.js";
 
@@ -124,6 +125,8 @@ export interface TeamDetail {
   nameGenerator: string;
   firedPlayers: TeamDetailFiredPlayer[];
   resurrection?: boolean;
+  /** The Team Captain left (fired, retired, died) and no player on the roster carries the trait (captain.ts). */
+  captainVacant?: boolean;
 }
 
 export type TeamDetailEndpointResult =
@@ -419,6 +422,7 @@ export function parseStoredTeamDetail(
     nameGenerator: (rosterXml ? element(rosterXml, "nameGenerator") : undefined) ?? "default",
     firedPlayers,
     ...(attr(teamOpening, "resurrection") === "true" ? { resurrection: true } : {}),
+    ...(xmlCaptainVacant(xml) ? { captainVacant: true } : {}),
   };
 }
 

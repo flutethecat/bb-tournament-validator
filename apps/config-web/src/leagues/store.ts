@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync 
 import { join } from "node:path";
 import { atomicWriteTextFile } from "@bb/fork-ops";
 import { linkPlayerCareers, needsPlayerIds } from "./playerIds.js";
+import { markSeasonCaptainVacancies } from "./captain.js";
 import { recordLeagueExits } from "../auth/leagueSharing.js";
 import type { LeagueFixture, LeagueRecord, LeagueSecrets, LeagueTeam, SeasonRecord } from "./types.js";
 
@@ -334,6 +335,8 @@ export class LeagueStore {
     const after = [...all.filter((s) => s.id !== season.id && s.id !== prior?.id), season];
     // Monotonic per season id (also when the caller wrote from a stale copy): read-model caches key on it.
     season.revision = Math.max(all.find((s) => s.id === season.id)?.revision ?? 0, season.revision ?? 0) + 1;
+    // Team Captain vacancy (leagues/captain.ts): every writer's roster change against the stored copy, so none skips it.
+    markSeasonCaptainVacancies(all.find((s) => s.id === season.id), season);
     this.write(join(dir, `${season.id}.json`), season);
     this.seasonWrites += 1;
     this.unindexSeason(season.leagueId, season.id);

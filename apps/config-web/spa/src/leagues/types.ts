@@ -249,6 +249,8 @@ export interface FormerPlayer extends PlayerIdentity {
   position: string;
   level: string;
   stats: PlayerSeasonStats;
+  /** The skills the player had when they left (a departed Team Captain keeps the trait and its Pro). */
+  skills?: string[];
 }
 
 export interface LeagueTeam {
@@ -273,6 +275,10 @@ export interface LeagueTeam {
   raceLeague: string;
   players: LeaguePlayer[];
   formerPlayers: FormerPlayer[];
+  /** The Team Captain left the roster and no new one is appointed yet (server leagues/captain.ts). */
+  captainVacant?: true;
+  /** Read model, only while vacant: the roster players who may be appointed (server captainApi.ts withCaptainCandidates). */
+  captainEligible?: string[];
 }
 
 export type HonourValue = number | string | Record<string, number | string>;

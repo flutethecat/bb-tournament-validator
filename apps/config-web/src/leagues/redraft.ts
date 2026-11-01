@@ -25,6 +25,7 @@ import {
 } from "./types.js";
 import { forkPlayLock } from "./forkTeam.js";
 import { computeTeamValue, refreshTeamValues } from "./teamValue.js";
+import { markCaptainVacancy } from "./captain.js";
 
 export const REDRAFT_BASE = 1_000_000;
 export const PER_GAME = 20_000;
@@ -501,6 +502,8 @@ export function buildDraftTeam(ctx: DraftContext, price: DraftPrice, input: Draf
     players,
     formerPlayers: [],
   };
+  // A Team Captain who is not re-hired leaves the captaincy vacant (leagues/captain.ts); a kept captain keeps the trait.
+  markCaptainVacancy(team, drafted);
   // The league recomputes the value (teamValue.ts); without a dataset roster the price paid stands in for it.
   if (roster) {
     const tv = computeTeamValue(drafted, roster);

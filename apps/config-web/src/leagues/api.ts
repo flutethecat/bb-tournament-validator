@@ -19,6 +19,7 @@
  *   POST   /api/leagues/:id/seasons/:seasonId/reopen              a season finished here goes back in progress; its podium is cleared
  *   PATCH  /api/leagues/:id/seasons/:seasonId/phases/:phaseId     { revision, format: "table" | "knockout" } mark a phase (standings / podium)
  *   PATCH  /api/leagues/:id/seasons/:seasonId/teams/:teamId       { revision, coachId, allSeasons? } assign a coach account (teamCoach.ts)
+ *   POST   /api/leagues/:id/seasons/:seasonId/teams/:teamId/captain { revision, playerId } appoint a new Team Captain (captainApi.ts)
  *   PATCH  /api/leagues/:id/seasons/:seasonId/fixtures/:fixtureId { forkEnabled?, forkAllowLate?, forkCancelled? } Super FUMBBL per fixture
  *   GET|POST /api/leagues/:id/seasons/:seasonId/participants, PATCH .../participants/:teamId  Participants tab flags: see participants.ts
  *                                                                 { date?, round?, result? } fixtures editor (events.ts)
@@ -47,6 +48,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { leagueHonoursRoutes, myAwards } from "./awards.js";
 import { leagueInducementRoutes } from "./inducements.js";
+import { leagueCaptainRoutes, withCaptainCandidates } from "./captainApi.js";
 import { promises as fsp } from "node:fs";
 import { join } from "node:path";
 import { AVATAR_CONTENT_TYPE, avatarRateLimit, sniffImage, type AvatarExt, type SniffedImage } from "../teamAvatars.js";
@@ -319,6 +321,8 @@ export async function leagueApi(
     return artRoute(method, first, route.id, league, auth, deps);
   }
   if (first === "members") return memberContactRoute(method, league, second, extra, auth, deps);
+  const captain = await leagueCaptainRoutes(method, route.rest, league, auth, deps);
+  if (captain) return captain;
   const inducements = await leagueInducementRoutes(method, route.rest, league, auth, deps);
   if (inducements) return inducements;
   const fork = await leagueForkRoutes(method, route.id, route.rest, auth, deps);
@@ -921,7 +925,7 @@ async function patchFixture(league: LeagueRecord, seasonId: string, fixtureId: s
  */
 export function seasonForViewer(league: LeagueRecord, full: SeasonRecord, auth: LeagueApiIdentity | undefined): SeasonRecord {
   // Redraft state (budgets, R&R, draft rosters) is served only by the authorised redraft routes, never in a season read.
-  const { redraft: _r, ...season } = withStandings(full);
+  const { redraft: _r, ...season } = withCaptainCandidates(withStandings(full));
   const fixtures = season.fixtures.map((f) => (f.forkNotice || f.fork ? publicForkState(f) : f));
   // Organiser-only log entries (team value diff / not recomputed) stay with organisers and admins.
   const manager = Boolean(auth && (auth.admin || isLeagueOrganiser(league, auth.coach)));

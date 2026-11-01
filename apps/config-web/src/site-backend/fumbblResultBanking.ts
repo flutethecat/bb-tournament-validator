@@ -38,6 +38,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { bb2025 } from "@bb/validator/dataset";
+import { markXmlCaptainVacant } from "../captain.js";
 import { CHARACTERISTIC_VALUE, rosterXmlById } from "../teamAdvancement.js";
 import { hasStoredPlayerValues, readStoredPlayerValue } from "../storedPlayerValue.js";
 import { storedTeamFile } from "../teamDetail.js";
@@ -508,6 +509,8 @@ function makeApplyFn(team: ParsedTeamResult, roster: string | undefined): (xml: 
     const leagueTeam = hasStoredPlayerValues(xml);
     let totalDelta = 0;
     let currentDelta = 0;
+    // Blocks removed by a death or defection: a Team Captain among them leaves the captaincy vacant (../captain.ts).
+    const removed: string[] = [];
     for (const pr of team.players) {
       if (!pr.playerId) continue;
       const re = new RegExp(`(<player\\b[^>]*\\bid="${escapeRe(pr.playerId)}"[^>]*>)([\\s\\S]*?)(</player>)`);
@@ -531,6 +534,7 @@ function makeApplyFn(team: ParsedTeamResult, roster: string | undefined): (xml: 
       });
       const after = out.match(re)?.[0];
       const died = after === undefined;
+      if (died) removed.push(before);
       const beforeEligible = !hasRecoveringInjury(before);
       const afterEligible = after !== undefined && !hasRecoveringInjury(after);
       const needsValue = (died && (tracksTotalValue || (beforeEligible && tracksCurrentValue))) ||
@@ -545,7 +549,7 @@ function makeApplyFn(team: ParsedTeamResult, roster: string | undefined): (xml: 
         else if (!beforeEligible && afterEligible) currentDelta += value;
       }
     }
-    return adjustAggregateValues(out, totalDelta, currentDelta);
+    return markXmlCaptainVacant(adjustAggregateValues(out, totalDelta, currentDelta), removed);
   };
 }
 

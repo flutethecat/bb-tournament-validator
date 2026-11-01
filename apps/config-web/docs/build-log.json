@@ -1,6 +1,21 @@
 [
   {
     "date": "2026-11-01",
+    "title": "Choose a new Team Captain",
+    "body": "If your Team Captain is killed, fired, retired or not re-hired at a redraft, your team sheet now shows a Captain vacant chip and asks you to choose a new captain the next time you open it. Pick any roster player who is not a Big Guy or a Star: they gain Team Captain and Pro for free, and the old captain keeps theirs in the team's history.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      },
+      {
+        "label": "My teams",
+        "href": "/app/my-teams"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-01",
     "title": "Tournament statistics, honours and awards",
     "body": "Every tournament page has three new tabs. Statistics shows records by team and by coach (touchdowns, casualties, completions, interceptions, fouls, injuries and deaths, best defence) and race win rates, with only the stats its results record. Honours shows the top five for each stat for teams, players and coaches. Awards shows the podium once the tournament finishes, and organisers can give their own awards, which also appear on the coach's page.",
     "links": [
