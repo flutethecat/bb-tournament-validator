@@ -134,7 +134,20 @@ export async function seed(root: string, opts: SeedOptions = {}): Promise<void> 
 
   // leagues
   const lg = join(d.stateDir, "leagues", "l1");
-  w(join(lg, "league.json"), { id: "l1", name: "Valley League", owner: opts.aliceOwnsLeague ? "Alice" : "Bob", organisers: ["Bob", "Alice"] });
+  w(join(lg, "league.json"), {
+    id: "l1", name: "Valley League", owner: opts.aliceOwnsLeague ? "Alice" : "Bob", organisers: ["Bob", "Alice"],
+    // Awards given on this site (awards.ts): one to Alice's account (shown under her display name), one Alice gave Bob,
+    // one between others; Hall of Fame pins by Alice and by Bob.
+    awards: [
+      { id: "a-1", title: "Iron coach", icon: "veteran", toCoach: "Alice Smith", toCoachId: "Alice", toTeam: "Green Orcs", teamId: "green-orcs", race: "Orc", seasonId: "s1", note: "Alice never missed a deadline", by: "Bob", at: "2026-10-02T00:00:00Z" },
+      { id: "a-2", title: "Fair play", icon: "star", toCoach: "BobNaf", toCoachId: "Bob", note: "", by: "Alice", at: "2026-10-03T00:00:00Z" },
+      { id: "a-3", title: "Rookie of the year", icon: "rookie", toCoach: "Carol", note: "", by: "Bob", at: "2026-10-04T00:00:00Z" },
+    ],
+    hallOfFame: [
+      { id: "p-1", kind: "record", text: "Most TDs in a season: Alice, 31", note: "", by: "Alice", at: "2026-10-05T00:00:00Z" },
+      { id: "p-2", kind: "award", awardId: "a-3", note: "", by: "Bob", at: "2026-10-05T00:00:00Z" },
+    ],
+  });
   w(join(lg, "secrets.json"), { webhookUrl: "https://discord.example.test/api/webhooks/1/secret" });
   w(join(lg, "seasons", "s1.json"), {
     id: "s1", leagueId: "l1", number: 1, name: "Season 1",

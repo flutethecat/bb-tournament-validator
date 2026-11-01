@@ -554,7 +554,7 @@ describe("league routes (server-rendered against a mocked API)", () => {
     const nobody = await render("/leagues/tabbl?tab=teams&team=Nobody", loadedDetail());
     expect(nobody.html).toContain("No team called");
     const hon = await render("/leagues/tabbl?tab=honours", loadedDetail());
-    expect(hon.html).toContain("Awards are given at the end of the season.");
+    expect(hon.html).toContain("Loading awards..."); // league-wide awards + Hall of Fame load on mount (spaLeagueAwards.test.ts)
     expect(hon.html).toContain("Most touchdowns");
     expect(hon.html).toContain('href="/app/leagues/tabbl?season=season-6&amp;tab=teams&amp;player=p-deth00000001"'); // a board row that is one player links by id
     expect(hon.html).toContain("10-1-0 · 22 pts");

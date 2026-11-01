@@ -369,6 +369,9 @@ describe("export", () => {
     const leagues = JSON.parse(text("league-teams.json"));
     expect(leagues[0].role).toBe("organiser");
     expect(leagues[0].seasons[0].teams.map((x: { id: string }) => x.id)).toEqual(["green-orcs"]);
+    // awards to Alice's account and by her, and the Hall of Fame entries she pinned; never the others'
+    expect(leagues[0].awards.map((x: { id: string }) => x.id)).toEqual(["a-1", "a-2"]);
+    expect(leagues[0].hallOfFame.map((x: { id: string }) => x.id)).toEqual(["p-1"]);
     expect(JSON.parse(text("tabletop-matches.json")).matches[0].events).toHaveLength(3);
     const results = JSON.parse(text("results.json"));
     expect(results.results.map((r: { gameId: string }) => r.gameId)).toEqual(["g1"]);
@@ -455,6 +458,13 @@ describe("delete", () => {
     expect(tf.version).toBe(4);
     expect(tf.tournaments.t1.organizerCoachIds).toEqual([]);
     expect(readJ(join(deps.stateDir, "leagues", "l1", "league.json")).organisers).toEqual(["Bob"]);
+    // league awards and Hall of Fame pins: recipient account + display and the giver become the pseudonym; free text too
+    const lgFile = readJ(join(deps.stateDir, "leagues", "l1", "league.json"));
+    expect(lgFile.awards[0]).toMatchObject({ toCoach: P, toCoachId: P, toTeam: "Green Orcs", by: "Bob", note: `${P} never missed a deadline` });
+    expect(lgFile.awards[1]).toMatchObject({ toCoach: "BobNaf", toCoachId: "Bob", by: P });
+    expect(lgFile.awards[2]).toMatchObject({ toCoach: "Carol", by: "Bob" });
+    expect(lgFile.hallOfFame[0]).toMatchObject({ by: P, text: `Most TDs in a season: ${P}, 31` });
+    expect(lgFile.hallOfFame[1]).toMatchObject({ by: "Bob", awardId: "a-3" });
     // anonymised history (explicit fields; Discord ids dropped; the waiting-room lease dropped, never renamed)
     expect(tf.entrants.e1.coach).toEqual({ coachId: P, ffbCoachId: P, verifiedAt: "2026-10-01T00:00:00Z" });
     expect(tf.entrants.e2.coach.discordUserId).toBe(BOB_DISCORD);

@@ -27,6 +27,7 @@ import {
   SEASON_STATUS_LABEL, seasonDates, seasonRowScroll, type LeagueTab,
 } from "../leagues/league";
 import { ANNOUNCE_KEY, createAnnounce } from "../leagues/dialog";
+import { createHonours, LEAGUE_HONOURS_KEY } from "../leagues/honours";
 import "../leagues/leagues.css";
 
 const props = defineProps<{ id: string }>();
@@ -37,6 +38,9 @@ const router = useRouter();
 const detail = inject(LEAGUE_DETAIL_KEY, null) ?? createLeagueDetail({ api: fetcher });
 provide(LEAGUE_DETAIL_KEY, detail);
 const { state } = detail;
+// Awards + Hall of Fame (Honours tab, and a team's awards on the Teams tab): league-wide, loaded when either tab opens.
+const honours = inject(LEAGUE_HONOURS_KEY, null) ?? createHonours({ api: fetcher });
+provide(LEAGUE_HONOURS_KEY, honours);
 
 const current = computed(() => pickSeason(state.seasons, route.query.season));
 const season = computed(() => (current.value ? state.season[current.value.id] : undefined));
@@ -98,11 +102,16 @@ const placeSeasonRow = (): void => {
   });
 };
 watch(current, (s) => { if (s) void detail.ensureSeason(s.id); });
+// Fresh on every visit to the Honours tab (a season may have been finished or reopened since).
+watch(() => [tab.value, props.id] as const, ([t, id], prev) => {
+  if (t === "honours" || t === "teams") void honours.load(id, t === "honours" && (prev?.[0] !== "honours" || prev?.[1] !== id));
+}, { immediate: false });
 watch(() => state.seasons.map((x) => x.id).join(","), placeSeasonRow);
 onMounted(async () => {
   if (!state.loaded || state.id !== props.id) await detail.load(props.id);
   placeSeasonRow();
   if (current.value) await detail.ensureSeason(current.value.id);
+  if (tab.value === "honours" || tab.value === "teams") await honours.load(props.id, tab.value === "honours");
 });
 usePageTitle(() => state.league?.name);
 
@@ -160,7 +169,7 @@ watch(() => route.fullPath, () => announce.moved(scopeKey.value));
         <LeagueFixtures v-else-if="tab === 'fixtures'" :league="state.league" :season="season" :crests="state.crests" :manage="manage" />
         <LeagueTeams v-else-if="tab === 'teams'" :season="season" :team="teamName" :player="playerRef" :league-id="id" :crests="state.crests" :manage="manage" />
         <LeagueParticipants v-else-if="tab === 'participants'" :league-id="id" :season-id="season.id" :season-name="season.name" />
-        <LeagueHonours v-else :season="season" />
+        <LeagueHonours v-else :season="season" :seasons="state.seasons" :manage="manage" :crests="state.crests" />
       </template>
     </template>
   </div>

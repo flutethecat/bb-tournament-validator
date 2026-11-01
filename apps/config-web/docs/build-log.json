@@ -1,6 +1,21 @@
 [
   {
     "date": "2026-11-01",
+    "title": "League awards and a Hall of Fame",
+    "body": "League organisers and admins can now give awards from the league Honours tab: a title, an icon, a team or coach of the league (for one season or league-wide) and a note. The coach is notified, and the award shows on their coach page and on the team's page. The Honours tab also has a Hall of Fame with one card per finished season (champion, runner-up and dates) and entries organisers pin: a season champion, an award or a record.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      },
+      {
+        "label": "Coach page",
+        "href": "/app/home"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-01",
     "title": "League Participants tab for organisers",
     "body": "League organisers and admins now have a Participants tab on each season: every team with Paid, Verified, Frozen, Checked in and Active (or standby) switches, plus Mark all paid, Mark all verified, Check in all and clearing in one go, for all teams or the ones you tick. Coaches get a notification when their flags change, and the table shows only the contact details a coach chose to share with the league.",
     "links": [

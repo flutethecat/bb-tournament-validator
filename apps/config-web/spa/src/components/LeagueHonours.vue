@@ -1,12 +1,14 @@
 <script setup lang="ts">
-// League page, Honours tab: the season's awards, then the honour boards (players, teams, coaches), top five each with
-// the full board behind a disclosure.
+// League page, Honours tab: the league's Hall of Fame and every award (LeagueHallOfFame, LeagueAwards; league-wide), then
+// the selected season's honour boards (players, teams, coaches), top five each with the full board behind a disclosure.
 import { computed } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import { honourBoards, honourLabel, honourValue, playerQuery } from "../leagues/league";
-import type { SeasonRecord } from "../leagues/types";
+import type { SeasonRecord, SeasonSummary } from "../leagues/types";
+import LeagueAwards from "./LeagueAwards.vue";
+import LeagueHallOfFame from "./LeagueHallOfFame.vue";
 
-const props = defineProps<{ season: SeasonRecord }>();
+const props = withDefaults(defineProps<{ season: SeasonRecord; seasons?: SeasonSummary[]; manage?: boolean; crests?: Record<string, string> }>(), { seasons: () => [], manage: false, crests: () => ({}) });
 const route = useRoute();
 // A board row that resolves to one player links to that player (?player=<playerId>) on this season's Teams tab.
 const playerTo = (playerId: string) => ({ name: "league-detail", params: { id: String(route.params.id ?? "") }, query: playerQuery(props.season.id, playerId) });
@@ -17,17 +19,8 @@ const title = (t: { stat: string; category: string }): string => `${cupSeason.va
 
 <template>
   <div class="lg-stack">
-    <section class="hm-panel" aria-labelledby="lg-awards-h">
-      <header class="hm-band"><h2 id="lg-awards-h">Awards</h2><span class="hm-cap">{{ season.name }}</span></header>
-      <p v-if="!season.awards.length" class="hm-empty">{{ season.status === "active" ? "Awards are given at the end of the season." : "No awards recorded." }}</p>
-      <ul v-else class="lg-podium">
-        <li v-for="a in season.awards" :key="a.type + a.name + a.team" :data-award="a.type">
-          <span class="lg-award-type">{{ a.type === "Honorary award" ? a.name : a.type }}<template v-if="a.goldenStar"> ★</template></span>
-          <strong>{{ a.team }}</strong>
-          <small>{{ a.coach }}<template v-if="a.race"> · {{ a.race }}</template><template v-if="a.description"> · {{ a.description }}</template></small>
-        </li>
-      </ul>
-    </section>
+    <LeagueHallOfFame :manage="manage" :crests="crests" />
+    <LeagueAwards :manage="manage" :seasons="seasons" />
     <section v-for="b in boards" :key="b.kind" class="hm-panel" :aria-label="`${b.title} honours`">
       <header class="hm-band"><h2>{{ b.title }}</h2><span class="hm-cap">{{ b.tables.length }} boards</span></header>
       <div class="lg-boards">

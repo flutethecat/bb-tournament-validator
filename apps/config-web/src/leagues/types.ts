@@ -38,8 +38,47 @@ export interface LeagueRecord {
   redraftCap?: { enabled: boolean; cap: number };
   /** Settings revision: every settings write bumps it; a PATCH naming an older revision is refused (409). */
   revision?: number;
+  /** Awards an organiser or admin gave (awards.ts); the podium and imported awards stay on their seasons. */
+  awards?: LeagueCustomAward[];
+  /** Organiser-curated Hall of Fame entries, in display order (awards.ts). */
+  hallOfFame?: HallOfFamePin[];
+  /** Awards / Hall of Fame revision: every such write bumps it; a write naming an older one is refused (409). */
+  honoursRevision?: number;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * An award given on this site by an organiser of the league or a site admin (spec §2 item 4). The recipient is a team
+ * (toTeam / teamId / race, plus its coach) or a coach; toCoachId is the coach's fork account when the league maps it.
+ */
+export interface LeagueCustomAward {
+  id: string;
+  title: string;
+  /** Key of the award icon table (awards.ts AWARD_ICONS: our own icon set). */
+  icon: string;
+  toCoach?: string;
+  toCoachId?: string;
+  toTeam?: string;
+  teamId?: string;
+  race?: string;
+  /** The season the award belongs to; unset = league-wide. */
+  seasonId?: string;
+  note: string;
+  by: string;
+  at: string;
+}
+
+/** A pinned Hall of Fame entry: a season champion, an award (season or custom, by its list id) or a free-text record. */
+export interface HallOfFamePin {
+  id: string;
+  kind: "champion" | "award" | "record";
+  seasonId?: string;
+  awardId?: string;
+  text?: string;
+  note: string;
+  by: string;
+  at: string;
 }
 
 export type LeagueCountry = "US" | "CA";

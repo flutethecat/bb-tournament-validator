@@ -33,10 +33,16 @@
  *   GET|POST /api/leagues/:id/redraft, GET /api/leagues/:id/redraft/teams/:teamId, POST .../rest, POST .../submit,
  *   GET /api/leagues?redraft=mine
  *
+ * Awards and the Hall of Fame (public read; organisers + admins write): see awards.ts.
+ *   GET /api/leagues/:id/honours, POST /api/leagues/:id/awards, DELETE /api/leagues/:id/awards/:awardId,
+ *   POST /api/leagues/:id/hall-of-fame/pins, DELETE .../pins/:pinId, PUT /api/leagues/:id/hall-of-fame/order,
+ *   GET /api/leagues?awards=mine
+ *
  * Image guards reuse the team-avatar helpers (magic-byte sniff with header-parsed dimensions, the per-coach rate
  * limit) as the tournament banner does; files are stored under the league's own directory with a hashed name.
  */
 import { createHash, randomBytes } from "node:crypto";
+import { leagueHonoursRoutes, myAwards } from "./awards.js";
 import { promises as fsp } from "node:fs";
 import { join } from "node:path";
 import { AVATAR_CONTENT_TYPE, avatarRateLimit, sniffImage, type AvatarExt, type SniffedImage } from "../teamAvatars.js";
@@ -294,6 +300,11 @@ export async function leagueApi(
       if (!auth) return { status: 401, headers: { "cache-control": "no-store" }, body: { error: "Sign in to see your redraft tasks." } };
       return { status: 200, headers: { "cache-control": "no-store" }, body: { tasks: myRedraftTasks(store, auth.coach) } };
     }
+    if (query.get("awards") === "mine") {
+      // The signed-in coach's awards in every league (coach page Honours panel; awards.ts).
+      if (!auth) return { status: 401, headers: { "cache-control": "no-store" }, body: { error: "Sign in to see your awards." } };
+      return { status: 200, headers: { "cache-control": "private, no-store" }, body: { awards: myAwards(store, auth.coach) } };
+    }
     return { status: 200, body: { leagues: store.list().map((l) => leagueSummary(l, store.seasons(l.id))) } };
   }
   const league = store.league(route.id);
@@ -312,6 +323,8 @@ export async function leagueApi(
   if (events) return events;
   const participants = await leagueParticipantRoutes(method, route.rest, league, auth, deps);
   if (participants) return participants;
+  const honours = await leagueHonoursRoutes(method, route.rest, league, auth, deps);
+  if (honours) return honours;
   const managed = await settingsRoutes(method, route.rest, query, league, auth, deps);
   if (managed) return managed;
   if (!read) return { status: 405, body: { error: "Use GET." } };

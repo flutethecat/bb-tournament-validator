@@ -219,6 +219,13 @@ const leagueRowLinked = (keys: ReadonlySet<string>, o: unknown): boolean => {
   return isMine(keys, o.coach);
 };
 
+/** A league award given on this site (league.json awards[]): linked by its recipient account, else by the coach shown. */
+const customAwardLinked = (keys: ReadonlySet<string>, o: unknown): boolean => {
+  if (!isObj(o)) return false;
+  if (typeof o.toCoachId === "string" && o.toCoachId.trim()) return isMine(keys, o.toCoachId);
+  return isMine(keys, o.toCoach);
+};
+
 /** Within one season: the coach's teams (linked rows) and the rows linked to them through the team. */
 function seasonLinks(keys: ReadonlySet<string>, s: Obj): { teamIds: Set<string>; teamNames: Set<string>; linked: (o: unknown) => boolean } {
   const teams = objs(s.teams).filter((t) => leagueRowLinked(keys, t));
@@ -239,6 +246,8 @@ export function linkedDisplays(deps: PrivacyDeps, keys: ReadonlySet<string>): st
   const out = new Set<string>();
   const take = (o: unknown) => { if (isObj(o)) for (const f of ["coach", "nafUser"]) if (typeof o[f] === "string" && (o[f] as string).trim()) out.add((o[f] as string).trim()); };
   for (const dir of leagueDirs(deps)) {
+    const league = readJson<unknown>(join(dir, "league.json"));
+    if (isObj(league)) for (const a of objs(league.awards)) if (customAwardLinked(keys, a) && typeof a.toCoach === "string" && a.toCoach.trim()) out.add(a.toCoach.trim());
     for (const p of listFiles(join(dir, "seasons"), ".json")) {
       const s = readJson<unknown>(p);
       if (!isObj(s)) continue;
@@ -411,8 +420,11 @@ export const STORE_COLLECTORS: StoreCollector[] = [
     export: (ctx) => {
       const leagues: unknown[] = [];
       for (const dir of leagueDirs(ctx.deps, false)) {
-        const league = readJsonLoose<{ id?: string; name?: string; owner?: string; organisers?: string[] }>(join(dir, "league.json"));
+        const league = readJsonLoose<{ id?: string; name?: string; owner?: string; organisers?: string[]; awards?: unknown; hallOfFame?: unknown }>(join(dir, "league.json"));
         if (!league) continue;
+        // Awards given on this site to or by the coach, and Hall of Fame entries they pinned.
+        const awards = objs(league.awards).filter((a) => customAwardLinked(ctx.keys, a) || isMine(ctx.keys, a.by));
+        const pins = objs(league.hallOfFame).filter((p) => isMine(ctx.keys, p.by));
         let files: string[] = [];
         try { files = listFiles(join(dir, "seasons"), ".json"); } catch { /* none */ }
         const rows = files.map((p) => readJsonLoose<Obj>(p)).filter(isObj).map((s) => {
@@ -427,7 +439,8 @@ export const STORE_COLLECTORS: StoreCollector[] = [
           };
         }).filter((r) => r.teams.length + r.fixtures.length + r.participants.length + r.standings.length + r.awards.length > 0);
         const role = isMine(ctx.keys, league.owner) ? "owner" : (league.organisers ?? []).some((o) => isMine(ctx.keys, o)) ? "organiser" : undefined;
-        if (rows.length || role) leagues.push({ league: league.name ?? league.id, id: league.id, ...(role ? { role } : {}), seasons: rows });
+        if (rows.length || role || awards.length || pins.length)
+          leagues.push({ league: league.name ?? league.id, id: league.id, ...(role ? { role } : {}), seasons: rows, ...(awards.length ? { awards } : {}), ...(pins.length ? { hallOfFame: pins } : {}) });
       }
       return [{ name: "league-teams.json", content: json(leagues) }];
     },
@@ -579,7 +592,8 @@ builder-saves.json      Your saved rosters (Roster Builder). "shared": true mark
 team-library.json       Your teams for Play on Super FUMBBL.
 team-logos/             Team logos you uploaded.
 tournament-entries.json Your tournament entries, fixtures, and the tournaments you run.
-league-teams.json       League teams, fixtures, standings and awards linked to your account, and leagues you run.
+league-teams.json       League teams, fixtures, standings and awards linked to your account, awards you gave,
+                        Hall of Fame entries you pinned, and leagues you run.
 tabletop-matches.json   Tabletop matches you played or recorded, with their event logs, and your tabletop team history.
 results.json            Game results with you as home or away coach, your rating title, and your cached NAF games
                         (when your NAF link is verified).
@@ -699,6 +713,24 @@ const LINKED_ROW = (an: Anonymiser, o: Obj): boolean => {
   const b = typeof o.coachId === "string" && o.coachId ? (o.coachId = an.swap(o.coachId as string), true) : false;
   return a || b;
 };
+
+/** league.json: owner, organisers, and the awards / Hall of Fame pins given on this site (recipient, giver, free text). */
+function anonymiseLeagueFile(an: Anonymiser, tx: TextReplacer, l: Obj): boolean {
+  let changed = false;
+  const mark = (v: boolean) => { if (v) changed = true; };
+  mark(an.fields(l, ["owner"], []));
+  mark(an.list(l.organisers));
+  for (const a of objs(l.awards)) {
+    if (customAwardLinked(an.ids, a)) {
+      mark(an.overwrite(a, ["toCoach"], []));
+      if (typeof a.toCoachId === "string" && a.toCoachId) { a.toCoachId = an.swap(a.toCoachId); changed = true; }
+    }
+    mark(an.fields(a, ["by"], []));
+    mark(tx.texts(a, ["title", "note"]));
+  }
+  for (const p of objs(l.hallOfFame)) { mark(an.fields(p, ["by"], [])); mark(tx.texts(p, ["text", "note"])); }
+  return changed;
+}
 
 function anonymiseSeason(an: Anonymiser, tx: TextReplacer, displays: ReadonlySet<string>, s: Obj): boolean {
   let changed = false;
@@ -929,7 +961,7 @@ export const DELETE_STEPS: DeleteStep[] = [
       const others = otherCoachKeys(deps, an.ids);
       const displays = new Set(plan.displays.map((d) => d.trim()).filter((d) => d && !others.has(nameKey(d))));
       for (const dir of leagueDirs(deps)) {
-        rewriteJson(join(dir, "league.json"), (l) => [an.fields(l, ["owner"], []), an.list(l.organisers)].some(Boolean));
+        rewriteJson(join(dir, "league.json"), (l) => anonymiseLeagueFile(an, tx, l));
         for (const p of listFiles(join(dir, "seasons"), ".json")) rewriteJson(p, (s) => anonymiseSeason(an, tx, displays, s));
       }
       return "done";

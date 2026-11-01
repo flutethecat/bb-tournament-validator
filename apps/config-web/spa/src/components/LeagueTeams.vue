@@ -10,6 +10,7 @@ import { crestFor, initials, kValue, playerByRef, sharedTotalsFor, teamByRef, te
 import type { LeaguePlayer, PlayerSeasonStats, SeasonRecord } from "../leagues/types";
 import LeagueTeamCoach from "./LeagueTeamCoach.vue";
 import LeagueMemberContact from "./LeagueMemberContact.vue";
+import LeagueTeamAwards from "./LeagueTeamAwards.vue";
 
 const props = defineProps<{ season: SeasonRecord; team: string; player?: string; leagueId: string; crests: Record<string, string>; manage?: boolean }>();
 const route = useRoute();
@@ -70,6 +71,7 @@ const count = (p: { stats: PlayerSeasonStats }, key: Counter): number => p.stats
             <div><dt>Apothecary</dt><dd>{{ picked.apothecary ? "Yes" : "No" }}</dd></div>
             <div v-if="picked.tier"><dt>Tier</dt><dd>{{ picked.tier }}</dd></div>
           </dl>
+          <LeagueTeamAwards :season-id="season.id" :team="picked" />
           <p v-if="!picked.players.length" class="hm-empty">No roster recorded.</p>
           <div v-else class="lg-scroll">
             <table class="lg-table lg-players">
