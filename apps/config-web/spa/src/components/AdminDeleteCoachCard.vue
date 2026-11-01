@@ -18,13 +18,27 @@ const error = ref("");
 const notice = ref("");
 
 // Delete jobs still retrying (a pending step) and jobs that ran out of retries: pseudonyms only, never names.
-interface JobRow { jobId: string; pseudonym: string; pending: string[]; startedAt: string; abandonedAt?: string }
+interface JobRow { jobId: string; pseudonym: string; pending: string[]; startedAt: string; abandonedAt?: string; stuck?: boolean }
 const jobs = ref<{ open: JobRow[]; failed: JobRow[] }>({ open: [], failed: [] });
 async function loadJobs(): Promise<void> {
   if (!visible.value) return;
   try { jobs.value = await fetcher<{ open: JobRow[]; failed: JobRow[] }>("/api/admin/privacy/jobs"); } catch { /* keep the last list */ }
 }
 onMounted(() => void loadJobs());
+
+/** A stuck job (out of retries): retry it now, or close it once the rest was resolved by hand. The coach stays fenced until then. */
+async function jobAction(j: JobRow, action: "retry" | "close"): Promise<void> {
+  error.value = "";
+  notice.value = "";
+  if (action === "close" && typeof confirm === "function" && !confirm(`Close the delete job for ${j.pseudonym}? Only do this once the pending steps were done by hand.`)) return;
+  try {
+    const r = await fetcher<{ pending?: string[] }>(`/api/admin/privacy/jobs/${j.jobId}/${action}`, { method: "POST", body: {} });
+    notice.value = action === "close" ? `Closed the job for ${j.pseudonym}.` : r.pending?.length ? `Still pending: ${r.pending.join(", ")}.` : `The job for ${j.pseudonym} finished.`;
+  } catch (e) {
+    error.value = (e as Error).message;
+  }
+  await loadJobs();
+}
 
 function next(): void {
   error.value = "";
@@ -71,11 +85,16 @@ async function remove(): Promise<void> {
       <button class="lobby-btn" type="submit" :disabled="busy || !typed">Delete coach</button>
     </form>
     <p v-if="notice" class="muted" role="status">{{ notice }}</p>
-    <div v-if="jobs.open.length || jobs.failed.length" class="adc-jobs">
+    <div v-if="jobs.open.length" class="adc-jobs">
       <h3>Delete jobs needing attention</h3>
       <ul>
-        <li v-for="j in jobs.open" :key="j.jobId">{{ j.pseudonym }}: retrying {{ j.pending.join(", ") }} (since {{ j.startedAt.slice(0, 10) }})</li>
-        <li v-for="j in jobs.failed" :key="j.jobId" class="lobby-error">{{ j.pseudonym }}: failed, admin attention ({{ j.pending.join(", ") }}; gave up {{ (j.abandonedAt ?? "").slice(0, 10) }})</li>
+        <li v-for="j in jobs.open" :key="j.jobId" :class="j.stuck ? 'lobby-error' : undefined">
+          {{ j.pseudonym }}: {{ j.stuck ? "stuck on" : "retrying" }} {{ j.pending.join(", ") }} (since {{ j.startedAt.slice(0, 10) }})
+          <template v-if="j.stuck">
+            <button class="lobby-btn" type="button" @click="jobAction(j, 'retry')">Retry</button>
+            <button class="lobby-btn" type="button" @click="jobAction(j, 'close')">Close</button>
+          </template>
+        </li>
       </ul>
     </div>
     <p v-if="error" class="lobby-error" role="alert">{{ error }}</p>

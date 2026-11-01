@@ -20,7 +20,7 @@ import {
   type DeletePlan, type ExportFile, type OwnedItem, type PlanSecrets, type PrivacyDeps, type StoredPlan,
 } from "./collectors.js";
 import { nameKey } from "./anonymise.js";
-import { fenceCoachHash, releaseCoachHash } from "./fence.js";
+import { coachKeyHash, fenceCoachHash, releaseCoachHash } from "./fence.js";
 import {
   allocatePseudonym, appendAudit, appendFailedJob, appendJournal, blocklistHash, destroyJobKey, listJobs, newJobId,
   readFailedJobs, readJournal, removeJournal, sealForJob, unsealForJob, type FailedJob,
@@ -36,7 +36,7 @@ export interface DeleteOutcome {
   pseudonym?: string;
 }
 
-export interface OpenJob { jobId: string; pseudonym: string; pending: string[]; startedAt: string }
+export interface OpenJob { jobId: string; pseudonym: string; pending: string[]; startedAt: string; stuck: boolean }
 
 export class PrivacyService {
   private chain: Promise<unknown> = Promise.resolve();
@@ -63,7 +63,8 @@ export class PrivacyService {
     return collectExport(this.deps, coach);
   }
 
-  /** Open jobs (pending steps) and abandoned ones, for the admin card. Names never appear. */
+  /** Open jobs (pending steps; `stuck` = out of retries, waiting for an admin) and the history of jobs that got stuck. Names
+   *  never appear. */
   jobs(): { open: OpenJob[]; failed: FailedJob[] } {
     const open: OpenJob[] = [];
     for (const jobId of listJobs(this.deps.stateDir)) {
@@ -71,7 +72,7 @@ export class PrivacyService {
       const plan = lines[0]?.type === "plan" ? (lines[0] as unknown as StoredPlan) : undefined;
       if (!plan) continue;
       const done = new Set(lines.flatMap((l) => (l.type === "step" && l.status !== "failed" ? [l.step] : [])));
-      open.push({ jobId, pseudonym: plan.pseudonym, startedAt: plan.at, pending: DELETE_STEPS.map((s) => s.id).filter((id) => !done.has(id)) });
+      open.push({ jobId, pseudonym: plan.pseudonym, startedAt: plan.at, pending: DELETE_STEPS.map((s) => s.id).filter((id) => !done.has(id)), stuck: lines.some((l) => l.type === "abandoned") });
     }
     return { open, failed: readFailedJobs(this.deps.stateDir) };
   }
@@ -128,15 +129,19 @@ export class PrivacyService {
         const first = lines[0];
         if (!first || first.type !== "plan") { removeJournal(this.deps.stateDir, jobId); destroyJobKey(this.deps.stateDir, jobId); continue; }
         const { type: _t, sealed, ...stored } = first as unknown as StoredPlan & { type: string };
-        if (lines.some((l) => l.type === "complete" || l.type === "abandoned")) {
+        if (lines.some((l) => l.type === "complete")) {
           destroyJobKey(this.deps.stateDir, jobId);
           removeJournal(this.deps.stateDir, jobId);
           continue;
         }
         fenceCoachHash(stored.coachHash);
         const secrets = unsealForJob<PlanSecrets>(this.deps.stateDir, jobId, sealed);
+        if (secrets) fenceCoachHash(coachKeyHash(secrets.coach)); // journals from before the NFC fence key: fence both forms
+        // Stuck (out of retries, or its key is gone): never retried automatically; journal, key and fence stay until an
+        // admin retries or closes it from the admin card.
+        if (lines.some((l) => l.type === "abandoned")) { open.push(jobId); continue; }
         const expired = this.now() - Date.parse(stored.at) > JOB_RETRY_DAYS * 24 * 60 * 60_000;
-        if (!secrets || expired) { this.abandon(stored, lines); continue; }
+        if (!secrets || expired) { this.markStuck(stored, lines); open.push(jobId); continue; }
         const pending = await this.runSteps({ ...stored, ...secrets });
         if (pending.length) open.push(jobId);
       }
@@ -144,17 +149,54 @@ export class PrivacyService {
     });
   }
 
-  /** Out of retries (or the key is gone): destroy the sealed names, list the job for the admin, drop the journal. */
-  private abandon(stored: Omit<StoredPlan, "sealed">, lines: ReturnType<typeof readJournal>): void {
+  /**
+   * Out of retries (or the key is gone): the job is STUCK. It is never retried automatically and an admin is alerted
+   * (log + the admin card), but the journal, the job key and the fence all stay: releasing the fence of an incomplete job
+   * would reopen a partly deleted account. Only an admin closes it (closeJob) or retries it (retryJob).
+   */
+  private markStuck(stored: Omit<StoredPlan, "sealed">, lines: ReturnType<typeof readJournal>): void {
     const dir = this.deps.stateDir;
     const done = new Set(lines.flatMap((l) => (l.type === "step" && l.status !== "failed" ? [l.step] : [])));
     const pending = DELETE_STEPS.map((s) => s.id).filter((id) => !done.has(id));
     const at = new Date(this.now()).toISOString();
     appendFailedJob(dir, { jobId: stored.jobId, pseudonym: stored.pseudonym, pending, startedAt: stored.at, abandonedAt: at });
     appendJournal(dir, stored.jobId, { type: "abandoned", at, pending });
-    destroyJobKey(dir, stored.jobId);
-    removeJournal(dir, stored.jobId);
-    releaseCoachHash(stored.coachHash, this.now());
+    console.error(`[privacy] delete job ${stored.jobId} (${stored.pseudonym}) is stuck on ${pending.join(", ")}: an admin must retry or close it.`);
+  }
+
+  /** Admin: run a stuck job's pending steps again now (e.g. the fork is back). Returns the steps still pending. */
+  retryJob(jobId: string): Promise<string[] | undefined> {
+    return this.serial(async () => {
+      const lines = readJournal(this.deps.stateDir, jobId);
+      const first = lines[0];
+      if (!first || first.type !== "plan" || !this.deps.mapKey) return undefined;
+      const { type: _t, sealed, ...stored } = first as unknown as StoredPlan & { type: string };
+      const secrets = unsealForJob<PlanSecrets>(this.deps.stateDir, jobId, sealed);
+      if (!secrets) return undefined;
+      return this.runSteps({ ...stored, ...secrets });
+    });
+  }
+
+  /**
+   * Admin: close a stuck job without finishing it (the admin resolved the rest by hand, e.g. removed the fork account).
+   * Audited as closed; the journal, key and fence go only now.
+   */
+  closeJob(jobId: string, admin: string): Promise<boolean> {
+    return this.serial(async () => {
+      const dir = this.deps.stateDir;
+      const lines = readJournal(dir, jobId);
+      const first = lines[0];
+      if (!first || first.type !== "plan") return false;
+      const stored = first as unknown as StoredPlan;
+      const secrets = unsealForJob<PlanSecrets>(dir, jobId, stored.sealed);
+      appendAudit(dir, { at: new Date(this.now()).toISOString(), actor: `${stored.actor}; closed by admin:${admin}`, pseudonym: stored.pseudonym, jobId });
+      appendJournal(dir, jobId, { type: "complete", at: new Date(this.now()).toISOString() });
+      destroyJobKey(dir, jobId);
+      removeJournal(dir, jobId);
+      releaseCoachHash(stored.coachHash, this.now());
+      if (secrets) releaseCoachHash(coachKeyHash(secrets.coach), this.now());
+      return true;
+    });
   }
 
   private async runSteps(plan: DeletePlan): Promise<string[]> {
@@ -182,6 +224,7 @@ export class PrivacyService {
       destroyJobKey(dir, plan.jobId);
       removeJournal(dir, plan.jobId);
       releaseCoachHash(plan.coachHash, this.now());
+      releaseCoachHash(coachKeyHash(plan.coach), this.now()); // the same, for a journal planned before the NFC fence key
       this.deps.onCoachDeleted?.();
     }
     return pending;

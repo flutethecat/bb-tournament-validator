@@ -12,6 +12,7 @@
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { mailCoachKey } from "./stores.js";
+import { isCoachFenced } from "../privacy/fence.js";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { atomicWriteTextFile } from "@bb/fork-ops";
@@ -293,7 +294,12 @@ export class MailWorker {
             continue;
           }
         }
-        const check = (): RecheckResult => this.opts.recheck?.(entry) ?? (this.opts.isSuppressed?.(entry.message!.to) ? { ok: false as const, reason: "suppressed" as const } : { ok: true as const });
+        // A coach whose account deletion is running (src/privacy/fence.ts) never receives another email: the row goes.
+        if (entry.recipient && isCoachFenced(entry.recipient.coach)) { outbox.markDead(entry.id, entry.attempts, "account deleted"); continue; }
+        const check = (): RecheckResult => {
+          if (entry.recipient && isCoachFenced(entry.recipient.coach)) return { ok: false, reason: "noConsent" };
+          return this.opts.recheck?.(entry) ?? (this.opts.isSuppressed?.(entry.message!.to) ? { ok: false as const, reason: "suppressed" as const } : { ok: true as const });
+        };
         const drop = (r: Exclude<RecheckResult, { ok: true }>, attempts: number) => {
           outbox.markDead(entry.id, attempts, r.reason === "suppressed" ? "suppressed" : `ineligible: ${r.reason}`);
           try { this.opts.onDropped?.(entry, r.reason); } catch { /* best effort */ }

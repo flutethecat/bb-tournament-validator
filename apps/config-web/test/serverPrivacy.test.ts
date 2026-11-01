@@ -150,6 +150,10 @@ describe("GET /api/admin/privacy/jobs", () => {
     const res = await fetch(`${origin}/api/admin/privacy/jobs`, { headers: bearer(token("Root")) });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ open: [], failed: [] });
+    const job = "0".repeat(24);
+    expect((await post(`/api/admin/privacy/jobs/${job}/close`, bearer(token("Bob")), {})).status).toBe(403);
+    expect((await post(`/api/admin/privacy/jobs/${job}/close`, bearer(token("Root")), {})).status).toBe(404);
+    expect((await post(`/api/admin/privacy/jobs/${job}/retry`, bearer(token("Root")), {})).status).toBe(404);
   });
 });
 

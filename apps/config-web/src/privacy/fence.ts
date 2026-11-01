@@ -30,13 +30,18 @@ export function fenceCoachHash(hash: string): void { fenced.set(hash, Number.POS
 /** The job finished: keep refusing for the grace period, then forget. */
 export function releaseCoachHash(hash: string, now = Date.now(), graceMs = FENCE_GRACE_MS): void { fenced.set(hash, now + graceMs); }
 
+/** The hash journals written before the NFC fence key stored (identity fold only). Still checked, so a legacy job fences. */
+export const legacyCoachKeyHash = (name: string): string => createHash("sha256").update(`coach:${coachKey(name)}`, "utf8").digest("hex");
+
 export function isCoachFenced(name: string, now = Date.now()): boolean {
   if (fenced.size === 0 || !name) return false;
-  const hash = coachKeyHash(name);
-  const until = fenced.get(hash);
-  if (until === undefined) return false;
-  if (until <= now) { fenced.delete(hash); return false; }
-  return true;
+  for (const hash of new Set([coachKeyHash(name), legacyCoachKeyHash(name)])) {
+    const until = fenced.get(hash);
+    if (until === undefined) continue;
+    if (until <= now) { fenced.delete(hash); continue; }
+    return true;
+  }
+  return false;
 }
 
 export function assertNotFenced(name: string): void {

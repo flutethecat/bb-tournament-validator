@@ -2372,6 +2372,19 @@ async function handleApi(
     if (!adminOk) return sendJson(res, auth ? 403 : 401, { error: auth ? "Admin access required." : "Authentication required." });
     return sendJson(res, 200, privacyService.jobs());
   }
+  // Admin: a stuck delete job (out of retries) is retried now, or closed after the admin resolved the rest by hand.
+  {
+    const m = /^\/api\/admin\/privacy\/jobs\/([a-f0-9]{24})\/(retry|close)$/.exec(path);
+    if (m && method === "POST") {
+      const adminActor = auth?.admin ? auth.coach : !AUTH_SIDECAR && isAdminAuthed(req) ? "admin-password" : undefined;
+      if (!adminActor) return sendJson(res, auth ? 403 : 401, { error: auth ? "Admin access required." : "Authentication required." });
+      if (m[2] === "retry") {
+        const pending = await privacyService.retryJob(m[1]!);
+        return pending === undefined ? sendJson(res, 404, { error: "No such job (or PRIVACY_MAP_KEY / the job key is missing)." }) : sendJson(res, 200, { ok: true, pending });
+      }
+      return (await privacyService.closeJob(m[1]!, adminActor)) ? sendJson(res, 200, { ok: true }) : sendJson(res, 404, { error: "No such job." });
+    }
+  }
 
   // Admin: the same delete for a named coach (email requests). Site admins only; audited with the pseudonym only.
   {
@@ -4563,6 +4576,7 @@ export const server = createServer((req, res) => {
           isAdminTestingPath(url.pathname) ||
           ADMIN_COACH_DELETE_PATH.test(url.pathname) ||
           url.pathname === "/api/admin/privacy/jobs" ||
+          /^\/api\/admin\/privacy\/jobs\/[a-f0-9]{24}\/(retry|close)$/.test(url.pathname) ||
           tournamentInstructionsGameId(url.pathname) !== undefined ||
           tournamentResultGameId(url.pathname) !== undefined ||
           leaguePath(url.pathname) !== undefined

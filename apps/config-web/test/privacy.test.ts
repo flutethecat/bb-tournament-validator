@@ -12,11 +12,11 @@ import {
   appendAudit, appendJournal, blocklistHash, deletedPseudonymFor, isDiscordBlocked, isRecentlyDeleted, listJobs, readAudit, readJournal, sealForJob,
 } from "../src/privacy/state.js";
 import { NafRecordStore, setNafIdFilter } from "../src/nafRecords.js";
-import { Outbox } from "../src/mail/outbox.js";
+import { MailWorker, Outbox } from "../src/mail/outbox.js";
 import { MailPrefsStore } from "../src/mail/stores.js";
 import { ReplayMomentStore, setReplayCoachFilter } from "../src/replay/store.js";
 import {
-  clearFences, coachKey, DeletionFenceError, fenceCoachHash, coachKeyHash, isReservedCoachName, ReservedNameError,
+  clearFences, coachKey, DeletionFenceError, fenceCoachHash, coachKeyHash, isCoachFenced, isReservedCoachName, legacyCoachKeyHash, ReservedNameError,
 } from "../src/privacy/fence.js";
 import { createSession, getSession } from "../src/auth/session.js";
 import { normalizeFfbCoachId, readIdentities, upsertIdentity } from "../src/auth/identitiesStore.js";
@@ -156,7 +156,7 @@ describe("round 3 regressions", () => {
     const noKey = new PrivacyService({ ...failing, mapKey: undefined, disableForkAccount: async () => undefined });
     expect(await noKey.resumeAll()).toEqual([jobId]);
     expect(readJournal(deps.stateDir, jobId!)).toHaveLength(lines.length); // no step ran
-    expect(readIdentities().coaches.alice).toBeDefined();
+    expect(readIdentities().coaches.alice).toBeUndefined(); // everything before the (last) fork step was done
   });
 
   it("4: the fence folds NFC like the avatar store: a decomposed spelling fences the composed one", async () => {
@@ -195,6 +195,62 @@ describe("round 3 regressions", () => {
     expect(listJobs(deps.stateDir)).toEqual([]);
     // a job planned on a host without a fork: the step is skipped
     expect((await new PrivacyService(deps).deleteCoach("Carol", "Carol", "self")).pending).toEqual([]);
+  });
+});
+
+describe("round 4 regressions", () => {
+  it("a stuck job can be retried by an admin once the fork is back", async () => {
+    await seed(root);
+    const deps = depsFor(root);
+    let t = Date.parse("2026-11-01T00:00:00Z");
+    let up = false;
+    const svc = new PrivacyService({ ...deps, disableForkAccount: async () => { if (!up) throw new Error("connect ECONNREFUSED"); } }, () => t);
+    await svc.deleteCoach("Alice", "Alice", "self");
+    const [jobId] = listJobs(deps.stateDir);
+    t += (JOB_RETRY_DAYS + 1) * 86_400_000;
+    await svc.resumeAll();
+    expect(svc.jobs().open[0]!.stuck).toBe(true);
+    up = true;
+    expect(await svc.resumeAll()).toEqual([jobId]); // a stuck job never runs by itself
+    expect(await svc.retryJob(jobId!)).toEqual([]);
+    expect(listJobs(deps.stateDir)).toEqual([]);
+    expect(readAudit(deps.stateDir).map((a) => a.actor)).toEqual(["self"]);
+  });
+
+  it("the mail worker never sends to a coach whose deletion is running", async () => {
+    await seed(root);
+    const deps = depsFor(root);
+    const outbox = new Outbox(join(deps.stateDir, "mail"));
+    const msg = (to: string) => ({ to, subject: "League news", text: "Hello", html: "<p>Hello</p>", template: "league-message" });
+    outbox.enqueue([
+      { key: "k1", message: msg(ALICE_EMAIL), recipient: { coach: "Alice", leagueId: "l1" }, leagueId: "l1" },
+      { key: "k2", message: msg(BOB_EMAIL), recipient: { coach: "Bob", leagueId: "l1" }, leagueId: "l1" },
+    ]);
+    const sent: string[] = [];
+    const worker = new MailWorker({ outbox, transport: { send: async (m: { to: string }) => { sent.push(m.to); } } as never });
+    fenceCoachHash(coachKeyHash("Alice"));
+    await worker.drain();
+    expect(sent).toEqual([BOB_EMAIL]);
+    expect(outbox.forCoach("Alice")[0]).toMatchObject({ status: "dead", error: "account deleted" });
+  });
+
+  it("a journal written with the pre-NFC fence hash still fences, in both spellings", async () => {
+    await seed(root);
+    const deps = depsFor(root);
+    fenceCoachHash(legacyCoachKeyHash("Alice"));
+    expect(isCoachFenced("alice")).toBe(true);
+    clearFences();
+    // a legacy journal for the decomposed spelling: resuming fences the NFC form too
+    const plan = buildPlan(deps, {
+      sessionCoach: JOSE_NFD, jobId: "0123456789abcdef0123abcd", pseudonym: "Deleted coach #5", actor: "self", now: new Date(), mapKey: TEST_MAP_KEY,
+      blockHashOf: (id) => blocklistHash(deps.stateDir, id), discordAvatarUrl,
+    });
+    const { stored, secrets } = splitPlan(plan);
+    appendJournal(deps.stateDir, plan.jobId, { type: "plan", ...stored, coachHash: legacyCoachKeyHash(JOSE_NFD), sealed: sealForJob(deps.stateDir, plan.jobId, secrets) });
+    appendJournal(deps.stateDir, plan.jobId, { type: "step", step: "sessions", status: "done", at: "" });
+    await new PrivacyService({ ...deps, disableForkAccount: async () => { throw new Error("down"); } }).resumeAll();
+    expect(isCoachFenced(JOSE_NFD)).toBe(true);
+    expect(isCoachFenced(JOSE_NFC)).toBe(true);
   });
 });
 
@@ -593,15 +649,24 @@ describe("delete", () => {
     const [jobId] = listJobs(deps.stateDir);
     const journal = readFileSync(join(deps.stateDir, "privacy", "jobs", `${jobId}.jsonl`), "utf8");
     for (const re of [/alice/i, /Ally/, /1001/, new RegExp(ALICE_DISCORD)]) expect(journal).not.toMatch(re);
-    expect(svc.jobs().open).toEqual([{ jobId, pseudonym: P, pending: expect.arrayContaining(["fork-account", "identity"]), startedAt: expect.any(String) }]);
+    expect(svc.jobs().open).toEqual([{ jobId, pseudonym: P, pending: ["fork-account", "final-sweep"], startedAt: expect.any(String), stuck: false }]);
     t += (JOB_RETRY_DAYS - 1) * 86_400_000;
     expect(await svc.resumeAll()).toEqual([jobId]);
     t += 2 * 86_400_000;
-    expect(await svc.resumeAll()).toEqual([]);
+    // out of retries: STUCK. Never retried automatically, but the journal, key and fence stay until an admin acts
+    expect(await svc.resumeAll()).toEqual([jobId]);
+    expect(listJobs(deps.stateDir)).toEqual([jobId]);
+    expect(walkFiles(join(deps.stateDir, "privacy", "keys"))).toHaveLength(1);
+    expect(isCoachFenced("Alice")).toBe(true);
+    expect(svc.jobs().open).toEqual([{ jobId, pseudonym: P, pending: ["fork-account", "final-sweep"], startedAt: expect.any(String), stuck: true }]);
+    expect(svc.jobs().failed).toEqual([{ jobId, pseudonym: P, pending: ["fork-account", "final-sweep"], startedAt: expect.any(String), abandonedAt: expect.any(String) }]);
+    expect(await svc.resumeAll()).toEqual([jobId]); // still stuck, nothing ran
+    expect(readAudit(deps.stateDir)).toEqual([]);
+    // the admin closes it after removing the fork account by hand: now the journal, key and fence go, audited
+    expect(await svc.closeJob(jobId!, "Root")).toBe(true);
     expect(listJobs(deps.stateDir)).toEqual([]);
     expect(walkFiles(join(deps.stateDir, "privacy", "keys"))).toEqual([]);
-    expect(svc.jobs()).toEqual({ open: [], failed: [{ jobId, pseudonym: P, pending: expect.arrayContaining(["fork-account", "identity"]), startedAt: expect.any(String), abandonedAt: expect.any(String) }] });
-    expect(readAudit(deps.stateDir)).toEqual([]);
+    expect(readAudit(deps.stateDir)).toEqual([{ at: expect.any(String), actor: "self; closed by admin:Root", pseudonym: P, jobId }]);
   });
 
   it("the fork step stays pending while the fork is unreachable; the audit is written once even if it already exists (P2-16)", async () => {
@@ -612,7 +677,7 @@ describe("delete", () => {
     const svc = new PrivacyService({ ...deps, disableForkAccount: async (coach) => { calls.push(coach); if (!up) throw new Error("connect ECONNREFUSED"); } });
     const out = await svc.deleteCoach("Alice", "Alice", "self");
     expect(out.pending).toEqual(["fork-account"]);
-    expect(readIdentities().coaches.alice).toBeDefined(); // a failed step halts the job: later steps wait for it
+    expect(readIdentities().coaches.alice).toBeUndefined(); // the fork step is last: nothing else waits on it
     const [jobId] = listJobs(deps.stateDir);
     expect(readJournal(deps.stateDir, jobId!).filter((l) => l.type === "step" && l.status === "failed").map((l) => (l as { step: string }).step)).toEqual(["fork-account"]);
     expect(await svc.resumeAll()).toEqual([jobId]);

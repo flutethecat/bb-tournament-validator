@@ -842,19 +842,6 @@ export const DELETE_STEPS: DeleteStep[] = [
   },
   { id: "builder-saves", run: ({ deps, names }) => { removeSaves(deps, names); return "done"; } },
   { id: "library", run: ({ deps, names }) => { removeLibraryRows(deps, names); return "done"; } },
-  {
-    id: "fork-account",
-    run: async ({ deps, plan }): Promise<StepStatus> => {
-      // Skipped only when no fork existed for this job at plan time; a fork configured then must be reached, so a host that
-      // lost its fork config (or a fork that is down) keeps the step pending.
-      if (!deps.disableForkAccount) {
-        if (plan.forkRequired === false) return "skipped";
-        throw new Error("fork not configured");
-      }
-      await deps.disableForkAccount(plan.coach); // throws when unreachable: the step stays pending
-      return "done";
-    },
-  },
   { id: "notifications", run: ({ deps, plan }) => { removeNotifications(deps, plan); return "done"; } },
   {
     // Mail prefs and deliveries go; the league-message audit keeps its counts with the sender anonymised. Suppression
@@ -1012,6 +999,21 @@ export const DELETE_STEPS: DeleteStep[] = [
       // Last: the earlier steps no longer need the record. The identities write listeners drop the avatar upload too.
       const record = readIdentitiesStrict().coaches[normalizeFfbCoachId(plan.coach)];
       for (const n of plan.coachNames) removeIdentityRecord(n, record?.identities?.discordUserId);
+      return "done";
+    },
+  },
+  // The fork (game server) account comes last: nothing above ever waits on the fork DB. A fork that is down leaves only this
+  // step and the final sweep pending (retried; the coach stays fenced).
+  {
+    id: "fork-account",
+    run: async ({ deps, plan }): Promise<StepStatus> => {
+      // Skipped only when no fork existed for this job at plan time; a fork configured then must be reached, so a host that
+      // lost its fork config (or a fork that is down) keeps the step pending.
+      if (!deps.disableForkAccount) {
+        if (plan.forkRequired === false) return "skipped";
+        throw new Error("fork not configured");
+      }
+      await deps.disableForkAccount(plan.coach); // throws when unreachable: the step stays pending
       return "done";
     },
   },
