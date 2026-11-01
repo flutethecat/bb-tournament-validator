@@ -179,6 +179,13 @@ export const INVENTORY: readonly InventoryRow[] = [
     retention: HISTORY_RETENTION,
   },
   {
+    id: "schedule-proposals", store: "data-store/schedule/proposals.json",
+    data: "Game times you proposed for one of your fixtures or were offered (both coaches' names, up to three times, and whether they were accepted, countered or declined).",
+    purpose: "Agreeing when to play a league or tournament fixture with your opponent. The agreed time is saved on the fixture.",
+    public: "no", publicNote: "Only you and your opponent see a proposal. Once a time is agreed it shows on the fixture like its date.",
+    retention: "While your account exists; answered proposals are removed after 60 days.",
+  },
+  {
     id: "blocks", store: "data-store/blocks/",
     data: "The coaches you blocked, and when.",
     purpose: "Stopping blocked coaches from messaging you or sending you friend requests.",

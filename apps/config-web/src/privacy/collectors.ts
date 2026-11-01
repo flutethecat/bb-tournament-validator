@@ -23,6 +23,7 @@ import { coachAvatarId, coachAvatarKey, coachProxyCacheKeys, deleteCoachAvatarDa
 import { avatarStoreFor } from "../teamAvatars.js";
 import { notificationCoachKey, notificationFileName } from "../notifications.js";
 import { socialFileName } from "../social/store.js";
+import { ProposalStore } from "../schedule/store.js";
 import { createAnonymiser, createTextReplacer, nameKey, textAliases, type Anonymiser, type TextReplacer } from "./anonymise.js";
 import { coachKeyHash, isReservedCoachName } from "./fence.js";
 import { addToBlocklist, mapHash, markRecentDeletion, recordDeletedCoach, type StepStatus } from "./state.js";
@@ -555,6 +556,18 @@ export const STORE_COLLECTORS: StoreCollector[] = [
     erase: ["social", "anonymise-messages", "final-sweep"],
   },
   {
+    // Game-time proposals (src/schedule/store.ts): every proposal the coach sent or was sent, with both coaches' names
+    // and the candidate times. The agreed time itself lives on the fixture (league / tournament records).
+    id: "schedule-proposals",
+    location: "FORK_STATE_DIR/schedule/proposals.json",
+    export: (ctx) => {
+      let rows: unknown[] = [];
+      try { rows = new ProposalStore(ctx.deps.stateDir).all().filter((p) => isMine(ctx.keys, p.from) || isMine(ctx.keys, p.to)); } catch { rows = []; }
+      return rows.length ? [{ name: "game-proposals.json", content: json(rows) }] : [];
+    },
+    erase: ["schedule-proposals", "final-sweep"],
+  },
+  {
     // Fixture lobbies (src/fixtureLobby): the chat is kept with the fixture. Every lobby the coach is one of the two
     // coaches of (by account) or wrote in, with its whole chat and both sides' lobby state.
     id: "fixture-lobbies",
@@ -618,7 +631,7 @@ export const KNOWN_STORES = [
   "team-library", "fork-db", "tournaments", "leagues", "tabletop", "tabletop-teams", "tournament-results", "tournament-matches", "naf-games",
   "coach-titles", "replay-moments", "notifications", "bug-reports", "test-games", "logs", "fork-teams-xml", "bot-registry",
   "privacy-blocklist", "lobby-chat", "desktop-claims", "translation-cache", "mail", "friends", "blocks", "messages",
-  "fixture-lobbies",
+  "fixture-lobbies", "schedule-proposals",
 ] as const;
 
 /**
@@ -634,7 +647,7 @@ export const INVENTORY_ROWS: Record<(typeof KNOWN_STORES)[number], string[]> = {
   notifications: ["notifications"], "bug-reports": ["bug-reports"], "test-games": [], logs: ["logs"], "fork-teams-xml": ["fork-teams-xml"],
   "bot-registry": ["bot-registry"], "privacy-blocklist": [], "lobby-chat": ["lobby-chat"], "desktop-claims": ["desktop-claims"],
   "translation-cache": ["translation-cache"], mail: ["mail"], friends: ["friends"], blocks: ["blocks"], messages: ["messages"],
-  "fixture-lobbies": ["fixture-lobbies"],
+  "fixture-lobbies": ["fixture-lobbies"], "schedule-proposals": ["schedule-proposals"],
 };
 
 /** Team keys whose logos belong to the coach: their builder saves and library teams. */
@@ -678,6 +691,8 @@ blocks.json             The coaches you blocked.
 messages.json           Your private conversations (both coaches' messages) and your conversation list.
 fixture-lobbies.json    The fixture lobbies of your league fixtures: the lobby chat (both coaches' and organisers'
                         messages), roster and inducement locks, and the start record.
+game-proposals.json     Game times you proposed to an opponent or were offered, and the answers (accepted,
+                        countered, declined).
 mail.json               Your email settings (confirmed address, an open confirmation, league email choice) and the
                         emails queued or recently sent to you.
 bug-reports-index.json  The bug reports and feedback you sent (id, date, description).
@@ -1001,6 +1016,8 @@ export const DELETE_STEPS: DeleteStep[] = [
   { id: "library", run: ({ deps, names }) => { removeLibraryRows(deps, names); return "done"; } },
   { id: "notifications", run: ({ deps, plan }) => { removeNotifications(deps, plan); return "done"; } },
   { id: "social", run: ({ deps, plan, names }) => { removeSocial(deps, plan, names); return "done"; } },
+  // Game-time proposals: every proposal naming the coach goes (both directions; the other coach loses the pending offer).
+  { id: "schedule-proposals", run: ({ deps, names }) => { new ProposalStore(deps.stateDir).removeCoach(names); return "done"; } },
   {
     // Private threads stay for the other coach, with this coach shown as their pseudonym ("Deleted coach #n"); a thread
     // whose two coaches are both deleted goes.
@@ -1237,6 +1254,7 @@ export const DELETE_STEPS: DeleteStep[] = [
       removeLibraryRows(deps, names);
       removeNotifications(deps, plan);
       removeSocial(deps, plan, names);
+      new ProposalStore(deps.stateDir).removeCoach(names);
       if (deps.mail) for (const n of plan.coachNames) deps.mail.forgetCoach(n);
       for (const n of plan.coachNames) await deleteCoachAvatarData(deps.coachAvatarsDir, n, plan.proxyKeys);
       return "done";

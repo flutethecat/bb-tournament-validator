@@ -21,6 +21,7 @@ import LinkOutView from "./views/LinkOutView.vue";
 import LobbyRoomView from "./views/LobbyRoomView.vue";
 import LobbyStartView from "./views/LobbyStartView.vue";
 import MessagesView from "./views/MessagesView.vue";
+import ScheduleView from "./views/ScheduleView.vue";
 import NotFoundView from "./views/NotFoundView.vue";
 import PrivacyView from "./views/PrivacyView.vue";
 import SeriesDetailView from "./views/SeriesDetailView.vue";
@@ -162,6 +163,7 @@ export const routes: RouteRecordRaw[] = [
   },
   { path: "/account", name: "account", component: AccountView, meta: { requiresAuth: true, title: "Account" } },
   // Private messages (spec §4.4): the conversation list, and one thread by id; ?to=<coach> starts a new one.
+  { path: "/schedule", name: "schedule", component: ScheduleView, meta: { requiresAuth: true, title: "Schedule" } },
   { path: "/messages/:id(t[a-f0-9]{16})?", name: "messages", component: MessagesView, meta: { requiresAuth: true, title: "Messages" } },
   { path: "/:pathMatch(.*)*", name: "not-found", component: NotFoundView, meta: { title: "Page not found" } },
 ];

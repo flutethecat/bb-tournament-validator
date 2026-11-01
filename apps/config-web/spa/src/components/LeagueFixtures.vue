@@ -14,6 +14,8 @@ import { computed, inject, nextTick, onMounted, ref, watch } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import { fixtureQuery } from "../leagues/fixture";
 import { leagueLobbyPath } from "../leagues/lobby";
+import { leagueFixtureRef, proposePath, whenIn } from "../schedule/schedule";
+import { SESSION_KEY } from "../session";
 import { fixtureOpenForLobby } from "../leagues/fixtureNav";
 import {
   currentRound, filterFixtures, fixtureRounds, fixtureStatus, fixtureTeams, keepPhase, keepTeam, parseRound, readFixturesView, roundSteps, scoreLinkLabel, writeFixturesView,
@@ -39,6 +41,15 @@ const latest = computed(() => detail?.state.seasons[0]?.id);
 const summaryLink = (f: LeagueFixture) => ({ query: fixtureQuery(props.season.id === latest.value ? undefined : props.season.id, f.id) });
 /** Pending fixtures open their lobby (spec §8: reachable from the fixture row). */
 const lobbyLink = (f: LeagueFixture): string | undefined => (props.season.status === "active" && fixtureOpenForLobby(f) ? leagueLobbyPath(props.league.id, props.season.id, f.id) : undefined);
+/** "Propose a time" (Schedule, ruling §7) on the signed-in coach's own open fixtures; the server decides who holds the seat. */
+const session = inject(SESSION_KEY, null);
+const norm = (v: string | undefined): string => (v ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+const proposeLink = (f: LeagueFixture): string | undefined => {
+  const me = session?.signedIn() ? norm(session.coach()) : "";
+  if (!me || !lobbyLink(f)) return undefined;
+  const mine = [f.home, f.away].some((s) => norm(s.coachId) === me || (!s.coachId && norm(s.coach) === me));
+  return mine ? proposePath(leagueFixtureRef(props.league.id, props.season.id, f.id)) : undefined;
+};
 const FORK_LABEL: Record<string, string> = { teams_built: "Teams built", scheduled: "Game scheduled", in_progress: "In progress", finished: "Played on Super FUMBBL", launch_failed: "Failed", cancelled: "Cancelled" };
 const phase = ref("all");
 const team = ref("");
@@ -151,8 +162,10 @@ watch(pick, placeStrip);
               </div>
               <div class="lg-fork-row">
                 <RouterLink v-if="lobbyLink(f)" class="tl-action lg-fx-link" data-lobby :to="lobbyLink(f)!" :aria-label="`Fixture lobby: ${f.home.team} against ${f.away.team}`">Lobby</RouterLink>
+                <RouterLink v-if="proposeLink(f)" class="tl-action lg-fx-link" data-propose :to="proposeLink(f)!" :aria-label="`Propose a time: ${f.home.team} against ${f.away.team}`">Propose a time</RouterLink>
                 <RouterLink class="tl-action lg-fx-link" :to="summaryLink(f)" :aria-label="`Fixture summary: ${f.home.team} against ${f.away.team}`">Summary</RouterLink>
                 <span v-if="dl(f)" class="sf-chip lg-dl-chip" :data-tone="dl(f)!.tone" :title="dl(f)!.title" data-deadline>{{ dl(f)!.label }}</span>
+                <span v-if="f.scheduledTime && !fixturePlayed(f)" class="sf-chip" data-tone="info" data-agreed>Agreed {{ whenIn(f.scheduledTime.start, zone) }}</span>
                 <span v-if="f.forkEnabled" class="sf-chip" data-tone="ok" data-fork="on">Super FUMBBL</span>
                 <span v-if="f.fork" class="sf-chip" data-tone="info" :data-fork-status="f.fork.status">{{ FORK_LABEL[f.fork.status] ?? f.fork.status }}</span>
                 <label v-if="forkSwitch(f)" class="lg-fork-switch">
@@ -190,10 +203,12 @@ watch(pick, placeStrip);
               <td class="lg-fx-status">
                 <span v-if="!(dl(f) && ['Scheduled', 'Overdue'].includes(fixtureStatus(f, today).label))" class="sf-chip" :data-tone="fixtureStatus(f, today).tone" :data-status="fixtureStatus(f, today).label.toLowerCase()">{{ fixtureStatus(f, today).label }}</span>
                 <span v-if="dl(f)" class="sf-chip lg-dl-chip" :data-tone="dl(f)!.tone" :title="dl(f)!.title" data-deadline>{{ dl(f)!.label }}</span>
+                <span v-if="f.scheduledTime && !fixturePlayed(f)" class="sf-chip" data-tone="info" data-agreed>Agreed {{ whenIn(f.scheduledTime.start, zone) }}</span>
                 <span v-if="f.forkEnabled" class="sf-chip" data-tone="ok" data-fork="on">Super FUMBBL</span>
                 <span v-if="f.fork" class="sf-chip" data-tone="info" :data-fork-status="f.fork.status">{{ FORK_LABEL[f.fork.status] ?? f.fork.status }}</span>
                 <small v-for="m in marks(f)" :key="m" class="lg-fx-mark">{{ m }}</small>
                 <RouterLink v-if="lobbyLink(f)" class="tl-action lg-fx-link" data-lobby :to="lobbyLink(f)!" :aria-label="`Fixture lobby: ${f.home.team} against ${f.away.team}`">Lobby</RouterLink>
+                <RouterLink v-if="proposeLink(f)" class="tl-action lg-fx-link" data-propose :to="proposeLink(f)!" :aria-label="`Propose a time: ${f.home.team} against ${f.away.team}`">Propose a time</RouterLink>
                 <label v-if="forkSwitch(f)" class="lg-fork-switch">
                   <input type="checkbox" role="switch" :checked="f.forkEnabled === true" :aria-checked="f.forkEnabled ? 'true' : 'false'" :disabled="detail?.state.forkBusy === f.id" @change="setFork(f, $event)" />
                   <span>Allow Super FUMBBL</span>

@@ -33,7 +33,7 @@ export function createAccountEditors(deps: {
   const profile = shallowRef(makeProfile(coach.value));
   const schedule = shallowRef(makeSchedule());
   const proposals = ref<ProposedTime[]>([]);
-  const load = deps.loadProposals ?? defaultLoadProposals;
+  const load = deps.loadProposals ?? (() => defaultLoadProposals(deps.api));
 
   async function refreshProposals(): Promise<void> {
     const forCoach = coach.value;

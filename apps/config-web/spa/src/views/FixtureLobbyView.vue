@@ -15,6 +15,7 @@ import LobbyInducements from "../components/LobbyInducements.vue";
 import LobbyStart from "../components/LobbyStart.vue";
 import { crestFor, day, initials } from "../leagues/league";
 import { createFixtureLobby, FIXTURE_LOBBY_KEY, kGold, mySide, otherSide, type LobbySide } from "../leagues/lobby";
+import { leagueFixtureRef, proposePath } from "../schedule/schedule";
 import "../leagues/leagues.css";
 import "../leagues/lobby.css";
 
@@ -37,6 +38,9 @@ onMounted(async () => {
 watch(() => [props.id, props.seasonId, props.fixtureId], () => { void lobby.load(props.id, props.seasonId, props.fixtureId); });
 onBeforeUnmount(() => lobby.stop());
 
+// "Propose a time" (Schedule, ruling §7): for the two coaches while the lobby is open.
+const proposeTo = computed(() => (view.value?.open && (view.value.viewer.role === "home" || view.value.viewer.role === "away")
+  ? proposePath(leagueFixtureRef(props.id, props.seasonId, props.fixtureId)) : ""));
 const crest = (s: LobbySide): string => (view.value ? crestFor(crests.value, view.value.sides[s].team.race) : "");
 const midLine = computed(() => {
   const h = view.value?.header;
@@ -61,6 +65,7 @@ const midLine = computed(() => {
           <span>Round {{ view.header.round }}{{ view.header.table ? ` · Table ${view.header.table}` : "" }}</span>
         </nav>
         <div class="sf-btn-row">
+          <RouterLink v-if="proposeTo" class="sf-btn small primary" data-propose :to="proposeTo">Propose a time</RouterLink>
           <RouterLink class="sf-btn small" :to="view.links.standings">Standings</RouterLink>
           <RouterLink class="sf-btn small" :to="view.links.rules">Rules</RouterLink>
           <RouterLink class="sf-btn small" :to="view.links.fixture">Leave lobby</RouterLink>

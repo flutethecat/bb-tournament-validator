@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-01",
+    "title": "Propose a time for your fixtures",
+    "body": "Agree when to play a league fixture or tournament match with your opponent: offer up to three 2-hour times, and they accept one, suggest others or decline. The agreed time is saved on the fixture and shows on your new Schedule page (month, week, day and list views), with warnings for late hours in your opponent's timezone.",
+    "links": [
+      {
+        "label": "Schedule",
+        "href": "/app/schedule"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-01",
     "title": "Organisers can correct tournament results",
     "body": "Tournament organisers can now edit or clear a confirmed result from Manage, Rounds. Standings, statistics, series points and the podium update at once, both coaches are told, and the fixture shows an Edited chip with who changed it.",
     "links": [

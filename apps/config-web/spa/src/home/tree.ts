@@ -10,6 +10,7 @@ import type { TournamentDetailResponse, TournamentEntrant, TournamentFixture, To
 import { resolveCrest, type ArtManifests } from "../tabletop/art";
 import { rosterState } from "../tournaments/detail";
 import { chipFor, type DeadlineChip, type DeadlineView } from "./deadlines";
+import { proposePath, refFromLobbyPath, tournamentFixtureRef } from "../schedule/schedule";
 
 export type ChipTone = "ok" | "soon" | "urgent" | "overdue" | "info" | "muted";
 
@@ -30,8 +31,8 @@ export interface TreeTournament {
   status: { label: string; tone: ChipTone };
   to: string;
   team: TreeTeam | null;
-  /** null = "No fixture yet". */
-  fixture: { label: string; to: string } | null;
+  /** null = "No fixture yet". `propose` = the Schedule link that opens Propose a time for it. */
+  fixture: { label: string; to: string; propose?: string } | null;
 }
 
 /** One league team of the coach, as GET /api/me/leagues sends it (src/leagues/myLeagues.ts). */
@@ -60,7 +61,7 @@ export interface TreeLeagueTeam {
   record: string;
   to: string;
   /** null = no unplayed fixture. `deadline` = the effective deadline (UTC ISO); the row's chip is computed at render. */
-  fixture: { label: string; to: string; deadline?: string; needsDecision?: boolean } | null;
+  fixture: { label: string; to: string; deadline?: string; needsDecision?: boolean; propose?: string } | null;
 }
 export interface TreeLeague {
   id: string;
@@ -97,6 +98,7 @@ export function treeLeagues(rows: unknown, art: ArtManifests): TreeLeague[] {
           label: `${n.opponent ? `vs ${n.opponent}` : "Bye"} · Round${NBSP}${count(n.round)}`, to: n.to,
           ...(typeof n.deadline === "string" && Number.isFinite(Date.parse(n.deadline)) ? { deadline: n.deadline } : {}),
           ...(n.needsDecision === true ? { needsDecision: true } : {}),
+          ...(refFromLobbyPath(n.to) ? { propose: proposePath(refFromLobbyPath(n.to)!) } : {}),
         } : null,
       });
     }
@@ -178,7 +180,7 @@ export function treeTournament(
   if (f) {
     const home = f.home.entrantId === myId;
     const opp = home ? (f.away ? nameOf(f.away.entrantId, f.away.coach.ffbCoachId) : "") : nameOf(f.home.entrantId, f.home.coach.ffbCoachId);
-    fixture = { label: `Round ${f.roundNumber} · ${opp ? `vs ${opp}` : "Bye"}`, to: `${to}?tab=rounds` };
+    fixture = { label: `Round ${f.roundNumber} · ${opp ? `vs ${opp}` : "Bye"}`, to: `${to}?tab=rounds`, ...(f.away ? { propose: proposePath(tournamentFixtureRef(f.id)) } : {}) };
   } else {
     const tf = tabletop.find((x) => x.tournament?.id === t.id);
     if (tf) {

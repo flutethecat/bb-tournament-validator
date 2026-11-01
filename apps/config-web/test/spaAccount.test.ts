@@ -129,7 +129,7 @@ describe("calendar helpers", () => {
     expect(agenda(events, { year: 2026, month: 9 }, "Asia/Tokyo").map((e) => e.id)).toEqual(["report:x"]);
   });
 
-  it("availability per Monday-first weekday column; proposals are an empty source for now", async () => {
+  it("availability per Monday-first weekday column; without a fetcher the proposals source is empty", async () => {
     const cols = availabilityByWeekday([{ day: 5, start: "14:00", end: "16:00" }, { day: 0, start: "19:00", end: "22:00" }, { day: 5, start: "10:00", end: "12:00" }]);
     expect(cols).toHaveLength(7);
     expect(cols[0]!.map((b) => b.start)).toEqual(["19:00"]);

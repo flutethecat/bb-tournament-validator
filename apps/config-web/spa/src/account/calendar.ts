@@ -1,12 +1,14 @@
 // Account page CALENDAR panel: a Monday-first month grid (matching the availability week grid) that plots the coach's
-// deadlines and fixtures from GET /api/me/deadlines, plus a typed source for proposed match times (two coaches agreeing
-// a time for a fixture; none exist yet, so the source is an empty list). Days are keyed in the coach's timezone. No DOM;
-// rendered by AccountCalendar.vue.
+// deadlines and fixtures from GET /api/me/deadlines, plus the agreed and proposed match times from GET /api/schedule/mine
+// (two coaches agreeing a time for a fixture; src/schedule). Days are keyed in the coach's timezone. No DOM; rendered by
+// AccountCalendar.vue.
 
+import type { Fetcher } from "../session";
 import { chipFor, validTimeZone, type DeadlineChip, type DeadlineView } from "../home/deadlines";
 import { byDay, type AvailabilityBlock } from "../home/schedule";
+import { scheduleApi, type ScheduleView } from "../schedule/schedule";
 
-/** A proposed time for a fixture. Placeholder shape for the proposals lane: it only has to map onto a CalendarEvent. */
+/** A proposed (pending) or agreed (accepted) time for a fixture, as the calendar plots it. */
 export interface ProposedTime {
   id: string;
   /** ISO instant proposed. */
@@ -152,9 +154,29 @@ export function availabilityByWeekday(blocks: readonly AvailabilityBlock[]): Ava
   return byDay(blocks);
 }
 
-/** Proposed times: none exist yet. The proposals lane replaces this with its own read. */
-export async function loadProposals(): Promise<ProposedTime[]> {
-  return [];
+/** The Schedule read as calendar rows: each agreed fixture time ("accepted", opens the fixture) and each slot of a
+ *  pending proposal ("pending", opens it on the Schedule page). */
+export function proposedTimesFrom(view: Pick<ScheduleView, "fixtures" | "proposals">): ProposedTime[] {
+  const byRef = new Map(view.fixtures.map((f) => [f.ref, f]));
+  const out: ProposedTime[] = [];
+  for (const f of view.fixtures) {
+    if (!f.scheduled) continue;
+    out.push({ id: `agreed:${f.ref}`, at: f.scheduled.start, opponent: f.opponent?.coach ?? f.opponentTeam, detail: f.competition, link: f.link, state: "accepted", mine: false });
+  }
+  for (const p of view.proposals) {
+    const f = byRef.get(p.fixture);
+    if (p.status !== "pending" || !f) continue;
+    p.slots.forEach((s, i) => out.push({
+      id: `${p.id}:${i}`, at: s.start, opponent: p.mine ? p.to : p.from, detail: f.competition, link: `/schedule?proposal=${encodeURIComponent(p.id)}`, state: "pending", mine: p.mine,
+    }));
+  }
+  return out;
+}
+
+/** Agreed and proposed times for the calendar (GET /api/schedule/mine). No fetcher, or a failed read: none. */
+export async function loadProposals(api?: Fetcher): Promise<ProposedTime[]> {
+  if (!api) return [];
+  try { return proposedTimesFrom(await scheduleApi.mine(api)); } catch { return []; }
 }
 
 /** The zone the calendar keys days in. The freshly loaded scheduling timezone (saved, else detected) is the authority;

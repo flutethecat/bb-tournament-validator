@@ -13,6 +13,7 @@ import { COACH_TREE_KEY, createCoachTree, type CoachTree } from "./home/tree";
 import { CLOCK_KEY, createClock, createShellUi, SHELL_UI_KEY, type Clock, type ShellUi } from "./home/shell";
 import { NOTIFICATIONS_KEY, useNotifications } from "./home/notifications";
 import { createMessagesStore, MESSAGES_KEY } from "./home/social";
+import { createProposalsBadge, PROPOSALS_KEY } from "./schedule/schedule";
 import { createPageTitle, PAGE_TITLE_KEY, type PageTitleStore } from "./shell/pageTitle";
 import { createTournamentCreator, TOURNAMENT_CREATOR_KEY } from "./tournaments/create";
 import { createOnboarding, ONBOARDING_KEY } from "./account/onboarding";
@@ -61,6 +62,7 @@ export function createSpa(opts: SpaOptions): Spa {
   app.provide(API_KEY, fetcher);
   app.provide(NOTIFICATIONS_KEY, useNotifications(fetcher));
   app.provide(MESSAGES_KEY, createMessagesStore(fetcher));
+  app.provide(PROPOSALS_KEY, createProposalsBadge(fetcher));
   app.provide(COACH_TREE_KEY, tree);
   app.provide(SHELL_UI_KEY, ui);
   app.provide(CLOCK_KEY, clock);

@@ -311,6 +311,9 @@ import { RateLimiter } from "./translate/guards.js";
 import { createTournamentNotifier, isNotificationApiPath, NotificationStore, notificationsApi, SenderRateLimiter, setActiveNotifier, setOrganiserThreadSink } from "./notifications.js";
 import { appendOrganiserMessage, createSocialLimiters, isSocialApiPath, socialApi, type SocialApiDeps } from "./social/api.js";
 import { SocialStore } from "./social/store.js";
+import { isScheduleApiPath, scheduleApi, type ScheduleApiDeps } from "./schedule/api.js";
+import { createFixtureSource } from "./schedule/fixtures.js";
+import { ProposalStore } from "./schedule/store.js";
 import { clientIp } from "./translate/route.js";
 import { privacyContact } from "./privacy/contact.js";
 import { startLogRotation } from "./privacy/logRotation.js";
@@ -705,6 +708,34 @@ async function handleSocialRequest(req: IncomingMessage, res: ServerResponse, me
   return true;
 }
 // ---- end Friends / messages / blocks --------------------------------------------------------------------------------
+// ---- Game-time proposals + the coach Schedule (landing spec §4.6, ruling §7; src/schedule/) ---------------------------
+// <FORK_STATE_DIR>/schedule/proposals.json. Proposals name EXISTING fixtures only (league fixtures of active seasons,
+// tournament scheduled matches); accepting writes the agreed time onto the fixture and never creates one. Blocks from the
+// social store apply; one notification to the other coach per proposal, counter and accept.
+const proposalStore = new ProposalStore(FORK_STATE_DIR);
+const scheduleDeps: ScheduleApiDeps = {
+  store: proposalStore,
+  fixtures: createFixtureSource({ leagues: leagueStore, tournaments: tournamentStore }),
+  coach: (name) => socialDeps.coach(name),
+  scheduling: (coach) => {
+    const record = readIdentities().coaches[normalizeFfbCoachId(coach)];
+    return record ? schedulingView(record.scheduling) : undefined;
+  },
+  hasBlocked: (a, b) => socialStore.hasBlocked(a, b),
+  isFenced: (coach) => isCoachFenced(coach),
+  notify: leagueNotify,
+  limiter: new SenderRateLimiter(30, 60 * 60_000),
+};
+async function handleScheduleRequest(req: IncomingMessage, res: ServerResponse, method: string, path: string, auth?: SessionIdentity): Promise<boolean> {
+  const testSession = getSession(sessionTokenFromRequest(req))?.test === true;
+  const body = method === "POST" ? await readBody(req, 8 * 1024) : undefined;
+  const result = scheduleApi(method, path, auth ? { coach: auth.coach, ...(testSession ? { test: true } : {}) } : undefined, body, scheduleDeps);
+  if (!result) return false;
+  res.setHeader("cache-control", "private, no-store");
+  sendJson(res, result.status, result.body);
+  return true;
+}
+// ---- end game-time proposals ----------------------------------------------------------------------------------------
 
 /** PUBLIC_BASE_URL, validated once at startup (http/https origin, no userinfo / path); unset or invalid = none. */
 const PUBLIC_BASE_ORIGIN = ((): string | undefined => {
@@ -1959,6 +1990,7 @@ async function handleApi(
   }
 
   if (isSocialApiPath(path) && await handleSocialRequest(req, res, method, path, query, auth)) return;
+  if (isScheduleApiPath(path) && await handleScheduleRequest(req, res, method, path, auth)) return;
 
   if (mail.isMeMailPath(path)) {
     const testSession = getSession(sessionTokenFromRequest(req))?.test === true;
@@ -4707,6 +4739,7 @@ export const server = createServer((req, res) => {
         const accountSession = auth !== undefined && (
           url.pathname === "/api/account" ||
           url.pathname.startsWith("/api/me/") ||
+          isScheduleApiPath(url.pathname) ||
           url.pathname === "/api/admin/identities/naf" ||
           teamBuilderSavesPath(url.pathname) !== undefined ||
           teamAvatarPath(url.pathname) !== undefined ||

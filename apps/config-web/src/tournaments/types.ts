@@ -301,6 +301,8 @@ export interface ScheduledMatchRecord {
   revision: number;
   launch: ChallengerLaunchMetadata;
   result?: ScheduledMatchResult;
+  /** The time both coaches agreed through a game-time proposal (src/schedule): a 2-hour slot, UTC ISO. */
+  scheduledTime?: { start: string; end: string; agreedAt: string };
   /** v4: set when an organiser changed this fixture: its pairing (fixtures editor, phase 4) or, with `kind: "result"`,
    *  its confirmed result (organiser result edit, owner ruling 10-29 §7). The latest change only; the full history is
    *  the tournament's `activity` log. */

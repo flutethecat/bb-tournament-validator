@@ -188,6 +188,8 @@ export interface LeagueFixture {
   forkCancelled?: boolean;
   /** Play on Super FUMBBL state (forkPlay.ts): the fork teams built for it, the scheduled game, the applied result. */
   fork?: FixtureForkState;
+  /** The time both coaches agreed through a game-time proposal (src/schedule): a 2-hour slot, UTC ISO. Never set by an import. */
+  scheduledTime?: { start: string; end: string; agreedAt: string };
   /** Organiser's per-fixture deadline (UTC ISO); unset = the round deadline (deadlines.ts effectiveDeadline). */
   deadline?: string;
   /** What happened at the deadline (deadlines.ts): the auto-forfeit job's outcome, or an organiser's decision. */

@@ -14,6 +14,7 @@ import { SESSION_KEY } from "../session";
 import { creatorAllowed } from "../tournaments/creator";
 import { NOTIFICATIONS_KEY, homeBadgeCount, unreadBadge } from "../home/notifications";
 import { MESSAGES_KEY } from "../home/social";
+import { PROPOSALS_KEY } from "../schedule/schedule";
 import {
   HOME_LINK, LEAGUES_TO, NAV_ICON, railIntercepts, readNavOpen, rememberNavOpen, RESOURCES, TESTING_TOOLS,
   type ExternalLink, type NavCategoryId,
@@ -23,11 +24,12 @@ const session = inject(SESSION_KEY)!;
 const tree = inject(COACH_TREE_KEY)!;
 const notifications = inject(NOTIFICATIONS_KEY)!;
 const messages = inject(MESSAGES_KEY, undefined);
+const proposals = inject(PROPOSALS_KEY, undefined);
 const ui = inject(SHELL_UI_KEY)!;
 const route = useRoute();
 const open = reactive(readNavOpen());
 
-interface Row { key: string; to: string; label: string; level: number; count?: number; chip?: { label: string; tone: ChipTone }; muted?: boolean; crest?: string; logo?: string; sub?: string; wrap?: boolean }
+interface Row { key: string; to: string; label: string; level: number; count?: number; chip?: { label: string; tone: ChipTone }; muted?: boolean; crest?: string; logo?: string; sub?: string; wrap?: boolean; propose?: boolean }
 interface NavAction { key: string; label: string; to: string }
 interface Category { id: NavCategoryId; label: string; icon: string; to?: string; rows: Row[]; external?: ExternalLink[]; actions?: NavAction[]; count: number }
 
@@ -40,6 +42,7 @@ const tournamentRows = computed<Row[]>(() => {
       rows.push(t.fixture
         ? { key: `t:${t.id}:fixture`, to: t.fixture.to, label: t.fixture.label, level: 3 }
         : { key: `t:${t.id}:fixture`, to: `${t.to}?tab=rounds`, label: "No fixture yet", level: 3, muted: true });
+      if (t.fixture?.propose && session.signedIn()) rows.push({ key: `t:${t.id}:propose`, to: t.fixture.propose, label: "Propose a time", level: 4, propose: true });
     }
   }
   // With nothing to show, one muted note; the Tournaments header itself opens the list.
@@ -70,6 +73,7 @@ const leagueRows = computed<Row[]>(() => {
       rows.push(t.fixture
         ? { key: `l:${t.key}:fixture`, to: t.fixture.to, label: t.fixture.label, level: 3, wrap: true, chip: fixtureChip(t.fixture) }
         : { key: `l:${t.key}:fixture`, to: `${l.to}${l.to.includes("?") ? "&" : "?"}tab=fixtures`, label: "No fixture yet", level: 3, muted: true });
+      if (t.fixture?.propose) rows.push({ key: `l:${t.key}:propose`, to: t.fixture.propose, label: "Propose a time", level: 4, propose: true });
     }
   }
   if (!rows.length) rows.push({ key: "l:none", to: LEAGUES_TO, label: "No active leagues", level: 1, muted: true });
@@ -81,11 +85,14 @@ const linkRows = (prefix: string, links: { label: string; to: string }[]): Row[]
 // the session on navigation and focus, so a revoked flag hides the category); everyone else never sees it.
 const isAdmin = computed(() => session.admin());
 
-// Home carries the coach page's unread badge (notifications + unread private messages + proposed times; proposals are
-// wired to 0 until their store lands). Hidden at 0 and when signed out. The message count is re-read on sign-in and
-// whenever the notification count moves (a new message burst raises one notification).
-const homeBadge = computed(() => !session.signedIn() ? 0 : homeBadgeCount({ unread: notifications.unread.value, messages: messages?.unread.value ?? 0, proposals: 0 }));
-const refreshMessages = () => { if (messages && session.signedIn()) void messages.load(); else messages?.set(0); };
+// Home carries the coach page's unread badge (notifications + unread private messages + proposals waiting for this
+// coach's answer, GET /api/schedule/pending). Hidden at 0 and when signed out. The message and proposal counts are re-read
+// on sign-in and whenever the notification count moves (a new message burst or proposal raises one notification).
+const homeBadge = computed(() => !session.signedIn() ? 0 : homeBadgeCount({ unread: notifications.unread.value, messages: messages?.unread.value ?? 0, proposals: proposals?.pending.value ?? 0 }));
+const refreshMessages = () => {
+  if (messages && session.signedIn()) void messages.load(); else messages?.set(0);
+  if (proposals && session.signedIn()) void proposals.load(); else proposals?.set(0);
+};
 onMounted(refreshMessages);
 watch(() => [session.signedIn(), notifications.unread.value], refreshMessages);
 
@@ -176,7 +183,7 @@ function onHeadToggle(id: NavCategoryId, e: MouseEvent): void {
           <RouterLink v-slot="{ href, navigate }" :to="r.to" custom>
             <a
               :href="href" class="sf-row" :style="{ '--sf-level': r.level }" :data-level="r.level"
-              :data-active="activeKey === r.key ? 'true' : undefined" :data-muted="r.muted ? 'true' : undefined" :data-wrap="r.wrap ? 'true' : undefined"
+              :data-active="activeKey === r.key ? 'true' : undefined" :data-muted="r.muted ? 'true' : undefined" :data-wrap="r.wrap ? 'true' : undefined" :data-propose="r.propose ? 'true' : undefined"
               :aria-current="activeKey === r.key ? 'page' : undefined" @click="navigate"
             >
               <img v-if="r.crest && !r.logo" class="sf-crest" :src="r.crest" alt="" loading="lazy" />

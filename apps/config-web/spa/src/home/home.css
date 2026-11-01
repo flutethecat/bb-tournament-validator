@@ -164,6 +164,7 @@
 .sf-row { display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 5px 10px 5px calc(10px + (var(--sf-level, 1) - 1) * 14px); color: var(--ui-text); text-decoration: none; font-size: 16px; line-height: 1.25; border-left: 3px solid transparent; }
 .sf-row:hover { background: var(--ui-hover); }
 .sf-row[data-muted="true"] { color: var(--ui-muted); }
+.sf-row[data-propose="true"] { color: var(--sf-gold); font: 10px/1.6 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; }
 .sf-row[data-active="true"] { color: var(--sf-seat-home); background: color-mix(in srgb, var(--sf-seat-home) 18%, transparent); border-left-color: var(--sf-seat-home); font-weight: 600; }
 .sf-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sf-sub { margin-left: 6px; color: var(--ui-muted); font-size: 13px; }

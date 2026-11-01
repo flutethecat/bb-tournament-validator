@@ -71,6 +71,8 @@ export interface LeagueFixture {
   forkCancelled?: boolean;
   /** Season reads carry the Super FUMBBL status only. */
   fork?: { status: FixtureForkStatus };
+  /** The time both coaches agreed through a game-time proposal (Schedule): a 2-hour slot, UTC ISO. */
+  scheduledTime?: { start: string; end: string; agreedAt: string };
   /** Organiser's per-fixture deadline (UTC ISO); unset = the round deadline. */
   deadline?: string;
   /** What happened at the deadline: the auto-forfeit outcome (auto) or an organiser's decision. */
