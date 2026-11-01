@@ -6,20 +6,41 @@
  * store's season write (store.ts putSeason) against the stored copy of the same season. Light on purpose: no dataset
  * imports, so the store can call it. Eligibility and the appointment route live in captainApi.ts.
  */
-import { hasTeamCaptain, nextCaptainVacancy } from "../captain.js";
-import type { LeagueTeam, SeasonRecord } from "./types.js";
+import { hasTeamCaptain } from "../captain.js";
+import type { LeaguePlayer, LeagueTeam, SeasonRecord } from "./types.js";
 
-const vacancyPlayers = (players: LeagueTeam["players"] | undefined) =>
-  (players ?? []).map((p) => ({ ids: [p.playerId, ...(p.previousIds ?? [])], skills: p.skills ?? [] }));
+/** The roster player known by `id` (its own id, or an earlier season's id: a redraft gives kept players fresh ids). */
+const holderOf = (players: readonly LeaguePlayer[], id: string): LeaguePlayer | undefined =>
+  players.find((p) => p.playerId === id || (p.previousIds ?? []).includes(id));
 
 /**
- * Sets / clears `after.captainVacant` from the roster change `before` -> `after` (in place). Idempotent. Departure is by
- * player id (a re-import that omits the captain's skills is no departure), and a vacancy on `before` carries over (a
- * fresh import has no flag) until a roster player carries the trait again.
+ * Sets / clears `after.captainVacant` and `after.captainPlayerId` from the roster change `before` -> `after` (in place).
+ * Idempotent. The captain's identity is the persisted `captainPlayerId` (set from any roster that shows the trait, an
+ * appointment, or a draft nomination) and is carried across writes, so a re-import that omits skills keeps it and a
+ * later departure of that player is still seen. Departure = that id (or a redraft successor) no longer on the roster.
+ * An existing vacancy carries over (a fresh import has no flag) until a roster player carries the trait again.
  */
-export function markCaptainVacancy(before: Pick<LeagueTeam, "players" | "captainVacant"> | undefined, after: LeagueTeam): void {
-  const vacant = nextCaptainVacancy(vacancyPlayers(before?.players), vacancyPlayers(after.players), after.captainVacant === true || before?.captainVacant === true);
-  if (vacant) after.captainVacant = true;
+export function markCaptainVacancy(before: Pick<LeagueTeam, "players" | "captainVacant" | "captainPlayerId"> | undefined, after: LeagueTeam): void {
+  const players = after.players ?? [];
+  const carrier = players.find((p) => hasTeamCaptain(p.skills));
+  if (carrier) {
+    after.captainPlayerId = carrier.playerId;
+    delete after.captainVacant;
+    return;
+  }
+  const known = after.captainPlayerId ?? before?.captainPlayerId ?? before?.players?.find((p) => hasTeamCaptain(p.skills))?.playerId;
+  if (known) {
+    const holder = holderOf(players, known);
+    if (holder) {
+      after.captainPlayerId = holder.playerId; // still rostered (skills omitted by an import): no vacancy
+      delete after.captainVacant;
+    } else {
+      delete after.captainPlayerId;
+      after.captainVacant = true;
+    }
+    return;
+  }
+  if (after.captainVacant === true || before?.captainVacant === true) after.captainVacant = true;
   else delete after.captainVacant;
 }
 

@@ -547,6 +547,8 @@ export interface LeagueTeam {
    * and cleared by leagues/captain.ts markCaptainVacancy on every roster write, cleared by an appointment).
    */
   captainVacant?: true;
+  /** The Team Captain's playerId while one is known (leagues/captain.ts): survives a re-import that omits skills. */
+  captainPlayerId?: string;
 }
 
 export type HonourKind = "player" | "team" | "coach";

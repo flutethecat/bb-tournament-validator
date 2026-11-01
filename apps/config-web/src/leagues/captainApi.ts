@@ -52,6 +52,7 @@ export function appointLeagueCaptain(team: LeagueTeam, playerId: string): { ok: 
   player.captainGrants = captainGrantsFor(player.skills ?? []);
   player.skills = appointedSkills(player.skills ?? []);
   delete team.captainVacant;
+  team.captainPlayerId = player.playerId;
   return { ok: true, player };
 }
 

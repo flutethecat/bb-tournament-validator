@@ -17,7 +17,7 @@ import { parseFumbblResult } from "../src/site-backend/fumbblResult.js";
 import { buildBankTasks } from "../src/site-backend/fumbblResultBanking.js";
 import { parseEvent, validateEvent, type TabletopEvent } from "../src/tabletop/events.js";
 import { applyPostMatch, teamFileCaptainVacant, type TabletopPlayer, type TabletopTeamFile } from "../src/tabletop/postMatch.js";
-import { teamDetailEndpoint } from "../src/teamDetail.js";
+import { storedTeamHasHistory, teamDetailEndpoint } from "../src/teamDetail.js";
 import { libraryManageView } from "../src/teamManageView.js";
 import { teamMutationEndpoint, type TeamMutationDeps } from "../src/teamMutation.js";
 
@@ -120,6 +120,33 @@ describe("league: vacancy set by every roster path", () => {
     const appointed = humans({ players: [lp("p2", "Lineman", ["Team Captain", "Pro"])] });
     markCaptainVacancy(vacantHumans(), appointed);
     expect(appointed.captainVacant).toBeUndefined();
+  });
+  it("the captain's player id persists across a skill-omitting re-import, so his later departure is still a vacancy", () => {
+    const stored = humans();
+    markCaptainVacancy(undefined, stored);
+    expect(stored.captainPlayerId).toBe("p1");
+    const reimport = humans({ captainPlayerId: undefined });
+    reimport.players = reimport.players.map((p) => ({ ...p, skills: p.skills.filter((s) => s !== "Team Captain" && s !== "Pro") }));
+    delete reimport.captainPlayerId;
+    markCaptainVacancy(stored, reimport);
+    expect(reimport.captainPlayerId).toBe("p1");
+    expect(reimport.captainVacant).toBeUndefined();
+    const afterDeath = structuredClone(reimport);
+    afterDeath.players = afterDeath.players.filter((p) => p.playerId !== "p1");
+    markCaptainVacancy(reimport, afterDeath);
+    expect(afterDeath.captainVacant).toBe(true);
+    expect(afterDeath.captainPlayerId).toBeUndefined();
+    // a redraft successor (fresh id, previousIds) keeps the identity
+    const drafted = structuredClone(reimport);
+    drafted.players = drafted.players.map((p) => (p.playerId === "p1" ? { ...p, playerId: "p1-next", previousIds: ["p1"] } : p));
+    markCaptainVacancy(reimport, drafted);
+    expect(drafted.captainPlayerId).toBe("p1-next");
+    expect(drafted.captainVacant).toBeUndefined();
+  });
+  it("an appointment persists the new captain's player id", () => {
+    const t = vacantHumans();
+    appointLeagueCaptain(t, "p2");
+    expect(t.captainPlayerId).toBe("p2");
   });
   it("any other roster write (the store's season write) that drops the captain sets it; a team with no captain before stays clear", () => {
     const t = humans();
@@ -332,6 +359,11 @@ describe("library team: fire / retire, appoint, re-hire", () => {
     const p4 = xml.match(/<player\b[^>]*id="p4"[\s\S]*?<\/player>/)![0];
     expect(playerProgression(p4, ROSTER).currentValue).toBe(70_000);
     expect(playerProgression(p4, ROSTER).advancements).toBe(1);
+  });
+  it("a recorded appointment (<captainGrants>) counts as history, so whole-roster recomposition cannot reprice an earned Pro", () => {
+    const appointed = `<team id="1"><player nr="1" id="a"><skillList><skill>Pro</skill><skill>Team Captain</skill></skillList><captainGrants>Team Captain</captainGrants></player></team>`;
+    expect(storedTeamHasHistory(appointed)).toBe(true);
+    expect(storedTeamHasHistory(appointed.replace("<captainGrants>Team Captain</captainGrants>", "").replace("<skill>Pro</skill><skill>Team Captain</skill>", "<skill>Team Captain</skill><skill>Pro</skill>"))).toBe(false); // draft grants only
   });
   it("a dead player still stored in the XML never counts as an existing captain", async () => {
     const dead = TEAM.replace(pl("p1", 1, "line", ["Team Captain", "Pro"]), pl("p1", 1, "line", ["Team Captain", "Pro"], "Dead"));
