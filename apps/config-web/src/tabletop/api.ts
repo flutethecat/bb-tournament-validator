@@ -723,21 +723,61 @@ export async function createMatch(
     baseRevision: { home: chainHome.head, away: chainAway.head },
   };
   await deps.repo.createMatch(match);
-  const seeded: TabletopEvent[] = match.inducements
-    ? (["home", "away"] as const).map((side) => {
-      const ind = match.inducements![side];
-      return {
-        id: `pg-inducement-${side}`, matchId: match.id, type: "inducement" as const, team: side, ts: at, by: me,
-        payload: { picks: ind.picks, total: ind.total, treasury: ind.treasury, pettyCash: ind.pettyCash, skipped: ind.picks.length === 0, submittedBy: me, lobby: true },
-      };
-    })
-    : [];
+  const seeded = lobbyInducementEvents(match, me, at);
   // the lobby's resolved inducements are the pre-game submissions (treasury spent as resolved); the step is skipped later
   await deps.repo.appendEvents(match.id, [seatsEvent(match, "pg-seats", { stage: "draw", swapped, rolledBy: "site" }, me, at), ...seeded]);
   // a fixture is starting: refresh the NAF cache of both coaches in the background (never awaited, never fails the request)
   try { void Promise.resolve(deps.naf?.refreshFor?.([home.coach, away.coach])).catch((e) => console.warn(`[naf] refresh failed: ${(e as Error).message}`)); }
   catch (e) { console.warn(`[naf] refresh failed: ${(e as Error).message}`); }
   return { status: 201, body: { match } };
+}
+
+/** The lobby's resolved inducements as the pre-game submissions of both seats (ids pg-inducement-<side>: idempotent). */
+function lobbyInducementEvents(match: MatchRecord, by: string, at: string): TabletopEvent[] {
+  if (!match.inducements) return [];
+  return (["home", "away"] as const).map((side) => {
+    const ind = match.inducements![side];
+    return {
+      id: `pg-inducement-${side}`, matchId: match.id, type: "inducement" as const, team: side, ts: at, by,
+      payload: { picks: ind.picks, total: ind.total, treasury: ind.treasury, pettyCash: ind.pettyCash, skipped: ind.picks.length === 0, submittedBy: by, lobby: true },
+    };
+  });
+}
+
+/**
+ * Fixture lobby recovery (an interrupted or refused START): the unfinished match for this fixtureRef, adopted only when
+ * its two coaches and teams are the fixture's CURRENT ones; otherwise `{ error }` (an organiser must close the old match).
+ * A match whose lobby submissions were not written (the event append failed) gets them now, once (event ids).
+ * undefined = no unfinished match for the fixture.
+ */
+export async function adoptLobbyMatch(deps: TabletopApiDeps, input: {
+  fixtureRef: string; actor: string; home: { coach: string; team: string }; away: { coach: string; team: string };
+  inducementsByCoach?: Record<string, LobbyInducements>; now?: Date;
+}): Promise<{ matchId: string } | { error: string } | undefined> {
+  const m = (await deps.repo.listMatches()).find((x) => x.fixtureRef === input.fixtureRef && (x.state === "recording" || x.state === "submitted"));
+  if (!m) return undefined;
+  const key = (c: string) => c.trim().toLowerCase();
+  const want = new Map([[key(input.home.coach), parseTeamRef(input.home.team)?.ref], [key(input.away.coach), parseTeamRef(input.away.team)?.ref]]);
+  const same = want.size === 2 && [m.home, m.away].every((s) => want.has(key(s.coach)) && want.get(key(s.coach)) === s.teamSaveId);
+  if (!same) return { error: "A match with the previous coaches or teams is still open for this fixture. An organiser must close it before this lobby can start." };
+  const by = input.inducementsByCoach;
+  const home = by?.[key(m.home.coach)], away = by?.[key(m.away.coach)];
+  if (home && away) {
+    await serial(m.id, async () => {
+      const fresh = (await deps.repo.getMatch(m.id)) ?? m;
+      if (!fresh.inducements) {
+        fresh.inducements = { home, away };
+        await deps.repo.updateMatch(fresh);
+      }
+      const events = await deps.repo.readEvents(m.id);
+      const missing = lobbyInducementEvents(fresh, input.actor, (input.now ?? new Date()).toISOString()).filter((e) => !events.some((x) => x.id === e.id));
+      if (missing.length) {
+        await deps.repo.appendEvents(m.id, missing);
+        dropSnapshot(m.id);
+      }
+    });
+  }
+  return { matchId: m.id };
 }
 
 /** A `seats` log row: who sits where (names copied in, so the row still reads right after a later swap). */

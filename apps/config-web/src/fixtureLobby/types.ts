@@ -92,7 +92,7 @@ export interface LobbyRecord {
   hold?: LobbyHold;
   resolved?: LobbyResolution;
   /** A START in flight (written before the match is created, so a crash never makes two). */
-  starting?: { opId: string; at: string; by: string };
+  starting?: { opId: string; at: string; by: string; resolution?: LobbyResolution };
   started?: { at: string; by: string; admin?: true; mode: LobbyMode; matchId?: string };
   chat: LobbyChatMessage[];
   createdAt: string;

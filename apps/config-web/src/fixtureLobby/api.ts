@@ -47,8 +47,25 @@ export interface LobbyDeps {
   recorderTeams?: (coach: string) => Array<{ ref: string; name: string; race?: string; tv?: number | null }>;
   /** Creates the tabletop match (createMatch); 201 { match: { id } } on success. */
   startTabletop?: (input: StartTabletopInput) => Promise<{ status: number; body: unknown }>;
-  /** An unfinished recorder match already created for this fixtureRef (crash recovery of an interrupted START). */
-  findMatchFor?: (fixtureRef: string) => Promise<string | undefined>;
+  /**
+   * The unfinished recorder match for this fixtureRef (recovery of an interrupted or refused START), adopted only when
+   * its coaches and teams are the fixture's current ones (`{ error }` otherwise); missing lobby submissions are re-added.
+   * undefined = there is none.
+   */
+  adoptMatch?: (input: StartTabletopInput) => Promise<{ matchId: string } | { error: string } | undefined>;
+}
+
+/** What START sends to the recorder (and what a recovery checks an open match against): the fixture's current coaches,
+ *  the locked recorder teams and the resolved lists by coach. */
+function startInput(fx: LobbyFixture, rec: LobbyRecord, actor: string, organiser: boolean, resolution: LobbyRecord["resolved"]): StartTabletopInput {
+  const team = (s: LobbySide) => ({ coach: fx.sides[s].coachId, team: rec.sides[s].teamRef ?? "" });
+  return {
+    actor, organiser, fixtureRef: fx.start.fixtureRef, home: team("home"), away: team("away"), extra: fx.start.extra,
+    inducementsByCoach: resolution ? {
+      [fx.sides.home.coachId.trim().toLowerCase()]: resolution.home,
+      [fx.sides.away.coachId.trim().toLowerCase()]: resolution.away,
+    } : {},
+  };
 }
 
 export const LOBBY_ACTIONS = ["presence", "chat", "roster", "ready", "inducements", "start"] as const;
@@ -337,9 +354,14 @@ async function startWrite(
   const at = now.toISOString();
   // An interrupted START (crash after the match was made): adopt that match instead of making another.
   if (rec.starting) {
-    const found = await deps.findMatchFor?.(fx.start.fixtureRef);
+    const prior = rec.starting;
+    const res = prior.resolution;
+    let found: { matchId: string } | { error: string } | undefined;
+    try { found = await deps.adoptMatch?.(startInput(fx, rec, auth.coach, organiser, res)); } catch { return fail(500, "Could not check the recorder right now. Press START again."); }
+    if (found && "error" in found) return fail(409, found.error);
     if (found) {
-      rec.started = { at, by: rec.starting.by, mode: "tabletop", matchId: found };
+      rec.started = { at, by: prior.by, mode: "tabletop", matchId: found.matchId };
+      if (res) rec.resolved = res;
       delete rec.starting;
       return startedBody();
     }
@@ -371,19 +393,13 @@ async function startWrite(
     return startedBody();
   }
   if (!deps.startTabletop) return fail(503, "The match recorder is not available on this server.");
-  const team = (s: LobbySide) => ({ coach: fx.sides[s].coachId, team: rec.sides[s].teamRef! });
-  // written first, so a crash between the match and the lobby save never makes a second match
-  rec.starting = { opId: randomBytes(6).toString("hex"), at, by: auth.coach };
+  // written first (with the resolution), so a crash between the match and the lobby save never makes a second match
+  // and the recovery can re-add the lobby submissions
+  rec.starting = { opId: randomBytes(6).toString("hex"), at, by: auth.coach, resolution };
   try { deps.store.put({ ...rec }); } catch { return fail(500, "Could not save this lobby right now."); }
   let made: { status: number; body: unknown };
   try {
-    made = await deps.startTabletop({
-      actor: auth.coach, organiser, fixtureRef: fx.start.fixtureRef, home: team("home"), away: team("away"), extra: fx.start.extra,
-      inducementsByCoach: {
-        [fx.sides.home.coachId.trim().toLowerCase()]: resolution.home,
-        [fx.sides.away.coachId.trim().toLowerCase()]: resolution.away,
-      },
-    });
+    made = await deps.startTabletop(startInput(fx, rec, auth.coach, organiser, resolution));
   } catch {
     // unknown outcome (the match may exist): the starting marker stays, and the next START adopts the match if there is one
     return fail(500, "Could not create the match right now. Press START again.");
@@ -391,9 +407,13 @@ async function startWrite(
   let matchId = (made.body as { match?: { id?: unknown } } | null)?.match?.id;
   if (made.status !== 201 || typeof matchId !== "string") {
     // the recorder allows one unfinished match per fixture: a refusal because one exists means an earlier START made it
-    const existing = await deps.findMatchFor?.(fx.start.fixtureRef).catch(() => undefined);
-    if (existing) matchId = existing;
-    else {
+    const existing = await deps.adoptMatch?.(startInput(fx, rec, auth.coach, organiser, resolution)).catch(() => undefined);
+    if (existing && "matchId" in existing) matchId = existing.matchId;
+    else if (existing) {
+      delete rec.starting; // createMatch made nothing; the open match belongs to other coaches or teams
+      try { deps.store.put({ ...rec }); } catch { /* the marker is checked again on the next START */ }
+      return fail(409, existing.error);
+    } else {
       delete rec.starting; // a clean refusal: createMatch made nothing
       try { deps.store.put({ ...rec }); } catch { /* the marker is checked again on the next START */ }
       const error = (made.body as { error?: unknown } | null)?.error;

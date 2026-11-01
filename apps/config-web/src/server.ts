@@ -321,7 +321,7 @@ import { setReplayCoachFilter } from "./replay/store.js";
 import { setNafIdFilter } from "./nafRecords.js";
 import { clearLeagueStatsCache } from "./leagues/api.js";
 import { assertNotFenced, DeletionFenceError, isCoachFenced, isReservedCoachName, RESERVED_NAME_MESSAGE, ReservedNameError } from "./privacy/fence.js";
-import { dropAllSnapshots, clockView, createMatch, isTabletopApiPath, recoverTabletop, tabletopApi, type TabletopApiDeps } from "./tabletop/api.js";
+import { adoptLobbyMatch, dropAllSnapshots, clockView, createMatch, isTabletopApiPath, recoverTabletop, tabletopApi, type TabletopApiDeps } from "./tabletop/api.js";
 import { FixtureLobbyStore } from "./fixtureLobby/store.js";
 import { LobbyPresence } from "./fixtureLobby/presence.js";
 import type { LeagueLobbyDeps } from "./fixtureLobby/league.js";
@@ -985,10 +985,7 @@ function fixtureLobbyDeps(): LeagueLobbyDeps {
       const body = { ...input.extra, fixtureRef: input.fixtureRef, home: input.home, away: input.away };
       return createMatch(input.actor, input.organiser || deps.isOrganizer(input.actor), body, deps, () => new Date(), { inducementsByCoach: input.inducementsByCoach, fromLobby: true });
     },
-    findMatchFor: async (fixtureRef) => {
-      const deps = await tabletopDeps();
-      return (await deps.repo.listMatches()).find((m) => m.fixtureRef === fixtureRef && (m.state === "recording" || m.state === "submitted"))?.id;
-    },
+    adoptMatch: async (input) => adoptLobbyMatch(await tabletopDeps(), input),
   };
 }
 

@@ -16,7 +16,7 @@ import { effectiveInducements, seasonInducementOffers } from "../src/leagues/ind
 import { LeagueStore } from "../src/leagues/store";
 import { leagueFixtureView, recordLeagueFixture, retractLeagueFixture } from "../src/leagues/tabletopFixtures";
 import type { LeagueFixture, LeagueTeam, SeasonRecord } from "../src/leagues/types";
-import { createMatch, tabletopApi, type TabletopApiDeps } from "../src/tabletop/api";
+import { adoptLobbyMatch, createMatch, tabletopApi, type TabletopApiDeps } from "../src/tabletop/api";
 import type { TabletopPlayer, TabletopTeamFile } from "../src/tabletop/postMatch";
 import { FileTabletopRepository } from "../src/tabletop/store";
 import { TournamentResultStore } from "../src/tournamentResults";
@@ -211,6 +211,7 @@ describe("league fixture lobby routes", () => {
   let presence: LobbyPresence;
   let started: StartTabletopInput[];
   let made: string[];
+  let adopts: StartTabletopInput[];
   let failNext = false;
   let clock = 0;
   const L = "/api/leagues/alpha/seasons/season-1/fixtures/f1/lobby";
@@ -231,7 +232,11 @@ describe("league fixture lobby routes", () => {
         await new Promise((r) => setTimeout(r, 5));
         return { status: 201, body: { match: { id: `tm_${started.length}` } } };
       },
-      findMatchFor: async () => made[0],
+      adoptMatch: async (input) => {
+        adopts.push(input);
+        if (!made[0]) return undefined;
+        return input.home.coach === "Ann" && input.away.coach === "Bob" ? { matchId: made[0] } : { error: "A match with the previous coaches or teams is still open for this fixture. An organiser must close it before this lobby can start." };
+      },
     },
   });
   const call = async (coach: string | undefined, method: string, path: string, body?: unknown): Promise<LeagueApiResult> => {
@@ -253,6 +258,7 @@ describe("league fixture lobby routes", () => {
     presence = new LobbyPresence();
     started = [];
     made = [];
+    adopts = [];
     failNext = false;
     clock = 0;
   });
@@ -460,6 +466,24 @@ describe("league fixture lobby routes", () => {
     const again = await post("Ann", "start", {});
     expect(again.body).toMatchObject({ started: true, to: "/tabletop/tm_lost" });
     expect(started).toHaveLength(0); // never a second match
+    // the recovery hands the recorder the resolved lists kept with the marker (so missing submissions are re-added)
+    expect(adopts.at(-1)).toMatchObject({ home: { coach: "Ann", team: "library:ann-team" }, inducementsByCoach: { ann: { total: 0 }, bob: { total: 0 } } });
+  });
+
+  it("recovery never adopts a match with the previous coaches after a coach was reassigned: 409 for the organiser", async () => {
+    await readyBoth();
+    await post("Bob", "inducements", { side: "away", picks: [], lock: true });
+    await post("Ann", "inducements", { side: "home", picks: [], autoBuy: true, lock: true });
+    failNext = true;
+    expect((await post("Ann", "start", {})).status).toBe(500);
+    // the organiser reassigns the away seat to another account
+    const s = store.season("alpha", "season-1")!;
+    s.fixtures[1]!.away.coachId = "Cat";
+    store.putSeason(s);
+    const r = await post("Ann", "start", {});
+    expect(r.status).toBe(409);
+    expect(err(r)).toMatch(/previous coaches or teams is still open/);
+    expect((await view()).started).toBeNull();
   });
 
   it("a Super FUMBBL fixture with a lobby launches only after the lobby's START", async () => {
@@ -587,5 +611,32 @@ describe("league fixtures in the tabletop recorder (START's createMatch)", () =>
     retractLeagueFixture(store, ref, { expectedRevision: 1 }, NOW);
     expect(store.season("alpha", "season-1")!.fixtures[0]).toMatchObject({ home: { score: null }, away: { score: null }, tabletop: { revision: 2 } });
     expect(leagueFixtureView(store, ref)?.open).toBe(true);
+  });
+
+  it("adoptLobbyMatch: same coaches and teams only; re-adds lost lobby submissions once", async () => {
+    const ref = "league:alpha:season-1:f1";
+    const repo = new FileTabletopRepository(join(dir, "tt2"));
+    const deps: TabletopApiDeps = {
+      repo, results: new TournamentResultStore(join(dir, "res2")),
+      loadTeamFile: (coach) => (coach === "Ann" ? file("Orc", "a") : file("Human", "b")),
+      isBanned: () => false, isOrganizer: () => false, drawSeats: () => false,
+      leagueInducements: () => ({ config: undefined, active: true, coaches: ["Ann", "Bob"] }),
+      fixtures: { get: (id) => leagueFixtureView(store, id), record: () => undefined, retract: () => undefined },
+    };
+    const lists = { ann: { picks: [{ id: "bribes", name: "Bribes", qty: 1, cost: 100_000 }], total: 100_000, treasury: 0, pettyCash: 100_000 }, bob: { picks: [], total: 0, treasury: 0, pettyCash: 0 } };
+    const input = { fixtureRef: ref, actor: "Ann", home: { coach: "Ann", team: "library:a" }, away: { coach: "Bob", team: "library:b" }, inducementsByCoach: lists };
+    expect(await adoptLobbyMatch(deps, input)).toBeUndefined();
+    // a match created WITHOUT its submissions (the event write failed): simulate by creating with no lists
+    const made = await createMatch("Ann", false, { fixtureRef: ref, home: input.home, away: input.away }, deps, () => NOW, { fromLobby: true });
+    const id = (made.body as { match: { id: string } }).match.id;
+    expect((await repo.readEvents(id)).some((e) => e.type === "inducement")).toBe(false);
+    // other coaches or another team: refused
+    expect(await adoptLobbyMatch(deps, { ...input, away: { coach: "Cat", team: "library:b" } })).toMatchObject({ error: expect.stringMatching(/previous coaches/) });
+    expect(await adoptLobbyMatch(deps, { ...input, home: { coach: "Ann", team: "library:other" } })).toHaveProperty("error");
+    expect(await adoptLobbyMatch(deps, input)).toEqual({ matchId: id });
+    expect(await adoptLobbyMatch(deps, input)).toEqual({ matchId: id }); // idempotent
+    const ind = (await repo.readEvents(id)).filter((e) => e.type === "inducement");
+    expect(ind.map((e) => [e.team, e.payload.total])).toEqual([["home", 100_000], ["away", 0]]);
+    expect((await repo.getMatch(id))!.inducements).toEqual({ home: lists.ann, away: lists.bob });
   });
 });
