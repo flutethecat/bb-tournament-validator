@@ -1,5 +1,330 @@
 [
   {
+    "date": "2026-11-01",
+    "title": "Your leagues in the sidebar",
+    "body": "The Leagues section of the sidebar now lists each league you play in this season, with your team, its win-draw-loss record and your next fixture, which opens its summary. Two dead links are gone: the Series chip on a tournament is plain text until series pages exist, and league registration settings now point to the Teams tab.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      },
+      {
+        "label": "Coach page",
+        "href": "/app/home"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-01",
+    "title": "League announcements and fixtures table view",
+    "body": "Organisers now post league news and message members from one Announcement button on the league header, and the dialog always posts to the season it was opened on. The Fixtures tab gains a round bar with Previous and Next, phase and team filters that reset per season, and a Cards or Table switch that the site remembers for you.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-01",
+    "title": "Site-wide restyle",
+    "body": "The sign-in card, Account page, Standings, the tournament page and its Manage views, team pages, league settings, organiser tools and their dialogs, the match recorder setup and the smaller pages now share the same panels, tabs, buttons and tables as the Roster Builder and league page. Buttons that delete something use a strong scarlet fill so their labels stay readable.",
+    "links": [
+      {
+        "label": "Tournaments",
+        "href": "/app/tournaments"
+      },
+      {
+        "label": "Account",
+        "href": "/app/account"
+      },
+      {
+        "label": "Standings",
+        "href": "/app/standings"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-31",
+    "title": "NAF from your profile",
+    "body": "When you register for a NAF-sanctioned tournament, the NAF name and number on your profile fill in automatically and go to the organisers, and you are told. If you have none you can add it to your profile on the spot, or declare that you are not a NAF member.",
+    "links": [
+      {
+        "label": "Account",
+        "href": "/app/account"
+      },
+      {
+        "label": "Tournaments",
+        "href": "/app/tournaments"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-31",
+    "title": "Organiser sharing and NAF-sanctioned registration",
+    "body": "You now choose, per league and per tournament, which contact details its organisers may see; nothing is shared by default, and the Account page has a Sharing panel to change it. Organisers are told about every new registration, tournaments can be marked NAF-sanctioned, and your contact details take a country and at most one phone number.",
+    "links": [
+      {
+        "label": "Account",
+        "href": "/app/account"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-31",
+    "title": "Download and delete your data",
+    "body": "The Account page has a Privacy panel: download everything the site holds about you as a ZIP file, or ask for your account to be deleted. Deleting keeps past results but shows them as a deleted coach instead of your name; deletion opens when the site goes live.",
+    "links": [
+      {
+        "label": "Account",
+        "href": "/app/account"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-31",
+    "title": "Portal mail",
+    "body": "League organisers can message their members through the site without ever seeing an email address, and you control league email from the Email panel on the Account page. Every message honours your consent and unsubscribe choice at the moment it is sent; delivery starts when the site goes live.",
+    "links": [
+      {
+        "label": "Account",
+        "href": "/app/account"
+      },
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-31",
+    "title": "Onboarding",
+    "body": "After your first sign-in a Welcome dialog asks you to accept the privacy notice and set your preferred name and contact details; until then the site is read-only for you. Organisers see only what you choose to share, Discord ids are never shown to other coaches, and NAF details are edited only by tournament organisers for their own entrants.",
+    "links": [
+      {
+        "label": "Account",
+        "href": "/app/account"
+      },
+      {
+        "label": "Privacy",
+        "href": "/app/privacy"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-31",
+    "title": "Privacy notice",
+    "body": "A public Privacy page explains what the site stores, why, how long it keeps it and how to reach us. It describes only features that are live today.",
+    "links": [
+      {
+        "label": "Privacy",
+        "href": "/app/privacy"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-31",
+    "title": "Match log order",
+    "body": "The match log now reads from top to bottom, and the live feed follows the latest entry.",
+    "links": [
+      {
+        "label": "Tabletop",
+        "href": "/app/tabletop"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-31",
+    "title": "League header",
+    "body": "The league page header shows the league name in the title font with its seasons badge and a Founded tag, and gains a Statistics tab. The season row now runs oldest to newest, and the chosen season stays selected as you move between tabs.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-31",
+    "title": "Light theme",
+    "body": "The light theme is now derived from the dark one as soft greys, so both themes match. Switch with the sun and moon button at the foot of the sidebar.",
+    "links": [
+      {
+        "label": "Coach page",
+        "href": "/app/home"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-31",
+    "title": "Coach avatars",
+    "body": "Upload your own coach avatar from the Account page; your Discord picture is the fallback. Result cards show the avatars of both coaches.",
+    "links": [
+      {
+        "label": "Account",
+        "href": "/app/account"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-31",
+    "title": "Free Create in the Roster Builder",
+    "body": "A Free Create card replaces the BB2025 default ruleset, with an Ignore in-game limits option for building any team you like. Characteristic caps, the 8-skill limit and 16 players still apply, and shared Free Create teams show their builder prices.",
+    "links": [
+      {
+        "label": "Roster Builder",
+        "href": "/app/tournament-team-builder"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-31",
+    "title": "Roster Builder redesign",
+    "body": "The Tournament Builder is now the Roster Builder, with its Ruleset, Roster and Sheet steps in the page header. The Ruleset step shows rulesets and Pick a race side by side, the roster shows players as cards with a Team Captain badge and + Skill buttons, hire cards show cost and count at a glance, and accordion panels open in place.",
+    "links": [
+      {
+        "label": "Roster Builder",
+        "href": "/app/tournament-team-builder"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-31",
+    "title": "New result cards",
+    "body": "Past games show as result cards with both teams' colours, a big race crest with the race underneath, the competition under the score and room for coach avatars. The cards stack to fit the width of the page.",
+    "links": [
+      {
+        "label": "Coach page",
+        "href": "/app/home"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-31",
+    "title": "Welcome page for visitors",
+    "body": "Visitors who are not signed in now see a League Manager welcome page with a short introduction, a sign-in button and recent games.",
+    "links": [
+      {
+        "label": "Home",
+        "href": "/app/home"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-31",
+    "title": "Sidebar and header refresh",
+    "body": "The header has a Discord Login button and shows the page title next to the wordmark, gold on Tournaments and Leagues pages. The sidebar gains Browse Leagues, Build a team and Browse Tournaments buttons, a sun and moon theme switch, and a collapse tab at its bottom edge.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      },
+      {
+        "label": "Tournaments",
+        "href": "/app/tournaments"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
+    "title": "Sheet step previews the PDF",
+    "body": "The Roster Builder's Sheet step now shows the exported team sheet on paper, exactly as the PDF prints it. The PDF gains a tournament ruleset box at the top right of the first page.",
+    "links": [
+      {
+        "label": "Roster Builder",
+        "href": "/app/tournament-team-builder"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
+    "title": "Page titles in the header",
+    "body": "Each page's title now sits in the header bar instead of repeating at the top of the page, and the sidebar category names use the wordmark lettering.",
+    "links": [
+      {
+        "label": "Coach page",
+        "href": "/app/home"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
+    "title": "Turn-by-turn log for online games",
+    "body": "Game pages for games played on Super FUMBBL now show a turn-ordered match log, read once from each finished game's replay.",
+    "links": [
+      {
+        "label": "Recent games",
+        "href": "/app/home#recent-games"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
+    "title": "Roster Builder moves into the site",
+    "body": "The team builder for tournaments now runs inside the site, with skills, stars and inducements on one pane and the roster, team controls and validator together on the Roster step. Old builder links take you to the new page.",
+    "links": [
+      {
+        "label": "Roster Builder",
+        "href": "/app/tournament-team-builder"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
+    "title": "Tournament Creator moves into the site",
+    "body": "Organisers now edit tournament rulesets in the site's Tournament Creator, with tabs for the overview, tiers, team rules, skills, stars, inducements, advanced settings and a preview.",
+    "links": [
+      {
+        "label": "Tournament Creator",
+        "href": "/app/tournament-creator"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
+    "title": "Create Tournament dialog",
+    "body": "Organisers can start a new tournament from the Create Tournament button on the Tournaments page or from the account menu.",
+    "links": [
+      {
+        "label": "Tournaments",
+        "href": "/app/tournaments"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
+    "title": "Game pages open the match report",
+    "body": "A finished game's page now opens the match report in a read-only view with the full squads, fouls, winnings and league result details.",
+    "links": [
+      {
+        "label": "Recent games",
+        "href": "/app/home#recent-games"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
+    "title": "League team values recomputed",
+    "body": "League team values are now worked out by the league from each player's stored value plus staff after every change, and the current team value leaves out players who miss the next game.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
+    "title": "More detail from league games on Super FUMBBL",
+    "body": "Results of league games played on Super FUMBBL now record whether a concession was legal, casualties suffered, attendance and extra player counters, and show them on the fixture summary, the game page and the roster. Slann teams and the Ball & Chain now build correctly for those games.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      }
+    ]
+  },
+  {
     "date": "2026-10-30",
     "title": "League statistics cards; rosters always visible; assign a coach to a team",
     "body": "The league statistics page now opens each rules edition (BB2020, BB2025, All time) with a row of spotlight cards: top scorer, casualty leader, most valuable player, best coach record, best team, biggest win, playmaker, interceptor, dirtiest player and iron man. Each card shows the big number, who holds it, their team and race with the race crest, the seasons it came from and anyone tied with them, and opens the player, the team or the match. On a phone the cards scroll sideways. The leader tables are still below. Team rosters are now always visible to everyone: the Hide team composition setting is gone. Redraft rookies never receive Team building starting skills, only the skills printed for their position. Organisers can assign a Super FUMBBL coach account to a league team from its roster on the Teams tab (for this season or every season of the team); the account is seated on the team’s fixtures that have no result yet, so a test league game can be played with it, and the change is logged on the season.",
