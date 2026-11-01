@@ -32,13 +32,13 @@ const setId = (v: string) => { draft.value = { ...draft.value, nafId: v }; };
     <p class="tn-naf-cap">NAF <span class="muted">· required, this tournament is NAF sanctioned</span></p>
     <div v-if="linked" class="tn-naf-line" role="status">
       <span>{{ line }}</span>
-      <RouterLink class="lobby-btn small" :to="{ name: 'account', hash: '#identity' }">Change in Account</RouterLink>
+      <RouterLink class="sf-btn small" :to="{ name: 'account', hash: '#identity' }">Change in Account</RouterLink>
     </div>
     <p v-else-if="loading" class="muted hm-small">Checking your profile for NAF details…</p>
     <template v-else>
       <p class="tn-naf-prompt">Add your NAF name and number</p>
       <div class="tn-naf-fields">
-        <div class="tn-naf-field">
+        <div class="tn-naf-field sf-field">
           <label :for="`${idPrefix}-name`" class="tn-naf-k">NAF name</label>
           <input
             :id="`${idPrefix}-name`" :value="draft.nafName" type="text" maxlength="60" autocomplete="off"
@@ -46,7 +46,7 @@ const setId = (v: string) => { draft.value = { ...draft.value, nafId: v }; };
             @input="setName(($event.target as HTMLInputElement).value)"
           />
         </div>
-        <div class="tn-naf-field">
+        <div class="tn-naf-field sf-field">
           <label :for="`${idPrefix}-id`" class="tn-naf-k">NAF number</label>
           <input
             :id="`${idPrefix}-id`" :value="draft.nafId" type="text" inputmode="numeric" maxlength="10" autocomplete="off"
@@ -55,10 +55,10 @@ const setId = (v: string) => { draft.value = { ...draft.value, nafId: v }; };
           />
         </div>
       </div>
-      <small :id="`${idPrefix}-help`" class="hm-small" :class="error ? 'lobby-error' : 'muted'">{{
+      <small :id="`${idPrefix}-help`" class="hm-small" :class="error ? 'sf-error' : 'muted'">{{
         error || "Saved to your profile and shared with the organiser. Use the name exactly as on your NAF membership."
       }}</small>
-      <label class="ob-check"><input v-model="notNafMember" type="checkbox" :disabled="disabled" /> <span>I am not a NAF member</span></label>
+      <label class="ob-check sf-check"><input v-model="notNafMember" type="checkbox" :disabled="disabled" /> <span>I am not a NAF member</span></label>
       <small v-if="notNafMember" class="muted hm-small">The organisers are told you are not a NAF member.</small>
     </template>
   </div>

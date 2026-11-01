@@ -486,6 +486,9 @@ export function rosterState(e: Pick<TournamentEntrant, "submission" | "flags">):
   return e.submission.valid ? "valid" : "invalid";
 }
 export const ROSTER_LABEL: Record<RosterState, string> = { none: "Not submitted", valid: "Valid", invalid: "Invalid" };
+/** `.sf-chip` tones (design guide §5) for the roster and round states. */
+export const ROSTER_TONE: Record<RosterState, string> = { none: "muted", valid: "ok", invalid: "urgent" };
+export const ROUND_TONE: Record<string, string> = { pending: "muted", active: "soon", completed: "ok" };
 
 /** Registration is open: draft or active before round 1, rosters not locked. */
 export function registrationOpen(t: TournamentSummary, rounds: TournamentRound[]): boolean {

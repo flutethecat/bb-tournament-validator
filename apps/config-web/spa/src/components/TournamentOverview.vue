@@ -1,10 +1,11 @@
 <script setup lang="ts">
-// Overview tab: the facts strip (only what the server sent), the organiser's summary and "What to bring" notes
-// (markdown-lite), and the News panel.
+// Overview tab: the facts panel (only what the server sent; a key/value list like the league's season panel), the
+// organiser's summary and "What to bring" notes (markdown-lite), the News panel, then the slot (My entry).
 import { computed } from "vue";
 import { RouterLink } from "vue-router";
 import type { TournamentSummary } from "../shared/api";
 import { factsStrip } from "../tournaments/detail";
+import { FORMAT_LABEL } from "../tournaments/list";
 import MarkdownLite from "./MarkdownLite.vue";
 import TournamentNews from "./TournamentNews.vue";
 
@@ -13,27 +14,37 @@ const facts = computed(() => factsStrip(props.tournament));
 </script>
 
 <template>
-  <div class="tn-overview">
-    <div class="tn-facts tn-facts-strip">
-      <div v-for="f in facts" :key="f.key" class="tn-fact" :data-fact="f.key">
-        <span class="tn-fact-k">{{ f.label }}</span>
-        <strong v-if="f.href"><RouterLink :to="f.href">{{ f.value }}</RouterLink></strong>
-        <strong v-else>{{ f.value }}</strong>
-        <a v-if="f.sub && f.subHref" class="tn-fact-sub" :href="f.subHref" target="_blank" rel="noopener noreferrer">{{ f.sub }}</a>
-        <a v-else-if="f.subHref" class="tn-fact-sub" :href="f.subHref" target="_blank" rel="noopener noreferrer">Map</a>
-        <span v-else-if="f.sub" class="tn-fact-sub">{{ f.sub }}</span>
-      </div>
+  <div class="hm-grid tn-overview">
+    <div class="hm-col tn-side-col">
+      <section class="hm-panel tn-facts-panel" aria-labelledby="tn-facts-h">
+        <header class="hm-band"><h2 id="tn-facts-h">Details</h2><span class="hm-cap">{{ FORMAT_LABEL[tournament.format] ?? tournament.format }}</span></header>
+        <dl class="tl-facts tn-facts-list">
+          <div v-for="f in facts" :key="f.key" :data-fact="f.key">
+            <dt>{{ f.label }}</dt>
+            <dd>
+              <RouterLink v-if="f.href" :to="f.href">{{ f.value }}</RouterLink>
+              <template v-else>{{ f.value }}</template>
+              <a v-if="f.sub && f.subHref" class="tn-fact-sub" :href="f.subHref" target="_blank" rel="noopener noreferrer">{{ f.sub }}</a>
+              <a v-else-if="f.subHref" class="tn-fact-sub" :href="f.subHref" target="_blank" rel="noopener noreferrer">Map</a>
+              <span v-else-if="f.sub" class="tn-fact-sub">{{ f.sub }}</span>
+            </dd>
+          </div>
+        </dl>
+      </section>
     </div>
-    <section v-if="tournament.summary || tournament.notes" class="tn-panel" aria-labelledby="tn-about-h">
-      <h3 id="tn-about-h" class="tn-band">About</h3>
-      <div class="tn-panel-body">
-        <MarkdownLite v-if="tournament.summary" :source="tournament.summary" />
-        <div v-if="tournament.notes" class="tn-notes">
-          <h4 class="tn-sub-h">What to bring</h4>
-          <MarkdownLite :source="tournament.notes" />
+    <div class="hm-col tn-main-col">
+      <section v-if="tournament.summary || tournament.notes" class="hm-panel" aria-labelledby="tn-about-h">
+        <header class="hm-band"><h2 id="tn-about-h">About</h2></header>
+        <div class="tn-panel-body">
+          <MarkdownLite v-if="tournament.summary" :source="tournament.summary" />
+          <div v-if="tournament.notes" class="tn-notes">
+            <h3 class="tn-sub-h">What to bring</h3>
+            <MarkdownLite :source="tournament.notes" />
+          </div>
         </div>
-      </div>
-    </section>
-    <TournamentNews />
+      </section>
+      <TournamentNews />
+      <slot />
+    </div>
   </div>
 </template>

@@ -61,54 +61,54 @@ async function addOrganizer() { if (newOrganizer.value.trim()) { await detail.ad
 
 <template>
   <form v-if="canWrite" class="tn-form-grid" @submit.prevent="save">
-    <label class="tn-field"><span class="tn-fact-k">Starts (UTC)</span><input v-model="form.startsAt" type="datetime-local" /></label>
-    <label class="tn-field"><span class="tn-fact-k">Ends (UTC)</span><input v-model="form.endsAt" type="datetime-local" /></label>
+    <label class="tn-field sf-field"><span class="tn-fact-k">Starts (UTC)</span><input v-model="form.startsAt" type="datetime-local" /></label>
+    <label class="tn-field sf-field"><span class="tn-fact-k">Ends (UTC)</span><input v-model="form.endsAt" type="datetime-local" /></label>
     <TournamentRulesFields
       v-model:max-players="form.maxPlayers" v-model:round-count="form.roundCount" v-model:primary-tiebreaker="form.primaryTiebreaker"
       :swiss="t.format === 'swiss'" :tiebreaker-disabled="t.status === 'completed'"
     >
-      <label v-if="t.format === 'swiss'" class="tn-field">
+      <label v-if="t.format === 'swiss'" class="tn-field sf-field">
         <span class="tn-fact-k">Pairing system</span>
         <select v-model="form.pairingSystem"><option v-for="(label, key) in PAIRING_LABEL" :key="key" :value="key">{{ label }}</option></select>
       </label>
-      <label class="tn-field">
+      <label class="tn-field sf-field">
         <span class="tn-fact-k">Seeding</span>
         <select v-model="form.seedingMode" :disabled="hasRounds"><option v-for="(label, key) in SEEDING_LABEL" :key="key" :value="key">{{ label }}</option></select>
       </label>
     </TournamentRulesFields>
-    <label class="tn-field tn-check-field">
+    <label class="tn-field sf-field tn-check-field">
       <span class="tn-fact-k">NAF</span>
       <span class="tn-check-line"><input v-model="form.nafSanctioned" type="checkbox" /> NAF sanctioned</span>
-      <small class="muted">The NAF name and number on each coach's profile are shared with the organisers. A coach without them adds them to register, or ticks "I am not a NAF member".</small>
+      <small class="muted hm-small">The NAF name and number on each coach's profile are shared with the organisers. A coach without them adds them to register, or ticks "I am not a NAF member".</small>
     </label>
     <div class="tn-actions tn-form-actions">
-      <button class="lobby-btn primary" type="submit" :disabled="!dirty || busy">Save settings</button>
-      <button class="lobby-btn" type="button" :disabled="!dirty || busy" @click="Object.assign(form, fromRecord())">Reset</button>
+      <button class="sf-btn primary" type="submit" :disabled="!dirty || busy">Save settings</button>
+      <button class="sf-btn" type="button" :disabled="!dirty || busy" @click="Object.assign(form, fromRecord())">Reset</button>
     </div>
   </form>
 
   <div class="tn-roles">
-    <h4 class="tn-sub-h">Owner and organisers</h4>
-    <p class="tn-role-line"><span class="tn-fact-k">Owner</span> <strong>{{ t.ownerCoachId || "None (admins only)" }}</strong></p>
+    <h3 class="tn-sub-h">Owner and organisers</h3>
+    <dl class="tl-facts tn-facts-list"><div><dt>Owner</dt><dd>{{ t.ownerCoachId || "None (admins only)" }}</dd></div></dl>
     <ul v-if="t.organizerCoachIds?.length" class="tn-role-list">
-      <li v-for="c in t.organizerCoachIds" :key="c">
+      <li v-for="c in t.organizerCoachIds" :key="c" class="tn-role-chip">
         <span>{{ c }}</span>
-        <button v-if="state.capabilities.assignRoles && canWrite" class="lobby-btn small" type="button" :disabled="busy" :aria-label="`Remove organiser ${c}`" @click="detail.removeOrganizer(c)">Remove</button>
+        <button v-if="state.capabilities.assignRoles && canWrite" class="sf-btn small" type="button" :disabled="busy" :aria-label="`Remove organiser ${c}`" @click="detail.removeOrganizer(c)">Remove</button>
       </li>
     </ul>
-    <p v-else class="muted">No other organisers.</p>
+    <p v-else class="hm-empty">No other organisers.</p>
     <template v-if="state.capabilities.assignRoles && canWrite">
       <form class="tn-inline-form" @submit.prevent="addOrganizer">
-        <label for="tn-add-org">Add organiser</label>
-        <input id="tn-add-org" v-model="newOrganizer" type="text" maxlength="40" autocomplete="off" placeholder="Coach name" />
-        <button class="lobby-btn" type="submit" :disabled="!newOrganizer.trim() || busy">Add</button>
+        <label for="tn-add-org" class="sf-k">Add organiser</label>
+        <input id="tn-add-org" class="sf-input" v-model="newOrganizer" type="text" maxlength="40" autocomplete="off" placeholder="Coach name" />
+        <button class="sf-btn" type="submit" :disabled="!newOrganizer.trim() || busy">Add</button>
       </form>
       <form class="tn-inline-form" @submit.prevent="setOwner">
-        <label for="tn-set-owner">New owner</label>
-        <input id="tn-set-owner" v-model="newOwner" type="text" maxlength="40" autocomplete="off" placeholder="Coach name" />
-        <button class="lobby-btn" type="submit" :disabled="!newOwner.trim() || busy">Set owner</button>
+        <label for="tn-set-owner" class="sf-k">New owner</label>
+        <input id="tn-set-owner" class="sf-input" v-model="newOwner" type="text" maxlength="40" autocomplete="off" placeholder="Coach name" />
+        <button class="sf-btn" type="submit" :disabled="!newOwner.trim() || busy">Set owner</button>
       </form>
     </template>
-    <p v-else-if="canWrite" class="muted">Only the owner or an admin can change the roles.</p>
+    <p v-else-if="canWrite" class="hm-empty">Only the owner or an admin can change the roles.</p>
   </div>
 </template>

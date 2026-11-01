@@ -239,10 +239,10 @@ describe("tournament page views (server-rendered against a mocked API)", () => {
     expect(html).toContain('maxlength="2000"');
   });
 
-  it("copy and layout rules: tokens only, a 375 px rule for the facts strip and front block, no hyphenated reroll", () => {
+  it("copy and layout rules: tokens only, a 375 px rule for the facts list and front block, no hyphenated reroll", () => {
     const css = readFileSync(fileURLToPath(new URL("../spa/src/tournaments/tournaments.css", import.meta.url)), "utf8");
     const lane = css.slice(css.indexOf("tournament page (lane 6)"));
-    expect(lane).toMatch(/@media \(max-width: 420px\) \{[\s\S]*\.tn-facts-strip \{ grid-template-columns: 1fr; \}/);
+    expect(lane).toMatch(/@media \(max-width: 420px\) \{[\s\S]*\.tl-facts\.tn-facts-list > div \{ grid-template-columns: 104px minmax\(0, 1fr\); \}/);
     expect(lane).toMatch(/@media \(max-width: 760px\) \{[\s\S]*\.tn-front\[data-banner="crest"\] \.tn-front-body \{ padding-right: 16px;/);
     expect(lane).not.toMatch(/#[0-9a-f]{3,6}\b/i);
     expect(lane).toContain("min-width: 0");
@@ -252,5 +252,23 @@ describe("tournament page views (server-rendered against a mocked API)", () => {
       expect(src, file).not.toMatch(/Java client|FUMBBL art/i);
       expect(src, file).not.toContain("v-html");
     }
+  });
+
+  it("modern retro: the tournament page and its parts use the shared panels, tabs and buttons, never the legacy lobby-* styles", () => {
+    const parts = [
+      "components/TournamentFront", "components/TournamentOverview", "components/TournamentEntrants", "components/TournamentRounds",
+      "components/TournamentStandings", "components/TournamentMyEntry", "components/TournamentNews", "components/TournamentManage",
+      "components/TournamentParticipants", "components/TournamentSettingsForm", "components/TournamentPageForm", "components/TournamentStartModal",
+      "components/TournamentRulesFields", "components/NafProfileField", "views/TournamentDetailView", "views/TournamentTeamView",
+    ];
+    for (const file of parts) {
+      const src = readFileSync(fileURLToPath(new URL(`../spa/src/${file}.vue`, import.meta.url)), "utf8");
+      expect(src, file).not.toMatch(/lobby-[a-z]/);
+      expect(src, file).not.toMatch(/class="tn-(panel|band|tab)"/);
+    }
+    const view = readFileSync(fileURLToPath(new URL("../spa/src/views/TournamentDetailView.vue", import.meta.url)), "utf8");
+    expect(view).toContain('class="sf-tabs tn-tabs"');
+    const home = readFileSync(fileURLToPath(new URL("../spa/src/home/home.css", import.meta.url)), "utf8");
+    for (const rule of [".sf-tabs, .lg-tabs {", ".sf-btn, .ob-btn {", ".sf-table, .lg-table {", ".sf-error {"]) expect(home, rule).toContain(rule);
   });
 });

@@ -40,44 +40,44 @@ async function saveEdit() {
 </script>
 
 <template>
-  <section v-if="news.length || manage" class="tn-panel tn-news" aria-labelledby="tn-news-h">
-    <h3 id="tn-news-h" class="tn-band">News</h3>
+  <section v-if="news.length || manage" class="hm-panel tn-news" aria-labelledby="tn-news-h">
+    <header class="hm-band"><h2 id="tn-news-h">News</h2><span v-if="news.length" class="hm-cap">({{ news.length }})</span></header>
     <div class="tn-panel-body">
       <form v-if="manage" class="tn-news-form" @submit.prevent="post">
-        <label class="tn-field"><span class="tn-fact-k">Title</span><input v-model="draft.title" type="text" maxlength="120" autocomplete="off" /></label>
-        <label class="tn-field"><span class="tn-fact-k">Post</span><textarea v-model="draft.body" rows="4" maxlength="4000" /></label>
+        <label class="tn-field sf-field"><span class="tn-fact-k">Title</span><input v-model="draft.title" type="text" maxlength="120" autocomplete="off" /></label>
+        <label class="tn-field sf-field"><span class="tn-fact-k">Post</span><textarea v-model="draft.body" rows="4" maxlength="4000" /></label>
         <div class="tn-actions">
-          <label class="tn-check"><input v-model="draft.pinned" type="checkbox" /> Pin to the top</label>
-          <button class="lobby-btn primary" type="submit" :disabled="!draft.title.trim() || !draft.body.trim() || busy">Post news</button>
+          <label class="tn-check sf-check"><input v-model="draft.pinned" type="checkbox" /> Pin to the top</label>
+          <button class="sf-btn primary" type="submit" :disabled="!draft.title.trim() || !draft.body.trim() || busy">Post news</button>
         </div>
       </form>
-      <p v-if="mine && state.actionError" class="lobby-error" role="alert">{{ state.actionError }}</p>
+      <p v-if="mine && state.actionError" class="sf-error" role="alert">{{ state.actionError }}</p>
       <p v-else-if="mine && state.notice" class="tn-notice" role="status">{{ state.notice }}</p>
-      <p v-if="!news.length" class="muted">No news yet.</p>
+      <p v-if="!news.length" class="hm-empty">No news yet.</p>
       <ol v-else class="tn-news-list">
         <li v-for="n in news" :key="n.id" class="tn-news-item" :data-pinned="n.pinned ? 'true' : null">
           <form v-if="editing === n.id" class="tn-news-form" @submit.prevent="saveEdit">
-            <label class="tn-field"><span class="tn-fact-k">Title</span><input v-model="edit.title" type="text" maxlength="120" autocomplete="off" /></label>
-            <label class="tn-field"><span class="tn-fact-k">Post</span><textarea v-model="edit.body" rows="4" maxlength="4000" /></label>
+            <label class="tn-field sf-field"><span class="tn-fact-k">Title</span><input v-model="edit.title" type="text" maxlength="120" autocomplete="off" /></label>
+            <label class="tn-field sf-field"><span class="tn-fact-k">Post</span><textarea v-model="edit.body" rows="4" maxlength="4000" /></label>
             <div class="tn-actions">
-              <button class="lobby-btn primary" type="submit" :disabled="!edit.title.trim() || !edit.body.trim() || busy">Save</button>
-              <button class="lobby-btn" type="button" @click="editing = ''">Cancel</button>
+              <button class="sf-btn primary" type="submit" :disabled="!edit.title.trim() || !edit.body.trim() || busy">Save</button>
+              <button class="sf-btn" type="button" @click="editing = ''">Cancel</button>
             </div>
           </form>
           <template v-else>
             <div class="tn-news-head">
-              <h4 class="tn-sub-h">{{ n.title }}</h4>
-              <span v-if="n.pinned" class="tn-chip" data-pinned="true">Pinned</span>
+              <h3 class="tn-news-title">{{ n.title }}</h3>
+              <span v-if="n.pinned" class="sf-chip" data-tone="info" data-pinned="true">Pinned</span>
             </div>
-            <p class="tn-news-meta muted">{{ n.by }} · {{ startDate(n.at) }}{{ n.editedAt ? " · edited" : "" }}</p>
+            <p class="tn-news-meta">{{ n.by }} · {{ startDate(n.at) }}{{ n.editedAt ? " · edited" : "" }}</p>
             <MarkdownLite :source="n.body" />
             <div v-if="manage" class="tn-actions">
-              <button class="lobby-btn small" type="button" :disabled="busy" @click="detail.editNews(n.id, { pinned: !n.pinned })">{{ n.pinned ? "Unpin" : "Pin" }}</button>
-              <button class="lobby-btn small" type="button" :disabled="busy" @click="startEdit(n.id)">Edit</button>
-              <button v-if="confirming !== n.id" class="lobby-btn small" type="button" :disabled="busy" :aria-label="`Delete news ${n.title}`" @click="confirming = n.id">Delete</button>
+              <button class="sf-btn small" type="button" :disabled="busy" @click="detail.editNews(n.id, { pinned: !n.pinned })">{{ n.pinned ? "Unpin" : "Pin" }}</button>
+              <button class="sf-btn small" type="button" :disabled="busy" @click="startEdit(n.id)">Edit</button>
+              <button v-if="confirming !== n.id" class="sf-btn small" type="button" :disabled="busy" :aria-label="`Delete news ${n.title}`" @click="confirming = n.id">Delete</button>
               <template v-else>
-                <button class="lobby-btn small" type="button" :disabled="busy" @click="remove(n.id)">Confirm delete</button>
-                <button class="lobby-btn small" type="button" @click="confirming = ''">Keep</button>
+                <button class="sf-btn small danger" type="button" :disabled="busy" @click="remove(n.id)">Confirm delete</button>
+                <button class="sf-btn small" type="button" @click="confirming = ''">Keep</button>
               </template>
             </div>
           </template>

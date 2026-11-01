@@ -55,28 +55,25 @@ usePageTitle(() => state.tournament?.name);
 </script>
 
 <template>
-  <section class="lobby-card tn-page">
+  <div class="hm-page tn-page">
     <RouterLink class="tn-back" to="/tournaments">All tournaments</RouterLink>
-    <p v-if="state.error" class="lobby-error" role="alert">{{ state.error }}</p>
-    <p v-else-if="!state.loaded || !state.tournament" class="muted" role="status">Loading tournament...</p>
+    <p v-if="state.error" class="sf-error" role="alert">{{ state.error }}</p>
+    <p v-else-if="!state.loaded || !state.tournament" class="hm-empty" role="status">Loading tournament...</p>
     <template v-else>
       <p v-if="createdNotice" class="tn-notice" role="status">{{ createdNotice }}</p>
       <TournamentFront />
-      <nav class="tn-tabs" aria-label="Tournament sections">
+      <nav class="sf-tabs tn-tabs" aria-label="Tournament sections">
         <RouterLink
-          v-for="t in tabs" :key="t.id" class="tn-tab" :class="{ on: tab === t.id }"
+          v-for="t in tabs" :key="t.id" class="sf-tab"
           :aria-current="tab === t.id ? 'page' : undefined"
           :to="{ name: 'tournament-detail', params: { id }, query: t.id === 'overview' ? {} : { tab: t.id } }" replace
         >{{ t.label }}</RouterLink>
       </nav>
-      <template v-if="tab === 'overview'">
-        <TournamentOverview :tournament="state.tournament" />
-        <TournamentMyEntry />
-      </template>
+      <TournamentOverview v-if="tab === 'overview'" :tournament="state.tournament"><TournamentMyEntry /></TournamentOverview>
       <TournamentEntrants v-else-if="tab === 'entrants'" :entrants="state.entrants" />
       <TournamentRounds v-else-if="tab === 'rounds'" :data="state" />
       <TournamentStandings v-else-if="tab === 'standings'" :data="state" />
       <TournamentManage v-else />
     </template>
-  </section>
+  </div>
 </template>

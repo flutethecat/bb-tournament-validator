@@ -11,7 +11,7 @@ import TournamentStartModal from "./TournamentStartModal.vue";
 import {
   canGenerateRound, isPageAction, PAIRING_LABEL, roundProgress, SEEDING_LABEL, startDate, TOURNAMENT_DETAIL_KEY,
 } from "../tournaments/detail";
-import { FORMAT_LABEL, STATUS_LABEL } from "../tournaments/list";
+import { FORMAT_LABEL, STATUS_LABEL, STATUS_TONE } from "../tournaments/list";
 import { SESSION_KEY, writesAllowed } from "../session";
 
 const detail = inject(TOURNAMENT_DETAIL_KEY)!;
@@ -36,54 +36,55 @@ async function editTournament() {
 </script>
 
 <template>
-  <div class="tn-manage">
-    <section class="tn-panel" aria-labelledby="tn-summary-h">
-      <h3 id="tn-summary-h" class="tn-band">Summary</h3>
-      <div class="tn-panel-body">
-        <div class="tn-facts">
-          <div class="tn-fact"><span class="tn-fact-k">Status</span><strong><span class="tn-chip" :data-status="t.status">{{ STATUS_LABEL[t.status] ?? t.status }}</span></strong></div>
-          <div class="tn-fact"><span class="tn-fact-k">Format</span><strong>{{ FORMAT_LABEL[t.format] ?? t.format }}</strong></div>
-          <div class="tn-fact"><span class="tn-fact-k">Dates</span><strong>{{ startDate(t.startsAt) || "Not set" }}{{ t.endsAt ? ` to ${startDate(t.endsAt)}` : "" }}</strong></div>
-          <div class="tn-fact"><span class="tn-fact-k">Ruleset</span><strong>{{ ruleset }}</strong></div>
-          <div class="tn-fact"><span class="tn-fact-k">Round</span><strong>{{ roundProgress(t) }}</strong></div>
-          <div class="tn-fact"><span class="tn-fact-k">Entrants</span><strong>{{ entrants }}</strong></div>
-          <div class="tn-fact"><span class="tn-fact-k">Owner</span><strong>{{ t.ownerCoachId || "None" }}</strong></div>
-          <div class="tn-fact"><span class="tn-fact-k">Organisers</span><strong>{{ t.organizerCoachIds?.length ? t.organizerCoachIds.join(", ") : "None" }}</strong></div>
-          <div v-if="t.format === 'swiss'" class="tn-fact"><span class="tn-fact-k">Pairing</span><strong>{{ PAIRING_LABEL[t.pairingSystem ?? "eloSeeded"] }}</strong></div>
-          <div class="tn-fact"><span class="tn-fact-k">Seeding</span><strong>{{ SEEDING_LABEL[t.seedingMode ?? "elo"] }}</strong></div>
-          <div class="tn-fact"><span class="tn-fact-k">Rosters</span><strong>{{ t.rostersLockedAt ? `Locked ${startDate(t.rostersLockedAt)}` : "Open" }}</strong></div>
-        </div>
+  <div class="hm-grid tn-manage">
+    <div class="hm-col tn-side-col">
+      <section class="hm-panel" aria-labelledby="tn-summary-h">
+        <header class="hm-band"><h2 id="tn-summary-h">Summary</h2><span class="sf-chip" :data-tone="STATUS_TONE[t.status] ?? 'muted'" :data-status="t.status">{{ STATUS_LABEL[t.status] ?? t.status }}</span></header>
+        <dl class="tl-facts tn-facts-list">
+          <div><dt>Format</dt><dd>{{ FORMAT_LABEL[t.format] ?? t.format }}</dd></div>
+          <div><dt>Dates</dt><dd>{{ startDate(t.startsAt) || "Not set" }}{{ t.endsAt ? ` to ${startDate(t.endsAt)}` : "" }}</dd></div>
+          <div><dt>Ruleset</dt><dd>{{ ruleset }}</dd></div>
+          <div><dt>Round</dt><dd>{{ roundProgress(t) }}</dd></div>
+          <div><dt>Entrants</dt><dd>{{ entrants }}</dd></div>
+          <div><dt>Owner</dt><dd>{{ t.ownerCoachId || "None" }}</dd></div>
+          <div><dt>Organisers</dt><dd>{{ t.organizerCoachIds?.length ? t.organizerCoachIds.join(", ") : "None" }}</dd></div>
+          <div v-if="t.format === 'swiss'"><dt>Pairing</dt><dd>{{ PAIRING_LABEL[t.pairingSystem ?? "eloSeeded"] }}</dd></div>
+          <div><dt>Seeding</dt><dd>{{ SEEDING_LABEL[t.seedingMode ?? "elo"] }}</dd></div>
+          <div><dt>Rosters</dt><dd>{{ t.rostersLockedAt ? `Locked ${startDate(t.rostersLockedAt)}` : "Open" }}</dd></div>
+        </dl>
         <div v-if="canWrite" class="tn-actions tn-sticky-actions">
-          <button v-if="!started" class="lobby-btn primary" type="button" :disabled="busy" @click="open = true">Start Tournament</button>
-          <button v-else class="lobby-btn" type="button" @click="editTournament">Edit Tournament</button>
-          <button v-if="generate" class="lobby-btn primary" type="button" :disabled="busy" @click="open = true">Generate round {{ state.rounds.length + 1 }}</button>
+          <button v-if="!started" class="sf-btn primary" type="button" :disabled="busy" @click="open = true">Start Tournament</button>
+          <button v-else class="sf-btn" type="button" @click="editTournament">Edit Tournament</button>
+          <button v-if="generate" class="sf-btn primary" type="button" :disabled="busy" @click="open = true">Generate round {{ state.rounds.length + 1 }}</button>
           <template v-if="!state.rounds.length && t.status !== 'completed' && t.status !== 'cancelled'">
-            <button v-if="!t.rostersLockedAt" class="lobby-btn" type="button" :disabled="busy" @click="detail.lockRosters()">Lock rosters</button>
-            <button v-else class="lobby-btn" type="button" :disabled="busy" @click="detail.unlockRosters()">Unlock rosters</button>
+            <button v-if="!t.rostersLockedAt" class="sf-btn" type="button" :disabled="busy" @click="detail.lockRosters()">Lock rosters</button>
+            <button v-else class="sf-btn" type="button" :disabled="busy" @click="detail.unlockRosters()">Unlock rosters</button>
           </template>
-          <button v-if="t.status === 'active'" class="lobby-btn" type="button" :disabled="busy" @click="detail.finish()">Finish tournament</button>
+          <button v-if="t.status === 'active'" class="sf-btn" type="button" :disabled="busy" @click="detail.finish()">Finish tournament</button>
         </div>
-        <p v-if="!canWrite" class="muted tn-readonly">Test sign-in sessions can look but cannot change tournament data.</p>
-        <p v-if="state.actionError && !open && !isPageAction(state.lastAction)" class="lobby-error" role="alert">{{ state.actionError }}</p>
+        <p v-if="!canWrite" class="hm-empty tn-readonly">Test sign-in sessions can look but cannot change tournament data.</p>
+        <p v-if="state.actionError && !open && !isPageAction(state.lastAction)" class="sf-error" role="alert">{{ state.actionError }}</p>
         <p v-else-if="state.notice && !open && !isPageAction(state.lastAction)" class="tn-notice" role="status">{{ state.notice }}</p>
-      </div>
-    </section>
+      </section>
+    </div>
 
-    <TournamentStartModal v-if="open && canWrite" @close="open = false" />
+    <div class="hm-col tn-main-col">
+      <TournamentStartModal v-if="open && canWrite" @close="open = false" />
 
-    <section ref="editPane" class="tn-panel" aria-labelledby="tn-edit-h">
-      <h3 id="tn-edit-h" class="tn-band">{{ started ? "Edit Tournament" : "Settings" }}</h3>
-      <div class="tn-panel-body"><TournamentSettingsForm /></div>
-    </section>
+      <section ref="editPane" class="hm-panel" aria-labelledby="tn-edit-h">
+        <header class="hm-band" data-tone="admin"><h2 id="tn-edit-h">{{ started ? "Edit Tournament" : "Settings" }}</h2></header>
+        <div class="tn-panel-body"><TournamentSettingsForm /></div>
+      </section>
 
-    <section class="tn-panel" aria-labelledby="tn-page-h">
-      <h3 id="tn-page-h" class="tn-band">Tournament page</h3>
-      <div class="tn-panel-body"><TournamentPageForm /></div>
-    </section>
+      <section class="hm-panel" aria-labelledby="tn-page-h">
+        <header class="hm-band" data-tone="admin"><h2 id="tn-page-h">Tournament page</h2></header>
+        <div class="tn-panel-body"><TournamentPageForm /></div>
+      </section>
 
-    <section class="tn-panel" aria-labelledby="tn-part-h">
-      <h3 id="tn-part-h" class="tn-band">Participants</h3>
-      <div class="tn-panel-body"><TournamentParticipants /></div>
-    </section>
+      <section class="hm-panel" aria-labelledby="tn-part-h">
+        <header class="hm-band"><h2 id="tn-part-h">Participants</h2><span class="hm-cap">({{ field }})</span></header>
+        <div class="tn-panel-body"><TournamentParticipants /></div>
+      </section>
+    </div>
   </div>
 </template>

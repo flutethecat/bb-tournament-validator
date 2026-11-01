@@ -94,16 +94,7 @@
 .lg-season-name { font: 12px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; }
 .lg-season-chips { display: flex; flex-wrap: wrap; gap: 4px; }
 
-/* ---- section tabs (segmented, links) */
-.lg-tabs { display: flex; overflow-x: auto; scrollbar-width: thin; border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: var(--sf-bevel); background: var(--ui-surface-2); justify-self: start; max-width: 100%; }
-.lg-tab {
-  flex: 0 0 auto; display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px; color: var(--ui-muted); text-decoration: none;
-  font: 12px/1 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; white-space: nowrap;
-}
-.lg-tab + .lg-tab { border-left: 2px solid var(--sf-panel-line); }
-.lg-tab:hover { color: var(--ui-text); background: var(--ui-hover); }
-.lg-tab[aria-current="page"] { color: var(--ui-text-on-primary); background: var(--ui-primary); }
-.lg-tab:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: -2px; }
+/* ---- section tabs: .lg-tabs / .lg-tab share the joined strip rule (.sf-tabs / .sf-tab) in home/home.css */
 
 /* ---- overview */
 .lg-results { list-style: none; margin-top: 0; margin-bottom: 0; padding: 0; display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(min(420px, 100%), 1fr)); }
@@ -120,10 +111,7 @@
 
 /* ---- tables */
 .lg-scroll { overflow-x: auto; min-width: 0; }
-.lg-table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
-.lg-table th, .lg-table td { padding: 6px 6px; text-align: left; vertical-align: middle; border-bottom: 1px solid var(--sf-panel-line); }
-.lg-table thead th { font: 10px/1.4 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); white-space: nowrap; }
-.lg-table tbody tr:nth-child(even) { background: color-mix(in srgb, var(--ui-surface-2) 50%, transparent); }
+/* .lg-table base rules: shared with .sf-table in home/home.css */
 .lg-table .lg-num { text-align: right; white-space: nowrap; }
 .lg-table small { color: var(--ui-muted); font-size: 12px; }
 .lg-team-cell { display: table-cell; min-width: 150px; font-weight: 400; }
@@ -198,8 +186,6 @@
   .lg-front-logo { width: 72px; height: 72px; }
   .lg-front[data-banner="image"] .lg-front-body { padding: 10px 12px; }
   .lg-front[data-banner="image"] .lg-front-logo { width: 64px; height: 64px; }
-  .lg-tabs { justify-self: stretch; }
-  .lg-tab { flex: 1 0 auto; justify-content: center; padding: 0 12px; }
   .lg-toolbar { flex-direction: column; align-items: stretch; }
   .lg-select select { flex: 1 1 auto; }
   .lg-scope { justify-self: stretch; }

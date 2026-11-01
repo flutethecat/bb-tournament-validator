@@ -321,12 +321,12 @@ h3.hm-log-title { font-family: var(--font-body, sans-serif); font-weight: 700; }
   background-repeat: no-repeat; background-position: center; background-size: contain; image-rendering: pixelated;
 }
 #ac-conn-h::before { width: 18px; height: 18px; margin-right: 6px; }
-/* Flex bands (notifications, tournament panels and dialogs) justify their children apart, so the icon sits outside the
+/* Flex bands (notifications and the tn-band dialogs) justify their children apart, so the icon sits outside the
    flow: absolutely placed in the band's left padding, the title and any caption or close button keep their places. */
-#nf-h, .tn-band:is(#tn-summary-h, #tn-part-h, #tn-entry-h, #tn-news-h, #tn-about-h, #tn-team-h, #tn-live-h, #ac-sched-h, #nf-msg-h, #tm-ps-h) {
+#nf-h, .tn-band:is(#ac-sched-h, #nf-msg-h, #tm-ps-h) {
   position: relative; padding-left: 42px;
 }
-#nf-h::before, .tn-band:is(#tn-summary-h, #tn-part-h, #tn-entry-h, #tn-news-h, #tn-about-h, #tn-team-h, #tn-live-h, #ac-sched-h, #nf-msg-h, #tm-ps-h)::before {
+#nf-h::before, .tn-band:is(#ac-sched-h, #nf-msg-h, #tm-ps-h)::before {
   content: ""; position: absolute; left: 12px; top: 50%; width: 22px; height: 22px; margin-top: -11px;
   background-repeat: no-repeat; background-position: center; background-size: contain; image-rendering: pixelated;
 }
@@ -342,7 +342,7 @@ h3.hm-log-title { font-family: var(--font-body, sans-serif); font-weight: 700; }
 :is(#ac-calendar-h, #calendar > .hm-band h2, #mini-calendar .hm-band h2)::before { content: ""; background-image: url(/icons/panel/calendar.png); }
 :is(#schedule .hm-band h2, #ac-sched-h)::before { content: ""; background-image: url(/icons/panel/schedule.png); }
 #ac-conn-h::before { content: ""; background-image: url(/icons/panel/connections.png); }
-:is(#tl-none-h, #tn-about-h)::before { content: ""; background-image: url(/icons/panel/tournaments.png); }
+:is(#tl-none-h, #tn-about-h, #tn-facts-h)::before { content: ""; background-image: url(/icons/panel/tournaments.png); }
 :is(#lb-h, #tn-summary-h)::before { content: ""; background-image: url(/icons/panel/stats.png); }
 :is(#mt-build-h, #tn-team-h, #tn-live-h, #tm-ps-h)::before { content: ""; background-image: url(/icons/panel/teams-roster.png); }
 #help-h::before { content: ""; background-image: url(/icons/nav/help.png); }
@@ -368,5 +368,63 @@ h3.hm-log-title { font-family: var(--font-body, sans-serif); font-weight: 700; }
 .sf-discord-mark { flex: 0 0 auto; display: block; filter: drop-shadow(0 1px 0 var(--sf-discord-deep)); }
 @media (prefers-reduced-motion: reduce) { .sf-discord-login { transition: none; } }
 
-/* ---- Shared primitives (style-acct lane, 11-01): error text for panels that no longer use the legacy lobby-* rules. */
+/* ---- Shared controls (10-31 tournament page restyle): the site's joined tab strip (league tabs, tournament tabs and
+   filters), bevel-and-lift buttons (the Roster Builder / onboarding buttons), inline errors and confirmations, field
+   captions and inputs, and the panel table. Global (home.css loads on every page), tokens only. */
+.sf-tabs, .lg-tabs { display: flex; overflow-x: auto; scrollbar-width: thin; border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: var(--sf-bevel); background: var(--ui-surface-2); justify-self: start; max-width: 100%; }
+.sf-tab, .lg-tab {
+  flex: 0 0 auto; display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px; color: var(--ui-muted); text-decoration: none;
+  font: 12px/1 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; white-space: nowrap;
+}
+.sf-tab + .sf-tab, .lg-tab + .lg-tab { border-left: 2px solid var(--sf-panel-line); }
+.sf-tab:hover, .lg-tab:hover { color: var(--ui-text); background: var(--ui-hover); }
+.sf-tab[aria-current="page"], .sf-tab[aria-pressed="true"], .lg-tab[aria-current="page"] { color: var(--ui-text-on-primary); background: var(--ui-primary); }
+.sf-tab:focus-visible, .lg-tab:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: -2px; }
+button.sf-tab { margin: 0; border: 0; border-radius: 0; background: transparent; cursor: pointer; }
+.sf-tabs.small .sf-tab { min-height: 36px; padding: 0 12px; font-size: 11px; }
+@media (max-width: 640px) {
+  .sf-tabs, .lg-tabs { justify-self: stretch; }
+  .sf-tab, .lg-tab { flex: 1 0 auto; justify-content: center; padding: 0 12px; }
+}
+
+.sf-btn, .ob-btn {
+  display: inline-flex; align-items: center; justify-content: center; min-height: 44px; box-sizing: border-box; margin: 0; padding: 0 16px;
+  font: 12px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; text-decoration: none; text-align: center; white-space: nowrap; cursor: pointer;
+  color: var(--ui-text); background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface-2);
+  border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: inset 0 1px 0 var(--sf-panel-hi), 0 3px 0 var(--sf-panel-drop);
+  transform: translateY(-1px); transition: transform .08s ease, box-shadow .08s ease, filter .08s ease;
+}
+.sf-btn.small, .ob-btn.small { min-height: 36px; padding: 0 10px; font-size: 11px; }
+.sf-btn:hover:not(:disabled), .ob-btn:hover:not(:disabled) { border-color: var(--ui-heading); transform: translateY(-2px); }
+.sf-btn:active:not(:disabled), .ob-btn:active:not(:disabled) { transform: translateY(1px); box-shadow: inset 0 1px 0 var(--sf-panel-hi), 0 1px 0 var(--sf-panel-drop); }
+.sf-btn:focus-visible, .ob-btn:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.sf-btn.primary, .ob-btn.primary {
+  color: var(--ui-text-on-primary);
+  background: linear-gradient(color-mix(in srgb, var(--ui-primary) 82%, white), var(--ui-primary) 55%, color-mix(in srgb, var(--ui-primary) 80%, black));
+  border-color: color-mix(in srgb, var(--ui-primary) 60%, black); box-shadow: var(--sf-bevel), 0 3px 0 color-mix(in srgb, var(--ui-primary) 45%, black), 0 4px 6px var(--sf-discord-drop);
+}
+.sf-btn.primary:hover:not(:disabled), .ob-btn.primary:hover:not(:disabled) { filter: brightness(1.06); border-color: color-mix(in srgb, var(--ui-primary) 60%, black); }
+/* Disabled: flat and readable (no lift, muted ink on the panel face), never a dark blob. */
+.sf-btn:disabled, .ob-btn:disabled, .sf-btn.primary:disabled, .ob-btn.primary:disabled {
+  cursor: not-allowed; transform: none; filter: none; color: var(--ui-muted);
+  background: var(--ui-surface-2); border: 2px dashed var(--sf-panel-line); box-shadow: none;
+}
+.sf-btn.danger { color: var(--ui-scarlet-contrast); background: var(--ui-scarlet); border-color: color-mix(in srgb, var(--ui-scarlet) 60%, black); } /* scarlet: white on --ui-danger is ~3.3:1 in dark */
+
 .sf-error { margin: 0; color: var(--ui-danger); font-size: 14px; }
+.sf-notice { margin: 0; color: var(--ui-success); font-size: 14px; }
+/* field caption (the builder's .tb-k) over a square themed input */
+.sf-k { margin: 0; font: 10px/1.6 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
+.sf-input, .sf-field input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), .sf-field select, .sf-field textarea {
+  min-height: 40px; box-sizing: border-box; padding: 6px 10px; font: 15px/1.35 var(--font-body, sans-serif); color: var(--ui-text);
+  background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-radius: 2px;
+}
+.sf-input:focus-visible, .sf-field :is(input, select, textarea):focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.sf-field :is(input, select, textarea):disabled, .sf-input:disabled { color: var(--ui-muted); border-style: dashed; cursor: not-allowed; }
+.sf-field input[type="checkbox"], .sf-check input { width: 18px; height: 18px; flex: none; margin: 0; accent-color: var(--ui-primary); }
+
+/* panel table: Silkscreen muted heads, panel-line rules, zebra rows */
+.sf-table, .lg-table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+.sf-table th, .sf-table td, .lg-table th, .lg-table td { padding: 6px 6px; text-align: left; vertical-align: middle; border-bottom: 1px solid var(--sf-panel-line); }
+.sf-table thead th, .lg-table thead th { font: 10px/1.4 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); white-space: nowrap; }
+.sf-table tbody tr:nth-child(even), .lg-table tbody tr:nth-child(even) { background: color-mix(in srgb, var(--ui-surface-2) 50%, transparent); }

@@ -82,42 +82,42 @@ async function upload() {
 <template>
   <div class="tn-page-form">
     <div class="tn-banner-edit">
-      <span class="tn-fact-k">Banner</span>
+      <span class="sf-k">Banner</span>
       <img v-if="banner" class="tn-banner-preview" :src="banner" alt="Current banner" />
-      <p v-else class="muted">No banner: the ruleset crest shows instead.</p>
+      <p v-else class="hm-empty">No banner: the ruleset crest shows instead.</p>
       <p class="muted tn-hint">PNG, JPEG or WebP, 1200 to 2400 pixels wide, at most 1 MB.</p>
       <div v-if="canWrite" class="tn-inline-form">
         <label for="tn-banner-file" class="tn-sr">Banner image</label>
         <input id="tn-banner-file" ref="fileInput" type="file" accept="image/png,image/jpeg,image/webp" @change="onPick" />
-        <button class="lobby-btn primary" type="button" :disabled="!picked || busy" @click="upload">Upload banner</button>
-        <button v-if="banner" class="lobby-btn" type="button" :disabled="busy" @click="detail.removeBanner()">Remove banner</button>
+        <button class="sf-btn primary" type="button" :disabled="!picked || busy" @click="upload">Upload banner</button>
+        <button v-if="banner" class="sf-btn" type="button" :disabled="busy" @click="detail.removeBanner()">Remove banner</button>
       </div>
-      <p v-if="bannerError" class="lobby-error" role="alert">{{ bannerError }}</p>
+      <p v-if="bannerError" class="sf-error" role="alert">{{ bannerError }}</p>
     </div>
 
     <form v-if="canWrite" class="tn-form-grid" @submit.prevent="save">
-      <label class="tn-field"><span class="tn-fact-k">Venue</span><input v-model="form.venue" type="text" maxlength="120" autocomplete="off" /></label>
-      <label class="tn-field"><span class="tn-fact-k">Address</span><input v-model="form.address" type="text" maxlength="200" autocomplete="off" /></label>
-      <label class="tn-field"><span class="tn-fact-k">Map link</span><input v-model="form.mapUrl" type="url" maxlength="500" placeholder="https://" autocomplete="off" /></label>
-      <label class="tn-field"><span class="tn-fact-k">Start time</span><input v-model="form.startTime" type="time" /></label>
-      <label class="tn-field"><span class="tn-fact-k">Entry fee</span><input v-model="form.entryFee" type="text" maxlength="40" placeholder="e.g. 15 GBP or Free" autocomplete="off" /></label>
-      <label class="tn-field"><span class="tn-fact-k">Registration closes (UTC)</span><input v-model="form.registration" type="datetime-local" /></label>
-      <label class="tn-field"><span class="tn-fact-k">Check-in by (UTC)</span><input v-model="form.checkIn" type="datetime-local" /></label>
-      <label class="tn-field tn-field-wide">
+      <label class="tn-field sf-field"><span class="tn-fact-k">Venue</span><input v-model="form.venue" type="text" maxlength="120" autocomplete="off" /></label>
+      <label class="tn-field sf-field"><span class="tn-fact-k">Address</span><input v-model="form.address" type="text" maxlength="200" autocomplete="off" /></label>
+      <label class="tn-field sf-field"><span class="tn-fact-k">Map link</span><input v-model="form.mapUrl" type="url" maxlength="500" placeholder="https://" autocomplete="off" /></label>
+      <label class="tn-field sf-field"><span class="tn-fact-k">Start time</span><input v-model="form.startTime" type="time" /></label>
+      <label class="tn-field sf-field"><span class="tn-fact-k">Entry fee</span><input v-model="form.entryFee" type="text" maxlength="40" placeholder="e.g. 15 GBP or Free" autocomplete="off" /></label>
+      <label class="tn-field sf-field"><span class="tn-fact-k">Registration closes (UTC)</span><input v-model="form.registration" type="datetime-local" /></label>
+      <label class="tn-field sf-field"><span class="tn-fact-k">Check-in by (UTC)</span><input v-model="form.checkIn" type="datetime-local" /></label>
+      <label class="tn-field sf-field tn-field-wide">
         <span class="tn-fact-k">Summary <span class="muted">({{ form.summary.length }} / {{ SUMMARY_MAX }})</span></span>
         <textarea v-model="form.summary" rows="6" :maxlength="SUMMARY_MAX" />
       </label>
-      <label class="tn-field tn-field-wide">
+      <label class="tn-field sf-field tn-field-wide">
         <span class="tn-fact-k">What to bring <span class="muted">({{ form.notes.length }} / {{ NOTES_MAX }})</span></span>
         <textarea v-model="form.notes" rows="4" :maxlength="NOTES_MAX" />
       </label>
       <p class="muted tn-hint tn-field-wide">Text formatting: **bold**, *italic*, [label](https://link), "- " for a list. A blank line starts a new paragraph.</p>
       <div class="tn-actions tn-form-actions">
-        <button class="lobby-btn primary" type="submit" :disabled="!dirty || tooLong || busy">Save page</button>
-        <button class="lobby-btn" type="button" :disabled="!dirty || busy" @click="Object.assign(form, fromRecord())">Reset</button>
+        <button class="sf-btn primary" type="submit" :disabled="!dirty || tooLong || busy">Save page</button>
+        <button class="sf-btn" type="button" :disabled="!dirty || busy" @click="Object.assign(form, fromRecord())">Reset</button>
       </div>
     </form>
-    <p v-if="mine && state.actionError" class="lobby-error" role="alert">{{ state.actionError }}</p>
+    <p v-if="mine && state.actionError" class="sf-error" role="alert">{{ state.actionError }}</p>
     <p v-else-if="mine && state.notice" class="tn-notice" role="status">{{ state.notice }}</p>
   </div>
 </template>

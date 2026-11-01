@@ -9,7 +9,7 @@ import { appPath, discordLoginUrl, SESSION_KEY, writesAllowed } from "../session
 import {
   myEntrant, registrationOpen, rulesetCreatorHref, rulesetInitials, safeBannerUrl, TOURNAMENT_DETAIL_KEY,
 } from "../tournaments/detail";
-import { STATUS_LABEL } from "../tournaments/list";
+import { STATUS_LABEL, STATUS_TONE } from "../tournaments/list";
 
 const detail = inject(TOURNAMENT_DETAIL_KEY)!;
 const session = inject(SESSION_KEY)!;
@@ -44,25 +44,25 @@ const signIn = computed(() => discordLoginUrl(appPath(`/tournaments/${t.value.id
     </div>
     <div class="tn-front-body">
       <p class="tn-front-chips">
-        <RouterLink v-if="t.seriesId" class="tn-chip tn-chip-link" :to="`/series/${encodeURIComponent(t.seriesId)}`">Series</RouterLink>
-        <span class="tn-chip" :data-status="t.status">{{ STATUS_LABEL[t.status] ?? t.status }}</span>
-        <span v-if="t.nafSanctioned" class="tn-chip" data-naf="sanctioned">NAF sanctioned</span>
+        <RouterLink v-if="t.seriesId" class="sf-chip tn-chip-link" data-tone="info" :to="`/series/${encodeURIComponent(t.seriesId)}`">Series</RouterLink>
+        <span class="sf-chip" :data-tone="STATUS_TONE[t.status] ?? 'muted'" :data-status="t.status">{{ STATUS_LABEL[t.status] ?? t.status }}</span>
+        <span v-if="t.nafSanctioned" class="sf-chip" data-tone="info" data-naf="sanctioned">NAF sanctioned</span>
       </p>
       <div class="tn-front-actions">
         <template v-if="entered">
           <span class="tn-front-reg">Registered: <strong>{{ team }}</strong></span>
           <template v-if="canWrite && !closed">
-            <RouterLink class="lobby-btn small" :to="entryLink">Change</RouterLink>
-            <button class="lobby-btn small" type="button" :disabled="Boolean(state.busy)" @click="detail.withdraw()">Withdraw</button>
+            <RouterLink class="sf-btn small" :to="entryLink">Change</RouterLink>
+            <button class="sf-btn small" type="button" :disabled="Boolean(state.busy)" @click="detail.withdraw()">Withdraw</button>
           </template>
         </template>
         <template v-else-if="open && !closed">
-          <RouterLink v-if="coach && canWrite && !mine" class="lobby-btn primary" :to="entryLink">Register</RouterLink>
-          <a v-else-if="!coach" class="lobby-btn primary" :href="signIn">Sign in to register</a>
+          <RouterLink v-if="coach && canWrite && !mine" class="sf-btn primary" :to="entryLink">Register</RouterLink>
+          <a v-else-if="!coach" class="sf-btn primary" :href="signIn">Sign in to register</a>
         </template>
         <template v-if="state.capabilities.manage && canWrite">
-          <RouterLink class="lobby-btn small" :to="editLink">Edit</RouterLink>
-          <a v-if="ruleset" class="lobby-btn small" :href="rulesetCreatorHref(ruleset)">Edit ruleset</a>
+          <RouterLink class="sf-btn small" :to="editLink">Edit</RouterLink>
+          <a v-if="ruleset" class="sf-btn small" :href="rulesetCreatorHref(ruleset)">Edit ruleset</a>
         </template>
       </div>
     </div>

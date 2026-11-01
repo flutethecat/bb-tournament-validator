@@ -6,7 +6,7 @@
 import { computed, ref } from "vue";
 import Crest from "./Crest.vue";
 import type { TournamentDetailState } from "../tournaments/detail";
-import { onlyMine, remainingRounds, roundViews } from "../tournaments/detail";
+import { onlyMine, remainingRounds, ROUND_TONE, roundViews } from "../tournaments/detail";
 
 const props = defineProps<{ data: Pick<TournamentDetailState, "rounds" | "fixtures" | "entrants" | "tournament"> }>();
 const all = computed(() => roundViews(props.data));
@@ -21,19 +21,19 @@ const left = computed(() => (props.data.tournament ? remainingRounds(props.data.
 
 <template>
   <div class="tn-rounds-head">
-    <p v-if="data.tournament && data.tournament.status !== 'completed'" class="muted tn-left">
+    <p v-if="data.tournament && data.tournament.status !== 'completed'" class="hm-cap tn-left">
       {{ left === 1 ? "1 round left" : `${left} rounds left` }}
     </p>
-    <div v-if="mineIds.size" class="tn-filter" role="group" aria-label="Fixtures shown">
-      <button type="button" class="tn-tab" :class="{ on: filter === 'all' }" :aria-pressed="filter === 'all'" @click="filter = 'all'">All fixtures</button>
-      <button type="button" class="tn-tab" :class="{ on: filter === 'mine' }" :aria-pressed="filter === 'mine'" @click="filter = 'mine'">My fixtures</button>
+    <div v-if="mineIds.size" class="sf-tabs small tn-filter" role="group" aria-label="Fixtures shown">
+      <button type="button" class="sf-tab" :aria-pressed="filter === 'all'" @click="filter = 'all'">All fixtures</button>
+      <button type="button" class="sf-tab" :aria-pressed="filter === 'mine'" @click="filter = 'mine'">My fixtures</button>
     </div>
   </div>
-  <p v-if="!all.length" class="muted">No rounds have been drawn yet.</p>
+  <p v-if="!all.length" class="hm-empty">No rounds have been drawn yet.</p>
   <template v-else>
-    <p v-if="!fixtureCount" class="muted">Fixtures are shown to signed-in participants and organisers. Nothing to show here yet.</p>
-    <section v-for="r in rounds" :key="r.number" class="tn-round">
-      <h3 class="tn-round-h">Round {{ r.number }} <span class="tn-chip" :data-status="r.status">{{ r.status }}</span></h3>
+    <p v-if="!fixtureCount" class="hm-empty">Fixtures are shown to signed-in participants and organisers. Nothing to show here yet.</p>
+    <section v-for="r in rounds" :key="r.number" class="hm-panel tn-round" :aria-labelledby="`tn-round-${r.number}-h`">
+      <header class="hm-band"><h2 :id="`tn-round-${r.number}-h`">Round {{ r.number }}</h2><span class="sf-chip" :data-tone="ROUND_TONE[r.status] ?? 'muted'" :data-status="r.status">{{ r.status }}</span></header>
       <ul v-if="r.fixtures.length" class="tn-fixtures">
         <li v-for="f in r.fixtures" :key="f.id" class="tn-fixture" :class="{ 'tn-mine': mineIds.has(f.id) }" :data-played="f.played">
           <div class="tn-side tn-home">

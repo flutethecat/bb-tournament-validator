@@ -9,6 +9,7 @@ import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
 import { fmtK } from "../shared/format";
 import { createTournamentTeam, playerRows, sidelineLines, TOURNAMENT_TEAM_KEY } from "../tournaments/team";
+import { ROSTER_TONE } from "../tournaments/detail";
 
 const props = defineProps<{ id: string; eid: string }>();
 const fetcher = inject(API_KEY)!;
@@ -27,29 +28,27 @@ usePageTitle(() => (view.value || build.value ? name.value : ""));
 </script>
 
 <template>
-  <section class="lobby-card tn-page">
+  <div class="hm-page tn-page">
     <RouterLink class="tn-back" :to="{ name: 'tournament-detail', params: { id } }">Back to the tournament</RouterLink>
-    <p v-if="state.error" class="lobby-error" role="alert">{{ state.error }}</p>
-    <p v-else-if="!state.loaded || !build" class="muted" role="status">Loading team...</p>
+    <p v-if="state.error" class="sf-error" role="alert">{{ state.error }}</p>
+    <p v-else-if="!state.loaded || !build" class="hm-empty" role="status">Loading team...</p>
     <template v-else>
-      <header class="tn-hero">
-        <p class="tn-hero-meta muted">
-          <span v-if="build.submission" class="tn-chip" :data-roster="build.submission.valid ? 'valid' : 'invalid'">{{ build.submission.valid ? "Valid" : "Invalid" }}</span>
-          <span v-else class="tn-chip" data-roster="none">Not submitted</span>
-          {{ race }}{{ build.coachId ? ` · ${build.coachId}` : "" }}
-        </p>
-      </header>
-      <section class="tn-panel" aria-labelledby="tn-team-h">
-        <h3 id="tn-team-h" class="tn-band">Submitted team</h3>
+      <p class="tn-hero-meta">
+        <span v-if="build.submission" class="sf-chip" :data-tone="ROSTER_TONE[build.submission.valid ? 'valid' : 'invalid']" :data-roster="build.submission.valid ? 'valid' : 'invalid'">{{ build.submission.valid ? "Valid" : "Invalid" }}</span>
+        <span v-else class="sf-chip" data-tone="muted" data-roster="none">Not submitted</span>
+        <span class="tn-hero-text">{{ race }}{{ build.coachId ? ` · ${build.coachId}` : "" }}</span>
+      </p>
+      <section class="hm-panel" aria-labelledby="tn-team-h">
+        <header class="hm-band"><h2 id="tn-team-h">Submitted team</h2></header>
         <div class="tn-panel-body">
-          <p v-if="!build.submission" class="muted">This coach has not submitted a Team Builder sheet.</p>
+          <p v-if="!build.submission" class="hm-empty">This coach has not submitted a Team Builder sheet.</p>
           <template v-else>
             <ul v-if="build.submission.problems?.length" class="tn-problems" aria-label="Roster problems">
               <li v-for="(p, i) in build.submission.problems" :key="i">{{ p }}</li>
             </ul>
-            <p v-if="!view" class="muted">This entry has no Team Builder sheet to show.</p>
-            <div v-else-if="players.length" class="table-wrap tn-table-wrap">
-              <table class="tn-table">
+            <p v-if="!view" class="hm-empty">This entry has no Team Builder sheet to show.</p>
+            <div v-else-if="players.length" class="tn-table-wrap">
+              <table class="sf-table tn-table">
                 <thead><tr><th>#</th><th>Position</th><th>MA / ST / AG / PA / AV</th><th>Upgrades</th><th>Skills</th><th>Added skills</th></tr></thead>
                 <tbody>
                   <tr v-for="p in players" :key="p.key">
@@ -70,14 +69,14 @@ usePageTitle(() => (view.value || build.value ? name.value : ""));
           </template>
         </div>
       </section>
-      <section v-if="build.team" class="tn-panel" aria-labelledby="tn-live-h">
-        <h3 id="tn-live-h" class="tn-band">Library team</h3>
-        <div class="tn-panel-body tn-facts">
-          <div class="tn-fact"><span class="tn-fact-k">Team</span><strong>{{ build.team.teamName || "Unnamed" }}</strong></div>
-          <div v-if="build.team.race" class="tn-fact"><span class="tn-fact-k">Race</span><strong>{{ build.team.race }}</strong></div>
-          <div v-if="typeof build.team.teamValue === 'number'" class="tn-fact"><span class="tn-fact-k">Team value</span><strong>{{ fmtK(build.team.teamValue) }}</strong></div>
-        </div>
+      <section v-if="build.team" class="hm-panel" aria-labelledby="tn-live-h">
+        <header class="hm-band"><h2 id="tn-live-h">Library team</h2></header>
+        <dl class="tl-facts tn-facts-list">
+          <div><dt>Team</dt><dd>{{ build.team.teamName || "Unnamed" }}</dd></div>
+          <div v-if="build.team.race"><dt>Race</dt><dd>{{ build.team.race }}</dd></div>
+          <div v-if="typeof build.team.teamValue === 'number'"><dt>Team value</dt><dd>{{ fmtK(build.team.teamValue) }}</dd></div>
+        </dl>
       </section>
     </template>
-  </section>
+  </div>
 </template>

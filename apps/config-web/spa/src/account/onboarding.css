@@ -71,29 +71,7 @@
 .ob-check-help { margin: 2px 0 10px 28px; }
 .ob-check-help:last-child { margin-bottom: 0; }
 
-/* ---- buttons: band font, bevel and a 3 px lift (the builder's buttons); primary like the Discord button's bevel */
-.ob-btn {
-  display: inline-flex; align-items: center; justify-content: center; min-height: 44px; box-sizing: border-box; margin: 0; padding: 0 16px;
-  font: 12px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; text-decoration: none; text-align: center; white-space: nowrap; cursor: pointer;
-  color: var(--ui-text); background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface-2);
-  border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: inset 0 1px 0 var(--sf-panel-hi), 0 3px 0 var(--sf-panel-drop);
-  transform: translateY(-1px); transition: transform .08s ease, box-shadow .08s ease, filter .08s ease;
-}
-.ob-btn.small { min-height: 36px; padding: 0 10px; font-size: 11px; }
-.ob-btn:hover:not(:disabled) { border-color: var(--ui-heading); transform: translateY(-2px); }
-.ob-btn:active:not(:disabled) { transform: translateY(1px); box-shadow: inset 0 1px 0 var(--sf-panel-hi), 0 1px 0 var(--sf-panel-drop); }
-.ob-btn:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
-.ob-btn.primary {
-  color: var(--ui-text-on-primary);
-  background: linear-gradient(color-mix(in srgb, var(--ui-primary) 82%, white), var(--ui-primary) 55%, color-mix(in srgb, var(--ui-primary) 80%, black));
-  border-color: color-mix(in srgb, var(--ui-primary) 60%, black); box-shadow: var(--sf-bevel), 0 3px 0 color-mix(in srgb, var(--ui-primary) 45%, black), 0 4px 6px var(--sf-discord-drop);
-}
-.ob-btn.primary:hover:not(:disabled) { filter: brightness(1.06); border-color: color-mix(in srgb, var(--ui-primary) 60%, black); }
-/* Disabled: flat and readable (no lift, muted ink on the panel face), never a dark blob. */
-.ob-btn:disabled, .ob-btn.primary:disabled {
-  cursor: not-allowed; transform: none; filter: none; color: var(--ui-muted);
-  background: var(--ui-surface-2); border: 2px dashed var(--sf-panel-line); box-shadow: none;
-}
+/* ---- buttons: .ob-btn shares the site button rule (.sf-btn) in home/home.css */
 .ob-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .ob-actions .ob-btn.primary { min-width: 220px; }
 .ob-error { margin: 0; }

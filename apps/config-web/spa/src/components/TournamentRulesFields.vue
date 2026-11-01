@@ -16,8 +16,8 @@ const primaryTiebreaker = defineModel<TournamentPrimaryTiebreaker>("primaryTiebr
 </script>
 
 <template>
-  <label class="tn-field"><span class="tn-fact-k">Max players</span><input v-model.number="maxPlayers" type="number" min="2" max="512" step="1" inputmode="numeric" required /></label>
-  <label v-if="swiss" class="tn-field">
+  <label class="tn-field sf-field"><span class="tn-fact-k">Max players</span><input v-model.number="maxPlayers" type="number" min="2" max="512" step="1" inputmode="numeric" required /></label>
+  <label v-if="swiss" class="tn-field sf-field">
     <span class="tn-fact-k">Rounds</span>
     <input
       v-model.number="roundCount" type="number" min="1" max="50" step="1" inputmode="numeric"
@@ -25,7 +25,7 @@ const primaryTiebreaker = defineModel<TournamentPrimaryTiebreaker>("primaryTiebr
     />
   </label>
   <slot />
-  <label class="tn-field">
+  <label class="tn-field sf-field">
     <span class="tn-fact-k">First tiebreaker</span>
     <select v-model="primaryTiebreaker" :disabled="tiebreakerDisabled">
       <option v-for="(label, key) in TIEBREAKER_LABEL" :key="key" :value="key">{{ label }}</option>

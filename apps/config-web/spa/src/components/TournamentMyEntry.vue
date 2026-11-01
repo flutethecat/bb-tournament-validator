@@ -16,7 +16,7 @@ import { API_KEY } from "../app";
 import { createSharing, type ShareField } from "../account/sharing";
 import { SESSION_KEY, writesAllowed } from "../session";
 import {
-  isPageAction, linkProfileNaf, myEntrant, nafProblem, nextFixtureFor, registrationOpen, ROSTER_LABEL, rosterState, submitChoices,
+  isPageAction, linkProfileNaf, myEntrant, nafProblem, nextFixtureFor, registrationOpen, ROSTER_LABEL, ROSTER_TONE, rosterState, submitChoices,
   TOURNAMENT_DETAIL_KEY, type NafLinkDraft, type ProfileNafView,
 } from "../tournaments/detail";
 
@@ -115,16 +115,16 @@ async function doWithdraw() { await detail.withdraw(); }
 </script>
 
 <template>
-  <section v-if="coach" class="tn-panel tn-entry" aria-labelledby="tn-entry-h">
-    <h3 id="tn-entry-h" class="tn-band">My entry</h3>
+  <section v-if="coach" class="hm-panel tn-entry" aria-labelledby="tn-entry-h">
+    <header class="hm-band"><h2 id="tn-entry-h">My entry</h2></header>
     <div class="tn-panel-body">
       <template v-if="!entered">
         <template v-if="open">
-          <p class="muted">{{ mine?.droppedAt ? "You withdrew from this tournament." : "You are not entered yet." }}</p>
+          <p class="hm-empty">{{ mine?.droppedAt ? "You withdrew from this tournament." : "You are not entered yet." }}</p>
           <form v-if="!mine && canWrite" class="tn-reg-form" novalidate @submit.prevent="doRegister">
-            <p v-if="sanctioned" class="tn-reg-chip"><span class="tn-chip" data-naf="sanctioned">NAF sanctioned</span></p>
-            <div class="tn-inline-form">
-              <label for="tn-reg-team">Team</label>
+            <p v-if="sanctioned" class="tn-reg-chip"><span class="sf-chip" data-tone="info" data-naf="sanctioned">NAF sanctioned</span></p>
+            <div class="tn-inline-form sf-field">
+              <label for="tn-reg-team" class="sf-k">Team</label>
               <TeamSelect id="tn-reg-team" v-model="teamId" :teams="state.teamOptions.library" />
             </div>
             <NafProfileField
@@ -132,69 +132,69 @@ async function doWithdraw() { await detail.withdraw(); }
               :profile="profileNaf" :loading="nafLoading" :disabled="busy" :error="nafShown"
             />
             <div class="tn-reg-share">
-              <p class="tn-fact-k">Share with the organiser</p>
+              <p class="sf-k">Share with the organiser</p>
               <ShareFieldsPicker v-model="share" :phone-on-file="sharing?.state.info?.phoneOnFile === true" legend="What the organisers of this tournament can see" />
               <small class="muted hm-small">Organisers always see your coach name and team. Nothing else unless you tick it; change it later under Account, Sharing.</small>
             </div>
             <div class="tn-actions">
-              <button class="lobby-btn primary" type="submit" :disabled="!teamId || busy || (nafTouched && Boolean(nafError))">{{ nafLinking ? "Saving NAF details..." : "Register" }}</button>
+              <button class="sf-btn primary" type="submit" :disabled="!teamId || busy || (nafTouched && Boolean(nafError))">{{ nafLinking ? "Saving NAF details..." : "Register" }}</button>
             </div>
           </form>
-          <p v-if="!mine && state.teamOptions.status === 'ok' && !state.teamOptions.library.length" class="muted">
+          <p v-if="!mine && state.teamOptions.status === 'ok' && !state.teamOptions.library.length" class="hm-empty">
             Your library is empty. Build a team in the Team Builder, then come back to register.
           </p>
         </template>
-        <p v-else class="muted">{{ mine?.droppedAt ? "You withdrew from this tournament." : "Registration is closed." }}</p>
+        <p v-else class="hm-empty">{{ mine?.droppedAt ? "You withdrew from this tournament." : "Registration is closed." }}</p>
       </template>
       <template v-else-if="mine">
         <div class="tn-entry-head">
           <span class="tn-side-text">
-            <strong>{{ mine.submission?.teamName || mine.teamName || mine.teamId }}</strong>
+            <strong class="tn-entry-team">{{ mine.submission?.teamName || mine.teamName || mine.teamId }}</strong>
             <span class="muted">Seed {{ mine.seed }}{{ mine.race ? ` · ${mine.race}` : "" }}</span>
           </span>
-          <span class="tn-chip" :data-roster="roster">{{ ROSTER_LABEL[roster] }}</span>
+          <span class="sf-chip" :data-tone="ROSTER_TONE[roster]" :data-roster="roster">{{ ROSTER_LABEL[roster] }}</span>
         </div>
         <form v-if="nafPending && canWrite" class="tn-reg-naf tn-naf-pending" novalidate @submit.prevent="doAnswerNaf">
-          <p class="lobby-error hm-small">This tournament is NAF sanctioned. Add your NAF name and number to your profile, or say you are not a NAF member, before you submit a roster.</p>
+          <p class="sf-error">This tournament is NAF sanctioned. Add your NAF name and number to your profile, or say you are not a NAF member, before you submit a roster.</p>
           <NafProfileField
             v-model:not-naf-member="notNafMember" v-model:draft="nafDraft" id-prefix="tn-entry-naf"
             :profile="profileNaf" :loading="nafLoading" :disabled="busy" :error="nafShown"
           />
-          <div class="tn-actions"><button class="lobby-btn primary" type="submit" :disabled="busy || (nafTouched && Boolean(nafError))">{{ nafLinking ? "Saving NAF details..." : "Save NAF answer" }}</button></div>
+          <div class="tn-actions"><button class="sf-btn primary" type="submit" :disabled="busy || (nafTouched && Boolean(nafError))">{{ nafLinking ? "Saving NAF details..." : "Save NAF answer" }}</button></div>
         </form>
         <ul v-if="problems.length" class="tn-problems" aria-label="Roster problems">
           <li v-for="(p, i) in problems" :key="i">{{ p }}</li>
         </ul>
-        <p v-else-if="roster === 'none'" class="muted">Submit the team you will play so it can be checked against the ruleset.</p>
+        <p v-else-if="roster === 'none'" class="hm-empty">Submit the team you will play so it can be checked against the ruleset.</p>
 
         <div v-if="next" class="tn-next" :data-side="next.opponentEntrantId ? 'vs' : 'bye'">
-          <span class="tn-fact-k">Round {{ next.round }}</span>
+          <span class="sf-k">Round {{ next.round }}</span>
           <strong v-if="next.opponentEntrantId">vs {{ next.opponentTeam }} <span class="muted">({{ next.opponentCoach }})</span></strong>
           <strong v-else>Bye</strong>
           <RouterLink
-            v-if="next.opponentEntrantId" class="lobby-btn small"
+            v-if="next.opponentEntrantId" class="sf-btn small"
             :to="{ name: 'tournament-team', params: { id: t.id, eid: next.opponentEntrantId } }"
           >Opponent's team</RouterLink>
         </div>
 
-        <form v-if="!closed && canWrite" class="tn-inline-form" @submit.prevent="doSubmit">
-          <label for="tn-submit-team">Submit team</label>
+        <form v-if="!closed && canWrite" class="tn-inline-form sf-field" @submit.prevent="doSubmit">
+          <label for="tn-submit-team" class="sf-k">Submit team</label>
           <select id="tn-submit-team" v-model="saveRef" :disabled="locked || !choices.length">
             <option v-if="!choices.length" value="">No saved teams yet</option>
             <optgroup v-for="g in groups" :key="g.label" :label="g.label">
               <option v-for="c in g.items" :key="c.ref" :value="c.ref">{{ c.label }}</option>
             </optgroup>
           </select>
-          <button class="lobby-btn primary" type="submit" :disabled="locked || nafPending || !saveRef || busy">Submit team</button>
+          <button class="sf-btn primary" type="submit" :disabled="locked || nafPending || !saveRef || busy">Submit team</button>
         </form>
-        <p v-if="locked && !closed" class="muted">Rosters are locked. Ask an organiser to unlock them to change your team.</p>
+        <p v-if="locked && !closed" class="hm-empty">Rosters are locked. Ask an organiser to unlock them to change your team.</p>
 
         <div v-if="!closed && canWrite" class="tn-actions">
-          <button class="lobby-btn" type="button" :disabled="busy" @click="doWithdraw">Withdraw</button>
+          <button class="sf-btn" type="button" :disabled="busy" @click="doWithdraw">Withdraw</button>
         </div>
       </template>
-      <p v-if="!canWrite" class="muted tn-readonly">Test sign-in sessions can look but cannot change tournament data.</p>
-      <p v-if="state.actionError && !isPageAction(state.lastAction)" class="lobby-error" role="alert">{{ state.actionError }}</p>
+      <p v-if="!canWrite" class="hm-empty tn-readonly">Test sign-in sessions can look but cannot change tournament data.</p>
+      <p v-if="state.actionError && !isPageAction(state.lastAction)" class="sf-error" role="alert">{{ state.actionError }}</p>
       <p v-else-if="state.notice && !isPageAction(state.lastAction)" class="tn-notice" role="status">{{ state.notice }}</p>
     </div>
   </section>

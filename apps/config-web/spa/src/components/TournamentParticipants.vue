@@ -9,7 +9,7 @@ import type { TournamentEntrant, TournamentEntrantFlags } from "../shared/api";
 import Crest from "./Crest.vue";
 import MessageCoachModal from "./MessageCoachModal.vue";
 import NafEntrantModal from "./NafEntrantModal.vue";
-import { nextFixtureFor, ROSTER_LABEL, rosterState, TOURNAMENT_DETAIL_KEY } from "../tournaments/detail";
+import { nextFixtureFor, ROSTER_LABEL, ROSTER_TONE, rosterState, TOURNAMENT_DETAIL_KEY } from "../tournaments/detail";
 import { SESSION_KEY, writesAllowed } from "../session";
 
 const detail = inject(TOURNAMENT_DETAIL_KEY)!;
@@ -77,12 +77,12 @@ function seed(e: TournamentEntrant, raw: string) {
 </script>
 
 <template>
-  <div class="tn-filter" role="group" aria-label="Show participants">
-    <button v-for="f in FILTERS" :key="f.id" type="button" class="tn-tab small" :class="{ on: filter === f.id }" :aria-pressed="filter === f.id" @click="filter = f.id">{{ f.label }}</button>
+  <div class="sf-tabs small tn-filter" role="group" aria-label="Show participants">
+    <button v-for="f in FILTERS" :key="f.id" type="button" class="sf-tab" :aria-pressed="filter === f.id" @click="filter = f.id">{{ f.label }}</button>
   </div>
-  <p v-if="!rows.length" class="muted">{{ filter === "all" ? "No participants yet." : "Nobody matches this filter." }}</p>
-  <div v-else class="table-wrap tn-table-wrap">
-    <table class="tn-table tn-participants">
+  <p v-if="!rows.length" class="hm-empty">{{ filter === "all" ? "No participants yet." : "Nobody matches this filter." }}</p>
+  <div v-else class="tn-table-wrap">
+    <table class="sf-table tn-table tn-participants">
       <thead>
         <tr><th>Seed</th><th>Team</th><th>Shared</th><th>Roster</th><th v-for="f in FLAGS" :key="f.key">{{ f.label }}</th><th>Next fixture</th><th v-if="canWrite"><span class="tn-sr">Actions</span></th></tr>
       </thead>
@@ -93,7 +93,7 @@ function seed(e: TournamentEntrant, raw: string) {
             <span v-if="!canWrite" class="muted">{{ r.e.manualSeed ? `(manual ${r.e.manualSeed})` : "" }}</span>
             <input
               v-else
-              class="tn-seed-input" type="number" min="1" max="999" inputmode="numeric" :value="r.e.manualSeed ?? ''"
+              class="tn-seed-input sf-input" type="number" min="1" max="999" inputmode="numeric" :value="r.e.manualSeed ?? ''"
               :aria-label="`Manual seed for ${r.e.teamName || r.e.teamId}`" placeholder="-" :disabled="busyRow(r.e.id)"
               @change="seed(r.e, ($event.target as HTMLInputElement).value)"
             />
@@ -106,11 +106,11 @@ function seed(e: TournamentEntrant, raw: string) {
             <span v-for="(line, i) in sharedLines(r.e)" :key="i">{{ line }}</span>
             <span v-if="!sharedLines(r.e).length" class="muted">Not shared</span>
             <span v-if="r.e.nafNumber" class="muted" data-naf="details">NAF {{ r.e.nafName ? `${r.e.nafName} ` : "" }}#{{ r.e.nafNumber }}{{ r.e.nafChecked ? " (checked)" : "" }}</span>
-            <span v-if="r.e.notNafMember"><span class="tn-chip" data-naf="not-member">Not a NAF member</span></span>
-            <span v-if="r.e.nafPending"><span class="tn-chip" data-naf="pending">NAF pending</span></span>
+            <span v-if="r.e.notNafMember"><span class="sf-chip" data-tone="soon" data-naf="not-member">Not a NAF member</span></span>
+            <span v-if="r.e.nafPending"><span class="sf-chip" data-tone="soon" data-naf="pending">NAF pending</span></span>
           </td>
           <td data-label="Roster">
-            <span class="tn-chip" :data-roster="r.roster">{{ ROSTER_LABEL[r.roster] }}</span>
+            <span class="sf-chip" :data-tone="ROSTER_TONE[r.roster]" :data-roster="r.roster">{{ ROSTER_LABEL[r.roster] }}</span>
             <span v-if="r.e.rosterVerifiedOverride !== undefined" class="muted"> by hand</span>
           </td>
           <td v-for="f in FLAGS" :key="f.key" :data-label="f.label" class="tn-flag">
@@ -126,14 +126,14 @@ function seed(e: TournamentEntrant, raw: string) {
             <span v-else class="muted">None</span>
           </td>
           <td v-if="canWrite" data-label="Actions" class="tn-row-menu">
-            <button v-if="r.e.coachId" type="button" class="lobby-btn small" :aria-label="`Message coach ${r.e.coachId}`" @click="messaging = r.e">Message coach</button>
-            <button v-if="r.e.coachId" type="button" class="lobby-btn small" :aria-label="`Record NAF details for ${r.e.coachId}`" @click="nafEditing = r.e">NAF details</button>
+            <button v-if="r.e.coachId" type="button" class="sf-btn small" :aria-label="`Message coach ${r.e.coachId}`" @click="messaging = r.e">Message coach</button>
+            <button v-if="r.e.coachId" type="button" class="sf-btn small" :aria-label="`Record NAF details for ${r.e.coachId}`" @click="nafEditing = r.e">NAF details</button>
           </td>
         </tr>
       </tbody>
     </table>
   </div>
-  <p v-if="dropped" class="muted">{{ dropped }} withdrawn {{ dropped === 1 ? "entry is" : "entries are" }} not listed.</p>
+  <p v-if="dropped" class="hm-empty">{{ dropped }} withdrawn {{ dropped === 1 ? "entry is" : "entries are" }} not listed.</p>
   <NafEntrantModal
     v-if="nafEditing?.coachId" :coach-key="nafEditing.coachId" :team-name="nafEditing.submission?.teamName || nafEditing.teamName"
     @saved="detail.refresh()" @close="nafEditing = null"

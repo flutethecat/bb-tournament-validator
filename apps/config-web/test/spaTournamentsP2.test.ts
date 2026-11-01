@@ -333,7 +333,7 @@ describe("phase 2/3 views (server-rendered against a mocked API)", () => {
     const { html } = await render("/tournaments/t1", { ...AS("Alice"), "/api/tournaments/t1": body, ...OPTIONS }, loaded("t1", "Alice"));
     expect(html).toContain("Add your NAF name and number to your profile, or say you are not a NAF member, before you submit a roster.");
     expect(html).toContain(">Save NAF answer</button>");
-    expect(html).toMatch(/<button class="lobby-btn primary" type="submit" disabled[^>]*>Submit team<\/button>/);
+    expect(html).toMatch(/<button class="sf-btn primary" type="submit" disabled[^>]*>Submit team<\/button>/);
   });
 
   it("NAF-sanctioned tournament: the chip and the NAF block (profile read pending on first render); no typed NAF number", async () => {
