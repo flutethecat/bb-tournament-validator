@@ -91,6 +91,8 @@ export interface TournamentRecord {
   news?: TournamentNewsPost[];
   /** ISO timestamps. The coach home Deadlines panel reads exactly these names. */
   deadlines?: TournamentDeadlines;
+  /** NAF sanctioned (owner 10-31): coach registration needs a NAF number, or the "I am not a NAF member" box. Absent = false. */
+  nafSanctioned?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -165,6 +167,10 @@ export interface TournamentEntrantRecord {
   /** v4: organiser seed for seedingMode "manual" (1 = top seed). */
   manualSeed?: number;
   submission?: TournamentSubmission;
+  /** The NAF number the coach gave at registration (shown to the coach and the tournament's managers only). */
+  nafNumber?: string;
+  /** Set when the coach ticked "I am not a NAF member" registering for a NAF-sanctioned tournament (managers only). */
+  notNafMember?: true;
 }
 
 export interface TournamentRoundRecord {

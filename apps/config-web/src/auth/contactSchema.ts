@@ -8,9 +8,11 @@
 //                           absent = derived from identities.email (the Discord VERIFIED email), source "discord"
 //   consent.leagueContact   { granted: boolean, at: ISO, version: LEAGUE_CONTACT_VERSION } (opt-in; absent = not granted)
 //   consent.privacy         { acceptedVersion: PRIVACY_VERSION, at: ISO } (required; absent or older = onboarding needed)
+//   consent.sharing         { ["league:<id>" | "tournament:<id>"]: { fields: ShareField[], at: ISO, version: SHARING_VERSION } }
+//                           per-organiser grants (owner 10-31, src/auth/sharing.ts); absent scope = nothing shared
 //
-// Personal data: email and phones are never sent on a public route; organisers reach them only through contactFor
-// (src/auth/contactFor.ts), which requires the league-contact consent and membership.
+// Personal data: email and phones are never sent on a public route; organisers see only the fields the coach granted
+// their league or tournament (consent.sharing, read through sharedContactFor in src/auth/contactFor.ts).
 
 /** The privacy notice version a coach must have accepted: the ONE constant the notice page shows as "Last updated"
  *  (spa/src/privacy/version.ts). Bumping it there asks every coach again at their next visit (accepted versions are ISO
@@ -62,6 +64,20 @@ export interface LeagueShareAck {
   version: string;
 }
 
+/** What a coach shares with one league's or tournament's organisers (owner 10-31). "phone" = every phone on file. */
+export const SHARE_FIELDS = ["preferredName", "email", "phone"] as const;
+export type ShareField = (typeof SHARE_FIELDS)[number];
+/** The wording version of the sharing choices (Account -> Sharing, the league notice, the registration picker). */
+export const SHARING_VERSION = "2026-10-31";
+export interface ShareGrant {
+  fields: ShareField[];
+  at: string;
+  version: string;
+}
+/** "league:<leagueId>" or "tournament:<tournamentId>". */
+export const SHARE_SCOPE = /^(league|tournament):([A-Za-z0-9_-]{1,80})$/;
+const MAX_SHARE_GRANTS = 400;
+
 export interface CoachConsent {
   leagueContact?: LeagueContactConsent;
   privacy?: PrivacyAcceptance;
@@ -69,12 +85,14 @@ export interface CoachConsent {
   leagues?: Record<string, LeagueShareAck>;
   /** League id -> when the coach declined (or stopped) sharing; they are not asked again for that league. */
   leaguesDeclined?: Record<string, { at: string }>;
+  /** Scope ("league:<id>" | "tournament:<id>") -> what the coach shares with its organisers. Absent = nothing. */
+  sharing?: Record<string, ShareGrant>;
 }
 
 /** The league data-sharing notice (owner 10-31) and its wording version. `{league}` is the league's name. */
-export const LEAGUE_SHARE_VERSION = "2026-10-31b";
+export const LEAGUE_SHARE_VERSION = "2026-10-31c";
 export const LEAGUE_SHARE_TEXT =
-  "You are joining {league}. Its organisers can see your coach name and your teams.";
+  "You are joining {league}. Its organisers can see your coach name and your teams. Choose below what else they can see.";
 export const leagueShareText = (league: string): string => LEAGUE_SHARE_TEXT.replace("{league}", league);
 const LEAGUE_KEY = /^[a-z0-9-]{1,80}$/;
 const MAX_LEAGUE_ACKS = 200;
@@ -184,6 +202,30 @@ export function normalizedConsent(value: unknown): CoachConsent | undefined {
   if (leagues) out.leagues = leagues;
   const declined = leagueMap(value.leaguesDeclined, (v) => (shortString(v.at, ISO_MAX) ? { at: v.at } : undefined));
   if (declined) out.leaguesDeclined = declined;
+  const sharing = normalizedSharing(value.sharing);
+  if (sharing) out.sharing = sharing;
+  return Object.keys(out).length ? out : undefined;
+}
+
+/** Share fields from a request or the store: a list of known names, de-duplicated, in SHARE_FIELDS order. */
+export function parseShareFields(value: unknown): ShareField[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw new ContactValidationError("fields must be a list.");
+  for (const f of value) {
+    if (!SHARE_FIELDS.includes(f as ShareField)) throw new ContactValidationError("fields can be preferredName, email and phone.");
+  }
+  return SHARE_FIELDS.filter((f) => value.includes(f));
+}
+
+function normalizedSharing(value: unknown): Record<string, ShareGrant> | undefined {
+  if (!isObject(value)) return undefined;
+  const out: Record<string, ShareGrant> = {};
+  for (const [scope, v] of Object.entries(value).slice(0, MAX_SHARE_GRANTS)) {
+    if (!SHARE_SCOPE.test(scope) || !isObject(v) || !shortString(v.at, ISO_MAX) || !shortString(v.version, ISO_MAX)) continue;
+    let fields: ShareField[];
+    try { fields = parseShareFields(v.fields); } catch { continue; }
+    out[scope] = { fields, at: v.at, version: v.version };
+  }
   return Object.keys(out).length ? out : undefined;
 }
 

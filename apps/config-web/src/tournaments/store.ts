@@ -30,7 +30,7 @@ const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[
 const tiebreakerLadder = (primary: TournamentPrimaryTiebreaker): TournamentRecord["tiebreakers"] =>
   [primary, "touchdownDifferential", "casualtyDifferential"];
 
-export type TournamentUpdate = Partial<Pick<TournamentRecord, "maxPlayers" | "format" | "packageName" | "startsAt" | "endsAt" | "roundCount" | "organizerCoachId" | "turnTimer" | "inducementOptIns" | "pairingSystem" | "seedingMode">> & {
+export type TournamentUpdate = Partial<Pick<TournamentRecord, "maxPlayers" | "format" | "packageName" | "startsAt" | "endsAt" | "roundCount" | "organizerCoachId" | "turnTimer" | "inducementOptIns" | "pairingSystem" | "seedingMode" | "nafSanctioned">> & {
   primaryTiebreaker?: TournamentPrimaryTiebreaker;
 };
 
@@ -340,6 +340,7 @@ export class TournamentStore {
       organizerCoachId: string;
       primaryTiebreaker?: TournamentPrimaryTiebreaker;
       roundCount?: number;
+      nafSanctioned?: boolean;
     },
     now = new Date(),
   ): TournamentRecord {
@@ -373,6 +374,7 @@ export class TournamentStore {
         organizerCoachIds: [],
         pairingSystem: "dutch",
         seedingMode: "elo",
+        ...(input.nafSanctioned ? { nafSanctioned: true } : {}),
         createdAt: timestamp,
         updatedAt: timestamp,
       };
@@ -455,6 +457,8 @@ export class TournamentStore {
       else if (patch.endsAt !== undefined) tournament.endsAt = patch.endsAt;
       if (patch.pairingSystem !== undefined) tournament.pairingSystem = patch.pairingSystem;
       if (patch.seedingMode !== undefined) tournament.seedingMode = patch.seedingMode;
+      if (patch.nafSanctioned === true) tournament.nafSanctioned = true;
+      else if (patch.nafSanctioned === false) delete tournament.nafSanctioned;
       if (patch.organizerCoachId !== undefined) {
         tournament.organizerCoachId = patch.organizerCoachId.trim();
         tournament.ownerCoachId = tournament.organizerCoachId;
@@ -547,6 +551,7 @@ export class TournamentStore {
     coach: VerifiedCoachIdentity,
     teamId: string,
     now = new Date(),
+    nafEntry: { nafNumber?: string; notNafMember?: boolean } = {},
   ): TournamentEntrantRecord {
     return this.mutate((data) => {
       const tournament = data.tournaments[tournamentId];
@@ -573,6 +578,8 @@ export class TournamentStore {
         teamId: teamId.trim(),
         registeredAt: now.toISOString(),
         flags: { ...DEFAULT_ENTRANT_FLAGS },
+        ...(nafEntry.nafNumber ? { nafNumber: nafEntry.nafNumber } : {}),
+        ...(nafEntry.notNafMember ? { notNafMember: true as const } : {}),
       };
       assertId(entrant.id, "entrant id");
       data.entrants[entrant.id] = entrant;

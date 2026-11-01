@@ -70,7 +70,11 @@ export async function seed(root: string, opts: SeedOptions = {}): Promise<void> 
     ...(opts.aliceNafName ? {} : { connections: { naf: { verifiedAt: "2026-10-01T00:00:00Z", source: "coachpage", nafId: "1001", nafName: "AliceNaf" } } }),
     // onboarding-lane fields (may not exist on this base): exported as stored, removed with the record
     contact: { email: ALICE_EMAIL, emailSource: "discord", emailVerified: true, phones: ["+00 0000 0001"] },
-    consent: { leagueContact: { granted: true, at: "2026-10-01T00:00:00Z", version: "1" }, privacy: { acceptedVersion: ACCEPTED, at: "2026-10-01T00:00:00Z" } },
+    consent: {
+      leagueContact: { granted: true, at: "2026-10-01T00:00:00Z", version: "1" }, privacy: { acceptedVersion: ACCEPTED, at: "2026-10-01T00:00:00Z" },
+      // per-organiser sharing grants (spec 2026-10-31): exported with the record, removed with it
+      sharing: { "tournament:t1": { fields: ["email"], at: "2026-10-01T00:00:00Z", version: "2026-10-31" } },
+    },
   });
   w(join(root, "identities.json"), { version: 1, coaches: {
     alice: aliceRecord,
@@ -117,8 +121,8 @@ export async function seed(root: string, opts: SeedOptions = {}): Promise<void> 
       t2: { id: "t2", name: "Old Cup", status: opts.aliceOwnsActiveTournament ? "draft" : "completed", ownerCoachId: "Alice", organizerCoachId: "Alice" },
     },
     entrants: {
-      e1: { id: "e1", tournamentId: "t1", seed: 1, coach: id("Alice", ALICE_DISCORD), teamId: "save:s1", registeredAt: "" },
-      e2: { id: "e2", tournamentId: "t1", seed: 2, coach: id("Bob", BOB_DISCORD), teamId: "save:b1", registeredAt: "" },
+      e1: { id: "e1", tournamentId: "t1", seed: 1, coach: id("Alice", ALICE_DISCORD), teamId: "save:s1", registeredAt: "", nafNumber: "1001" },
+      e2: { id: "e2", tournamentId: "t1", seed: 2, coach: id("Bob", BOB_DISCORD), teamId: "save:b1", registeredAt: "", notNafMember: true },
     },
     rounds: {},
     standings: { t1: { tournamentId: "t1", rows: [{ rank: 1, entrantId: "e1", coachId: "Alice" }, { rank: 2, entrantId: "e2", coachId: "Bob" }] } },

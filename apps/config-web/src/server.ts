@@ -163,8 +163,11 @@ import {
   onboardingGateApplies, onboardingView, updateOwnContact,
 } from "./auth/onboarding.js";
 import { contactOf, onboardingNeeded } from "./auth/contactSchema.js";
-import { createMailerRecipientLookup, publicIdentityRecord, tournamentOrganiserOf, type MembershipSources } from "./auth/contactFor.js";
-import { LEAGUE_SHARING_PATH, leagueSharingView, setLeagueSharing } from "./auth/leagueSharing.js";
+import {
+  createMailerRecipientLookup, parseShareScope, publicIdentityRecord, sharedContactFor, tournamentOrganiserOf, type MembershipSources,
+} from "./auth/contactFor.js";
+import { answerLeagueRegistration, LEAGUE_SHARING_PATH, leagueSharingView } from "./auth/leagueSharing.js";
+import { setSharing, SHARING_PATH, SharingError, sharingView, storeGrant, type SharingSources } from "./auth/sharing.js";
 import { attachSuper } from "./super/index.js";
 import { mailConfigWarnings } from "./mail/config.js";
 import { LeagueMessageLimiter, leagueMessagesPath, leagueMessagesRoute } from "./mail/leagueMessages.js";
@@ -479,6 +482,19 @@ const leagueStore = new LeagueStore(FORK_STATE_DIR);
  */
 const membershipSources: MembershipSources = { tournaments: tournamentStore, leagues: leagueStore };
 export const mailerRecipientFor = createMailerRecipientLookup(membershipSources);
+/** Per-organiser sharing (src/auth/sharing.ts): the same stores, plus the tournament listing for the Sharing panel. */
+const sharingSources: SharingSources = { tournaments: tournamentStore, leagues: leagueStore };
+/** What an organiser (or a site admin) sees of a coach for one league / tournament: only what the coach granted. */
+function sharedContact(viewer: { coach: string; admin?: boolean }, coach: string, scopeKey: string) {
+  return sharedContacts(viewer, [coach], scopeKey)[0];
+}
+/** The same for many coaches with one identity read (the Participants table). */
+function sharedContacts(viewer: { coach: string; admin?: boolean }, coaches: readonly string[], scopeKey: string) {
+  const scope = parseShareScope(scopeKey);
+  if (!scope) return coaches.map(() => undefined);
+  const identities = readIdentities().coaches;
+  return coaches.map((coach) => sharedContactFor(viewer, identities[normalizeFfbCoachId(coach)], scope, sharingSources));
+}
 registerLeagueEvents({ store: leagueStore, notify: (coach, input) => { try { notificationStore.add(coach, input); } catch { /* fire-and-forget */ } } });
 
 const packages = new PackageFiles(PACKAGES_DIR);
@@ -1582,6 +1598,7 @@ function isStateChangingApiWrite(method: string, pathname: string): boolean {
     pathname === ONBOARDING_PATH ||
     pathname === CONTACT_PATH ||
     pathname === LEAGUE_SHARING_PATH ||
+    pathname === SHARING_PATH || pathname.startsWith(`${SHARING_PATH}/`) ||
     pathname.startsWith("/api/me/email") ||
     pathname === "/api/me/delete" ||
     isTeamMutationWritePath(pathname) ||
@@ -1846,9 +1863,31 @@ async function handleApi(
       if (wait) { res.setHeader("retry-after", String(wait)); return sendJson(res, 429, { error: "Too many changes. Try again in a minute." }); }
       let rawBody: unknown;
       try { rawBody = await readBody(req, 4 * 1024); } catch { return sendJson(res, 400, { error: "Invalid JSON request body." }); }
-      return sendJson(res, 200, leagueSharingView(setLeagueSharing(auth.coach, rawBody, membershipSources), membershipSources));
+      // Joining (share) or declining tells the league's organisers (spec 2026-10-31 section 6).
+      return sendJson(res, 200, leagueSharingView(answerLeagueRegistration(auth.coach, rawBody, membershipSources, leagueNotify), membershipSources));
     } catch (error) {
       return sendJson(res, 400, { error: (error as Error).message });
+    }
+  }
+
+  // Per-organiser sharing (owner 10-31): GET the coach's leagues and tournaments with what each organiser sees;
+  // PUT /api/me/sharing/<league:id | tournament:id> { fields } (403 when the coach is not in that scope).
+  if (path === SHARING_PATH || path.startsWith(`${SHARING_PATH}/`)) {
+    if (!auth) return sendJson(res, 401, { error: "Authentication required." });
+    res.setHeader("cache-control", "private, no-store");
+    const rawScope = path === SHARING_PATH ? "" : path.slice(SHARING_PATH.length + 1);
+    if (path === SHARING_PATH && method === "GET") return sendJson(res, 200, sharingView(ownIdentityRecord(auth.coach), sharingSources));
+    if (!rawScope || method !== "PUT") return sendJson(res, 405, { error: path === SHARING_PATH ? "Use GET." : "Use PUT." });
+    let scopeKey: string;
+    try { scopeKey = decodeURIComponent(rawScope); } catch { return sendJson(res, 400, { error: "Unknown sharing scope." }); }
+    const wait = onboardingLimiter.take([`coach:${normalizeFfbCoachId(auth.coach)}`], 0);
+    if (wait) { res.setHeader("retry-after", String(wait)); return sendJson(res, 429, { error: "Too many changes. Try again in a minute." }); }
+    let rawBody: unknown;
+    try { rawBody = await readBody(req, 4 * 1024); } catch { return sendJson(res, 400, { error: "Invalid JSON request body." }); }
+    try {
+      return sendJson(res, 200, sharingView(setSharing(auth.coach, scopeKey, rawBody, sharingSources), sharingSources));
+    } catch (error) {
+      return sendJson(res, error instanceof SharingError ? error.status : 400, { error: (error as Error).message });
     }
   }
 
@@ -1903,6 +1942,7 @@ async function handleApi(
       declaredTooLarge: (max) => declaredTooLarge(req, max),
       // League settings: organiser lookup + the site admins list (read-only), Super FUMBBL fixture notifications.
       identities: () => Object.values(readIdentities().coaches).map((c) => ({ coach: c.ffbCoachId, level: c.level, banned: c.banned })),
+      memberContact: (viewer, coach, leagueId) => sharedContact(viewer, coach, `league:${leagueId}`),
       notify: leagueNotify,
       fork: leagueFork,
       ifMatch: typeof req.headers["if-match"] === "string" ? req.headers["if-match"] : undefined,
@@ -1993,6 +2033,11 @@ async function handleApi(
       packageRevision: (name) => { try { return packages.getRaw(name)?.revision; } catch { return undefined; } },
       submissionTeamView: (coach, submission, packageName) => tournamentSubmissionView(coach, submission, packageName),
       notify: tournamentNotifier,
+      sharing: {
+        grant: (coach, scope, fields, at) => { storeGrant(coach, scope, fields, at); },
+        contact: (viewer, coach, tournamentId) => sharedContact(viewer, coach, `tournament:${tournamentId}`),
+        contacts: (viewer, coaches, tournamentId) => sharedContacts(viewer, coaches, `tournament:${tournamentId}`),
+      },
       registeredCoach: (coachId) => readIdentities().coaches[normalizeFfbCoachId(coachId)]?.ffbCoachId,
       coachRating: (coach) => {
         // Seeding uses TOURNAMENT ELO (owner 08-27: only tournament matches move the

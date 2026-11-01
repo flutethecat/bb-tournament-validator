@@ -672,7 +672,13 @@ function anonymiseTournaments(an: Anonymiser, tx: TextReplacer, data: Obj): bool
     for (const n of objs(t.news)) { mark(an.fields(n, ["by"], [])); mark(tx.texts(n, ["title", "body"])); }
   }
   const identity = ["coachId", "ffbCoachId"];
-  for (const e of vals(data.entrants)) mark(an.fields(e.coach, identity, ["discordUserId"]));
+  for (const e of vals(data.entrants)) {
+    // The coach's own NAF answers at registration (NAF number, "not a NAF member") go with the entry's identity.
+    if (isObj(e.coach) && an.matches(e.coach.ffbCoachId)) {
+      for (const k of ["nafNumber", "notNafMember"]) if (k in e) { delete e[k]; changed = true; }
+    }
+    mark(an.fields(e.coach, identity, ["discordUserId"]));
+  }
   for (const m of vals(data.scheduledMatches)) {
     for (const s of [m.home, m.away]) if (isObj(s)) mark(an.fields(s.coach, identity, ["discordUserId"]));
     mark(an.fields(m.edited, ["byCoachId"], []));

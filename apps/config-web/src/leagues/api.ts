@@ -102,6 +102,9 @@ export interface LeagueApiDeps {
   store: LeagueStore;
   /** Fork identities (coach-name lookup for organisers; level "admin" rows are the site admins). */
   identities?: () => LeagueIdentityRow[];
+  /** What the viewer sees of a member for this league (sharedContactFor, src/auth/contactFor.ts): the coach name plus only
+   *  the fields the coach granted; undefined = the viewer does not organise it, or the coach has not joined. */
+  memberContact?: (viewer: { coach: string; admin?: boolean }, coach: string, leagueId: string) => { coach: string } | undefined;
   /** Stores one notification (fire-and-forget; src/notifications.ts NotificationStore.add). */
   notify?: (coach: string, input: NotificationInput) => void;
   /** Rest & Relaxation die for "Roll for me" (tests stub it; default crypto d6). */
@@ -291,6 +294,7 @@ export async function leagueApi(
     if (second !== undefined) return { status: 404, body: { error: "Not found." } };
     return artRoute(method, first, route.id, league, auth, deps);
   }
+  if (first === "members") return memberContactRoute(method, league, second, extra, auth, deps);
   const fork = await leagueForkRoutes(method, route.id, route.rest, auth, deps);
   if (fork) return fork;
   const redraft = await redraftRoutes(method, route.rest, league, auth, deps, query);
@@ -316,6 +320,30 @@ export async function leagueApi(
     return { status: 200, body: statsFor(store, league.id, raw) };
   }
   return { status: 404, body: { error: "Not found." } };
+}
+
+/**
+ * GET /api/leagues/<id>/members/<coach>/contact (owner 10-31): a league organiser (or site admin) reads what one member
+ * shares with this league: the coach name, plus preferred name / email / phones only when the coach granted them. A coach
+ * who has not joined (acknowledged) the league answers 404. Never Discord ids.
+ */
+function memberContactRoute(
+  method: string,
+  league: LeagueRecord | undefined,
+  coach: string | undefined,
+  extra: string[],
+  auth: LeagueApiIdentity | undefined,
+  deps: LeagueApiDeps,
+): LeagueApiResult {
+  const noStore = { "cache-control": "private, no-store" };
+  if (!coach || extra.length !== 1 || extra[0] !== "contact") return { status: 404, headers: noStore, body: { error: "Not found." } };
+  if (method !== "GET") return { status: 405, headers: noStore, body: { error: "Use GET." } };
+  if (!auth) return { status: 401, headers: noStore, body: { error: "Sign in to see member details." } };
+  if (!league) return { status: 404, headers: noStore, body: { error: "League not found." } };
+  if (!auth.admin && !isLeagueOrganiser(league, auth.coach)) return { status: 403, headers: noStore, body: { error: "You are not an organiser of this league." } };
+  const contact = deps.memberContact?.(auth, coach, league.id);
+  if (!contact) return { status: 404, headers: noStore, body: { error: "That coach has not joined this league." } };
+  return { status: 200, headers: noStore, body: { contact } };
 }
 
 async function artRoute(

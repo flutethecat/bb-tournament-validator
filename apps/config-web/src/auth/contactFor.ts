@@ -6,7 +6,10 @@
 // league notice (consent.leagues[<leagueId>], src/auth/contactSchema.ts); without it (never asked, declined or stopped)
 // they are treated as a non-member.
 //
-// ORGANISERS NEVER RECEIVE EMAIL ADDRESSES OR PHONE NUMBERS. A portal mailer sends league messages on their behalf.
+// ORGANISERS RECEIVE AN EMAIL ADDRESS OR PHONE NUMBER ONLY WHEN THE COACH GRANTED IT TO THAT SCOPE (owner 10-31):
+// sharedContactFor(viewer, coach, scope) answers the coach name plus the fields of consent.sharing[<scope>], and only
+// while the grant applies (an acknowledged league membership, or an active entry of a tournament that is not
+// cancelled). A portal mailer still sends league messages on the organisers' behalf without showing any address.
 // - tournamentOrganiserOf(caller, target, sources): true when the target is an active (not dropped) entrant of a
 //   tournament the caller owns or organises (owner ruling 10-31). That is the ONLY organiser power over a coach's
 //   identity (setting NAF name/number, answered with publicIdentityRecord). League organisers have none here: they
@@ -14,9 +17,11 @@
 // - mailerRecipientFor(coach, leagueOrTournamentId): MAILER-ONLY, server-internal. The address the league mailer sends
 //   to, only with the league-contact opt-in AND membership (an acknowledged league membership, or a tournament entry).
 //   Its result goes to the email delivery provider, NEVER into an HTTP response; no route may expose it.
-// Nothing public, and nothing an organiser receives, ever includes email or phones.
+// Nothing public includes email or phones; an organiser gets them only through sharedContactFor. Never Discord ids.
 
-import { contactOf, leagueContactGranted, sharesWithLeague, type CoachPhone } from "./contactSchema.js";
+import {
+  contactOf, leagueContactGranted, preferredNameOf, SHARE_SCOPE, sharesWithLeague, type CoachPhone, type ShareField,
+} from "./contactSchema.js";
 import { normalizeFfbCoachId, readIdentities, type CoachIdentityRecord } from "./identitiesStore.js";
 import { isTournamentManager } from "../tournaments/store.js";
 import type { TournamentRecord } from "../tournaments/types.js";
@@ -125,4 +130,93 @@ export function createMailerRecipientLookup(
     const contact = contactOf(record);
     return { coach: record.ffbCoachId, email: contact.email, emailVerified: contact.emailVerified, phones: contact.phones };
   };
+}
+
+// ---- per-organiser sharing grants (owner 10-31) ---------------------------------------------------------------------
+
+export interface ShareScope { kind: "league" | "tournament"; id: string; key: string }
+
+/** "league:<id>" / "tournament:<id>" -> its parts; undefined for anything else. */
+export function parseShareScope(value: unknown): ShareScope | undefined {
+  if (typeof value !== "string") return undefined;
+  const m = SHARE_SCOPE.exec(value);
+  return m ? { kind: m[1] as ShareScope["kind"], id: m[2]!, key: value } : undefined;
+}
+
+const tournamentStatus = (t: unknown): string | undefined =>
+  t && typeof t === "object" && typeof (t as { status?: unknown }).status === "string" ? (t as { status: string }).status : undefined;
+
+/** The coach is in the scope right now: an acknowledged league roster membership, or an active entry of a tournament
+ *  that is not cancelled. A grant is read only while this holds. */
+export function inShareScope(record: CoachIdentityRecord, scope: ShareScope, sources: MembershipSources): boolean {
+  if (scope.kind === "tournament") {
+    const t = sources.tournaments.tournament(scope.id);
+    return Boolean(t) && tournamentStatus(t) !== "cancelled" && isTournamentMember(record.ffbCoachId, scope.id, sources);
+  }
+  return isLeagueRosterMember(record.ffbCoachId, scope.id, sources) && sharesWithLeague(record, scope.id);
+}
+
+/** The coach's grant for this scope is in force: they are in the scope, and for a league the grant is not older than
+ *  the current acknowledgement (a coach who left and joined again confirms their old choice first). */
+export function grantApplies(record: CoachIdentityRecord, scope: ShareScope, sources: MembershipSources): boolean {
+  const grant = record.consent?.sharing?.[scope.key];
+  if (!grant || !inShareScope(record, scope, sources)) return false;
+  if (scope.kind === "league") {
+    const ack = record.consent?.leagues?.[scope.id];
+    if (!ack || grant.at < ack.at) return false;
+  }
+  return true;
+}
+
+/** The fields the coach shares with this scope's organisers now ([] = nothing). */
+export function grantedFields(record: CoachIdentityRecord, scope: ShareScope, sources: MembershipSources): ShareField[] {
+  return grantApplies(record, scope, sources) ? [...record.consent!.sharing![scope.key]!.fields] : [];
+}
+
+/** What an organiser sees of a coach: the coach name always, the rest only when granted. */
+export interface SharedContact {
+  coach: string;
+  preferredName?: string;
+  email?: string;
+  phones?: CoachPhone[];
+}
+
+/** The fields of a grant, read off the record (never Discord ids, never consent or profile). */
+export function sharedFieldsOf(record: CoachIdentityRecord, fields: readonly ShareField[]): SharedContact {
+  const contact = contactOf(record);
+  return {
+    coach: record.ffbCoachId,
+    ...(fields.includes("preferredName") ? { preferredName: preferredNameOf(record) } : {}),
+    ...(fields.includes("email") && contact.email ? { email: contact.email } : {}),
+    ...(fields.includes("phone") && contact.phones.length ? { phones: contact.phones } : {}),
+  };
+}
+
+/** Organisers of a scope: league owner + organisers, tournament owner + listed organisers. */
+export function scopeOrganiser(viewer: string, scope: ShareScope, sources: MembershipSources): boolean {
+  if (!normalizeFfbCoachId(viewer)) return false;
+  if (scope.kind === "tournament") {
+    const t = sources.tournaments.tournament(scope.id);
+    return Boolean(t) && isTournamentManager(t as TournamentRecord, viewer);
+  }
+  const league = sources.leagues.league(scope.id);
+  if (!league) return false;
+  const same = sameCoach(normalizeFfbCoachId(viewer));
+  return same(league.owner) || league.organisers.some((o) => same(o));
+}
+
+/**
+ * What `viewer` may see of `coach` for `scope`: undefined unless the viewer organises that scope (or `viewerIsAdmin`)
+ * and the coach is in it; otherwise the coach name plus the granted fields only.
+ */
+export function sharedContactFor(
+  viewer: { coach: string; admin?: boolean },
+  coach: CoachIdentityRecord | undefined,
+  scope: ShareScope,
+  sources: MembershipSources,
+): SharedContact | undefined {
+  if (!coach) return undefined;
+  if (!viewer.admin && !scopeOrganiser(viewer.coach, scope, sources)) return undefined;
+  if (!inShareScope(coach, scope, sources)) return undefined;
+  return sharedFieldsOf(coach, grantedFields(coach, scope, sources));
 }

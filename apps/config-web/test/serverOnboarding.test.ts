@@ -281,7 +281,7 @@ describe("GET/POST /api/me/leagues/sharing", () => {
   it("lists the coach's leagues with the notice; sharing needs the checkbox; stop sharing is recorded", async () => {
     const view = await (await call("Quiet", "GET", "/api/me/leagues/sharing")).json();
     expect(view.leagues).toEqual([expect.objectContaining({ id: "lg", name: "Test League", status: "pending", onRoster: true })]);
-    expect(view.leagues[0].text).toBe("You are joining Test League. Its organisers can see your coach name and your teams.");
+    expect(view.leagues[0].text).toBe("You are joining Test League. Its organisers can see your coach name and your teams. Choose below what else they can see.");
     expect((await call("Quiet", "POST", "/api/me/leagues/sharing", { leagueId: "lg", share: true })).status).toBe(400);
     const shared = await call("Quiet", "POST", "/api/me/leagues/sharing", { leagueId: "lg", share: true, acknowledged: true });
     expect(shared.status).toBe(200);
@@ -293,6 +293,45 @@ describe("GET/POST /api/me/leagues/sharing", () => {
     // Cookie writes need X-CW-Auth; a not-onboarded coach is gated.
     expect((await fetch(`${origin}/api/me/leagues/sharing`, { method: "POST", headers: { cookie: cookie("Quiet"), "content-type": "application/json" }, body: "{}" })).status).toBe(403);
     expect((await call("Gated", "POST", "/api/me/leagues/sharing", { leagueId: "lg", share: false })).status).toBe(428);
+  });
+});
+
+describe("per-organiser sharing over HTTP (spec 2026-10-31)", () => {
+  it("PUT /api/me/sharing/<scope>: CSRF header, onboarding gate, membership; organisers read only what was granted", async () => {
+    const lgContact = (as: string, coach = "Victim") => call(as, "GET", `/api/leagues/lg/members/${coach}/contact`);
+    // Nothing granted yet: the organiser sees the coach name only.
+    const before = await lgContact("Org");
+    expect(before.status).toBe(200);
+    expect(before.headers.get("cache-control")).toContain("no-store");
+    expect(await before.json()).toEqual({ contact: { coach: "Victim" } });
+    expect((await lgContact("Org2")).status).toBe(403); // organises another league
+    expect((await lgContact("Quiet")).status).toBe(403); // a plain coach
+    expect((await call(undefined, "GET", "/api/leagues/lg/members/Victim/contact")).status).toBe(401);
+    expect((await lgContact("Org", "Quiet")).status).toBe(404); // on the roster, never joined
+    // The coach shares email with lg only.
+    const put = (coach: string, scope: string, body: unknown, extra: Record<string, string> = {}) =>
+      call(coach, "PUT", `/api/me/sharing/${encodeURIComponent(scope)}`, body, extra);
+    expect((await fetch(`${origin}/api/me/sharing/league%3Alg`, { method: "PUT", headers: { cookie: cookie("Victim"), "content-type": "application/json" }, body: JSON.stringify({ fields: ["email"] }) })).status).toBe(403);
+    expect((await put("Gated", "league:lg", { fields: [] })).status).toBe(428);
+    expect((await put("Victim", "league:other", { fields: ["email"] })).status).toBe(403); // not acknowledged there
+    const saved = await put("Victim", "league:lg", { fields: ["email"] });
+    expect(saved.status).toBe(200);
+    const view = await saved.json();
+    expect(view.scopes.find((r: { scope: string }) => r.scope === "league:lg")).toMatchObject({ fields: ["email"] });
+    expect(await (await lgContact("Org")).json()).toEqual({ contact: { coach: "Victim", email: "victim@example.test" } });
+    const leaked = await (await lgContact("Org")).text();
+    for (const secret of ["+15550001111", "909909909909909909", "victim_dc", "Secret Pref"]) expect(leaked).not.toContain(secret);
+    // The tournament organiser sees nothing beyond the name: that grant is per scope.
+    const t = new TournamentStore(join(root, "tournaments")).tournaments(["draft"])[0]!;
+    const detail = await (await call("TOrg", "GET", `/api/tournaments/${t.id}`)).json();
+    const victim = detail.entrants.find((e: { coachId: string }) => e.coachId === "Victim");
+    expect(victim.shared).toEqual({ coach: "Victim" });
+    const tc = await call("TOrg", "GET", `/api/tournaments/${t.id}/entrants/${encodeURIComponent(victim.id)}/contact`);
+    expect(await tc.json()).toEqual({ contact: { coach: "Victim" } });
+    expect((await call("Org", "GET", `/api/tournaments/${t.id}/entrants/${encodeURIComponent(victim.id)}/contact`)).status).toBe(403);
+    // Back to nothing shared, so the route sweep below sees the default.
+    expect((await put("Victim", "league:lg", { fields: [] })).status).toBe(200);
+    expect(await (await lgContact("Org")).json()).toEqual({ contact: { coach: "Victim" } });
   });
 });
 

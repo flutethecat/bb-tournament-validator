@@ -362,6 +362,8 @@ describe("export", () => {
     expect(JSON.parse(text("team-library.json")).map((t: { teamId: string }) => t.teamId).sort()).toEqual(["t1", "t7"]); // own rows of a shared file too
     const t = JSON.parse(text("tournament-entries.json"));
     expect(t.entries.map((e: { id: string }) => e.id)).toEqual(["e1"]);
+    expect(t.entries[0].nafNumber).toBe("1001"); // the NAF answer given at registration
+    expect(account.consent.sharing).toEqual({ "tournament:t1": { fields: ["email"], at: "2026-10-01T00:00:00Z", version: "2026-10-31" } });
     expect(t.matches).toHaveLength(1);
     expect(t.managed.map((m: { id: string; role: string }) => `${m.id}:${m.role}`).sort()).toEqual(["t1:organiser", "t2:owner"]);
     const leagues = JSON.parse(text("league-teams.json"));
@@ -456,6 +458,9 @@ describe("delete", () => {
     // anonymised history (explicit fields; Discord ids dropped; the waiting-room lease dropped, never renamed)
     expect(tf.entrants.e1.coach).toEqual({ coachId: P, ffbCoachId: P, verifiedAt: "2026-10-01T00:00:00Z" });
     expect(tf.entrants.e2.coach.discordUserId).toBe(BOB_DISCORD);
+    // The coach's NAF answer goes with the entry's identity; another coach's flag stays.
+    expect(tf.entrants.e1.nafNumber).toBeUndefined();
+    expect(tf.entrants.e2.notNafMember).toBe(true);
     expect(tf.scheduledMatches.m1.home.coach.ffbCoachId).toBe(P);
     expect(tf.scheduledMatches.m1.away.coach.discordUserId).toBe(BOB_DISCORD);
     expect(tf.tournaments.t2.ownerCoachId).toBe(P); // a completed tournament keeps its record

@@ -16,6 +16,9 @@ import type {
   VerifiedCoachIdentity,
 } from "./types.js";
 import { tournamentLink, type TournamentNotify } from "../notifications.js";
+import { canonicalNafId } from "../auth/identitiesStore.js";
+import { ContactValidationError, parseShareFields, type ShareField } from "../auth/contactSchema.js";
+import type { SharedContact } from "../auth/contactFor.js";
 
 export interface TournamentApiIdentity {
   coach: string;
@@ -43,6 +46,15 @@ export interface TournamentApiDeps {
   submissionTeamView?(coach: string, submission: TournamentSubmission, packageName: string): unknown | undefined;
   /** Coach notifications (src/notifications.ts). Fire-and-forget; absent = no notifications. */
   notify?: TournamentNotify;
+  /** Per-organiser sharing (src/auth/sharing.ts, owner 10-31). Absent = no share picker, no shared fields. */
+  sharing?: {
+    /** Stores the coach's own `tournament:<id>` grant (written with a self-registration). */
+    grant(coach: string, scope: string, fields: ShareField[], now: Date): void;
+    /** What `viewer` sees of the coach for this tournament (sharedContactFor); undefined = not allowed or not entered. */
+    contact(viewer: TournamentApiIdentity, coach: string, tournamentId: string): SharedContact | undefined;
+    /** The same for many coaches at once (one identity read; the Participants table). Absent = contact() per coach. */
+    contacts?(viewer: TournamentApiIdentity, coaches: readonly string[], tournamentId: string): Array<SharedContact | undefined>;
+  };
   now?: () => Date;
 }
 
@@ -189,8 +201,9 @@ function submissionView(entrant: TournamentEntrantRecord, private_: boolean) {
 }
 
 /** An entrant for the page; `private_` (the coach themselves or a manager) adds flags, manual seed and problems. */
-function clientEntrant(entrant: TournamentEntrantRecord, deps: Pick<TournamentApiDeps, "teamBuild">, private_: boolean) {
-  const { coach, submission: _submission, flags, rosterVerifiedOverride, manualSeed, ...rest } = entrant;
+/** shared: the coach's granted fields, for a manager's view only (sharedContactFor). */
+function clientEntrant(entrant: TournamentEntrantRecord, deps: Pick<TournamentApiDeps, "teamBuild">, private_: boolean, shared?: SharedContact) {
+  const { coach, submission: _submission, flags, rosterVerifiedOverride, manualSeed, nafNumber, notNafMember, ...rest } = entrant;
   const team = deps.teamBuild(entrant.teamId);
   const submission = submissionView(entrant, private_);
   return {
@@ -206,7 +219,10 @@ function clientEntrant(entrant: TournamentEntrantRecord, deps: Pick<TournamentAp
       flags: { ...DEFAULT_ENTRANT_FLAGS, ...(flags ?? {}) },
       ...(rosterVerifiedOverride === undefined ? {} : { rosterVerifiedOverride }),
       ...(manualSeed === undefined ? {} : { manualSeed }),
+      ...(nafNumber ? { nafNumber } : {}),
+      ...(notNafMember ? { notNafMember } : {}),
     } : {}),
+    ...(shared ? { shared } : {}),
   };
 }
 
@@ -394,6 +410,23 @@ function projectedOpponent(
 
 // ---- notification hooks: called after a mutation succeeded; a fault here never changes the response ----
 
+function sharedOf(deps: TournamentApiDeps, viewer: TournamentApiIdentity, entrant: TournamentEntrantRecord, tournamentId: string): SharedContact | undefined {
+  try { return deps.sharing?.contact(viewer, entrant.coach.ffbCoachId, tournamentId); } catch { return undefined; }
+}
+
+/** Entrant id -> shared contact, for a manager's view (one batch read when the host offers it). */
+function sharedMap(deps: TournamentApiDeps, viewer: TournamentApiIdentity, entrants: readonly TournamentEntrantRecord[], tournamentId: string): Map<string, SharedContact> {
+  const out = new Map<string, SharedContact>();
+  if (!deps.sharing || !entrants.length) return out;
+  try {
+    const list = deps.sharing.contacts
+      ? deps.sharing.contacts(viewer, entrants.map((e) => e.coach.ffbCoachId), tournamentId)
+      : entrants.map((e) => sharedOf(deps, viewer, e, tournamentId));
+    entrants.forEach((e, i) => { const c = list[i]; if (c) out.set(e.id, c); });
+  } catch { /* shared fields are best effort in the table */ }
+  return out;
+}
+
 function quietly(fn: () => void): void {
   try { fn(); } catch { /* notifications are best effort */ }
 }
@@ -471,6 +504,36 @@ function notifyWithdrawal(deps: TournamentApiDeps, tournament: TournamentRecord,
   });
 }
 
+/** A new entry: the managers except the actor ("{coach} registered for {tournament}", flagged when not a NAF member);
+ *  an organiser-made entry also asks the coach to choose what they share. */
+function notifyRegistration(deps: TournamentApiDeps, tournament: TournamentRecord, entrant: TournamentEntrantRecord, actor: string): void {
+  if (!deps.notify) return;
+  quietly(() => {
+    const coach = entrant.coach.ffbCoachId;
+    const what = `${coach} registered for ${tournament.name}`;
+    deps.notify!.managers(tournament.id, {
+      type: "registration",
+      title: entrant.notNafMember ? `${what} — not a NAF member` : what,
+      body: entrant.notNafMember ? `${what} and is not a NAF member.` : `${what}.`,
+      link: tournamentLink(tournament.id, "manage"),
+      from: actor,
+    }, actor);
+  });
+  if (coachKey(entrant.coach.ffbCoachId) !== coachKey(actor)) notifyShareRequest(deps, tournament, entrant.coach.ffbCoachId, actor);
+}
+
+function notifyShareRequest(deps: TournamentApiDeps, tournament: TournamentRecord, coach: string, actor: string): void {
+  quietly(() => deps.notify?.coach(coach, {
+    type: "share-request",
+    title: `You were entered in ${tournament.name} — choose what to share`,
+    body: "Choose what its organisers can see on your Account page, under Sharing.",
+    link: "/app/account#sharing",
+    from: actor,
+  }));
+}
+
+export const NAF_REQUIRED_MESSAGE = "NAF number required for this NAF-sanctioned tournament.";
+
 function notifyFixtures(deps: TournamentApiDeps, tournament: TournamentRecord, matches: readonly ScheduledMatchRecord[], actor: string): void {
   if (!deps.notify) return;
   quietly(() => {
@@ -534,6 +597,8 @@ export async function tournamentApi(
       const chosenTiebreaker = input.primaryTiebreaker === undefined
         ? "buchholz"
         : primaryTiebreaker(input.primaryTiebreaker);
+      if (input.nafSanctioned !== undefined && typeof input.nafSanctioned !== "boolean")
+        return { status: 400, body: { error: "nafSanctioned must be true or false." } };
       return {
         status: 201,
         body: {
@@ -545,6 +610,7 @@ export async function tournamentApi(
             organizerCoachId: identity.coach,
             primaryTiebreaker: chosenTiebreaker,
             ...(roundCount === undefined ? {} : { roundCount }),
+            ...(input.nafSanctioned === true ? { nafSanctioned: true } : {}),
           }, now),
         },
       };
@@ -768,11 +834,29 @@ export async function tournamentApi(
       if (requestedCoach !== undefined && (typeof requestedCoach !== "string" || !requestedCoach.trim()))
         return { status: 400, body: { error: "coach must be a non-empty string." } };
       const targetCoach = typeof requestedCoach === "string" ? requestedCoach.trim() : identity.coach;
-      if (coachKey(targetCoach) !== coachKey(identity.coach)) {
-        const tournament = deps.store.tournament(tournamentId);
+      const self = coachKey(targetCoach) === coachKey(identity.coach);
+      const tournament = deps.store.tournament(tournamentId);
+      if (!self) {
         if (!tournament) return { status: 404, body: { error: "Tournament not found." } };
         requireTournamentManager(tournament, identity);
       }
+      // Share picker (owner 10-31): only the coach chooses; an organiser-made entry carries no grant.
+      let share: ShareField[] = [];
+      if (input.share !== undefined) {
+        if (!self) return { status: 400, body: { error: "Only the coach can choose what they share." } };
+        try { share = parseShareFields(input.share); } catch (e) { return { status: 400, body: { error: (e as ContactValidationError).message } }; }
+      }
+      // NAF: required on a NAF-sanctioned tournament unless the coach is not a NAF member; optional (format-checked) otherwise.
+      if (input.notNafMember !== undefined && typeof input.notNafMember !== "boolean")
+        return { status: 400, body: { error: "notNafMember must be true or false." } };
+      if (input.nafNumber !== undefined && input.nafNumber !== null && typeof input.nafNumber !== "string")
+        return { status: 400, body: { error: "NAF number must be 1 to 10 digits." } };
+      const sanctioned = tournament?.nafSanctioned === true;
+      const notNafMember = sanctioned && input.notNafMember === true;
+      const typedNaf = typeof input.nafNumber === "string" ? input.nafNumber.trim() : "";
+      const nafNumber = typedNaf && !notNafMember ? canonicalNafId(typedNaf) : undefined;
+      if (typedNaf && !notNafMember && !nafNumber) return { status: 400, body: { error: "NAF number must be 1 to 10 digits." } };
+      if (sanctioned && self && !notNafMember && !nafNumber) return { status: 400, body: { error: NAF_REQUIRED_MESSAGE } };
       const teamId = input.teamId.trim();
       const owner = deps.teamOwner?.(teamId);
       if (!owner || coachKey(owner) !== coachKey(targetCoach))
@@ -781,8 +865,18 @@ export async function tournamentApi(
         coachId: targetCoach,
         ffbCoachId: targetCoach,
         verifiedAt: now.toISOString(),
-      }, teamId, now);
-      return { status: 201, body: { entrant } };
+      }, teamId, now, { ...(nafNumber ? { nafNumber } : {}), ...(notNafMember ? { notNafMember: true } : {}) });
+      const registeredIn = deps.store.tournament(tournamentId);
+      let sharingSaved = true;
+      if (self && deps.sharing && registeredIn) {
+        try { deps.sharing.grant(entrant.coach.ffbCoachId, `tournament:${registeredIn.id}`, share, now); } catch { sharingSaved = false; }
+      }
+      if (registeredIn) {
+        notifyRegistration(deps, registeredIn, entrant, identity.coach);
+        // The entry stands; a grant that could not be stored is asked again (Account -> Sharing).
+        if (!sharingSaved) notifyShareRequest(deps, registeredIn, entrant.coach.ffbCoachId, identity.coach);
+      }
+      return { status: 201, body: { entrant, ...(sharingSaved ? {} : { sharingSaved: false }) } };
     }
 
     const entrantItemMatch = path.match(/^\/api\/tournaments\/([^/]+)\/entrants\/([^/]+)$/);
@@ -893,6 +987,11 @@ export async function tournamentApi(
       }
       if (input.primaryTiebreaker !== undefined)
         patch.primaryTiebreaker = primaryTiebreaker(input.primaryTiebreaker);
+      if (input.nafSanctioned !== undefined) {
+        if (typeof input.nafSanctioned !== "boolean")
+          return { status: 400, body: { error: "nafSanctioned must be true or false." } };
+        patch.nafSanctioned = input.nafSanctioned;
+      }
       if (input.roundCount !== undefined) patch.roundCount = requestedRoundCount(input.roundCount);
       if (input.turnTimer !== undefined) {
         const t = jsonObject(input.turnTimer);
@@ -1010,6 +1109,7 @@ export async function tournamentApi(
       if (!tournament) return { status: 404, body: { error: "Tournament not found." } };
       const entrants = deps.store.entrants(tournament.id);
       const manager = canManage(tournament, auth);
+      const shared = manager && auth ? sharedMap(deps, auth, entrants.filter((e) => e.droppedAt === undefined), tournament.id) : new Map<string, SharedContact>();
       // Fixtures: organisers and this tournament's managers see all; an entrant sees every fixture of the event
       // (mine + all); another signed-in coach sees only fixtures they play in; anonymous visitors none.
       const entered = auth ? entrants.some((entrant) => coachKey(entrant.coach.ffbCoachId) === coachKey(auth.coach)) : false;
@@ -1028,6 +1128,7 @@ export async function tournamentApi(
             entrant,
             deps,
             manager || (auth !== undefined && coachKey(auth.coach) === coachKey(entrant.coach.ffbCoachId)),
+            shared.get(entrant.id),
           )),
           rounds: deps.store.rounds(tournament.id),
           standings: deps.store.standings(tournament.id),
@@ -1036,6 +1137,30 @@ export async function tournamentApi(
             manage: manager,
             assignRoles: Boolean(auth && (auth.admin || (tournamentOwner(tournament) && coachKey(auth.coach) === coachKey(tournamentOwner(tournament)!)))),
           },
+        },
+      };
+    }
+
+    // Organiser view of an entrant's shared contact (owner 10-31): the coach name plus only the fields the coach granted
+    // this tournament; owners / organisers (and site admins) only, active entries only.
+    const contactMatch = path.match(/^\/api\/tournaments\/([^/]+)\/entrants\/([^/]+)\/contact$/);
+    if (contactMatch && method === "GET") {
+      const identity = authenticated(auth);
+      const tournamentId = decoded(contactMatch[1]!);
+      const entrantId = decoded(contactMatch[2]!);
+      const tournament = tournamentId ? deps.store.tournament(tournamentId) : undefined;
+      if (!tournament || !entrantId) return { status: 404, body: { error: "Tournament not found." } };
+      requireTournamentManager(tournament, identity);
+      const entrant = deps.store.entrants(tournament.id).find((candidate) => candidate.id === entrantId);
+      if (!entrant || entrant.droppedAt !== undefined) return { status: 404, body: { error: "No active entry with that id." } };
+      const contact = sharedOf(deps, identity, entrant, tournament.id) ?? { coach: entrant.coach.ffbCoachId };
+      return {
+        status: 200,
+        headers: { "cache-control": "private, no-store" },
+        body: {
+          contact,
+          ...(entrant.nafNumber ? { nafNumber: entrant.nafNumber } : {}),
+          ...(entrant.notNafMember ? { notNafMember: true } : {}),
         },
       };
     }
