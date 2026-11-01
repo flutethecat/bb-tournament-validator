@@ -39,3 +39,6 @@ body { margin: 0; background: var(--ui-secondary, #000); color: var(--ui-text, #
 /* the SPA has its own System / Light / Dark control; the vanilla pages' injected theme button is hidden here */
 #theme-toggle-btn { display: none; }
 .shell-theme { min-height: 36px; }
+
+/* One-shot shell notice (e.g. "Your account was deleted."). */
+.sf-flash { margin: 0 0 12px; padding: 8px 12px; border: 2px solid var(--sf-panel-line); background: var(--ui-surface-2); color: var(--ui-text); }

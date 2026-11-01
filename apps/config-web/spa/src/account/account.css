@@ -102,3 +102,12 @@
   .ac-sched-modal { width: 100%; max-height: calc(100dvh - 32px); }
 }
 .ac-privacy-link { margin: 0 0 12px; font-size: 14px; }
+
+/* Privacy panel (privacy spec 2026-10-31): download / delete my account. */
+.ac-privacy .hm-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.ac-danger { color: var(--ui-danger); border-color: var(--ui-danger); }
+.ac-privacy-step { margin-top: 10px; padding-top: 8px; border-top: 2px solid var(--sf-panel-line); }
+.ac-privacy-step h3 { margin: 0 0 6px; font-size: 16px; }
+.ac-privacy-step ul { margin: 4px 0 8px; padding-left: 20px; }
+.ac-del-input { display: block; width: 100%; max-width: 320px; min-height: 40px; margin: 6px 0; padding: 4px 8px; color: var(--ui-text); background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-radius: 2px; font: inherit; }
+.ac-del-input:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 1px; }

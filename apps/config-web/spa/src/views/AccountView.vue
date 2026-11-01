@@ -3,9 +3,10 @@
 // 380 px at >= 1280). Main: Identity (GET/PATCH /api/me/profile), Calendar (deadlines and fixtures from the nav tree's
 // GET /api/me/deadlines, availability shading, proposed times once that lane lands) with a "Set schedule" button in its
 // band: the availability editor (GET/PUT /api/me/scheduling) opens in a dialog, and /account#schedule opens it on load.
-// Side: Session, Email (league-email address and confirmation, src/components/AccountEmail.vue), Teams, test sign-in.
+// Side: Session, Email (league-email address and confirmation, src/components/AccountEmail.vue), Teams, Privacy (download
+// my data / delete my account), test sign-in.
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, onServerPrefetch, ref, watch } from "vue";
-import { RouterLink, useRoute } from "vue-router";
+import { RouterLink, useRoute, useRouter } from "vue-router";
 import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
 import TestSignInCard from "../components/TestSignInCard.vue";
@@ -18,6 +19,8 @@ import { LEAGUE_SHARING_KEY } from "../account/leagueSharing";
 import { createContactEditor } from "../account/contact";
 import { ONBOARDING_KEY } from "../account/onboarding";
 import AccountEmail from "../components/AccountEmail.vue";
+import AccountPrivacy from "../components/AccountPrivacy.vue";
+import { createPrivacyController, DELETED_NOTICE, setFlash } from "../account/privacy";
 import { calendarZone } from "../account/calendar";
 import { createAccountEditors } from "../account/editors";
 import { createScheduleDialog, SCHEDULE_DIALOG_KEY, SCHEDULE_HASH } from "../account/scheduleDialog";
@@ -70,6 +73,17 @@ async function signOut(): Promise<void> {
 }
 
 const route = useRoute();
+const router = useRouter();
+// Privacy panel: after a delete the server has ended every session; re-read it and land on the home page with a notice.
+const privacy = createPrivacyController({
+  api: fetcher,
+  coach: () => session.coach(),
+  onDeleted: async () => {
+    setFlash(DELETED_NOTICE);
+    await session.load(true);
+    await router.push("/home");
+  },
+});
 const opener = ref<HTMLButtonElement | null>(null);
 const scheduleDialog = inject(SCHEDULE_DIALOG_KEY, null) ?? createScheduleDialog({
   isDirty: () => schedule.value.state.dirty,
@@ -144,6 +158,11 @@ onServerPrefetch(() => (coach.value ? schedule.value.load() : undefined));
         <section id="teams" class="hm-panel" aria-labelledby="ac-teams-h">
           <header class="hm-band"><h2 id="ac-teams-h">Teams</h2></header>
           <p class="hm-links"><RouterLink to="/my-teams">My teams</RouterLink> · <RouterLink to="/my-teams#avatars">Team avatars</RouterLink></p>
+        </section>
+
+        <section v-if="session.signedIn()" id="privacy" :key="`privacy-${coach}`" class="hm-panel" aria-labelledby="ac-privacy-h">
+          <header class="hm-band"><h2 id="ac-privacy-h">Privacy</h2><span class="hm-cap">Your data</span></header>
+          <AccountPrivacy :controller="privacy" :coach="session.coach()" />
         </section>
 
         <TestSignInCard />

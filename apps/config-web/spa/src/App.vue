@@ -24,6 +24,7 @@ import { DRAWER_QUERY, FOCUSABLE, rememberRail, SHELL_UI_KEY, trapTarget, typing
 import { useShellTitle } from "./shell/pageTitle";
 import { NOTIFICATIONS_KEY } from "./home/notifications";
 import type { AccountInfo } from "./shared/api";
+import { clearFlash, flash } from "./account/privacy";
 
 const session = inject(SESSION_KEY)!;
 const theme = inject(THEME_KEY)!;
@@ -223,6 +224,7 @@ async function signOut(): Promise<void> {
       :aria-label="ui.collapsed ? 'Expand navigation ([)' : 'Collapse navigation ([)'" @click="toggleRail"
     ><span aria-hidden="true">{{ ui.collapsed ? "»" : "«" }}</span></button>
     <main class="shell-main">
+      <p v-if="flash.message" class="sf-flash" role="status">{{ flash.message }} <button class="lobby-btn" type="button" @click="clearFlash()">Dismiss</button></p>
       <p v-if="gate === 'loading'" class="muted">Loading…</p>
       <section v-else-if="gate === 'error'" class="lobby-card">
         <h2>Can't check your sign-in</h2>
