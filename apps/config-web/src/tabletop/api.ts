@@ -176,8 +176,9 @@ export interface TabletopApiDeps {
   forkMetadata?: Parameters<typeof leagueStandings>[2];
   /** A league's points scheme when the tournaments store has one; default 3/1/0. */
   pointsFor?: (league: string) => LeaguePoints | undefined;
-  /** A league season's inducement table (League settings, Inducements tab); undefined when there is no such season. */
-  leagueInducements?: (leagueId: string, seasonId: string) => { config: SeasonInducements | undefined; active: boolean } | undefined;
+  /** A league season's inducement table (League settings, Inducements tab) and the fork accounts seated on its teams
+   *  (LeagueTeam.coachId); undefined when there is no such season. */
+  leagueInducements?: (leagueId: string, seasonId: string) => { config: SeasonInducements | undefined; active: boolean; coaches: readonly string[] } | undefined;
   /** The coach's own saved team as a team file (baseline revision), or undefined if they have no such save. */
   /** The baseline team file; `{ error }` (client-safe) when the stored team can't be admitted (e.g. an invalid Team Captain). */
   loadTeamFile: (coach: string, teamSaveId: string) => TabletopTeamFile | { error: string } | undefined;
@@ -655,6 +656,11 @@ export async function createMatch(
     const found = deps.leagueInducements?.(ls.leagueId, ls.seasonId);
     if (!found) return err(409, "That league season does not exist.");
     if (!found.active) return err(409, "That league season is finished.");
+    // Only a match between two coaches seated in that season (by fork account) may use its table, so nobody borrows
+    // another league's cheaper inducements. The creator is already a participant or an organiser (checked above).
+    const seated = new Set(found.coaches.map((c) => c.trim().toLowerCase()));
+    if (![home.coach, away.coach].every((c) => seated.has(c.trim().toLowerCase())))
+      return err(400, "Both coaches must have a team in that league season to use its inducement table.");
     leagueSeason = { leagueId: ls.leagueId, seasonId: ls.seasonId };
   }
   let fixtureSwap = false;

@@ -938,7 +938,7 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
     // League settings, Inducements tab: a match that names a league season is priced by that season's table.
     leagueInducements: (leagueId, seasonId) => {
       const season = leagueStore.league(leagueId) ? leagueStore.season(leagueId, seasonId) : undefined;
-      return season ? { config: season.rules?.inducements, active: season.status === "active" } : undefined;
+      return season ? { config: season.rules?.inducements, active: season.status === "active", coaches: season.teams.map((t) => t.coachId ?? "").filter(Boolean) } : undefined;
     },
   };
   if (first) await recoverTabletop(deps);

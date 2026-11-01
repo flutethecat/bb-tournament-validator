@@ -203,6 +203,7 @@ describe("the recorder's inducement picker reads the league season's table", () 
   let results: TournamentResultStore;
   let leagueConfig: SeasonInducements | undefined;
   let active = true;
+  let seated: string[] = ["Alice", "bob"];
   const files: Record<string, TabletopTeamFile> = {};
   const players = (n: number, prefix: string): TabletopPlayer[] =>
     Array.from({ length: n }, (_, i) => ({ id: `${prefix}${i + 1}`, name: `${prefix} ${i + 1}`, spp: 0, skills: [], mng: false, niggles: 0, statLoss: {}, dead: false }));
@@ -213,7 +214,7 @@ describe("the recorder's inducement picker reads the league season's table", () 
     isBanned: () => false, drawSeats: () => false, isOrganizer: () => false,
     now: () => new Date("2026-03-01T10:00:00.000Z"),
     rollDie: () => 1,
-    leagueInducements: (leagueId, seasonId) => (leagueId === "tabbl" && seasonId === "season-2" ? { config: leagueConfig, active } : undefined),
+    leagueInducements: (leagueId, seasonId) => (leagueId === "tabbl" && seasonId === "season-2" ? { config: leagueConfig, active, coaches: seated } : undefined),
   });
   const as = async (coach: string, method: string, path: string, b?: unknown): Promise<TabletopResult> =>
     (await tabletopApi(method, path, { coach, method: "discord" }, b, deps(), new URLSearchParams()))!;
@@ -227,8 +228,34 @@ describe("the recorder's inducement picker reads the league season's table", () 
     files["Bob/sv_b"] = team("Black Orc", "b", 1_200_000);
     leagueConfig = config({ standard: { bribes: { price: 80_000, cap: 1 }, weather_mage: { enabled: false } }, custom: [{ id: "c-0000abcd", ...keg, category: "special" }] });
     active = true;
+    seated = ["Alice", "bob"]; // fork accounts on the season's teams (case-insensitive)
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("[review P1] only a match between two coaches seated in the season may use its table", async () => {
+    seated = ["Alice", "Carol"]; // Bob has no team in this season
+    const r = await create({ leagueId: "tabbl", seasonId: "season-2" });
+    expect(r.status).toBe(400);
+    expect((r.body as { error: string }).error).toMatch(/Both coaches must have a team/);
+    seated = [];
+    expect((await create({ leagueId: "tabbl", seasonId: "season-2" })).status).toBe(400);
+    // an organiser creating it for the two members is fine (the season check is about the players, not the creator)
+    seated = ["Alice", "Bob"];
+    const org = await tabletopApi("POST", "/api/tabletop/matches", { coach: "Org", method: "discord" },
+      { home: { coach: "Alice", team: "sv_a" }, away: { coach: "Bob", team: "sv_b" }, postMatch: "full", leagueSeason: { leagueId: "tabbl", seasonId: "season-2" } },
+      { ...deps(), isOrganizer: (c) => c === "Org" }, new URLSearchParams());
+    expect(org!.status).toBe(201);
+  });
+
+  it("[review P2] a free inducement (price 0) is kept in the submission", async () => {
+    leagueConfig = config({ standard: { team_mascot: { price: 0 } }, custom: [{ id: "c-0000f4ee", ...keg, name: "Free Pie", price: 0, category: "special" }] });
+    const id = ((await create({ leagueId: "tabbl", seasonId: "season-2" })).body as { match: { id: string } }).match.id;
+    for (let i = 0; i < 3; i += 1) await as("Alice", "POST", `/api/tabletop/matches/${id}/pregame/advance`, {});
+    const sub = await as("Bob", "POST", `/api/tabletop/matches/${id}/pregame/advance`, { team: "away", picks: [{ id: "c-0000f4ee", qty: 1 }, { id: "team_mascot", qty: 1 }] });
+    expect(sub.status).toBe(200);
+    const ev = ((await as("Alice", "GET", `/api/tabletop/matches/${id}`)).body as { events: Array<{ type: string; payload: Record<string, unknown> }> }).events.find((e) => e.type === "inducement")!;
+    expect(ev.payload).toMatchObject({ total: 0, treasury: 0, skipped: false, picks: [{ id: "c-0000f4ee", name: "Free Pie", qty: 1, cost: 0 }, { id: "team_mascot", qty: 1, cost: 0 }] });
+  });
 
   it("create checks the season; the menu and the submit use its table (custom types included)", async () => {
     expect((await create({ leagueId: "tabbl" })).status).toBe(400);

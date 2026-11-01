@@ -93,32 +93,39 @@ export function createInducementTable(deps: { api: Fetcher }) {
   const state = reactive({ view: null as InducementTableView | null, loading: false, error: "", saving: false, saveError: "", notice: "" });
   const path = (leagueId: string, seasonId: string): string => `/api/leagues/${encodeURIComponent(leagueId)}/seasons/${encodeURIComponent(seasonId)}/inducements`;
 
+  // Each load is tagged: an answer for a season that is no longer the one asked for last is dropped, so a slow
+  // response never overwrites the selected season's table.
+  let latest = 0;
   async function load(leagueId: string, seasonId: string): Promise<void> {
+    const ticket = ++latest;
     state.loading = true;
     state.error = "";
     try {
-      state.view = await deps.api<InducementTableView>(path(leagueId, seasonId));
+      const view = await deps.api<InducementTableView>(path(leagueId, seasonId));
+      if (ticket === latest) state.view = view;
     } catch (err) {
+      if (ticket !== latest) return;
       state.view = null;
       state.error = statusOf(err) === 404 ? "Season not found." : err instanceof Error && err.message ? err.message : "Can't load the inducements.";
     } finally {
-      state.loading = false;
+      if (ticket === latest) state.loading = false;
     }
   }
 
   /** Saves the whole table at the revision it was loaded at; a 409 reloads it and says so. */
   async function save(d: InducementDraft): Promise<boolean> {
     const v = state.view;
-    if (!v || state.saving) return false;
+    if (!v || state.saving || state.loading) return false;
+    const ticket = latest;
     state.saving = true;
     state.saveError = "";
     state.notice = "";
     try {
-      state.view = await deps.api<InducementTableView>(path(v.leagueId, v.seasonId), { method: "PUT", body: { revision: v.revision, ...payloadFromDraft(d) } });
-      state.notice = "Inducements saved.";
+      const saved = await deps.api<InducementTableView>(path(v.leagueId, v.seasonId), { method: "PUT", body: { revision: v.revision, ...payloadFromDraft(d) } });
+      if (ticket === latest) { state.view = saved; state.notice = "Inducements saved."; }
       return true;
     } catch (err) {
-      if (statusOf(err) === 409) {
+      if (statusOf(err) === 409 && ticket === latest) {
         await load(v.leagueId, v.seasonId);
         state.saveError = "Another organiser changed this table, so the page reloaded it. Check and save again.";
       } else state.saveError = err instanceof Error && err.message ? err.message : "That did not save.";

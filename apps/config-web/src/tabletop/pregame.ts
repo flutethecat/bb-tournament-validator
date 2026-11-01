@@ -162,7 +162,8 @@ export function planInducements(input: {
     lines.push({ id: pick.id, name: offer.name, qty: pick.qty, cost: offer.price * pick.qty });
   }
   const total = lines.reduce((n, l) => n + l.cost, 0);
-  if (total === 0) return { picks: [], total: 0, treasury: 0, pettyCash: input.role === "underdog" ? input.tvDifference + input.favouriteSpent : 0 };
+  // Nothing chosen, or only free inducements (a league may price one at 0): no gold moves, but the picks are kept.
+  if (total === 0) return { picks: lines, total: 0, treasury: 0, pettyCash: input.role === "underdog" ? input.tvDifference + input.favouriteSpent : 0 };
   const treasury = input.file.treasury;
   if (input.role === "equal") return { error: "Team values are equal: neither team can spend on inducements." };
   if (input.role === "favourite") {

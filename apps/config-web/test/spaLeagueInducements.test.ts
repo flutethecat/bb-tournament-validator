@@ -86,6 +86,19 @@ describe("editor helpers and controller", () => {
     await c2.load("tabbl", "season-6");
     expect(await c2.save(draftFromTable(c2.state.view!.table))).toBe(false);
     expect(c2.state.saveError).toMatch(/Another organiser changed this table/);
+    // [review P2] a slow answer for a season no longer selected never overwrites the selected one
+    let release!: () => void;
+    const slow = (async (path: string) => {
+      if (path.includes("season-5")) { await new Promise<void>((r) => { release = r; }); return tableView({ seasonId: "season-5", seasonName: "Season 5" }); }
+      return tableView();
+    }) as Fetcher;
+    const c3 = createInducementTable({ api: slow });
+    const first = c3.load("tabbl", "season-5");
+    await c3.load("tabbl", "season-6");
+    release();
+    await first;
+    expect(c3.state.view?.seasonId).toBe("season-6");
+    expect(c3.state.loading).toBe(false);
     const missing = createInducementTable({ api: mockFetcher({}) });
     await missing.load("tabbl", "season-6");
     expect(missing.state.error).toBe("Season not found.");
