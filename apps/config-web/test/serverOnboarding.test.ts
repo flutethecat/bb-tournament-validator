@@ -35,6 +35,7 @@ beforeAll(async () => {
     PACKAGES_DIR: join(root, "packages"),
     TOURNAMENTS_DIR: join(root, "tournaments"),
     TABLETOP_DIR: join(root, "tabletop"),
+    VALIDATED_CSV: join(root, "validated-rosters.csv"),
     FORK_STATE_DIR: join(root, "state"),
     BUILD_LOG_FILE: join(root, "build-log.json"),
     FORK_ADMIN_PASSWORD: "",
@@ -49,7 +50,7 @@ beforeAll(async () => {
     stale: record("Stale", { consent: { privacy: { acceptedVersion: "2025-01-01", at: "2025-01-01T00:00:00.000Z" } } }),
     limited: record("Limited"),
     victim: record("Victim", {
-      identities: { discordUserId: "909", discordUsername: "victim_dc", email: "victim-discord@example.test", nafName: "Victim NAF", nafId: "4242" },
+      identities: { discordUserId: "909909909909909909", discordAvatarHash: "victimhash", discordUsername: "victim_dc", email: "victim-discord@example.test", nafName: "Victim NAF", nafId: "4242" },
       profile: { preferredName: "Secret Pref" },
       contact: { email: "victim@example.test", emailSource: "user", emailVerified: false, phones: [{ number: "+15550001111" }] },
       consent: { leagueContact: { granted: true, at: "2026-10-31T00:00:00.000Z", version: "2026-10-31" }, privacy: { acceptedVersion: PRIVACY_VERSION, at: "2026-10-31T00:00:00.000Z" }, leagues: { lg: { at: "2026-10-31T00:00:00.000Z", version: "2026-10-31" } } },
@@ -70,7 +71,8 @@ beforeAll(async () => {
   // A tournament organised by TOrg with Victim entered (tournaments grant no identity access).
   const tournaments = new TournamentStore(join(root, "tournaments"));
   const t = tournaments.createTournament({ name: "Cup", packageName: "p", maxPlayers: 8, format: "swiss", organizerCoachId: "TOrg" });
-  tournaments.registerEntrant(t.id, { coachId: "Victim", ffbCoachId: "Victim", discordUserId: "909", verifiedAt: "2026-10-31T00:00:00.000Z" }, "team-v");
+  tournaments.registerEntrant(t.id, { coachId: "Victim", ffbCoachId: "Victim", discordUserId: "909909909909909909", verifiedAt: "2026-10-31T00:00:00.000Z" }, "team-v");
+  writeFileSync(join(root, "validated-rosters.csv"), "discordUserId,coachName,teamName,rosterRace,packageName,messageLink,validatedAt\n909909909909909909,Victim,Victim Orcs,Orc,p,,2026-10-31\n", "utf8");
   writeFileSync(join(root, "organizers.json"), JSON.stringify({ organizers: [] }), "utf8");
   writeFileSync(join(root, "coaches.json"), "[]", "utf8");
   writeFileSync(join(root, "build-log.json"), "[]", "utf8");
@@ -201,6 +203,10 @@ describe("all writes are gated while onboarding is needed", () => {
     // Digest-authenticated legacy calls act for the `coach` parameter.
     expect((await call(undefined, "GET", "/api/fork/challenge?coach=Gated&teamId=t&opponent=Org&passwordMd5=" + "a".repeat(32))).status).toBe(428);
     expect((await call(undefined, "GET", "/api/fork/matchstatus?coach=Gated&passwordMd5=" + "a".repeat(32))).status).toBe(428);
+    // Mismatch: an onboarded coach is signed in but the digest call acts for the gated coach -> gated; the reverse is not.
+    expect((await call("Org", "GET", "/api/fork/challenge?coach=Gated&teamId=t&opponent=Boss&passwordMd5=" + "a".repeat(32))).status).toBe(428);
+    expect((await call("Org", "GET", "/api/fork/matchstatus?coach=Gated&passwordMd5=" + "a".repeat(32))).status).toBe(428);
+    expect((await call("Gated", "GET", "/api/fork/matchstatus?coach=Org&passwordMd5=" + "a".repeat(32))).status).not.toBe(428);
     // An anonymous poll without a credential changes nothing and is not gated.
     expect((await call(undefined, "GET", "/api/fork/matchstatus?coach=Gated")).status).not.toBe(428);
     // Withdrawing a challenge and plain reads stay open; an onboarded coach is never gated; an anonymous sign-up is not gated.
@@ -224,7 +230,7 @@ describe("organiser identity access (owner ruling 10-31: full record only for ac
     expect(JSON.parse(text).coach).toEqual({
       ffbCoachId: "Victim", preferredName: "Secret Pref", profile: {}, identities: { nafName: "Victim NAF", nafId: "4242" }, acceptsLeagueMessages: true,
     });
-    for (const leaked of ["victim@example.test", "victim-discord@example.test", "+15550001111", "909", "victim_dc", "\"consent\"", "\"contact\""]) expect(text, leaked).not.toContain(leaked);
+    for (const leaked of ["victim@example.test", "victim-discord@example.test", "+15550001111", "909909909909909909", "victim_dc", "\"consent\"", "\"contact\""]) expect(text, leaked).not.toContain(leaked);
   });
 
   it("the same organiser: a member who has not acknowledged gets the public record; a non-member is a 403 and nothing is written", async () => {
@@ -304,7 +310,8 @@ describe("no HTTP route returns another coach's contact email or phones to anyon
     const paths = [...new Set([...source.matchAll(/path === "(\/api\/[^"]+)"/g)].map((m) => m[1]!))]
       .filter((p) => !p.startsWith("/api/auth/discord/")); // the Discord sign-in redirects off-site
     expect(paths.length).toBeGreaterThan(40);
-    const secrets = ["victim@example.test", "+15550001111"];
+    // Another coach's email, phones, Discord id or Discord avatar never reach an organiser, a plain coach or anonymous.
+    const secrets = ["victim@example.test", "+15550001111", "909909909909909909", "cdn.discordapp.com", "victimhash"];
     for (const as of ["Org", "Quiet", undefined]) {
       for (const path of paths) {
         const res = await fetch(`${origin}${path}`, { headers: as ? { cookie: cookie(as) } : {}, redirect: "manual" });
@@ -317,6 +324,16 @@ describe("no HTTP route returns another coach's contact email or phones to anyon
     expect(secrets.filter((t) => org.includes(t))).toEqual([]);
     const admin = await (await call("Boss", "POST", "/api/admin/identities/naf", { ffbCoachId: "Victim", nafName: "Victim NAF", nafId: "4242" })).text();
     expect(admin).toContain("victim@example.test");
+    // Validated rosters: public columns for non-admins, every column for a site admin.
+    const rosters = await (await call("Quiet", "GET", "/api/coaches")).json();
+    expect(rosters).toEqual([{ coachName: "Victim", teamName: "Victim Orcs", rosterRace: "Orc", packageName: "p", messageLink: "", validatedAt: "2026-10-31" }]);
+    expect(await (await call("Boss", "GET", "/api/coaches")).text()).toContain("909909909909909909");
+    // The fork admin routes refuse a plain coach (requireAdminGate needs an organiser or site admin).
+    // (/api/fork/games is answered first by the signed-in active-games list, forkGames.ts: game names and coach names only.)
+    for (const path of ["/api/fork/users", "/api/fork/matchmaking-settings", "/api/fork/user/Victim/games"])
+      expect((await call("Quiet", "GET", path)).status, path).toBe(403);
+    expect((await call("Org", "GET", "/api/fork/legacy-password-auth")).status).toBe(403);
+    expect((await call("Boss", "GET", "/api/fork/legacy-password-auth")).status).toBe(200);
   }, 60_000);
 });
 

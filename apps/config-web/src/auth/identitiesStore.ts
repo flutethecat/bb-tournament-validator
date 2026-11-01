@@ -141,8 +141,14 @@ export function readProvisionalSignup(discordUserId: string): ProvisionalSignup 
  * record (same operation id) removed together, so there is never a moment with neither.
  */
 export function confirmProvisionalSignup(record: CoachIdentityRecord, discordUserId: string, operationId: string): void {
-  const normalized = normalizedRecord(record);
   const current = readIdentities();
+  const stored = current.coaches[normalizeFfbCoachId(record.ffbCoachId)];
+  // Like upsertIdentity: a record built without contact / consent keeps what the coach stored.
+  const normalized = normalizedRecord({
+    ...record,
+    ...(!Object.hasOwn(record, "contact") && stored?.contact ? { contact: stored.contact } : {}),
+    ...(!Object.hasOwn(record, "consent") && stored?.consent ? { consent: stored.consent } : {}),
+  });
   const section = readProvisionalSection();
   if (section[discordUserId]?.operationId === operationId) delete section[discordUserId];
   writeIdentityStore({

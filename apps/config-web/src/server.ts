@@ -859,18 +859,11 @@ async function handleLobbyRequest(req: IncomingMessage, res: ServerResponse, pat
       return detail.status === 200 ? lobbyRosterFromDetail(detail.body.team) : undefined;
     },
     coachCard: (coach) => {
-      let avatar: string | null = null;
+      // The avatar is always this site's own route (/api/coach-avatars/<coach>?v=...): a raw Discord avatar URL carries
+      // the coach's Discord id, which is never shown to other coaches.
       let discordUserId = "";
-      try {
-        const record = ownIdentityRecord(coach);
-        discordUserId = record.identities.discordUserId ?? "";
-        avatar = resolveCoachAvatar({
-          upload: uploadedAvatarUrl(coach),
-          profile: record.profile.avatar,
-          discord: discordAvatarUrl(discordUserId, record.identities.discordAvatarHash),
-        }).url;
-      } catch { /* unknown coach: no card extras */ }
-      return { avatar, fumbblName: linkedFumbblName(coach, discordUserId) };
+      try { discordUserId = ownIdentityRecord(coach).identities.discordUserId ?? ""; } catch { /* unknown coach */ }
+      return { avatar: coachAvatars.avatarFor(coach) ?? null, fumbblName: linkedFumbblName(coach, discordUserId) };
     },
     rating: (name, requester) => coachRatings.get(name, requester),
     credential: async (coach) => {
@@ -1319,10 +1312,20 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
  * these routes independently require `ADMIN_PASSWORD` to be configured, on top of
  * whatever `authorized()` already enforced to get this far.
  */
-function requireAdminGate(res: ServerResponse, auth?: SessionIdentity): boolean {
+/**
+ * Gate for the fork admin routes. Under the auth sidecar a signed-in identity alone is NOT enough (Sol 6.1 round 3):
+ * "admin" needs a site admin, "organizer" an organiser or site admin; the legacy admin password / admin token passes
+ * both. Audience per route (audited 10-31): admin = /api/fork/legacy-password-auth; organizer = /api/fork/games,
+ * /api/fork/schedule, /api/fork/tournament-match, /api/fork/message, /api/fork/matchmaking-settings (GET and POST),
+ * /api/fork/game/:id/(close|delete|concede), /api/fork/users, /api/fork/user/:coach/games,
+ * /api/fork/user/reset-password, /api/fork/user/clear-games (the writes match isOrganizerWrite). Never a plain coach.
+ * Without the sidecar the legacy Basic-auth gate (authorized()) stands in front, as before.
+ */
+function requireAdminGate(req: IncomingMessage, res: ServerResponse, auth: SessionIdentity | undefined, level: "admin" | "organizer"): boolean {
   if (AUTH_SIDECAR) {
-    if (auth) return true;
-    sendJson(res, 401, { error: "Authentication required." });
+    if (isAdminAuthed(req) || isTokenAuthed(req)) return true;
+    if (auth?.admin === true || (level === "organizer" && auth?.organizer === true)) return true;
+    sendJson(res, auth ? 403 : 401, { error: auth ? (level === "admin" ? "Admin access required." : "Organizer access required.") : "Authentication required." });
     return false;
   }
   if (!ADMIN_PASSWORD) {
@@ -1605,7 +1608,8 @@ async function handleApi(
     // sign-up has no record yet and is never gated).
     const actsForQueryCoach = gateMethod === "GET" && (path === "/api/fork/challenge" || path === "/api/fork/matchstatus") &&
       Boolean(query.get("passwordMd5")?.trim() || query.get("password")?.trim());
-    const gateCoach = auth?.coach ?? sessionFromRequest(req)?.coach ?? (actsForQueryCoach ? query.get("coach")?.trim() || undefined : undefined);
+    // A digest-authenticated call acts for the `coach` parameter whoever is signed in, so gate THAT coach.
+    const gateCoach = (actsForQueryCoach ? query.get("coach")?.trim() || undefined : undefined) ?? auth?.coach ?? sessionFromRequest(req)?.coach;
     if (gateCoach && onboardingGateApplies(gateMethod, path) && !nameGeneratePath(path)) {
       let needed = true;
       try { needed = onboardingNeeded(ownIdentityRecord(gateCoach)); } catch { needed = true; }
@@ -2577,7 +2581,11 @@ async function handleApi(
 
   if (path === "/api/coaches" && method === "GET") {
     const pkg = query.get("package") ?? undefined;
-    return sendJson(res, 200, readCoaches(VALIDATED_CSV, pkg));
+    const rows = readCoaches(VALIDATED_CSV, pkg);
+    // Validated rosters: a site admin (or the legacy admin password) gets every column; anyone else the public ones
+    // (no Discord user id, never shown to other coaches).
+    if (auth?.admin === true || isAdminAuthed(req) || isTokenAuthed(req)) return sendJson(res, 200, rows);
+    return sendJson(res, 200, rows.map(({ discordUserId: _id, ...row }) => row));
   }
 
   // Coach credential exchange → session token (owner security ruling 08-17). See auth/coachLogin.ts:
@@ -2602,7 +2610,7 @@ async function handleApi(
   // Migration telemetry (never credentials — see auth/deprecation.ts). Admin-gated: it tells a TO
   // whether any client in the field still sends passwords, i.e. whether the back-compat path can go.
   if (path === "/api/fork/legacy-password-auth" && method === "GET") {
-    if (!requireAdminGate(res, auth)) return;
+    if (!requireAdminGate(req, res, auth, "admin")) return;
     return sendJson(res, 200, { counts: legacyPasswordAuthCounts() });
   }
 
@@ -3009,7 +3017,7 @@ async function handleApi(
   // so surfacing the real XML now beats guessing a JSON shape that might not match.
 
   if (path === "/api/fork/games" && method === "GET") {
-    if (!requireAdminGate(res, auth)) return;
+    if (!requireAdminGate(req, res, auth, "organizer")) return;
     if (!forkAdminCfg) return sendJson(res, 503, { error: "Fork admin API not configured on this host (set FORK_ADMIN_PASSWORD)." });
     const status = query.get("status") ?? "all";
     try {
@@ -3023,7 +3031,7 @@ async function handleApi(
   // Direct/manual schedule (TO-driven matchmaking from the panel) — distinct from the
   // challenge-gated auto-schedule in /api/fork/challenge, same underlying admin call.
   if (path === "/api/fork/schedule" && method === "POST") {
-    if (!requireAdminGate(res, auth)) return;
+    if (!requireAdminGate(req, res, auth, "organizer")) return;
     if (!forkAdminCfg) return sendJson(res, 503, { error: "Fork admin API not configured on this host (set FORK_ADMIN_PASSWORD)." });
     const body = (await readBody(req)) as { homeTeamId?: string; awayTeamId?: string };
     if (!body.homeTeamId || !body.awayTeamId)
@@ -3048,7 +3056,7 @@ async function handleApi(
   }
 
   if (path === "/api/fork/tournament-match" && method === "POST") {
-    if (!requireAdminGate(res, auth)) return;
+    if (!requireAdminGate(req, res, auth, "organizer")) return;
     if (!forkAdminCfg) return sendJson(res, 503, { error: "Fork admin API not configured on this host (set FORK_ADMIN_PASSWORD)." });
     const cfg = forkConfigFromEnv();
     if (!cfg) return sendJson(res, 503, { error: "Fork teams dir not configured on this host (set FORK_TEAMS_DIR)." });
@@ -3194,7 +3202,7 @@ async function handleApi(
 
   const gameMatch = path.match(/^\/api\/fork\/game\/([^/]+)\/(close|delete|concede)$/);
   if (gameMatch && method === "POST") {
-    if (!requireAdminGate(res, auth)) return;
+    if (!requireAdminGate(req, res, auth, "organizer")) return;
     if (!forkAdminCfg) return sendJson(res, 503, { error: "Fork admin API not configured on this host (set FORK_ADMIN_PASSWORD)." });
     const [, gameId, op] = gameMatch;
     try {
@@ -3213,7 +3221,7 @@ async function handleApi(
   }
 
   if (path === "/api/fork/message" && method === "POST") {
-    if (!requireAdminGate(res, auth)) return;
+    if (!requireAdminGate(req, res, auth, "organizer")) return;
     if (!forkAdminCfg) return sendJson(res, 503, { error: "Fork admin API not configured on this host (set FORK_ADMIN_PASSWORD)." });
     const body = (await readBody(req)) as { text?: string };
     if (!body.text?.trim()) return sendJson(res, 400, { error: "text is required." });
@@ -3228,11 +3236,11 @@ async function handleApi(
   // Read is admin-gated (it's a control-panel setting); the current mode + the available
   // choices back the panel's toggle. Change persists so it survives a config-web restart.
   if (path === "/api/fork/matchmaking-settings" && method === "GET") {
-    if (!requireAdminGate(res, auth)) return;
+    if (!requireAdminGate(req, res, auth, "organizer")) return;
     return sendJson(res, 200, { homeAwayMode: matchmaker.getHomeAwayMode(), modes: HOME_AWAY_MODES, overtime: overtimeEnabled });
   }
   if (path === "/api/fork/matchmaking-settings" && method === "POST") {
-    if (!requireAdminGate(res, auth)) return;
+    if (!requireAdminGate(req, res, auth, "organizer")) return;
     const body = (await readBody(req)) as { homeAwayMode?: string; overtime?: boolean };
     // homeAwayMode and overtime are independently optional — a toggle POST may set either.
     if (body.homeAwayMode !== undefined) {
@@ -3924,7 +3932,7 @@ async function handleApi(
   // whether that coach is currently in a live game (see LIVE_GAME_STATUSES — there is
   // no single "all games" admin call, so this queries every in-play status and merges).
   if (path === "/api/fork/users" && method === "GET") {
-    if (!requireAdminGate(res, auth)) return;
+    if (!requireAdminGate(req, res, auth, "organizer")) return;
     const dbCfg = forkDbConfigFromEnv();
     if (!dbCfg) return sendJson(res, 503, { error: "Fork DB not configured on this host (set FORK_DB_HOST)." });
     try {
@@ -3987,7 +3995,14 @@ async function handleApi(
         });
       }
       rows.sort((a, b) => a.fumbblName.localeCompare(b.fumbblName));
-      return sendJson(res, 200, { users: rows });
+      // Linked Discord ids only for a site admin (or the legacy admin password); an organiser gets the rest.
+      const siteAdmin = auth?.admin === true || isAdminAuthed(req) || isTokenAuthed(req);
+      const users = siteAdmin ? rows : rows.map((row) => {
+        if (!row.linked) return row;
+        const { discordUserId: _id, ...linked } = row.linked;
+        return { ...row, linked };
+      });
+      return sendJson(res, 200, { users });
     } catch (e) {
       return sendJson(res, 400, { error: (e as Error).message });
     }
@@ -3996,7 +4011,7 @@ async function handleApi(
   // Live games for one coach (home or away, case-insensitive) — backs the "In-Game" popup.
   const userGamesMatch = path.match(/^\/api\/fork\/user\/([^/]+)\/games$/);
   if (userGamesMatch && method === "GET") {
-    if (!requireAdminGate(res, auth)) return;
+    if (!requireAdminGate(req, res, auth, "organizer")) return;
     if (!forkAdminCfg) return sendJson(res, 503, { error: "Fork admin API not configured on this host (set FORK_ADMIN_PASSWORD)." });
     const name = decodeURIComponent(userGamesMatch[1]!).trim().toLowerCase();
     try {
@@ -4012,7 +4027,7 @@ async function handleApi(
   // Reset (or create) a fork account's password. Reuses the same upsert the client's
   // "Register this coach" button drives — a password reset IS just re-issuing that call.
   if (path === "/api/fork/user/reset-password" && method === "POST") {
-    if (!requireAdminGate(res, auth)) return;
+    if (!requireAdminGate(req, res, auth, "organizer")) return;
     const dbCfg = forkDbConfigFromEnv();
     if (!dbCfg) return sendJson(res, 503, { error: "Fork DB not configured on this host (set FORK_DB_HOST)." });
     const body = (await readBody(req)) as { username?: string; password?: string };
@@ -4030,7 +4045,7 @@ async function handleApi(
   // leave finished-looking rows behind. Reports which gameIds were cleared and any
   // per-game delete failures rather than failing the whole request on one bad id.
   if (path === "/api/fork/user/clear-games" && method === "POST") {
-    if (!requireAdminGate(res, auth)) return;
+    if (!requireAdminGate(req, res, auth, "organizer")) return;
     if (!forkAdminCfg) return sendJson(res, 503, { error: "Fork admin API not configured on this host (set FORK_ADMIN_PASSWORD)." });
     const body = (await readBody(req)) as { username?: string };
     if (!body.username?.trim()) return sendJson(res, 400, { error: "username is required." });

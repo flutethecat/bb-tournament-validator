@@ -402,6 +402,49 @@ describe("league membership, data-sharing acknowledgement, organiser access and 
   });
 });
 
+describe("every identity write path keeps the new-user fields (preferred name, contact, consent incl. leagues)", () => {
+  const full = (): CoachIdentityRecord => record("Keeper", {
+    profile: { preferredName: "Keep Me", displayName: "Keeper D" },
+    identities: { discordUserId: "d-keep", discordUsername: "keeper_dc", email: "keeper@discord.test" },
+    contact: { email: "keeper@mine.test", emailSource: "user", emailVerified: false, phones: [{ number: "+15557654321", label: "home" }] },
+    consent: {
+      leagueContact: { granted: true, at: NOW.toISOString(), version: "2026-10-31" },
+      privacy: { acceptedVersion: PRIVACY_VERSION, at: NOW.toISOString() },
+      leagues: { lg: { at: NOW.toISOString(), version: "2026-10-31" } },
+      leaguesDeclined: { other: { at: NOW.toISOString() } },
+    },
+  });
+  const expectKept = (why: string) => {
+    const r = stored("Keeper");
+    expect(r.profile.preferredName, why).toBe("Keep Me");
+    expect(r.contact, why).toEqual(full().contact);
+    expect(r.consent, why).toEqual(full().consent);
+  };
+
+  it("normalizedRecord keeps them on read", () => {
+    seed(full());
+    expectKept("read");
+  });
+
+  it("own account, own profile, organiser NAF edit, admin edit / ban / unban (record rebuilt without them), test sign-in, provisional confirm, merge", async () => {
+    const { updateOwnAccount, organizerUpdateIdentity, confirmProvisionalSignup, ownIdentityRecord } = await import("../src/auth/identitiesStore.js");
+    const { updateOwnProfile } = await import("../src/accountProfile.js");
+    seed(full());
+    updateOwnAccount("Keeper", { identities: { nafId: "123" } }); expectKept("updateOwnAccount");
+    updateOwnProfile("Keeper", { displayName: "Keeper Two" }, { linkedFumbblName: () => null, discordAvatarUrl: () => null }); expectKept("updateOwnProfile");
+    organizerUpdateIdentity("Org", "Keeper", { nafName: "Keeper NAF" }); expectKept("organizerUpdateIdentity");
+    // The admin identities route and ban / unban rebuild the record without contact / consent (server.ts).
+    const { contact: _c, consent: _k, ...rebuilt } = stored("Keeper");
+    upsertIdentity({ ...rebuilt, banned: true, updatedBy: "admin" }); expectKept("ban");
+    upsertIdentity({ ...rebuilt, banned: false, updatedBy: "admin" }); expectKept("unban");
+    // Test sign-in: { ...ownIdentityRecord(coach), level } (src/auth/testLogin.ts).
+    upsertIdentity({ ...ownIdentityRecord("Keeper"), level: "organizer", updatedBy: "test-login" }); expectKept("test sign-in");
+    confirmProvisionalSignup(rebuilt, "d-keep", "op-x"); expectKept("confirmProvisionalSignup");
+    upsertIdentity(record("Typo2"));
+    mergeIdentityRecords("Typo2", "Keeper", "admin"); expectKept("merge into the coach");
+  });
+});
+
 describe("stored shape", () => {
   it("writes contact and consent as top-level record keys and the preferred name under profile", () => {
     seed(record("Shape", { identities: { email: "s@example.test" } }));

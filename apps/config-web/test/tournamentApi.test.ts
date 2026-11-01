@@ -205,14 +205,17 @@ describe("scheduled match revision semantics", () => {
     expect((await call(store(), "POST", path, player("Bob"), { revision: 1 }))?.status).toBe(409);
   });
 
-  it("restricts exact Discord notification targets to organizers", async () => {
+  it("restricts the notification audience to organizers, by coach name only (no Discord ids)", async () => {
     const tournamentStore = store();
     tournamentStore.renewWaiting(scheduled().id, "Alice", 45_000, now);
     const path = "/api/scheduled-matches/spike-cup%3Around%3A1%3Amatch%3A1/notification-audience";
     expect((await call(tournamentStore, "GET", path, player("Alice")))?.status).toBe(403);
     expect(await call(tournamentStore, "GET", path, organizer)).toMatchObject({
       status: 200,
-      body: { audience: [{ coachId: "Bob", discordUserId: "discord-bob" }] },
+      body: { audience: [{ coachId: "Bob" }] },
     });
+    expect(JSON.stringify(await call(tournamentStore, "GET", path, organizer))).not.toContain("discord-bob");
+    // Scheduled-match views never carry a stored coach's Discord id either.
+    expect(JSON.stringify(await call(tournamentStore, "GET", "/api/scheduled-matches", player("Alice")))).not.toContain("discord-");
   });
 });

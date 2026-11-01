@@ -44,7 +44,11 @@ beforeAll(async () => {
   }
   for (const directory of ["library", "packages", "tournaments", "state", "teams"]) mkdirSync(join(root, directory), { recursive: true });
   // Onboarded (the new-user gate answers 428 to the legacy digest-authenticated challenge / matchstatus otherwise).
-  writeFileSync(join(root, "identities.json"), JSON.stringify({ version: 1, coaches: onboardedCoaches("LobbyAlice", "LobbyBob", "LobbyCarol", "LobbyDave", "LobbyEve", "MixA", "MixB", "MixC", "MixD") }), "utf8");
+  writeFileSync(join(root, "identities.json"), JSON.stringify({ version: 1, coaches: (() => {
+    const coaches = onboardedCoaches("LobbyAlice", "LobbyBob", "LobbyCarol", "LobbyDave", "LobbyEve", "MixA", "MixB", "MixC", "MixD") as Record<string, { identities: Record<string, string> }>;
+    coaches.lobbybob!.identities = { discordUserId: "4040404040404040", discordAvatarHash: "bobavatarhash" }; // the opponent card must not leak these
+    return coaches;
+  })() }), "utf8");
   writeFileSync(join(root, "organizers.json"), JSON.stringify({ organizers: [] }), "utf8");
   const lib = (coach: string, teamId: string) =>
     writeFileSync(join(root, "library", `${coach.toLowerCase()}.json`), JSON.stringify([team(coach, teamId, `${coach} XI`)]), "utf8");
@@ -135,6 +139,11 @@ describe("lobby routes (sidecar off)", () => {
 
     const joined = await post(`/api/lobby/${lobby.id}/join`, bob, { teamId: "9102" });
     expect(((await joined.json()) as { lobby: { status: string } }).lobby.status).toBe("ready");
+    // The opponent card: the avatar is this site's own route (or none), never the raw Discord URL with Bob's id.
+    const card = await (await fetch(`${origin}/api/lobby/${lobby.id}/coach?role=opponent`, { headers: { cookie: alice } })).text();
+    expect(card).not.toContain("4040404040404040");
+    expect(card).not.toContain("cdn.discordapp.com");
+    expect(JSON.parse(card).avatar === null || String(JSON.parse(card).avatar).startsWith("/api/coach-avatars/")).toBe(true);
 
     // P0 / #13: a lobby seat is never delivered through the public match poll (status only, no JNLP), not even
     // to its owning session; and polls never consume it.

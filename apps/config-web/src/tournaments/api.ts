@@ -252,6 +252,12 @@ function publicMatch(match: ScheduledMatchRecord) {
   };
 }
 
+/** A fixture side without the stored coach's Discord id (never shown to coaches or organisers). */
+function sideWithoutDiscordId<T extends { coach: { discordUserId?: string } }>(side: T): T {
+  const { discordUserId: _id, ...coach } = side.coach;
+  return { ...side, coach } as T;
+}
+
 function clientMatch(
   store: TournamentStore,
   match: ScheduledMatchRecord,
@@ -267,6 +273,8 @@ function clientMatch(
   const opponentBuild = opponentSide && teamBuild ? teamBuild(opponentSide.teamId) : undefined;
   return {
     ...match,
+    home: sideWithoutDiscordId(match.home),
+    ...(match.away ? { away: sideWithoutDiscordId(match.away) } : {}),
     matchId: match.id,
     statusRevision: match.revision,
     round: match.roundNumber,
@@ -1146,10 +1154,8 @@ export async function tournamentApi(
       if (!identity.organizer) return { status: 403, body: { error: "Organizer access required." } };
       const matchId = decoded(audienceMatch[1]!);
       if (!matchId || !deps.store.match(matchId)) return { status: 404, body: { error: "Scheduled match not found." } };
-      const audience = deps.store.notificationAudience(matchId, now).map((coach) => ({
-        coachId: coach.ffbCoachId,
-        ...(coach.discordUserId ? { discordUserId: coach.discordUserId } : {}),
-      }));
+      // Coach names only: the notification system maps names to Discord ids server-side; ids are never sent out.
+      const audience = deps.store.notificationAudience(matchId, now).map((coach) => ({ coachId: coach.ffbCoachId }));
       return { status: 200, body: { scheduledMatchId: matchId, audience } };
     }
 
