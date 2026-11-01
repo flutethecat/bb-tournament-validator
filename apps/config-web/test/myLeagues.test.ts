@@ -1,8 +1,8 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { myLeagues } from "../src/leagues/myLeagues";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fixtureOrder, INDEX_TTL_MS, myLeagues } from "../src/leagues/myLeagues";
 import { LeagueStore } from "../src/leagues/store";
 import type { LeagueFixture, LeagueTeam, SeasonRecord } from "../src/leagues/types";
 
@@ -85,5 +85,66 @@ describe("myLeagues", () => {
     store.putSeason(season("delta", 1, "active", [{ ...team("other", "Other", "Human", "Dee", "Ann"), coachAssigned: { by: "Org", at: "2026-10-30" } }], []));
     expect(myLeagues(store, "Ann").map((l) => l.id)).toEqual(["alpha", "beta", "delta"]);
     expect(myLeagues(store, "Dee")).toEqual([]);
+  });
+
+  it("a cleared assignment removes the seat: no alias, NAF or display-name match brings it back", () => {
+    // The display name, NAF name and an aliased participant row all point at Ann; the organiser cleared the account.
+    const cleared: LeagueTeam = { ...team("other", "Other", "Human", "Ann"), coachAssigned: { by: "Org", at: "2026-10-30", cleared: true } };
+    const s = season("delta", 1, "active", [cleared], []);
+    s.participants = [{ coach: "Ann", coachId: "Ann", nafUser: "Ann-naf", country: "", race: "Human", team: "Other", active: true }];
+    store.putSeason(s);
+    expect(myLeagues(store, "Ann").map((l) => l.id)).toEqual(["alpha", "beta"]);
+    // the same team without the cleared marker is Ann's through the aliases (the rule the clear overrides)
+    const { coachAssigned: _gone, ...open } = cleared;
+    store.putSeason({ ...s, teams: [open] });
+    expect(myLeagues(store, "Ann").map((l) => l.id)).toEqual(["alpha", "beta", "delta"]);
+  });
+
+  it("next fixture: the season's phase order first, then the scheduled date, then the round", () => {
+    const phases = [
+      { id: "season-regular", category: "Season", name: "Regular", groups: [""], standings: [] },
+      { id: "cup-final", category: "Cup", name: "Final", groups: [""], standings: [] },
+    ];
+    const cup = (id: string, round: number, over: Partial<LeagueFixture> = {}) => fx(id, round, ["Orcs", null], ["Elves", null], { phaseId: "cup-final", phase: "Final", category: "Cup", ...over });
+    const s = { ...season("alpha", 2, "active", [team("orcs", "Orcs", "Orc", "Ann", "Ann"), team("elves", "Elves", "Wood Elf", "Bob", "Bob")], [
+      cup("c1", 1),
+      fx("r6", 6, ["Orcs", null], ["Elves", null]),
+      fx("r5", 5, ["Orcs", null], ["Elves", null]),
+      fx("r7", 7, ["Orcs", null], ["Elves", null], { date: "2026-11-02" }),
+    ]), phases };
+    store.putSeason(s);
+    // regular before the cup (lower round there), and the dated round 7 before undated rounds 5 and 6
+    expect(myLeagues(store, "Ann")[0]!.teams[0]!.next).toMatchObject({ id: "r7", round: 7 });
+    const sorted = [...s.fixtures].sort(fixtureOrder(s)).map((f) => f.id);
+    expect(sorted).toEqual(["r7", "r5", "r6", "c1"]);
+    // fixture-only phases not listed in phases follow the listed ones
+    const extra = { ...s, fixtures: [fx("x1", 1, ["Orcs", null], ["Elves", null], { phaseId: "season-interdivision" }), ...s.fixtures] };
+    expect([...extra.fixtures].sort(fixtureOrder(extra)).map((f) => f.id)).toEqual(["r7", "r5", "r6", "c1", "x1"]);
+  });
+
+  it("the seat index is built once from active seasons and reused until a store write (or the TTL)", () => {
+    const seasons = vi.spyOn(store, "seasons");
+    const t0 = 1_000_000;
+    expect(myLeagues(store, "Ann", t0)).toHaveLength(2);
+    const reads = seasons.mock.calls.length;
+    expect(reads).toBeGreaterThan(0);
+    // cached: another coach, a coach with no seat and the same coach read no season file
+    expect(myLeagues(store, "Bob", t0 + 10)).toHaveLength(1);
+    expect(myLeagues(store, "Nobody", t0 + 20)).toEqual([]);
+    expect(myLeagues(store, "Ann", t0 + 30)).toHaveLength(2);
+    expect(seasons.mock.calls.length).toBe(reads);
+    // a returned row is a copy: mutating it never reaches the cache
+    myLeagues(store, "Ann", t0 + 40)[0]!.teams.length = 0;
+    expect(myLeagues(store, "Ann", t0 + 50)[0]!.teams).toHaveLength(1);
+    // a season write through the store rebuilds
+    store.putSeason(season("delta", 1, "active", [team("other", "Other", "Human", "Dee", "Ann")], []));
+    expect(myLeagues(store, "Ann", t0 + 60).map((l) => l.id)).toEqual(["alpha", "beta", "delta"]);
+    expect(seasons.mock.calls.length).toBeGreaterThan(reads);
+    // another process's write is picked up after the TTL
+    const before = seasons.mock.calls.length;
+    myLeagues(store, "Ann", t0 + 70);
+    expect(seasons.mock.calls.length).toBe(before);
+    myLeagues(store, "Ann", t0 + 70 + INDEX_TTL_MS);
+    expect(seasons.mock.calls.length).toBeGreaterThan(before);
   });
 });

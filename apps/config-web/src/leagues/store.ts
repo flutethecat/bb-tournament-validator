@@ -110,6 +110,8 @@ export class LeagueStore {
   private forkIndex: { at: number; byGame: Map<string, ForkGameIndexEntry> } | undefined;
   /** Season writes / removals through this store (forkIndexVersion). */
   private seasonWrites = 0;
+  /** Bumped by every file write, season removal and invalidate() through this store (version(): read-model caches). */
+  private generation = 0;
   private readonly forkIndexTtlMs: number;
   private readonly now: () => number;
   /**
@@ -191,6 +193,7 @@ export class LeagueStore {
 
   /** Drop the parsed-file cache and the fork-game index (account deletion rewrote league files). */
   invalidate(): void {
+    this.generation += 1;
     this.cache.clear();
     this.forkIndex = undefined;
   }
@@ -209,8 +212,14 @@ export class LeagueStore {
     }
   }
 
+  /** Changes on every write, season removal and invalidate() through this store; reads no file. */
+  version(): number {
+    return this.generation;
+  }
+
   private write(path: string, value: unknown): void {
     atomicWriteTextFile(path, `${JSON.stringify(value, null, 2)}\n`);
+    this.generation += 1;
   }
 
   list(): LeagueRecord[] {
@@ -344,6 +353,7 @@ export class LeagueStore {
   private dropSeasonFile(leagueId: string, seasonId: string): void {
     const path = join(this.leagueDir(leagueId), "seasons", `${seasonId}.json`);
     try { unlinkSync(path); } catch { /* gone */ }
+    this.generation += 1;
     this.seasonWrites += 1;
     this.unindexSeason(leagueId, seasonId);
   }
