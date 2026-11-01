@@ -289,7 +289,10 @@ function publicMatch(match: ScheduledMatchRecord) {
 
 /** The Edited chip everyone who sees the fixture gets: who changed the result and when (no reason, no old values). */
 function publicEdit(edited: NonNullable<ScheduledMatchRecord["edited"]>) {
-  return { kind: "result" as const, byCoachId: edited.byCoachId, at: edited.at, ...(edited.cleared ? { cleared: true as const } : {}) };
+  return {
+    kind: "result" as const, byCoachId: edited.byCoachId, at: edited.at,
+    ...(edited.cleared ? { cleared: true as const } : {}), ...(edited.reportedAgainAt ? { reportedAgainAt: edited.reportedAgainAt } : {}),
+  };
 }
 
 /** A fixture side without the stored coach's Discord id (never shown to coaches or organisers). */
@@ -307,12 +310,16 @@ function clientMatch(
 ) {
   const waitingCoachIds = store.activeLeases(match.id, now).map((lease) => lease.coachId);
   const participant = auth ? isParticipant(match, auth.coach) : false;
+  const owning = store.tournament(match.tournamentId);
+  const fullEdit = participant || Boolean(auth && owning && canManage(owning, auth));
   const ownsHome = participant && coachKey(match.home.coach.ffbCoachId) === coachKey(auth!.coach);
   const mySide = participant ? (ownsHome ? match.home : match.away) : undefined;
   const opponentSide = participant ? (ownsHome ? match.away : match.home) : undefined;
   const opponentBuild = opponentSide && teamBuild ? teamBuild(opponentSide.teamId) : undefined;
+  const { edited, ...rest } = match;
   return {
-    ...match,
+    ...rest,
+    ...(edited ? { edited: fullEdit || edited.kind !== "result" ? edited : publicEdit(edited) } : {}),
     home: sideWithoutDiscordId(match.home),
     ...(match.away ? { away: sideWithoutDiscordId(match.away) } : {}),
     matchId: match.id,
@@ -762,9 +769,15 @@ function visibleActivity(
 ) {
   const log = tournament.activity ?? [];
   if (!auth || !log.length) return [];
-  if (seesAll) return log;
   const mine = new Set(store.matches(tournament.id).filter((m) => isParticipant(m, auth.coach)).map((m) => m.id));
-  return log.filter((entry) => mine.has(entry.fixtureId));
+  const manager = canManage(tournament, auth);
+  // Full detail (reason, old and new values) for this tournament's managers and the fixture's two coaches; everyone
+  // else who may see the log gets who and when.
+  return log
+    .filter((entry) => seesAll || mine.has(entry.fixtureId))
+    .map((entry) => (manager || mine.has(entry.fixtureId) ? entry : {
+      id: entry.id, at: entry.at, by: entry.by, kind: entry.kind, admin: entry.admin, fixtureId: entry.fixtureId, roundNumber: entry.roundNumber,
+    }));
 }
 
 export async function tournamentApi(
@@ -1666,12 +1679,18 @@ export async function tournamentApi(
       return { status: 200, body: { match: clientMatch(deps.store, match, identity, now, deps.teamBuild) } };
     }
 
+    // Organiser score entry for a fixture with no result yet (a game played on the fork or at the table whose result
+    // did not arrive through the recorder): that tournament's managers only. A recorded result is never overwritten
+    // here (store: 409); changing one goes through the edit route above (manager check, guards, audit, notifications).
     const resultMatch = path.match(/^\/api\/scheduled-matches\/([^/]+)\/result$/);
     if (resultMatch && method === "PATCH") {
       const identity = authenticated(auth);
-      if (!identity.organizer) return { status: 403, body: { error: "Organizer access required." } };
       const matchId = decoded(resultMatch[1]!);
       if (!matchId) return { status: 400, body: { error: "Invalid scheduled match id." } };
+      const existing = deps.store.match(matchId);
+      const owning = existing ? deps.store.tournament(existing.tournamentId) : undefined;
+      if (!existing || !owning) return { status: 404, body: { error: "Scheduled match not found." } };
+      requireTournamentManager(owning, identity);
       const input = jsonObject(body);
       const match = deps.store.recordResult(matchId, {
         expectedRevision: integer(input.revision, "revision"),

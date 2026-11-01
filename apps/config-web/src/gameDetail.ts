@@ -215,7 +215,7 @@ function findFixture(tournaments: readonly GameTournament[], pred: (m: Scheduled
 export function fixtureResultEdit(m: ScheduledMatchRecord | undefined): GameResultEdit | undefined {
   const e = m?.edited;
   if (!m || !m.away || e?.kind !== "result") return undefined;
-  if (e.cleared || !m.result) return { by: e.byCoachId, at: e.at, cleared: true };
+  if (!m.result) return { by: e.byCoachId, at: e.at, cleared: true };
   const r = m.result;
   return {
     by: e.byCoachId, at: e.at,

@@ -5,7 +5,7 @@ import type { ViteDevServer } from "vite";
 import { ApiError, type TournamentDetailResponse, type TournamentEntrant, type TournamentFixture, type TournamentSummary } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
 import {
-  activityViews, createTournamentDetail, editedTitle, isPageAction, laterRounds, resultEditBody, resultEditForm, resultEditProblem, resultSource, resultText, roundViews,
+  activityViews, createTournamentDetail, editedTitle, fieldText, isPageAction, laterRounds, resultEditBody, resultEditForm, resultEditProblem, resultSource, resultText, roundViews,
 } from "../spa/src/tournaments/detail";
 import { editedLine } from "../spa/src/games/detail";
 
@@ -62,6 +62,28 @@ describe("result edit helpers", () => {
     expect(resultEditProblem({ ...form, homeScore: "2", confirmFinished: true }, f, true)).toBe("");
     expect(resultEditBody({ revision: 4 }, { ...form, homeScore: "2", reason: " fixed " })).toEqual({ revision: 4, homeScore: 2, awayScore: 1, homeCasualties: 2, awayCasualties: 0, reason: "fixed" });
     expect(resultEditBody({ revision: 4 }, { ...form, homeCas: "", awayCas: "" })).toEqual({ revision: 4, homeScore: 1, awayScore: 1 });
+  });
+
+  it("number inputs: Vue's v-model hands back numbers (and \"\" when emptied); the helpers read either", () => {
+    const f = FIXTURES[0]!;
+    const typed = { homeScore: 3, awayScore: 1, homeCas: 2, awayCas: 0, reason: "", confirmFinished: false };
+    expect(resultEditProblem(typed, f, false)).toBe("");
+    expect(resultEditBody({ revision: 4 }, typed)).toEqual({ revision: 4, homeScore: 3, awayScore: 1, homeCasualties: 2, awayCasualties: 0 });
+    expect(resultEditProblem({ ...typed, homeScore: 1, awayScore: 1 }, f, false)).toBe("Nothing changed yet.");
+    expect(resultEditProblem({ ...typed, awayCas: "" }, f, false)).toMatch(/both casualty/);
+    expect(resultEditProblem({ ...typed, homeScore: "" }, f, false)).toMatch(/both scores/);
+    expect(resultEditBody({ revision: 4 }, { ...typed, homeCas: "", awayCas: "" })).toEqual({ revision: 4, homeScore: 3, awayScore: 1 });
+    expect(fieldText(Number.NaN)).toBe("");
+    expect(fieldText(" 7 ")).toBe("7");
+  });
+
+  it("activity lines without detail (who and when only) and a result reported again after a clear", () => {
+    const s = body();
+    const bare = [{ id: "a2", at: "2026-11-01T10:00:00.000Z", by: "Piett", kind: "result-edited" as const, admin: true as const, fixtureId: "m1", roundNumber: 1 }];
+    expect(activityViews({ activity: bare, fixtures: FIXTURES, entrants: s.entrants })[0]!.text).toBe("Round 1: Ann Orcs v Bob Elves result edited");
+    expect(activityViews({ activity: [{ ...bare[0]!, kind: "result-cleared" as const }], fixtures: FIXTURES, entrants: s.entrants })[0]!.text).toBe("Round 1: Ann Orcs v Bob Elves result cleared");
+    expect(editedTitle({ kind: "result", byCoachId: "Piett", at: "2026-11-01T10:00:00.000Z", reportedAgainAt: "2026-11-02T10:00:00.000Z", previous: { homeScore: 1, awayScore: 0 } }))
+      .toBe("Result cleared by Piett on 2026-11-01, reported again on 2026-11-02.");
   });
 
   it("chip tooltip, activity lines, later rounds, and the game page line", () => {

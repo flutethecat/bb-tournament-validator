@@ -914,6 +914,7 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
           round: m.roundNumber,
           ...(m.result ? { resultReportedAt: m.result.reportedAt } : {}),
           ...(m.result?.opId ? { resultOpId: m.result.opId } : {}),
+          ...(m.edited?.kind === "result" && m.edited.cleared && m.edited.clearedOpId ? { clearedOpId: m.edited.clearedOpId } : {}),
         };
       },
       list: () => tournamentStore.matches().flatMap((m) => {

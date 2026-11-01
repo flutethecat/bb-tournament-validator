@@ -291,7 +291,7 @@ function bracketSeedOrder(size: number): number[] {
   return order;
 }
 
-function knockoutWinner(
+export function knockoutWinner(
   match: ScheduledMatchRecord,
   standingRanks: ReadonlyMap<string, number>,
 ): string | undefined {

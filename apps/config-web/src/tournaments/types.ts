@@ -249,6 +249,11 @@ export interface ScheduledMatchEdit {
   original?: ScheduledMatchResultValues | null;
   /** Result edits: true when the edit cleared the result (the fixture is unplayed again). */
   cleared?: true;
+  /** A cleared tabletop result's publication op id: the recorder may revert that publication without touching the
+   *  fixture (it is already unplayed), then confirm and republish it. */
+  clearedOpId?: string;
+  /** When a result was reported again after a clear (the stamp then records the clear, no longer the cleared state). */
+  reportedAgainAt?: string;
 }
 
 /** One entry of a tournament's activity log (organiser result edits; newest first, capped). Stamped `admin`. */

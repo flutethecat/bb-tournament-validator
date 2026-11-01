@@ -154,6 +154,21 @@ describe("who may edit a result", () => {
   });
 });
 
+describe("organiser score entry (PATCH /api/scheduled-matches/:id/result)", () => {
+  it("is for a fixture with no result, by that tournament's managers; a recorded result changes only through the edit route", async () => {
+    const store = setup(BASE);
+    const enter = (auth: TournamentApiIdentity, mid: string, body: Record<string, unknown>) => call(store, "PATCH", `/api/scheduled-matches/${mid}/result`, auth, body);
+    expect((await enter(ozzel, "m3", { revision: 3, homeScore: 1, awayScore: 0 }))?.status).toBe(403); // a global organiser who does not run it
+    expect((await enter(ann, "m3", { revision: 3, homeScore: 1, awayScore: 0 }))?.status).toBe(403);
+    const overwrite = await enter(owner, "m1", { revision: 3, homeScore: 0, awayScore: 5 });
+    expect(overwrite?.status).toBe(409);
+    expect((overwrite?.body as { error: string }).error).toMatch(/Edit result/);
+    expect(store.match("m1")!.result!.homeScore).toBe(2);
+    expect((await enter(piett, "m3", { revision: 3, homeScore: 1, awayScore: 0 }))?.status).toBe(200);
+    expect((await enter(admin, "m4", { revision: 3, homeScore: 0, awayScore: 0 }))?.status).toBe(200);
+  });
+});
+
 describe("request gates", () => {
   it("both routes are state changes: the CSRF header and the onboarding gate (428) cover them; no GET writes", async () => {
     for (const [method, path] of [["PATCH", "/api/tournaments/t1/fixtures/m1/result"], ["POST", "/api/tournaments/t1/fixtures/m1/result/clear"]] as const) {
@@ -209,9 +224,14 @@ describe("edit and clear lifecycle", () => {
     expect((await edit(store, owner, "m1", { revision: 4, homeScore: 1, awayScore: 0 }))?.status).toBe(409);
     // the existing result path records it again; the next edit's original is that new result
     store.recordResult("m1", { expectedRevision: 4, homeScore: 0, awayScore: 0 }, now);
+    // the clear stays on record but the fixture is no longer "cleared"
+    expect(store.match("m1")!.edited).toMatchObject({ byCoachId: "Veers", reason: "Replay ordered", reportedAgainAt: now.toISOString() });
+    expect(store.match("m1")!.edited!.cleared).toBeUndefined();
+    expect((await call(store, "GET", "/api/tournaments/t1", cy))!.body).toMatchObject({ scheduledMatches: expect.arrayContaining([expect.objectContaining({ id: "m1", edited: { kind: "result", byCoachId: "Veers", at: now.toISOString(), reportedAgainAt: now.toISOString() } })]) });
     await edit(store, owner, "m1", { revision: 5, homeScore: 1, awayScore: 0 });
     expect(store.match("m1")!.edited).toMatchObject({ original: { homeScore: 0, awayScore: 0 } });
     expect(store.match("m1")!.edited!.cleared).toBeUndefined();
+    expect(store.match("m1")!.edited!.reportedAgainAt).toBeUndefined();
   });
 
   it("a finished tournament needs the confirm; clearing reopens it; a cancelled one can be edited, not cleared", async () => {
@@ -228,6 +248,23 @@ describe("edit and clear lifecycle", () => {
     const cancelled = setup({ ...BASE, t: { status: "cancelled" } });
     expect((await edit(cancelled, owner, "m1", { revision: 3, homeScore: 0, awayScore: 1, confirmFinished: true }))?.status).toBe(200);
     expect((await clear(cancelled, owner, "m1", { revision: 4, confirmFinished: true }))?.status).toBe(409);
+  });
+});
+
+describe("tournament completion with a cleared fixture", () => {
+  it("the last round does not complete the tournament while an earlier cleared fixture is unplayed; its result does", async () => {
+    const store = setup({
+      t: { roundCount: 2 },
+      matches: [match("m1", 1, "Ann", "Bob", { h: 2, a: 1 }), match("m2", 1, "Cy", "Di", { h: 1, a: 1 }), match("m3", 2, "Ann", "Cy"), match("m4", 2, "Bob", "Di")],
+      rounds: [round(1, "completed", ["m1", "m2"]), round(2, "active", ["m3", "m4"])],
+    });
+    await clear(store, owner, "m1", { revision: 3 });
+    store.recordResult("m3", { expectedRevision: 3, homeScore: 1, awayScore: 0 }, now);
+    store.recordResult("m4", { expectedRevision: 3, homeScore: 0, awayScore: 0 }, now);
+    expect(store.rounds("t1").find((r) => r.number === 2)!.status).toBe("completed");
+    expect(store.tournament("t1")!.status).toBe("active");
+    store.recordResult("m1", { expectedRevision: 4, homeScore: 0, awayScore: 1 }, now);
+    expect(store.tournament("t1")!.status).toBe("completed");
   });
 });
 
@@ -258,10 +295,27 @@ describe("what recomputes", () => {
     });
     const flip = await edit(store, owner, "m1", { revision: 3, homeScore: 0, awayScore: 1 });
     expect(flip?.status).toBe(409);
-    expect((await edit(store, owner, "m1", { revision: 3, homeScore: 1, awayScore: 1 }))?.status).toBe(409); // a draw changes the outcome too
     expect((await clear(store, owner, "m1", { revision: 3 }))?.status).toBe(409);
     expect((await edit(store, owner, "m1", { revision: 3, homeScore: 3, awayScore: 0 }))?.status).toBe(200);
     expect(store.match("m3")).toMatchObject({ home: { entrantId: "e-ann" }, away: { entrantId: "e-cy" } });
+  });
+
+  it("knockout: who goes through is decided as the bracket decides it (a drawn game falls to the standings, which casualties feed)", async () => {
+    // A drawn game sends the better-ranked side through; with casualty differential as the tiebreaker, the casualties
+    // of that drawn game decide it.
+    const drawn = () => setup({
+      t: { format: "knockout", roundCount: 2, tiebreakers: ["casualtyDifferential"] },
+      matches: [match("m1", 1, "Ann", "Bob", { h: 1, a: 1, hc: 2, ac: 0 }), match("m2", 1, "Cy", "Di", { h: 1, a: 0 }), match("m3", 2, "Ann", "Cy")],
+      rounds: [round(1, "completed", ["m1", "m2"]), round(2, "active", ["m3"])],
+    });
+    const store = drawn();
+    // the casualties flip the standings, so Bob would have gone through: refused
+    expect((await edit(store, owner, "m1", { revision: 3, homeScore: 1, awayScore: 1, homeCasualties: 0, awayCasualties: 2 }))?.status).toBe(409);
+    // turning the draw into an Ann win keeps Ann going through: allowed
+    expect((await edit(store, owner, "m1", { revision: 3, homeScore: 2, awayScore: 1, homeCasualties: 2, awayCasualties: 0 }))?.status).toBe(200);
+    // the draw kept, with casualties that still give the standings to Ann: allowed
+    const store2 = drawn();
+    expect((await edit(store2, owner, "m1", { revision: 3, homeScore: 0, awayScore: 0, homeCasualties: 3, awayCasualties: 0 }))?.status).toBe(200);
   });
 
   it("series standings (computed on read) follow the edit", async () => {
@@ -336,10 +390,21 @@ describe("what viewers see", () => {
     expect(anon.tournament.activity).toBeUndefined();
     const asCy = await detail(cy); // an entrant who does not play m1
     expect(asCy.scheduledMatches.find((m) => m.id === "m1")!.edited).toEqual({ kind: "result", byCoachId: "Piett", at: now.toISOString() });
-    expect(asCy.activity).toHaveLength(1);
+    // who and when only: no reason, no old or new values
+    const whoWhen = { id: expect.any(String), at: now.toISOString(), by: "Piett", kind: "result-edited", admin: true, fixtureId: "m1", roundNumber: 1 };
+    expect(asCy.activity).toEqual([whoWhen]);
+    // a global organiser who does not run the tournament: the same, on the log and on the fixture
+    const asOzzel = await detail(ozzel);
+    expect(asOzzel.activity).toEqual([whoWhen]);
+    expect(asOzzel.scheduledMatches.find((m) => m.id === "m1")!.edited).toEqual({ kind: "result", byCoachId: "Piett", at: now.toISOString() });
+    // the tournament's managers get the full entry
+    const asOwner = await detail(owner);
+    expect(asOwner.activity[0]).toMatchObject({ reason: "Typo", previous: { homeScore: 2, awayScore: 1 }, result: { homeScore: 1, awayScore: 1 } });
+    expect(asOwner.scheduledMatches.find((m) => m.id === "m1")!.edited).toMatchObject({ reason: "Typo" });
     expect(asCy.tournament.activity).toBeUndefined();
     const asAnn = await detail(ann);
     expect(asAnn.scheduledMatches.find((m) => m.id === "m1")!.edited).toMatchObject({ reason: "Typo", previous: { homeScore: 2, awayScore: 1 } });
+    expect(asAnn.activity[0]).toMatchObject({ reason: "Typo", previous: { homeScore: 2, awayScore: 1 } });
     expect(asAnn.scheduledMatches.find((m) => m.id === "m1")!.launch?.gameId).toBe("g1");
     // a signed-in coach outside the tournament sees only entries about fixtures they play (none)
     expect((await detail({ coach: "Zed", organizer: false, admin: false })).activity).toEqual([]);
@@ -361,6 +426,10 @@ describe("what viewers see", () => {
     await clear(store, owner, "m1", { revision: 4 });
     const cleared = gameDetail("online", "g1", { tournaments: [{ ...t, matches: [store.match("m1")!] }], results: [FORK_ROW], tabletop: [] })!;
     expect(cleared.summary.edited).toEqual({ by: "Veers", at: now.toISOString(), cleared: true });
+    store.recordResult("m1", { expectedRevision: 5, homeScore: 2, awayScore: 2 }, now);
+    const again = gameDetail("online", "g1", { tournaments: [{ ...t, matches: [store.match("m1")!] }], results: [FORK_ROW], tabletop: [] })!;
+    expect(again.summary.edited?.cleared).toBeUndefined();
+    expect(again.summary.edited?.result?.home.score).toBe(2);
   });
 });
 

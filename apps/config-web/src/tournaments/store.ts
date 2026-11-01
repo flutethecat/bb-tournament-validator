@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { atomicWriteTextFile } from "@bb/fork-ops";
-import { calculateStandings, generateTournamentPairings, stableTieFlip } from "./pairing.js";
+import { calculateStandings, generateTournamentPairings, knockoutWinner, stableTieFlip } from "./pairing.js";
 import { DEFAULT_ENTRANT_FLAGS, SERIES_SEEDING_PAIRING, TOURNAMENT_PAIRING_SYSTEMS, TOURNAMENT_SEEDING_MODES } from "./types.js";
 import type { NewsInput, TournamentPagePatch } from "./page.js";
 import type {
@@ -326,8 +326,23 @@ const resultValues = (r: ScheduledMatchResultValues): ScheduledMatchResultValues
 });
 const sameResult = (a: ScheduledMatchResultValues, b: ScheduledMatchResultValues): boolean =>
   a.homeScore === b.homeScore && a.awayScore === b.awayScore && a.homeCasualties === b.homeCasualties && a.awayCasualties === b.awayCasualties;
-const outcome = (r: ScheduledMatchResultValues): "home" | "away" | "draw" =>
-  r.homeScore > r.awayScore ? "home" : r.awayScore > r.homeScore ? "away" : "draw";
+/** Who goes through from a knockout fixture with `result`, decided exactly as the bracket decides it (pairing.ts
+ *  knockoutWinner: the score, else the better standing, which casualties and every other result feed). */
+function advancing(data: TournamentDataFileV4, tournament: TournamentRecord, match: ScheduledMatchRecord, result: ScheduledMatchResult): string | undefined {
+  const entrants = Object.values(data.entrants).filter((e) => e.tournamentId === tournament.id);
+  const matches = Object.values(data.scheduledMatches)
+    .filter((m) => m.tournamentId === tournament.id)
+    .map((m) => (m.id === match.id ? { ...m, result } : m))
+    .sort((a, b) => a.id.localeCompare(b.id));
+  const ranks = new Map(calculateStandings(entrants, matches, tournament.points, tournament.tiebreakers).map((row) => [row.entrantId, row.rank]));
+  return knockoutWinner({ ...match, result }, ranks);
+}
+
+/** The stamp of a cleared result once a result is reported again: the clear stays on record, not the cleared state. */
+function reportedAgain(edited: NonNullable<ScheduledMatchRecord["edited"]>, at: string): NonNullable<ScheduledMatchRecord["edited"]> {
+  const { cleared: _cleared, ...rest } = edited;
+  return { ...rest, reportedAgainAt: at };
+}
 const laterRoundDrawn = (data: TournamentDataFileV4, match: ScheduledMatchRecord): boolean =>
   Object.values(data.rounds).some((r) => r.tournamentId === match.tournamentId && r.number > match.roundNumber);
 
@@ -352,7 +367,7 @@ function editableResult(data: TournamentDataFileV4, matchId: string, input: Resu
 
 function editStamp(match: ScheduledMatchRecord, input: Pick<ResultClearInput, "by" | "reason">, at: string, previous: ScheduledMatchResultValues): NonNullable<ScheduledMatchRecord["edited"]> {
   // The first-reported result survives later edits; a result entered after a clear is the new original.
-  const prior = match.edited?.kind === "result" && !match.edited.cleared ? match.edited : undefined;
+  const prior = match.edited?.kind === "result" && !match.edited.cleared && !match.edited.reportedAgainAt ? match.edited : undefined;
   const original = prior?.original ?? previous;
   return {
     byCoachId: input.by, at, kind: "result",
@@ -1273,6 +1288,9 @@ export class TournamentStore {
         throw new TournamentStoreError(409, "This scheduled match is closed.");
       if (!Number.isSafeInteger(input.expectedRevision) || match.revision !== input.expectedRevision)
         throw new TournamentStoreError(409, `Scheduled match revision changed; current revision is ${match.revision}.`);
+      // A recorded result is changed only through the organiser edit path (editResult: manager check, guards, audit).
+      if (match.result || match.status === "completed")
+        throw new TournamentStoreError(409, "This fixture already has a result. Organisers change it with Edit result (Manage, Rounds).");
       for (const [field, value] of Object.entries(input).filter(([field]) => field !== "expectedRevision" && field !== "opId")) {
         if (!Number.isSafeInteger(value) || (value as number) < 0)
           throw new TournamentStoreError(400, `${field} must be a non-negative integer.`);
@@ -1290,6 +1308,8 @@ export class TournamentStore {
           reportedAt: timestamp,
           ...(input.opId ? { opId: input.opId } : {}),
         },
+        // A result reported again after an organiser cleared it: the clear stays in the audit stamp, no longer "cleared".
+        ...(match.edited?.kind === "result" && match.edited.cleared ? { edited: reportedAgain(match.edited, timestamp) } : {}),
         updatedAt: timestamp,
       };
       data.scheduledMatches[matchId] = updated;
@@ -1297,7 +1317,10 @@ export class TournamentStore {
       if (round && round.scheduledMatchIds.every((id) => data.scheduledMatches[id]?.status === "completed")) {
         data.rounds[round.id] = { ...round, status: "completed", completedAt: timestamp };
         const tournament = data.tournaments[match.tournamentId];
-        if (tournament && round.number >= tournament.roundCount)
+        // The last round completes the tournament only when every round is complete (an earlier fixture an organiser
+        // cleared keeps it active until its result is in, or the organiser finishes the tournament).
+        const rounds = Object.values(data.rounds).filter((r) => r.tournamentId === match.tournamentId);
+        if (tournament && rounds.some((r) => r.number >= tournament.roundCount) && rounds.every((r) => r.status === "completed"))
           data.tournaments[tournament.id] = { ...tournament, status: "completed", updatedAt: timestamp };
       }
       delete data.standings[match.tournamentId];
@@ -1333,8 +1356,9 @@ export class TournamentStore {
         throw new TournamentStoreError(400, "Enter both casualty counts, or neither.");
       const previous = resultValues(match.result!);
       if (sameResult(previous, next)) throw new TournamentStoreError(400, "Nothing changed: the result already reads that way.");
-      if (tournament.format === "knockout" && laterRoundDrawn(data, match) && outcome(previous) !== outcome(next))
-        throw new TournamentStoreError(409, "A later knockout round was drawn from this winner. The edit can change the score, not who won.");
+      if (tournament.format === "knockout" && laterRoundDrawn(data, match) &&
+        advancing(data, tournament, match, match.result!) !== advancing(data, tournament, match, { ...next, reportedAt: match.result!.reportedAt }))
+        throw new TournamentStoreError(409, "A later knockout round was drawn from this winner. The edit can change the score, not who went through.");
       const timestamp = now.toISOString();
       const result: ScheduledMatchResult = {
         ...next,
@@ -1372,7 +1396,7 @@ export class TournamentStore {
         ...rest,
         status: "scheduled",
         revision: match.revision + 1,
-        edited: { ...editStamp(match, input, timestamp, previous), cleared: true },
+        edited: { ...editStamp(match, input, timestamp, previous), cleared: true, ...(match.result!.opId ? { clearedOpId: match.result!.opId } : {}) },
         updatedAt: timestamp,
       };
       data.scheduledMatches[matchId] = updated;

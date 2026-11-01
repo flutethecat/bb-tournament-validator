@@ -36,6 +36,7 @@ const gateway = (): FixtureGateway => ({
       status: m.status, revision: m.revision, home: { coach: m.home.coach.ffbCoachId }, away: { coach: m.away?.coach.ffbCoachId ?? "" },
       ...(m.result ? { resultReportedAt: m.result.reportedAt } : {}),
       ...(m.result?.opId ? { resultOpId: m.result.opId } : {}),
+      ...(m.edited?.kind === "result" && m.edited.cleared && m.edited.clearedOpId ? { clearedOpId: m.edited.clearedOpId } : {}),
     };
   },
   record: (id, input, at) => { tstore.recordResult(id, input, at); },
@@ -200,6 +201,37 @@ describe("tabletop T3: undo after publish", () => {
     tstore.writeSnapshot(snap);
     expect((await as("Org", "POST", `/api/tabletop/matches/${id}/undo-revision`)).status).toBe(409);
     expect((await repo.getMatch(id))!.state).toBe("published");
+  });
+});
+
+describe("tabletop T3: undo after an organiser cleared the published result", () => {
+  it("the revert leaves the unplayed fixture alone, and a republish records it again", async () => {
+    const id = await confirmedMatch(fixtureHome, fixtureId, "Rules");
+    await as("Org", "POST", `/api/tabletop/matches/${id}/publish`);
+    const published = tstore.match(fixtureId)!;
+    const opId = published.result!.opId!;
+    tstore.clearEditedResult(fixtureId, { expectedRevision: published.revision, by: "Org", confirmFinished: true }, NOW);
+    const cleared = tstore.match(fixtureId)!;
+    expect(cleared.edited).toMatchObject({ cleared: true, clearedOpId: opId });
+    const undone = await as("Org", "POST", `/api/tabletop/matches/${id}/undo-revision`);
+    expect(undone.status).toBe(200);
+    expect(tstore.match(fixtureId)).toMatchObject({ status: "scheduled", revision: cleared.revision });
+    expect((await repo.getMatch(id))).toMatchObject({ state: "recording" });
+    await as("Org", "POST", `/api/tabletop/matches/${id}/submit`);
+    expect((await as("Org", "POST", `/api/tabletop/matches/${id}/confirm`)).status).toBe(200);
+    expect((await as("Org", "POST", `/api/tabletop/matches/${id}/publish`)).status).toBe(200);
+    const again = tstore.match(fixtureId)!;
+    expect(again).toMatchObject({ status: "completed", result: { homeScore: 2, awayScore: 1 } });
+    expect(again.edited!.cleared).toBeUndefined();
+    expect(again.edited!.reportedAgainAt).toBe(NOW.toISOString());
+  });
+
+  it("an organiser's edit (not a clear) keeps the revert refused", async () => {
+    const id = await confirmedMatch(fixtureHome, fixtureId, "Rules");
+    await as("Org", "POST", `/api/tabletop/matches/${id}/publish`);
+    const m = tstore.match(fixtureId)!;
+    tstore.editResult(fixtureId, { expectedRevision: m.revision, by: "Org", confirmFinished: true, homeScore: 3, awayScore: 1 }, NOW);
+    expect((await as("Org", "POST", `/api/tabletop/matches/${id}/undo-revision`)).status).toBe(409);
   });
 });
 

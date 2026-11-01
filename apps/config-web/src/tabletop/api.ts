@@ -69,6 +69,8 @@ export interface FixtureView {
   inducementOptIns?: readonly string[];
   /** The op id stamped on the recorded result (tabletop publications only). */
   resultOpId?: string;
+  /** An organiser cleared the fixture's result, and that result was the tabletop publication with this op id. */
+  clearedOpId?: string;
 }
 
 /** The tournaments store seen through the single existing result path (TournamentStore.recordResult). */
@@ -1076,10 +1078,13 @@ async function undoRevision(match: MatchRecord, deps: TabletopApiDeps, now: () =
   const w = match.wroteRevisions;
   if (w && (chainHome.head !== w.home || chainAway.head !== w.away))
     return err(409, "A team has newer revisions than this match; revert those first.");
-  const link = match.state === "published" ? match.fixtureLink : undefined;
+  let link = match.state === "published" ? match.fixtureLink : undefined;
   if (link) {
     const f = deps.fixtures?.get(link.id);
-    if (!f || f.resultOpId !== link.opId || f.revision !== link.expectedRevision + 1)
+    // An organiser cleared this publication's result in the tournament (owner ruling 10-29 §7): the fixture already let
+    // go of it, so the revert leaves the fixture alone (it is unplayed) and a later publish records it again.
+    if (f && !f.resultReportedAt && f.clearedOpId === link.opId) link = undefined;
+    else if (!f || f.resultOpId !== link.opId || f.revision !== link.expectedRevision + 1)
       return err(409, "The fixture changed since this result was published; resolve it in the tournament first.");
   }
   const back = (chain: TeamChain, rev: number): TeamChain => ({ ...chain, head: chain.revisions.find((r) => r.revision === rev)!.parent! });

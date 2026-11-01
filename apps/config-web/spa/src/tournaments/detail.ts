@@ -382,7 +382,7 @@ export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () =>
   }
   /** Clear a recorded result back to unplayed. */
   async function clearResult(fixtureId: string, edit: Pick<ResultEditForm, "reason" | "confirmFinished">, revision: number): Promise<boolean> {
-    const reason = edit.reason.trim();
+    const reason = fieldText(edit.reason);
     const ok = await run(`result:${fixtureId}`, () => deps.api(`${base()}/fixtures/${encodeURIComponent(fixtureId)}/result/clear`, {
       method: "POST", body: { revision, ...(reason ? { reason } : {}), ...(edit.confirmFinished ? { confirmFinished: true } : {}) },
     }), "Result cleared.");
@@ -685,8 +685,12 @@ export const isPageAction = (name: string): boolean =>
 
 // ---- organiser result edits (pure) ----
 
-/** The Edit result dialog's fields (inputs as typed). */
-export interface ResultEditForm { homeScore: string; awayScore: string; homeCas: string; awayCas: string; reason: string; confirmFinished: boolean }
+/** The Edit result dialog's fields. Vue's v-model on a number input hands back a number (or "" when empty), so every
+ *  numeric field is string | number and read through fieldText(). */
+export interface ResultEditForm { homeScore: string | number; awayScore: string | number; homeCas: string | number; awayCas: string | number; reason: string; confirmFinished: boolean }
+
+/** A form field as trimmed text, whatever the input handed back (number, string, null). */
+export const fieldText = (v: unknown): string => (typeof v === "number" ? (Number.isFinite(v) ? String(v) : "") : typeof v === "string" ? v.trim() : "");
 
 /** The dialog's starting values: the fixture's current result. */
 export function resultEditForm(f: Pick<TournamentFixture, "result">): ResultEditForm {
@@ -695,16 +699,16 @@ export function resultEditForm(f: Pick<TournamentFixture, "result">): ResultEdit
   return { homeScore: n(r?.homeScore), awayScore: n(r?.awayScore), homeCas: n(r?.homeCasualties), awayCas: n(r?.awayCasualties), reason: "", confirmFinished: false };
 }
 
-const wholeNumber = (v: string): number | null => (/^\d{1,2}$/.test(v.trim()) ? Number(v.trim()) : null);
+const wholeNumber = (v: unknown): number | null => (/^\d{1,2}$/.test(fieldText(v)) ? Number(fieldText(v)) : null);
 
 /** The problem with the dialog's fields ("" = fine). The server stays the authority. */
 export function resultEditProblem(form: ResultEditForm, f: Pick<TournamentFixture, "result">, finished: boolean): string {
   if (wholeNumber(form.homeScore) === null || wholeNumber(form.awayScore) === null) return "Enter both scores (0 to 99).";
-  const hc = form.homeCas.trim();
-  const ac = form.awayCas.trim();
+  const hc = fieldText(form.homeCas);
+  const ac = fieldText(form.awayCas);
   if ((hc === "") !== (ac === "")) return "Enter both casualty counts, or leave both empty.";
   if (hc !== "" && (wholeNumber(hc) === null || wholeNumber(ac) === null)) return "Casualties are whole numbers from 0 to 99.";
-  if (form.reason.trim().length > 500) return "Keep the reason under 500 characters.";
+  if (fieldText(form.reason).length > 500) return "Keep the reason under 500 characters.";
   const r = f.result;
   if (r && wholeNumber(form.homeScore) === r.homeScore && wholeNumber(form.awayScore) === r.awayScore &&
     (hc === "" ? undefined : Number(hc)) === r.homeCasualties && (ac === "" ? undefined : Number(ac)) === r.awayCasualties)
@@ -715,13 +719,13 @@ export function resultEditProblem(form: ResultEditForm, f: Pick<TournamentFixtur
 
 /** PATCH .../fixtures/:id/result body. */
 export function resultEditBody(f: Pick<TournamentFixture, "revision">, form: ResultEditForm) {
-  const reason = form.reason.trim();
-  const hc = form.homeCas.trim();
-  const ac = form.awayCas.trim();
+  const reason = fieldText(form.reason);
+  const hc = fieldText(form.homeCas);
+  const ac = fieldText(form.awayCas);
   return {
     revision: f.revision ?? 0,
-    homeScore: Number(form.homeScore.trim()),
-    awayScore: Number(form.awayScore.trim()),
+    homeScore: Number(fieldText(form.homeScore)),
+    awayScore: Number(fieldText(form.awayScore)),
     ...(hc !== "" && ac !== "" ? { homeCasualties: Number(hc), awayCasualties: Number(ac) } : {}),
     ...(reason ? { reason } : {}),
     ...(form.confirmFinished ? { confirmFinished: true } : {}),
@@ -745,9 +749,11 @@ export function resultText(r: TournamentResultValues | null | undefined): string
 /** The Edited chip's tooltip: who changed it, when, and why when the server sent the reason. */
 export function editedTitle(e: TournamentFixtureEdit): string {
   const day = startDate(e.at);
-  const what = e.cleared ? "Result cleared" : "Result edited";
+  const cleared = e.cleared || Boolean(e.reportedAgainAt);
+  const what = cleared ? "Result cleared" : "Result edited";
   const parts = [`${what} by ${e.byCoachId || "an organiser"}${day ? ` on ${day}` : ""}`];
-  if (e.previous !== undefined && e.previous !== null && !e.cleared) parts.push(`was ${resultText(e.previous)}`);
+  if (e.reportedAgainAt) parts.push(`reported again on ${startDate(e.reportedAgainAt)}`);
+  if (e.previous !== undefined && e.previous !== null && !cleared) parts.push(`was ${resultText(e.previous)}`);
   if (e.reason) parts.push(`reason: ${e.reason}`);
   return parts.join(", ") + ".";
 }
@@ -766,9 +772,11 @@ export function activityViews(s: Pick<TournamentDetailState, "activity" | "fixtu
     const f = s.fixtures.find((x) => x.id === a.fixtureId);
     const name = (side: TournamentFixture["home"] | undefined) => (side ? labels.get(side.entrantId)?.team || side.teamId : "");
     const pairing = f ? `${name(f.home)} v ${name(f.away)}` : "a fixture";
+    // Who / when only (the server sends old and new values to the managers and the fixture's coaches).
+    const was = a.previous ? ` (was ${resultText(a.previous)})` : "";
     const text = a.kind === "result-cleared"
-      ? `Round ${a.roundNumber}: ${pairing} cleared (was ${resultText(a.previous)})`
-      : `Round ${a.roundNumber}: ${pairing} edited to ${resultText(a.result)} (was ${resultText(a.previous)})`;
+      ? `Round ${a.roundNumber}: ${pairing} result cleared${was}`
+      : a.result ? `Round ${a.roundNumber}: ${pairing} edited to ${resultText(a.result)}${was}` : `Round ${a.roundNumber}: ${pairing} result edited`;
     return { id: a.id, when: dateTimeLabel(a.at), by: a.by, text, reason: a.reason ?? "" };
   });
 }

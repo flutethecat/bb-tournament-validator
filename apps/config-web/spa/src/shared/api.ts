@@ -241,6 +241,8 @@ export interface TournamentFixtureEdit {
   at: string;
   reason?: string;
   cleared?: true;
+  /** A result reported again after a clear. */
+  reportedAgainAt?: string;
   previous?: TournamentResultValues | null;
   original?: TournamentResultValues | null;
 }
@@ -248,7 +250,9 @@ export interface TournamentFixtureEdit {
 /** One organiser result edit or clear in the tournament's activity log (stamped admin). */
 export interface TournamentActivityEntry {
   id: string; at: string; by: string; kind: "result-edited" | "result-cleared"; admin: true;
-  fixtureId: string; roundNumber: number; result?: TournamentResultValues; previous: TournamentResultValues | null; reason?: string;
+  fixtureId: string; roundNumber: number;
+  /** result, previous and reason come only to the tournament's managers and the fixture's two coaches. */
+  result?: TournamentResultValues; previous?: TournamentResultValues | null; reason?: string;
 }
 
 export interface TournamentStandingRow {
