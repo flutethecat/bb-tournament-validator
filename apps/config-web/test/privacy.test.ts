@@ -9,7 +9,7 @@ import {
 import { INVENTORY } from "../spa/src/privacy/inventory";
 import { JOB_RETRY_DAYS, PrivacyService } from "../src/privacy/service.js";
 import {
-  appendAudit, appendJournal, blocklistHash, deletedPseudonymFor, isDiscordBlocked, isRecentlyDeleted, listJobs, readAudit, readJournal, sealForJob,
+  appendAudit, appendJournal, blocklistHash, deletedPseudonymFor, destroyJobKey, isDiscordBlocked, isRecentlyDeleted, listJobs, readAudit, readJournal, sealForJob,
 } from "../src/privacy/state.js";
 import { NafRecordStore, setNafIdFilter } from "../src/nafRecords.js";
 import { MailWorker, Outbox } from "../src/mail/outbox.js";
@@ -251,6 +251,49 @@ describe("round 4 regressions", () => {
     await new PrivacyService({ ...deps, disableForkAccount: async () => { throw new Error("down"); } }).resumeAll();
     expect(isCoachFenced(JOSE_NFD)).toBe(true);
     expect(isCoachFenced(JOSE_NFC)).toBe(true);
+  });
+});
+
+describe("round 5 regressions (admin Close)", () => {
+  it("Close is refused while the account still exists (any step but the fork step and the final sweep unfinished)", async () => {
+    await seed(root);
+    const deps = depsFor(root);
+    mkdirSync(join(root, "sessions.json"), { recursive: true }); // the very first step fails: nothing is deleted yet
+    let t = Date.parse("2026-11-01T00:00:00Z");
+    const svc = new PrivacyService(deps, () => t);
+    expect((await svc.deleteCoach("Alice", "Alice", "self")).pending).toEqual(["sessions"]);
+    const [jobId] = listJobs(deps.stateDir);
+    t += (JOB_RETRY_DAYS + 1) * 86_400_000;
+    await svc.resumeAll();
+    expect(svc.jobs().open[0]!.stuck).toBe(true);
+    const r = await svc.closeJob(jobId!, "Root");
+    expect(r).toMatchObject({ ok: false, reason: "unfinished" });
+    expect((r as { pending: string[] }).pending).toEqual(expect.arrayContaining(["sessions", "identity"]));
+    expect(listJobs(deps.stateDir)).toEqual([jobId]); // journal kept
+    expect(isCoachFenced("Alice")).toBe(true); // fence kept
+    expect(readIdentities().coaches.alice).toBeDefined();
+    expect(readAudit(deps.stateDir)).toEqual([]);
+  });
+
+  it("Close after the key is lost releases every fence hash the job journaled (legacy and NFC)", async () => {
+    await seed(root);
+    const deps = depsFor(root);
+    const past = Date.now() - 3_600_000; // releases land in the past, so a released fence is gone at once
+    const plan = buildPlan(deps, {
+      sessionCoach: JOSE_NFD, jobId: "0123456789abcdef0123cdef", pseudonym: "Deleted coach #6", actor: "self", now: new Date(past), mapKey: TEST_MAP_KEY,
+      blockHashOf: (id) => blocklistHash(deps.stateDir, id), discordAvatarUrl,
+    });
+    const { stored, secrets } = splitPlan(plan);
+    appendJournal(deps.stateDir, plan.jobId, { type: "plan", ...stored, coachHash: legacyCoachKeyHash(JOSE_NFD), sealed: sealForJob(deps.stateDir, plan.jobId, secrets) });
+    const svc = new PrivacyService({ ...deps, disableForkAccount: async () => { throw new Error("down"); } }, () => past);
+    expect(await svc.resumeAll()).toEqual([plan.jobId]); // everything up to the fork step done; the NFC hash journaled
+    expect(readJournal(deps.stateDir, plan.jobId).some((l) => l.type === "fence")).toBe(true);
+    expect(isCoachFenced(JOSE_NFC)).toBe(true);
+    destroyJobKey(deps.stateDir, plan.jobId); // the key is lost
+    expect(await svc.closeJob(plan.jobId, "Root")).toEqual({ ok: true });
+    expect(isCoachFenced(JOSE_NFC)).toBe(false);
+    expect(isCoachFenced(JOSE_NFD)).toBe(false);
+    expect(listJobs(deps.stateDir)).toEqual([]);
   });
 });
 
@@ -663,7 +706,7 @@ describe("delete", () => {
     expect(await svc.resumeAll()).toEqual([jobId]); // still stuck, nothing ran
     expect(readAudit(deps.stateDir)).toEqual([]);
     // the admin closes it after removing the fork account by hand: now the journal, key and fence go, audited
-    expect(await svc.closeJob(jobId!, "Root")).toBe(true);
+    expect(await svc.closeJob(jobId!, "Root")).toEqual({ ok: true });
     expect(listJobs(deps.stateDir)).toEqual([]);
     expect(walkFiles(join(deps.stateDir, "privacy", "keys"))).toEqual([]);
     expect(readAudit(deps.stateDir)).toEqual([{ at: expect.any(String), actor: "self; closed by admin:Root", pseudonym: P, jobId }]);

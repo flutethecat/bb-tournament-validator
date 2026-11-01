@@ -38,6 +38,21 @@ export interface DeleteOutcome {
 
 export interface OpenJob { jobId: string; pseudonym: string; pending: string[]; startedAt: string; stuck: boolean }
 
+
+/** Every fence hash a job installed: the plan's and each journaled "fence" line (never derived from the job key). */
+function journalFenceHashes(lines: ReturnType<typeof readJournal>): string[] {
+  const out = new Set<string>();
+  const first = lines[0];
+  if (first?.type === "plan") out.add((first as unknown as StoredPlan).coachHash);
+  for (const l of lines) if (l.type === "fence") for (const h of l.hashes) out.add(h);
+  return [...out].filter((h) => typeof h === "string" && /^[a-f0-9]{64}$/.test(h));
+}
+
+/** Steps an admin may leave unfinished when closing a stuck job (the account itself is already gone by then). */
+export const CLOSABLE_PENDING = new Set(["fork-account", "final-sweep"]);
+
+export type CloseResult = { ok: true } | { ok: false; reason: "not-found" } | { ok: false; reason: "unfinished"; pending: string[] };
+
 export class PrivacyService {
   private chain: Promise<unknown> = Promise.resolve();
   private warnedNoKey = false;
@@ -105,6 +120,7 @@ export class PrivacyService {
       const { stored, secrets } = splitPlan(plan);
       const line: StoredPlan = { ...stored, sealed: sealForJob(this.deps.stateDir, jobId, secrets) };
       appendJournal(this.deps.stateDir, jobId, { type: "plan", ...line });
+      appendJournal(this.deps.stateDir, jobId, { type: "fence", hashes: [plan.coachHash] });
       const pending = await this.runSteps(plan);
       return { status: "deleted", pending, pseudonym: plan.pseudonym };
     });
@@ -120,7 +136,7 @@ export class PrivacyService {
         if (!this.warnedNoKey) { console.error("[privacy] PRIVACY_MAP_KEY is not set: open delete jobs stay pending until it is."); this.warnedNoKey = true; }
         for (const jobId of jobs) {
           const first = readJournal(this.deps.stateDir, jobId)[0];
-          if (first?.type === "plan") fenceCoachHash((first as unknown as StoredPlan).coachHash);
+          for (const h of journalFenceHashes(readJournal(this.deps.stateDir, jobId))) fenceCoachHash(h);
         }
         return jobs;
       }
@@ -134,9 +150,14 @@ export class PrivacyService {
           removeJournal(this.deps.stateDir, jobId);
           continue;
         }
-        fenceCoachHash(stored.coachHash);
+        const known = journalFenceHashes(lines);
+        for (const h of known) fenceCoachHash(h);
         const secrets = unsealForJob<PlanSecrets>(this.deps.stateDir, jobId, sealed);
-        if (secrets) fenceCoachHash(coachKeyHash(secrets.coach)); // journals from before the NFC fence key: fence both forms
+        if (secrets) {
+          // journals from before the NFC fence key: fence the NFC form too, and journal it so it is always released
+          const nfc = coachKeyHash(secrets.coach);
+          if (!known.includes(nfc)) { appendJournal(this.deps.stateDir, jobId, { type: "fence", hashes: [nfc] }); fenceCoachHash(nfc); }
+        }
         // Stuck (out of retries, or its key is gone): never retried automatically; journal, key and fence stay until an
         // admin retries or closes it from the admin card.
         if (lines.some((l) => l.type === "abandoned")) { open.push(jobId); continue; }
@@ -181,21 +202,36 @@ export class PrivacyService {
    * Admin: close a stuck job without finishing it (the admin resolved the rest by hand, e.g. removed the fork account).
    * Audited as closed; the journal, key and fence go only now.
    */
-  closeJob(jobId: string, admin: string): Promise<boolean> {
-    return this.serial(async () => {
+  closeJob(jobId: string, admin: string): Promise<CloseResult> {
+    return this.serial(async (): Promise<CloseResult> => {
       const dir = this.deps.stateDir;
       const lines = readJournal(dir, jobId);
       const first = lines[0];
-      if (!first || first.type !== "plan") return false;
+      if (!first || first.type !== "plan") return { ok: false, reason: "not-found" };
       const stored = first as unknown as StoredPlan;
+      const done = new Set(lines.flatMap((l) => (l.type === "step" && l.status !== "failed" ? [l.step] : [])));
+      const pending = DELETE_STEPS.map((x) => x.id).filter((id) => !done.has(id));
+      // Only a job whose account is already gone (identity removed, sessions revoked, everything else done) may be closed.
+      const blocking = pending.filter((id) => !CLOSABLE_PENDING.has(id));
+      if (blocking.length) return { ok: false, reason: "unfinished", pending };
       const secrets = unsealForJob<PlanSecrets>(dir, jobId, stored.sealed);
+      if (pending.includes("final-sweep") && secrets) {
+        // the final sweep is attempted as part of Close (it needs the sealed names; without the key it cannot run)
+        const sweep = DELETE_STEPS.find((x) => x.id === "final-sweep")!;
+        try {
+          const status = await sweep.run(deleteContext(this.deps, { ...stored, ...secrets }));
+          appendJournal(dir, jobId, { type: "step", step: sweep.id, status, at: new Date(this.now()).toISOString() });
+        } catch (e) {
+          appendJournal(dir, jobId, { type: "step", step: sweep.id, status: "failed", at: new Date(this.now()).toISOString(), error: String((e as NodeJS.ErrnoException).code ?? (e as Error).message).slice(0, 120) });
+        }
+      }
       appendAudit(dir, { at: new Date(this.now()).toISOString(), actor: `${stored.actor}; closed by admin:${admin}`, pseudonym: stored.pseudonym, jobId });
       appendJournal(dir, jobId, { type: "complete", at: new Date(this.now()).toISOString() });
+      const hashes = journalFenceHashes(readJournal(dir, jobId));
       destroyJobKey(dir, jobId);
       removeJournal(dir, jobId);
-      releaseCoachHash(stored.coachHash, this.now());
-      if (secrets) releaseCoachHash(coachKeyHash(secrets.coach), this.now());
-      return true;
+      for (const h of hashes) releaseCoachHash(h, this.now());
+      return { ok: true };
     });
   }
 
@@ -221,10 +257,10 @@ export class PrivacyService {
       // audit first (idempotent by job id), then the complete marker: a crash in between never loses the audit
       appendAudit(dir, { at: new Date(this.now()).toISOString(), actor: plan.actor, pseudonym: plan.pseudonym, jobId: plan.jobId });
       appendJournal(dir, plan.jobId, { type: "complete", at: new Date(this.now()).toISOString() });
+      const hashes = new Set([...journalFenceHashes(readJournal(dir, plan.jobId)), plan.coachHash]);
       destroyJobKey(dir, plan.jobId);
       removeJournal(dir, plan.jobId);
-      releaseCoachHash(plan.coachHash, this.now());
-      releaseCoachHash(coachKeyHash(plan.coach), this.now()); // the same, for a journal planned before the NFC fence key
+      for (const h of hashes) releaseCoachHash(h, this.now());
       this.deps.onCoachDeleted?.();
     }
     return pending;

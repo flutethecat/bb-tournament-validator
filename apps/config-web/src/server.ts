@@ -2382,7 +2382,10 @@ async function handleApi(
         const pending = await privacyService.retryJob(m[1]!);
         return pending === undefined ? sendJson(res, 404, { error: "No such job (or PRIVACY_MAP_KEY / the job key is missing)." }) : sendJson(res, 200, { ok: true, pending });
       }
-      return (await privacyService.closeJob(m[1]!, adminActor)) ? sendJson(res, 200, { ok: true }) : sendJson(res, 404, { error: "No such job." });
+      const closed = await privacyService.closeJob(m[1]!, adminActor);
+      if (closed.ok) return sendJson(res, 200, { ok: true });
+      if (closed.reason === "not-found") return sendJson(res, 404, { error: "No such job." });
+      return sendJson(res, 409, { error: `The account is not fully deleted yet; unfinished steps: ${closed.pending.join(", ")}. Retry the job instead.`, pending: closed.pending });
     }
   }
 

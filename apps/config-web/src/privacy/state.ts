@@ -8,7 +8,9 @@
  *                                                                           (AES-256-GCM, key in keys/<jobId>.key)
  *                            {"type":"step","step":"<id>","status":"done"|"skipped"|"failed","at":"<iso>","error"?}
  *                            {"type":"complete","at":"<iso>"}                after the audit line is written
- *                            {"type":"abandoned","at","pending"}            retries ran out (7 days)
+ *                            {"type":"abandoned","at","pending"}            retries ran out (7 days): stuck
+ *                            {"type":"fence","hashes":[...]}                 every fence hash the job installed (released
+ *                                                                           together on completion / admin close)
  *                          The file and its key are removed once the job completes or is abandoned, so the link between
  *                          the coach and the pseudonym does not outlive the job. A file left behind by a crash is resumed
  *                          on startup: a step with no "done"/"skipped" line runs again (every step is idempotent).
@@ -263,7 +265,8 @@ export type JournalLine =
   | ({ type: "plan" } & Record<string, unknown>)
   | { type: "step"; step: string; status: StepStatus; at: string; error?: string }
   | { type: "complete"; at: string }
-  | { type: "abandoned"; at: string; pending: string[] };
+  | { type: "abandoned"; at: string; pending: string[] }
+  | { type: "fence"; hashes: string[] };
 
 const JOB_ID = /^[a-f0-9]{24}$/;
 export const newJobId = (): string => randomBytes(12).toString("hex");
