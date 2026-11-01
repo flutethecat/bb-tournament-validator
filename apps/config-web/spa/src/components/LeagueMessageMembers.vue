@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // League page, Overview (organisers and site admins, newest season only): "Message members". The message goes to every
 // recipient's notifications, and by email (sent by the site) to members who opted in with a confirmed address. The
-// organiser never sees an address, and counts only for large all-members messages (src/mail/leagueMessages.ts).
+// organiser never sees an address nor any email count; large all-members messages show how many were notified
+// (src/mail/leagueMessages.ts).
 import { computed, inject, onMounted, reactive, ref } from "vue";
 import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
@@ -89,7 +90,7 @@ onMounted(refresh);
       </div>
       <p class="hm-small hm-empty">
         Plain text. Every recipient sees it in their notifications.
-        <template v-if="emailEnabled !== false">Members who opted in to league emails with a confirmed address also get it by email from Super FUMBBL; you never see their address.</template>
+        <template v-if="emailEnabled !== false">Members who opted in to league emails with a confirmed address also get it by email from Super FUMBBL; you never see their address or how many were emailed.</template>
         <template v-else>Email is not set up on this site yet.</template>
       </p>
     </form>

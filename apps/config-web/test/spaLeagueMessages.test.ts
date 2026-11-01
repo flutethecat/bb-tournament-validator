@@ -20,10 +20,10 @@ describe("message members helpers", () => {
   });
 
   it("summarises a send with only what the server disclosed", () => {
-    expect(sentSummary({ id: "x", emailEnabled: true, counts: { notified: 8, queued: 3, skipped: { noConsent: 3, unverified: 0, suppressed: 0 } } }))
-      .toBe("Sent to 8 members' notifications. 3 emails queued. 3 members get no email (not opted in, no confirmed address, or the address bounced).");
-    expect(sentSummary({ id: "x", emailEnabled: true, counts: { notified: 8, queued: null, skipped: null } }))
-      .toBe("Sent to 8 members' notifications. Members who accept league messages also get it by email; some members get no email.");
+    expect(sentSummary({ id: "x", emailEnabled: true, counts: { notified: 8 } }))
+      .toBe("Sent to 8 members' notifications. Members who accept league messages also get it by email.");
+    expect(sentSummary({ id: "x", emailEnabled: false, counts: { notified: 8 } })).toBe("Sent to 8 members' notifications. Email is not set up on this site yet.");
+    expect(logCounts({ id: "x", sender: "Jay", at: "", scope: "all", counts: { notified: 8 } })).toBe("8 notified");
     expect(sentSummary({ id: "x", emailEnabled: true, counts: null, summary: "S" })).toBe("S");
     expect(sentSummary({ id: "x", emailEnabled: false, counts: null })).toMatch(/Email is not set up/);
     expect(logCounts({ id: "x", sender: "Jay", at: "", scope: "coach", counts: null })).toBe("sent");

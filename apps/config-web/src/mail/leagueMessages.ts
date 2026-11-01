@@ -7,9 +7,10 @@
 // 403). Recipients are resolved server-side from the league's newest season (teams' and participants' fork accounts),
 // the sender excluded. Every recipient gets an in-portal notification; email goes only to members who acknowledged
 // sharing with this league, have league-contact consent and a verified, non-suppressed address (RecipientResolver).
-// The response never carries an address or who was skipped, and it reveals no single coach's choices: counts appear only
-// for an all-members message with at least DISCLOSE_MIN_RECIPIENTS recipients, and the skipped breakdown only when no
-// category holds 1 or 2 members (disclosedCounts). The exact counts stay in the server-side audit.
+// The response never carries an address or who was skipped, and it reveals no single coach's choices: organisers never
+// see an email figure at all (queued, skipped or suppressed), because comparing two sends that differ by one recipient
+// would single that coach out; an all-members message with at least DISCLOSE_MIN_RECIPIENTS recipients shows only how
+// many were notified in the portal (disclosedCounts). The exact email counts stay in the server-side audit.
 
 import { createHash, randomBytes } from "node:crypto";
 import type { NotificationInput } from "../notifications.js";
@@ -52,21 +53,18 @@ export const DISCLOSE_MIN_RECIPIENTS = 5;
 export const PRIVATE_SUMMARY = "Sent. Every recipient sees it in their notifications; members who accept league messages also get it by email.";
 
 export interface DisclosedCounts {
+  /** In-portal notifications (every recipient gets one, whatever their email choices). */
   notified: number;
-  /** null when the skipped breakdown is hidden (it would let the queued figure single someone out). */
-  queued: number | null;
-  skipped: MailAuditEntry["skipped"] | null;
 }
 
 /**
- * What an organiser may see of a message's delivery counts. Single-coach / team messages and small groups: nothing (the
- * counts would reveal one coach's preferences). All-members messages with >= 5 recipients: the notified count, plus the
- * queued count and skipped breakdown only when every skipped category is 0 or >= 3.
+ * What an organiser may see of a message's delivery counts. Single-coach / team messages and small groups: nothing.
+ * All-members messages with >= 5 recipients: the notified count only. No email figure is ever disclosed: any queued or
+ * skipped number, even a total, lets two sends that differ by one member reveal that member's email status.
  */
-export function disclosedCounts(scope: MailAuditEntry["scope"], c: { notified: number; queued: number; skipped: MailAuditEntry["skipped"] }): DisclosedCounts | null {
+export function disclosedCounts(scope: MailAuditEntry["scope"], c: { notified: number }): DisclosedCounts | null {
   if (scope !== "all" || c.notified < DISCLOSE_MIN_RECIPIENTS) return null;
-  const small = Object.values(c.skipped).some((n) => n === 1 || n === 2);
-  return small ? { notified: c.notified, queued: null, skipped: null } : { notified: c.notified, queued: c.queued, skipped: { ...c.skipped } };
+  return { notified: c.notified };
 }
 
 /** Sliding one-hour window per organiser per league (in memory). */
@@ -217,7 +215,7 @@ export function leagueMessagesRoute(
 
   const entry: MailAuditEntry = { id, leagueId: lg.id, sender: who.coach, at: new Date(now).toISOString(), scope: recipients.scope, notified, queued, skipped };
   try { deps.audit.append(entry); } catch { /* the audit write must not fail the send */ }
-  const counts = disclosedCounts(recipients.scope, { notified, queued, skipped });
+  const counts = disclosedCounts(recipients.scope, { notified });
   const result: LeagueMessageResult = { status: 201, headers: NO_STORE, body: { id, emailEnabled: emailOn, counts, ...(counts ? {} : { summary: PRIVATE_SUMMARY }) } };
   if (replayKey) recentRequests.set(replayKey, { at: now, result });
   return result;

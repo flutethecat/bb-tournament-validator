@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, appendFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, appendFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -478,7 +478,12 @@ describe("email verification", () => {
     expect(r.status).toBe(202);
     expect(r.json).toEqual(fresh.json);
     expect(svc.outbox.list().map((e) => e.message?.to)).toEqual(["bob@example.test"]);
-    expect(svc.prefs.get("ann").pending).toBeUndefined();
+    // The Account page shows the same pending state for a suppressed address as for any other.
+    const status = (coach: string) => svc.meRoute("GET", "/api/me/email", { coach }, undefined)!.json as { pending: { email: string } | null; suppressed: boolean };
+    expect(status("Ann").pending).toMatchObject({ email: "ann@example.test" });
+    expect(status("Bob").pending).toMatchObject({ email: "bob@example.test" });
+    expect(Object.keys(status("Ann").pending!)).toEqual(Object.keys(status("Bob").pending!));
+    expect(status("Ann").suppressed).toBe(status("Bob").suppressed);
     expect(svc.meRoute("POST", "/api/me/email/verify", { coach: "Ann" }, { email: "ann@example.test" })!.status).toBe(429);
     const off = createMailService(tmp(), { MAIL_LINK_SECRET: ENV.MAIL_LINK_SECRET }, { identity: () => ({}) });
     expect(off.meRoute("POST", "/api/me/email/verify", { coach: "Ann" }, { email: "ann@example.test" })!.status).toBe(503);
@@ -561,12 +566,12 @@ describe("league messages: authz and validation", () => {
 });
 
 describe("league messages: recipients, email, notifications, audit", () => {
-  it("emails only consenting, acknowledged, verified, unsuppressed members; the response hides small skipped groups", async () => {
+  it("emails only consenting, acknowledged, verified, unsuppressed members; the response shows the notified count only", async () => {
     const { deps, svc, transport, notifications, dir } = leagueFixture();
     const r = post(deps, JAY, ALL);
     expect(r.status).toBe(201);
-    // 6 recipients, but unverified (1) and suppressed (1) are 1-2 member groups: no breakdown, no queued figure.
-    expect(r.body).toEqual({ id: expect.any(String), emailEnabled: true, counts: { notified: 6, queued: null, skipped: null } });
+    // 6 recipients: the notified count only, never an email figure.
+    expect(r.body).toEqual({ id: expect.any(String), emailEnabled: true, counts: { notified: 6 } });
     const text = JSON.stringify(r.body);
     for (const leak of ["example.test", "Bob", "Cat", "Dee", "Eve", "Fay"]) expect(text).not.toContain(leak);
 
@@ -594,7 +599,7 @@ describe("league messages: recipients, email, notifications, audit", () => {
     expect(audit).not.toContain("example.test");
     expect(JSON.parse(audit.trim())).toMatchObject({ leagueId: "tabbl", sender: "Jay", scope: "all", notified: 6, queued: 1 });
     const view = leagueMessagesRoute("GET", "/api/leagues/tabbl/messages", JAY, undefined, deps)!;
-    expect(view.body).toMatchObject({ emailEnabled: true, recent: [{ sender: "Jay", scope: "all", counts: { notified: 6, queued: null, skipped: null } }] });
+    expect(view.body).toMatchObject({ emailEnabled: true, recent: [{ sender: "Jay", scope: "all", counts: { notified: 6 } }] });
     expect(JSON.stringify(view.body)).not.toContain("example.test");
   });
 
@@ -634,13 +639,22 @@ describe("league messages: recipients, email, notifications, audit", () => {
     expect(post(capped.deps, JAY, ALL).status).toBe(429);
   });
 
-  it("disclosure rule: all-members with >= 5 recipients only; breakdown only when no skipped group is 1 or 2", () => {
-    const sk = (noConsent: number, unverified: number, suppressed: number) => ({ noConsent, unverified, suppressed });
-    expect(disclosedCounts("coach", { notified: 9, queued: 9, skipped: sk(0, 0, 0) })).toBeNull();
-    expect(disclosedCounts("team", { notified: 9, queued: 9, skipped: sk(0, 0, 0) })).toBeNull();
-    expect(disclosedCounts("all", { notified: 4, queued: 1, skipped: sk(3, 0, 0) })).toBeNull();
-    expect(disclosedCounts("all", { notified: 12, queued: 3, skipped: sk(3, 6, 0) })).toEqual({ notified: 12, queued: 3, skipped: sk(3, 6, 0) });
-    expect(disclosedCounts("all", { notified: 12, queued: 4, skipped: sk(5, 2, 1) })).toEqual({ notified: 12, queued: null, skipped: null });
+  it("disclosure rule: all-members with >= 5 recipients only, and then the notified count only (no email figure)", () => {
+    expect(disclosedCounts("coach", { notified: 9 })).toBeNull();
+    expect(disclosedCounts("team", { notified: 9 })).toBeNull();
+    expect(disclosedCounts("all", { notified: 4 })).toBeNull();
+    expect(disclosedCounts("all", { notified: 12 })).toEqual({ notified: 12 });
+  });
+
+  it("two all-members sends differing by one suppressed member disclose identical counts (no differencing)", () => {
+    const { deps, svc } = leagueFixture();
+    const before = post(deps, JAY, ALL).body as { counts: unknown };
+    svc.suppression.suppress("ann@example.test", "bounce"); // the one emailed member becomes suppressed
+    const after = post(deps, JAY, ALL).body as { counts: unknown };
+    expect(after.counts).toEqual(before.counts);
+    const view = leagueMessagesRoute("GET", "/api/leagues/tabbl/messages", JAY, undefined, deps)!.body as { recent: Array<{ counts: unknown }> };
+    expect(view.recent[0]!.counts).toEqual(view.recent[1]!.counts);
+    expect(JSON.stringify(view)).not.toMatch(/queued|skipped|suppressed/);
   });
 
   it("re-checks consent at send time: a coach who withdrew while queued is dropped and counted as skipped", async () => {
@@ -685,5 +699,100 @@ describe("account deletion hook", () => {
     expect(svc.suppression.isSuppressed("ann@example.test")).toBe(true);
     expect(existsSync(join(dir, "mail", "prefs.json"))).toBe(true);
     expect(readFileSync(join(dir, "mail", "prefs.json"), "utf8")).not.toContain("example.test");
+  });
+});
+
+// ---- eligibility hardening ----------------------------------------------------------------------------------------------
+
+describe("send-time eligibility and consent edge cases", () => {
+  const DAY = 24 * 3600 * 1000;
+
+  it("withdrawing league consent never counts as re-consent for complaint recovery", async () => {
+    let now = T0 - 2 * DAY;
+    const transport = new MemoryTransport();
+    const grantedEarly = consenting("ann@example.test"); // granted 2026-10-01, before the complaint
+    const identities: Record<string, unknown> = { ann: grantedEarly };
+    const svc = createMailService(tmp(), ENV, { identity: (c) => identities[c.toLowerCase()], transport, now: () => now });
+    svc.suppression.suppress("ann@example.test", "complaint");
+    now = T0;
+    // PATCH /api/me/contact { leagueContact: false }: a newer stamp, but a withdrawal.
+    identities.ann = { ...grantedEarly, consent: { ...grantedEarly.consent, leagueContact: { granted: false, at: new Date(T0 - 1000).toISOString() } } };
+    svc.meRoute("POST", "/api/me/email/league-mail", { coach: "Ann" }, { on: true }); // "turn back on" while consent is withdrawn
+    expect(svc.meRoute("POST", "/api/me/email/verify", { coach: "Ann" }, {})!.status).toBe(202);
+    expect(svc.outbox.list()).toHaveLength(0);
+    // A real re-grant after the complaint qualifies.
+    now += 61_000;
+    identities.ann = { ...grantedEarly, consent: { ...grantedEarly.consent, leagueContact: { granted: true, at: new Date(now - 1000).toISOString() } } };
+    expect(svc.meRoute("POST", "/api/me/email/verify", { coach: "Ann" }, {})!.status).toBe(202);
+    expect(svc.outbox.list()).toMatchObject([{ reverify: true }]);
+    await svc.worker.drain();
+    expect(transport.sent).toHaveLength(1);
+  });
+
+  it("a queued re-verification does not bypass a complaint newer than the re-consent", async () => {
+    let now = T0 - 2 * DAY;
+    const transport = new MemoryTransport();
+    const svc = createMailService(tmp(), ENV, { identity: () => ({ ...consenting("ann@example.test"), consent: { leagueContact: { granted: true, at: new Date(T0 - DAY).toISOString() }, leagues: {} } }), transport, now: () => now });
+    svc.suppression.suppress("ann@example.test", "complaint");
+    now = T0;
+    expect(svc.meRoute("POST", "/api/me/email/verify", { coach: "Ann" }, {})!.status).toBe(202);
+    expect(svc.outbox.list()).toMatchObject([{ reverify: true, status: "queued" }]);
+    now += 1000;
+    svc.suppression.suppress("ann@example.test", "complaint"); // a new complaint while the re-verification waits
+    await svc.worker.drain();
+    expect(transport.sent).toHaveLength(0);
+    expect(svc.outbox.list()[0]).toMatchObject({ status: "dead", error: "suppressed" });
+  });
+
+  it("a fresh unsubscribe link is valid even when consent was granted earlier in the same second", async () => {
+    const now = T0 + 700;
+    const identity = () => ({ ...consenting("ann@example.test"), consent: { leagueContact: { granted: true, at: new Date(T0 + 500).toISOString() }, leagues: { tabbl: true } } });
+    const svc = createMailService(tmp(), ENV, { identity, now: () => now });
+    const url = new URL(svc.unsubscribeUrl("Ann", "tabbl", "ann@example.test"));
+    expect((await svc.publicRoute("GET", url.pathname, url.searchParams, {}, async () => ""))!.status).toBe(200);
+    expect((await svc.publicRoute("POST", url.pathname, url.searchParams, {}, async () => ""))!.status).toBe(200);
+  });
+
+  it("an older league outbox row without a recipient is re-checked by the coach in its key, or dropped", async () => {
+    const dir = tmp();
+    mkdirSync(join(dir, "mail", "outbox"), { recursive: true });
+    const row = (id: string, key: string, extra: Record<string, unknown>) => JSON.stringify({ op: "add", entry: {
+      id, key, template: "league-message", channel: "email", message: msg(extra.to as string), status: "queued", attempts: 0, nextAt: T0, enqueuedAt: T0,
+      ...Object.fromEntries(Object.entries(extra).filter(([k]) => k !== "to")),
+    } });
+    appendFileSync(join(dir, "mail", "outbox", "journal.jsonl"), [
+      row("m1", "league:tabbl:lm-1:ann", { to: "ann@example.test", leagueId: "tabbl" }), // Ann consents: sent
+      row("m2", "league:tabbl:lm-1:bob", { to: "bob@example.test", leagueId: "tabbl" }), // Bob withdrew: dropped
+      row("m3", "legacy-key", { to: "cat@example.test" }), // a league template with nothing to check against: dropped
+    ].join("\n") + "\n");
+    const identities: Record<string, unknown> = {
+      ann: consenting("ann@example.test"),
+      bob: { ...consenting("bob@example.test"), consent: { leagueContact: { granted: false, at: "2026-10-30T00:00:00.000Z" }, leagues: { tabbl: true } } },
+      cat: consenting("cat@example.test"),
+    };
+    const transport = new MemoryTransport();
+    const svc = createMailService(dir, ENV, { identity: (c) => identities[c.toLowerCase()], transport, now: () => T0 });
+    await svc.worker.drain();
+    expect(transport.sent.map((m) => m.to)).toEqual(["ann@example.test"]);
+    expect(svc.outbox.get("m2")).toMatchObject({ status: "dead", error: "ineligible: noConsent" });
+    expect(svc.outbox.get("m3")).toMatchObject({ status: "dead", error: "ineligible: noConsent" });
+  });
+
+  it("Postmark's internal retries re-run the eligibility check before every attempt", async () => {
+    let eligible = true;
+    const fetch = vi.fn(async () => { eligible = false; return jsonRes(503, {}); }); // consent withdrawn during the first attempt
+    const transport = createPostmarkTransport({ token: "server-token", from: "noreply@site.example.test", sleep: async () => {}, fetch: fetch as unknown as typeof globalThis.fetch });
+    const outbox = new Outbox(tmp(), () => T0);
+    outbox.enqueue([{ key: "k", leagueId: "tabbl", recipient: { coach: "Ann", leagueId: "tabbl" }, message: msg("ann@example.test") }]);
+    const dropped: string[] = [];
+    const w = new MailWorker({
+      outbox, transport, now: () => T0,
+      recheck: () => (eligible ? { ok: true } : { ok: false, reason: "noConsent" }),
+      onDropped: (_e, reason) => dropped.push(reason),
+    });
+    await w.drain();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(outbox.byIdempotencyKey("k")).toMatchObject({ status: "dead", error: "ineligible: noConsent" });
+    expect(dropped).toEqual(["noConsent"]);
   });
 });

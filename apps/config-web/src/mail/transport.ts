@@ -32,9 +32,28 @@ export class MailSendError extends Error {
   }
 }
 
+/**
+ * The send was abandoned before a provider attempt because the message is no longer eligible (consent withdrawn,
+ * address suppressed): never retried; the worker drops it.
+ */
+export class MailSendAborted extends MailSendError {
+  constructor() {
+    super("Message no longer eligible; not sent.", false);
+    this.name = "MailSendAborted";
+  }
+}
+
+export interface MailSendOptions {
+  /**
+   * Called before EVERY provider attempt, internal retries included; false = abandon with MailSendAborted (the worker
+   * passes its send-time eligibility re-check here).
+   */
+  stillEligible?: () => boolean;
+}
+
 export interface MailTransport {
   readonly name: "postmark" | "log" | "memory";
-  send(message: MailMessage): Promise<MailSendResult>;
+  send(message: MailMessage, options?: MailSendOptions): Promise<MailSendResult>;
 }
 
 /** No token configured: writes one line per message with the template and recipient count; never an address or text. */
@@ -42,7 +61,8 @@ export function createLogTransport(log: (line: string) => void = (l) => console.
   let n = 0;
   return {
     name: "log",
-    async send(message) {
+    async send(message, options) {
+      if (options?.stillEligible && !options.stillEligible()) throw new MailSendAborted();
       n += 1;
       log(`[mail] log transport: template=${message.template} recipients=1 (not sent: POSTMARK_SERVER_TOKEN unset)`);
       return { providerId: `log-${n}` };
@@ -56,7 +76,8 @@ export class MemoryTransport implements MailTransport {
   readonly sent: MailMessage[] = [];
   fail?: (message: MailMessage, attempt: number) => MailSendError | undefined;
   private attempts = 0;
-  async send(message: MailMessage): Promise<MailSendResult> {
+  async send(message: MailMessage, options?: MailSendOptions): Promise<MailSendResult> {
+    if (options?.stillEligible && !options.stillEligible()) throw new MailSendAborted();
     this.attempts += 1;
     const error = this.fail?.(message, this.attempts);
     if (error) throw error;

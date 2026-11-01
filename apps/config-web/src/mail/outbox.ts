@@ -14,7 +14,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { atomicWriteTextFile } from "@bb/fork-ops";
-import { MailSendError, type MailMessage, type MailTransport } from "./transport.js";
+import { MailSendAborted, MailSendError, type MailMessage, type MailTransport } from "./transport.js";
 
 export const OUTBOX_BODY_RETENTION_MS = 30 * 24 * 3600 * 1000;
 export const OUTBOX_TOMBSTONE_RETENTION_MS = 180 * 24 * 3600 * 1000;
@@ -272,21 +272,26 @@ export class MailWorker {
             continue;
           }
         }
-        const recheck = this.opts.recheck?.(entry) ?? (this.opts.isSuppressed?.(entry.message.to) ? { ok: false as const, reason: "suppressed" as const } : { ok: true as const });
-        if (!recheck.ok) {
-          outbox.markDead(entry.id, entry.attempts, recheck.reason === "suppressed" ? "suppressed" : `ineligible: ${recheck.reason}`);
-          try { this.opts.onDropped?.(entry, recheck.reason); } catch { /* best effort */ }
-          continue;
-        }
+        const check = (): RecheckResult => this.opts.recheck?.(entry) ?? (this.opts.isSuppressed?.(entry.message!.to) ? { ok: false as const, reason: "suppressed" as const } : { ok: true as const });
+        const drop = (r: Exclude<RecheckResult, { ok: true }>, attempts: number) => {
+          outbox.markDead(entry.id, attempts, r.reason === "suppressed" ? "suppressed" : `ineligible: ${r.reason}`);
+          try { this.opts.onDropped?.(entry, r.reason); } catch { /* best effort */ }
+        };
+        const recheck = check();
+        if (!recheck.ok) { drop(recheck, entry.attempts); continue; }
         const transport = this.transportFor(entry.channel);
         if (!transport) { outbox.markDead(entry.id, entry.attempts, `no transport for ${entry.channel}`); continue; }
         this.starts.push(now);
         attempted += 1;
         const attempts = entry.attempts + 1;
+        // The transport re-runs the check before every provider attempt (its own retries included).
+        let refused: Exclude<RecheckResult, { ok: true }> | undefined;
+        const stillEligible = (): boolean => { const r = check(); if (!r.ok) refused = r; return r.ok; };
         try {
-          await transport.send(entry.message);
+          await transport.send(entry.message, { stillEligible });
           outbox.markSent(entry.id);
         } catch (e) {
+          if (e instanceof MailSendAborted || refused) { drop(refused ?? { ok: false, reason: "noConsent" }, entry.attempts); continue; }
           const err = e instanceof MailSendError ? e : new MailSendError("send failed", true);
           if (err.inactiveRecipient) {
             try { this.opts.onInactive?.(entry.message.to); } catch { /* best effort */ }

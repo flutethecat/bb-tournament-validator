@@ -43,7 +43,8 @@ export function identityMailFields(record: unknown): {
   const consent = obj(r.consent) ?? {};
   const lc = obj(consent.leagueContact) ?? {};
   const email = typeof contact.email === "string" && isEmailAddress(contact.email.trim()) ? contact.email.trim() : undefined;
-  const at = [lc.grantedAt, lc.updatedAt, lc.at].map(stamp).find((n) => Number.isFinite(n)) ?? NaN;
+  // The stamp of a GRANTED consent only: a withdrawal carries a newer stamp too, and must never read as a re-grant.
+  const at = lc.granted === true ? [lc.grantedAt, lc.updatedAt, lc.at].map(stamp).find((n) => Number.isFinite(n)) ?? NaN : NaN;
   return {
     banned: r.banned === true,
     ...(email ? { email } : {}),

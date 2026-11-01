@@ -11,12 +11,12 @@ export type MessageScope = "all" | "team" | "coach";
 
 export interface LeagueMessageInput { scope: MessageScope; teamId?: string; coach?: string; subject: string; body: string; requestId: string }
 
-/** Delivery counts the server discloses: null for one-coach / team / small messages (they would reveal a coach's choices). */
+/**
+ * Delivery counts the server discloses: null for one-coach / team / small messages; otherwise the notified count only.
+ * No email figure is ever disclosed (comparing two sends would reveal one member's email status).
+ */
 export interface LeagueMessageCounts {
   notified: number;
-  /** null when the breakdown is hidden (a skipped group of 1 or 2 members). */
-  queued: number | null;
-  skipped: { noConsent: number; unverified: number; suppressed: number } | null;
 }
 
 export interface LeagueMessageSent {
@@ -56,26 +56,18 @@ const plural = (n: number, one: string, many: string): string => `${n} ${n === 1
 
 export const PRIVATE_SUMMARY = "Sent. Every recipient sees it in their notifications; members who accept league messages also get it by email.";
 
-/** One line for the composer after a send: only what the server disclosed. */
+/** One line for the composer after a send: only what the server disclosed (never an email count). */
 export function sentSummary(r: LeagueMessageSent): string {
   const c = r.counts;
   if (!c) return r.emailEnabled ? (r.summary ?? PRIVATE_SUMMARY) : "Sent to the recipients' notifications. Email is not set up on this site yet.";
   const parts = [`Sent to ${plural(c.notified, "member's", "members'")} notifications.`];
-  if (!r.emailEnabled) parts.push("Email is not set up on this site yet.");
-  else if (c.queued === null || !c.skipped) parts.push("Members who accept league messages also get it by email; some members get no email.");
-  else {
-    parts.push(`${plural(c.queued, "email", "emails")} queued.`);
-    const noEmail = c.skipped.noConsent + c.skipped.unverified + c.skipped.suppressed;
-    if (noEmail) parts.push(`${plural(noEmail, "member gets", "members get")} no email (not opted in, no confirmed address, or the address bounced).`);
-  }
+  parts.push(r.emailEnabled ? "Members who accept league messages also get it by email." : "Email is not set up on this site yet.");
   return parts.join(" ");
 }
 
 /** The "Recent messages" line's delivery part. */
 export function logCounts(r: LeagueMessageLog): string {
-  const c = r.counts;
-  if (!c) return "sent";
-  return c.queued === null ? `${c.notified} notified` : `${c.notified} notified · ${c.queued} emailed`;
+  return r.counts ? `${r.counts.notified} notified` : "sent";
 }
 
 export const newRequestId = (): string => {

@@ -83,18 +83,45 @@ export function createMailService(stateDir: string, env: Record<string, string |
   /**
    * Send-time re-check (consent may be withdrawn while a message waits in the queue or between retries): league mail
    * needs the same consent, acknowledgement, verified address (unchanged since queueing) and no suppression as at
-   * enqueue; every message needs an unsuppressed address (except a re-verification the coach asked for).
+   * enqueue; every message needs an unsuppressed address (except a re-verification the coach asked for, and only while
+   * no complaint is newer than their re-consent). Fails closed: a league row that does not name its coach and league
+   * (an older journal row) is re-checked by the coach in its key, or dropped.
    */
   function recheck(entry: OutboxEntry): RecheckResult {
     const to = entry.message?.to ?? "";
-    const leagueId = entry.recipient?.leagueId;
-    if (entry.recipient && leagueId) {
-      const contact = resolver.resolve(entry.recipient.coach);
-      if (!contact || !contact.canReceiveLeagueMail(leagueId)) return { ok: false, reason: "noConsent" };
+    const league = isLeagueEntry(entry);
+    if (league) {
+      const target = leagueTarget(entry);
+      if (!target) return { ok: false, reason: "noConsent" };
+      const contact = resolver.resolve(target.coach);
+      if (!contact || !contact.canReceiveLeagueMail(target.leagueId)) return { ok: false, reason: "noConsent" };
       if (!contact.email || !contact.verified || normalizeAddress(contact.email) !== normalizeAddress(to)) return { ok: false, reason: "unverified" };
     }
-    if (!entry.reverify && suppression.isSuppressed(to)) return { ok: false, reason: "suppressed" };
+    const sup = suppression.entry(to);
+    if (sup) {
+      const coach = entry.recipient?.coach;
+      const reverifyOk = !league && entry.reverify === true && coach !== undefined && sup.reason === "complaint" && consentAt(coach) > Date.parse(sup.at);
+      if (!reverifyOk) return { ok: false, reason: "suppressed" };
+    }
     return { ok: true };
+  }
+
+  /** League mail: any row tied to a league or a league message, whatever fields an older journal row carries. */
+  function isLeagueEntry(entry: OutboxEntry): boolean {
+    return Boolean(entry.recipient?.leagueId || entry.leagueId || entry.auditId || entry.template === "league-message" || entry.key.startsWith("league:"));
+  }
+
+  /** The coach and league a league row is for: its recipient, else parsed from its key (league:<league>:<message>:<coach>). */
+  function leagueTarget(entry: OutboxEntry): { coach: string; leagueId: string } | undefined {
+    const leagueId = entry.recipient?.leagueId ?? entry.leagueId;
+    if (!leagueId) return undefined;
+    if (entry.recipient?.coach) return { coach: entry.recipient.coach, leagueId };
+    const prefix = `league:${leagueId}:`;
+    if (!entry.key.startsWith(prefix)) return undefined;
+    const rest = entry.key.slice(prefix.length);
+    const cut = rest.indexOf(":");
+    const coach = cut > 0 ? rest.slice(cut + 1) : "";
+    return coach ? { coach, leagueId } : undefined;
   }
 
   const worker = new MailWorker({
@@ -115,10 +142,16 @@ export function createMailService(stateDir: string, env: Record<string, string |
   /** Keyed short hash of an address for link binding (never the address itself in a URL). */
   const addressTag = (address: string): string => createHmac("sha256", linkSecret).update(`addr\0${normalizeAddress(address)}`).digest("base64url").slice(0, 16);
   const consentGen = (coach: string): number => prefs.get(coach).consentGen ?? 0;
-  /** When league consent was last (re)granted: the identity's consent stamp or the Account page "turn back on". */
+  /**
+   * When league consent was last GRANTED: the identity's consent stamp (only while consent is granted: a withdrawal also
+   * carries a newer stamp and must never count) or the Account page "turn back on" (only while the identity's consent
+   * stands). 0 = no granted consent.
+   */
   function consentAt(coach: string): number {
-    let identityAt = NaN;
-    try { identityAt = identityMailFields(deps.identity(coach)).leagueContactAt; } catch { /* no identity */ }
+    let fields: ReturnType<typeof identityMailFields> | undefined;
+    try { fields = identityMailFields(deps.identity(coach)); } catch { /* no identity */ }
+    if (!fields?.leagueContact) return 0;
+    const identityAt = fields.leagueContactAt;
     const prefsAt = Date.parse(prefs.get(coach).reconsentAt ?? "");
     return Math.max(Number.isFinite(identityAt) ? identityAt : 0, Number.isFinite(prefsAt) ? prefsAt : 0);
   }
@@ -144,8 +177,9 @@ export function createMailService(stateDir: string, env: Record<string, string |
       };
     }
     const { c: coach, h, g, i } = check.payload;
+    // `i` is whole seconds, so consent is compared at the same precision (a link issued in the same second stays valid).
     const current = resolver.resolve(coach)?.email;
-    const stale = !h || !current || addressTag(current) !== h || (g ?? -1) !== consentGen(coach) || typeof i !== "number" || consentAt(coach) > i * 1000;
+    const stale = !h || !current || addressTag(current) !== h || (g ?? -1) !== consentGen(coach) || typeof i !== "number" || Math.floor(consentAt(coach) / 1000) > i;
     if (stale)
       return { ok: false, result: page(410, "Link out of date", "Your email address or your league-email choice changed after this email was sent, so this link no longer works. Use your Account page instead.") };
     return { ok: true, coach, ...(check.payload.l ? { leagueId: check.payload.l } : {}) };
@@ -219,17 +253,18 @@ export function createMailService(stateDir: string, env: Record<string, string |
     address ??= onFile;
     if (!address) return jsonErr(400, "Enter the email address to confirm.");
     if (!emailEnabled()) return jsonErr(503, "Email is not set up on this site yet.");
-    // The rate limit is consumed first, and a suppressed address gets the same 202 (nothing is sent), so this route
-    // cannot be used to probe which addresses bounced or complained.
+    // The rate limit is consumed first, and a suppressed address gets the same 202 and the same pending state on the
+    // Account page (only nothing is sent), so this route cannot be used to probe which addresses bounced or complained.
     if (!takeVerifySlot(auth.coach)) return { ...jsonErr(429, "Too many confirmation emails; wait a few minutes and try again."), headers: { ...NO_STORE, "retry-after": "60" } };
     const accepted: MailRouteResult = { status: 202, json: { sent: true, expiresInHours: VERIFY_TTL_S / 3600 }, headers: NO_STORE };
     const sup = suppression.entry(address);
-    // Re-verification after a complaint is allowed only once the coach has re-consented since the complaint.
+    // Re-verification after a complaint is allowed only once the coach has re-consented since the complaint (checked
+    // again at send time).
     const reverify = sup?.reason === "complaint" && consentAt(auth.coach) > Date.parse(sup.at);
-    if (sup && !reverify) return accepted;
     const nonce = randomBytes(12).toString("base64url");
     const t = now();
     prefs.update(auth.coach, (p) => ({ ...p, pending: { address, nonce, requestedAt: new Date(t).toISOString(), expiresAt: new Date(t + VERIFY_TTL_S * 1000).toISOString() } }));
+    if (sup && !reverify) return accepted;
     const token = signLink(linkSecret, { v: 1, p: "verify", c: mailCoachKey(auth.coach), e: Math.floor(t / 1000) + VERIFY_TTL_S, n: nonce });
     const rendered = renderVerifyEmail({ coach: auth.coach, verifyUrl: absolute(`/api/mail/verify?token=${encodeURIComponent(token)}`) });
     const message: MailMessage = { to: address, subject: rendered.subject, text: rendered.text, html: rendered.html, template: "verify-email", stream: config.stream };

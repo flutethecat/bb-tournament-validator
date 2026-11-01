@@ -1,9 +1,10 @@
 // Postmark HTTP adapter: POST https://api.postmarkapp.com/email with the server token. 10 s timeout per attempt;
 // retries with exponential backoff on 5xx, 429 and network errors / timeouts; never on other 4xx (a 422 is a message
-// problem the same request would hit again). Errors never carry the token, the address or the message text.
+// problem the same request would hit again). The caller's stillEligible check runs before every attempt, retries included.
+// Errors never carry the token, the address or the message text.
 
 import { MAIL_FROM_NAME } from "./config.js";
-import { MailSendError, type MailMessage, type MailSendResult, type MailTransport } from "./transport.js";
+import { MailSendAborted, MailSendError, type MailMessage, type MailSendResult, type MailTransport } from "./transport.js";
 
 export const POSTMARK_EMAIL_URL = "https://api.postmarkapp.com/email";
 /** Postmark ErrorCode for "recipient marked inactive" (hard bounce, complaint or manual suppression). */
@@ -76,9 +77,11 @@ export function createPostmarkTransport(opts: PostmarkOptions): MailTransport {
 
   return {
     name: "postmark",
-    async send(message) {
+    async send(message, options) {
       const body = JSON.stringify(postmarkBody(message, opts));
       for (let i = 0; ; i += 1) {
+        // Eligibility can change during the backoff (a complaint, a withdrawn consent): re-checked before every attempt.
+        if (options?.stillEligible && !options.stillEligible()) throw new MailSendAborted();
         try {
           return await attempt(body);
         } catch (e) {
