@@ -31,13 +31,13 @@ function mockFetcher(routes: Routes): Fetcher & { calls: Array<{ path: string; m
 const INFO = (needed = true, extra: Record<string, unknown> = {}) => ({
   needed, privacyVersion: "2026-10-31",
   prefill: { preferredName: "alice_dc", email: "alice@example.test", emailSource: "discord", country: "US" },
-  leagueContactText: "Organisers of leagues and tournaments I join may contact me by email or phone about fixtures and league business.",
+  leagueContactText: "Organisers of leagues and tournaments I join may message me through Super FUMBBL.",
   ...extra,
 });
 const CONTACT = {
   preferredName: "Alice", email: "alice@example.test", emailSource: "discord", emailVerified: true, country: "US", phones: [{ number: "+15551234567", country: "US" }],
   leagueContact: { granted: true, at: "2026-11-01T10:00:00.000Z", version: "2026-10-31" }, privacy: { acceptedVersion: "2026-10-31", at: "2026-11-01T10:00:00.000Z" },
-  privacyVersion: "2026-10-31", leagueContactText: "Organisers of leagues and tournaments I join may contact me by email or phone about fixtures and league business.",
+  privacyVersion: "2026-10-31", leagueContactText: "Organisers of leagues and tournaments I join may message me through Super FUMBBL.",
 };
 const form = (extra: Partial<OnboardingForm> = {}): OnboardingForm => ({
   preferredName: "Alice", email: "alice@example.test", editingEmail: false, country: "US", phones: [], leagueContact: false, privacyAccepted: true, ...extra,
@@ -211,7 +211,7 @@ describe("views (server-rendered against a mocked API)", () => {
     return (await mods.renderer.renderToString(spa.app)) as string;
   }
   const checkboxes = (html: string) => [...html.matchAll(/<input[^>]*type="checkbox"[^>]*>/g)].map((m) => m[0]);
-  const modalOf = (html: string) => html.slice(html.indexOf('class="tn-modal-backdrop ob-backdrop"'));
+  const modalOf = (html: string) => html.slice(html.indexOf('class="ob-backdrop"'));
 
   it("the modal over the shell on any route: band heading, prefilled fields, unticked boxes, privacy link, Save disabled, Sign out; the shell is inert", async () => {
     for (const path of ["/home", "/tournaments", "/account"]) {
@@ -220,20 +220,27 @@ describe("views (server-rendered against a mocked API)", () => {
       expect(html).toMatch(/<div class="sf-body"[^>]*inert/);
       const m = modalOf(html);
       expect(m).toMatch(/role="dialog" aria-modal="true" aria-labelledby="ob-h"/);
-      expect(m).toContain('<h2 id="ob-h" class="tn-band">Welcome to Super FUMBBL</h2>');
+      expect(m).toContain('<h2 id="ob-h" class="ob-title">Welcome to Super FUMBBL</h2>');
+      // Two cards in the site's panel language; field labels use the muted builder label style, not the heading colour.
+      expect(m).toContain('<h3 id="ob-details-h" class="ob-band">Your details</h3>');
+      expect(m).toContain('<h3 id="ob-choices-h" class="ob-band">Your choices</h3>');
+      expect(m).toContain('<label class="ob-label" for="ob-name">Preferred name</label>');
+      expect(m).toContain('<span class="ob-readonly ob-email-value" aria-labelledby="ob-email-l">alice@example.test</span>');
+      expect(m).toContain("They don&#39;t see your email or phone unless you choose to share it.");
       expect(m).toMatch(/<input id="ob-name"[^>]*value="alice_dc"/);
-      expect(m).toContain('<span class="ob-email-value" aria-labelledby="ob-email-l">alice@example.test</span>');
       expect(m).toContain(">Edit</button>");
       expect(m).toContain("From your Discord account.");
       // Phone is optional and collapsed (owner 10-31): one button, no phone rows until the coach adds one.
       expect(m).toContain(">Add a phone number (optional)</button>");
       expect(m).not.toContain('class="ob-phones"');
-      expect(m).toContain("Organisers of leagues and tournaments I join may contact me");
+      expect(m).toContain("Organisers of leagues and tournaments I join may message me through Super FUMBBL.");
+      expect(m).not.toContain("by email or phone");
       expect(checkboxes(m)).toHaveLength(2);
       expect(checkboxes(m).some((c) => /\schecked/.test(c))).toBe(false);
       expect(m).toContain('<a href="/app/privacy" target="_blank" rel="noopener">Privacy notice</a>');
-      expect(m).toMatch(/<button class="lobby-btn primary" type="submit" disabled[^>]*>Save and continue<\/button>/);
-      expect(m).toMatch(/<button class="lobby-btn" type="button"[^>]*>Sign out<\/button>/);
+      expect(m).toMatch(/<button class="ob-btn primary" type="submit" disabled[^>]*>Save and continue<\/button>/);
+      expect(m).toMatch(/<button class="ob-btn" type="button"[^>]*>Sign out<\/button>/);
+      expect(m).not.toContain("lobby-btn");
       expect(m).not.toContain("tn-modal-x"); // no close button: blocking
     }
   });
@@ -246,13 +253,13 @@ describe("views (server-rendered against a mocked API)", () => {
       o.state.form.phones.push({ number: "555 123 4567", country: "" });
     });
     const m = modalOf(html);
-    expect(m).toMatch(/<button class="lobby-btn primary" type="submit"[^>]*>Save and continue<\/button>/);
+    expect(m).toMatch(/<button class="ob-btn primary" type="submit"[^>]*>Save and continue<\/button>/);
     expect(m).not.toMatch(/type="submit" disabled/);
     expect(m).toMatch(/<input id="ob-email"[^>]*type="email"/);
     expect(m).toContain("We&#39;ll verify this address later.");
-    expect(m).toMatch(/<label for="ob-country">Country<\/label>/);
+    expect(m).toMatch(/<label class="ob-label" for="ob-country">Country<\/label>/);
     expect(m).toContain('<span class="ob-phone-prefix" aria-hidden="true">+1</span>');
-    expect(m).toContain('<label for="ob-phone-country">Number&#39;s country</label>');
+    expect(m).toContain('<label class="ob-label" for="ob-phone-country">Number&#39;s country</label>');
     expect(m).toContain("Same as mine (United States)");
     expect(m).toContain('aria-label="Remove phone number"');
     expect(m).not.toContain(">Type</label>"); // no phone type any more

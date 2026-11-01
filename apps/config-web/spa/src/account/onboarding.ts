@@ -17,6 +17,8 @@ export type { Country, PhoneLabel };
 
 export const PHONE_HINT = "Without the country code, for example 555 123 4567. Start with + for a full international number.";
 export const COUNTRY_REQUIRED = "Choose your country.";
+/** Under the league-contact box: organisers message through the portal; nothing else is shown unless shared. */
+export const LEAGUE_CONTACT_HINT = "They don't see your email or phone unless you choose to share it.";
 
 /** The calling-code prefix shown left of the phone field ("+44"); "" when the number is typed with "+" or no country. */
 export function phonePrefix(row: Pick<PhoneRow, "number" | "country">, profileCountry: string): string {

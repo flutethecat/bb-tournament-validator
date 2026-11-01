@@ -144,7 +144,7 @@ describe("onboarding and contact writers", () => {
     expect(r.profile.preferredName).toBe("Annie");
     expect(r.contact).toEqual({ email: "Ann@Example.test", emailSource: "discord", emailVerified: true, country: "US", phones: [{ number: "+15551234567", country: "US" }] });
     expect(r.consent).toEqual({
-      leagueContact: { granted: true, at: NOW.toISOString(), version: "2026-10-31" },
+      leagueContact: { granted: true, at: NOW.toISOString(), version: "2026-10-31b" },
       privacy: { acceptedVersion: PRIVACY_VERSION, at: NOW.toISOString() },
     });
     expect(onboardingNeeded(r)).toBe(false);
@@ -154,7 +154,7 @@ describe("onboarding and contact writers", () => {
     seed(record("Bo", { identities: { email: "bo@discord.test" } }));
     completeOnboarding("Bo", { ...okBody, email: "bo@home.test" }, NOW);
     expect(stored("Bo").contact).toMatchObject({ email: "bo@home.test", emailSource: "user", emailVerified: false });
-    expect(stored("Bo").consent?.leagueContact).toEqual({ granted: false, at: NOW.toISOString(), version: "2026-10-31" });
+    expect(stored("Bo").consent?.leagueContact).toEqual({ granted: false, at: NOW.toISOString(), version: "2026-10-31b" });
     // A coach with no record gets one.
     completeOnboarding("Fresh", { ...okBody, email: null }, NOW);
     expect(stored("Fresh")).toMatchObject({ ffbCoachId: "Fresh", level: "player", contact: { email: null, emailSource: "discord" } });
@@ -171,7 +171,8 @@ describe("onboarding and contact writers", () => {
     completeOnboarding("Re", { ...noPhones, email: "re@example.test" }, LATER);
     expect(stored("Re").contact?.phones).toEqual([{ number: "+15551234567", label: "home" }]);
     expect(stored("Re").contact?.country).toBe("US");
-    expect(stored("Re").consent?.leagueContact).toEqual({ granted: true, at: NOW.toISOString(), version: "2026-10-31" });
+    // The consent wording changed (2026-10-31b): re-accepting re-stamps the same choice with the new wording version.
+    expect(stored("Re").consent?.leagueContact).toEqual({ granted: true, at: LATER.toISOString(), version: "2026-10-31b" });
     expect(stored("Re").consent?.privacy).toEqual({ acceptedVersion: PRIVACY_VERSION, at: LATER.toISOString() });
     // Sending an empty list does clear them.
     completeOnboarding("Re", { ...okBody, email: "re@example.test", phones: [] }, LATER);
@@ -187,7 +188,7 @@ describe("onboarding and contact writers", () => {
     updateOwnContact("Cy", { leagueContact: false }, LATER);
     expect(stored("Cy").consent?.leagueContact?.at).toBe(NOW.toISOString());
     updateOwnContact("Cy", { leagueContact: true }, LATER);
-    expect(stored("Cy").consent?.leagueContact).toEqual({ granted: true, at: LATER.toISOString(), version: "2026-10-31" });
+    expect(stored("Cy").consent?.leagueContact).toEqual({ granted: true, at: LATER.toISOString(), version: "2026-10-31b" });
     updateOwnContact("Cy", { preferredName: " Cyrus ", email: "cyrus@else.test" }, LATER);
     expect(stored("Cy")).toMatchObject({ profile: { preferredName: "Cyrus" }, contact: { email: "cyrus@else.test", emailSource: "user", emailVerified: false } });
     expect(stored("Cy").contact?.phones).toHaveLength(1); // phones untouched when not sent

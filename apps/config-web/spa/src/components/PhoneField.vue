@@ -14,7 +14,7 @@ const own = computed(() => countryByCode(props.profileCountry));
 <template>
   <div class="ob-phone">
     <div class="ob-field">
-      <label :for="`${idPrefix}-number`">Phone number <span class="muted hm-small">(optional)</span></label>
+      <label class="ob-label" :for="`${idPrefix}-number`">Phone number <span class="ob-opt">(optional)</span></label>
       <div class="ob-phone-input" :data-prefixed="prefix ? 'true' : undefined">
         <span v-if="prefix" class="ob-phone-prefix" aria-hidden="true">{{ prefix }}</span>
         <input
@@ -23,16 +23,16 @@ const own = computed(() => countryByCode(props.profileCountry));
           :aria-describedby="problem ? `${idPrefix}-err` : `${idPrefix}-hint`" @blur="emit('blur')"
         />
       </div>
-      <small v-if="problem" :id="`${idPrefix}-err`" class="lobby-error hm-small">{{ problem }}</small>
-      <small v-else :id="`${idPrefix}-hint`" class="muted hm-small">{{ PHONE_HINT }}</small>
+      <small v-if="problem" :id="`${idPrefix}-err`" class="ob-help lobby-error">{{ problem }}</small>
+      <small v-else :id="`${idPrefix}-hint`" class="ob-help">{{ PHONE_HINT }}</small>
     </div>
     <div class="ob-field ob-phone-country">
-      <label :for="`${idPrefix}-country`">Number's country</label>
+      <label class="ob-label" :for="`${idPrefix}-country`">Number's country</label>
       <select :id="`${idPrefix}-country`" v-model="row.country" :disabled="row.number.trim().startsWith('+')">
         <option value="">{{ own ? `Same as mine (${own.name})` : "Same as mine" }}</option>
         <option v-for="c in COUNTRIES" :key="c.code" :value="c.code">{{ c.name }} (+{{ c.dial }})</option>
       </select>
     </div>
-    <button class="lobby-btn small ob-phone-remove" type="button" aria-label="Remove phone number" @click="emit('remove')">Remove</button>
+    <button class="ob-btn small ob-phone-remove" type="button" aria-label="Remove phone number" @click="emit('remove')">Remove</button>
   </div>
 </template>

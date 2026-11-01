@@ -4,7 +4,7 @@
 import { computed, onMounted, onServerPrefetch, ref } from "vue";
 import "../account/onboarding.css";
 import { dateOf, type ContactEditor } from "../account/contact";
-import { EMAIL_UNVERIFIED_NOTE, PREFERRED_NAME_MAX } from "../account/onboarding";
+import { EMAIL_UNVERIFIED_NOTE, LEAGUE_CONTACT_HINT, PREFERRED_NAME_MAX } from "../account/onboarding";
 import CountryField from "./CountryField.vue";
 import PhoneField from "./PhoneField.vue";
 
@@ -35,39 +35,44 @@ onServerPrefetch(() => props.editor.load());
     <p v-if="!state.loaded && !state.loadFailed" class="hm-empty">Loading…</p>
     <form v-else-if="state.view" class="ob-form" novalidate :aria-busy="state.saving ? 'true' : undefined" @submit.prevent="save">
       <fieldset class="ob-fieldset" :disabled="state.saving">
+        <div class="ob-grid">
         <div class="ob-field">
-          <label for="acc-name">Preferred name</label>
+          <label class="ob-label" for="acc-name">Preferred name</label>
           <input
             id="acc-name" v-model="state.form.preferredName" type="text" autocomplete="nickname" :maxlength="PREFERRED_NAME_MAX"
             :aria-invalid="show('name', problems.preferredName) ? 'true' : undefined" aria-describedby="acc-name-help" @blur="touched.name = true"
           />
-          <small id="acc-name-help" class="hm-small" :class="show('name', problems.preferredName) ? 'lobby-error' : 'muted'">{{ show('name', problems.preferredName) || "What organisers and other coaches call you." }}</small>
+          <small id="acc-name-help" class="ob-help" :class="{ 'lobby-error': show('name', problems.preferredName) }">{{ show('name', problems.preferredName) || "What organisers and other coaches call you." }}</small>
         </div>
         <div class="ob-field">
-          <label for="acc-email">Email</label>
+          <label class="ob-label" for="acc-email">Email</label>
           <input
             id="acc-email" v-model="state.form.email" type="email" autocomplete="email" maxlength="200"
             :aria-invalid="show('email', problems.email) ? 'true' : undefined" aria-describedby="acc-email-help" @blur="touched.email = true"
           />
-          <small id="acc-email-help" class="hm-small" :class="show('email', problems.email) ? 'lobby-error' : 'muted'">{{ show('email', problems.email) || emailNote }}</small>
+          <small id="acc-email-help" class="ob-help" :class="{ 'lobby-error': show('email', problems.email) }">{{ show('email', problems.email) || emailNote }}</small>
         </div>
         <div class="ob-field">
-          <label for="acc-country">Country</label>
+          <label class="ob-label" for="acc-country">Country</label>
           <CountryField
             id="acc-country" v-model="state.form.country" :invalid="Boolean(show('country', problems.country))"
             describedby="acc-country-help" @blur="touched.country = true"
           />
-          <small id="acc-country-help" class="hm-small" :class="show('country', problems.country) ? 'lobby-error' : 'muted'">{{ show('country', problems.country) || "Sets the prefix for a new phone number. A saved number keeps its own." }}</small>
+          <small id="acc-country-help" class="ob-help" :class="{ 'lobby-error': show('country', problems.country) }">{{ show('country', problems.country) || "Sets the prefix for a new phone number. A saved number keeps its own." }}</small>
         </div>
-        <button v-if="!state.form.phones.length" class="lobby-btn small ob-phone-open" type="button" @click="addPhone">Add a phone number (optional)</button>
+        <button v-if="!state.form.phones.length" class="ob-btn small ob-phone-open" type="button" @click="addPhone">Add a phone number (optional)</button>
         <PhoneField
           v-else :row="state.form.phones[0]!" :profile-country="state.form.country" id-prefix="acc-phone"
           :problem="show('phone-0', problems.phones[0] ?? '')" @blur="touched['phone-0'] = true" @remove="editor.removePhone(0)"
         />
-        <label class="ob-check">
-          <input v-model="state.form.leagueContact" type="checkbox" />
-          <span>{{ state.view.leagueContactText }}</span>
-        </label>
+        </div>
+        <div>
+          <label class="ob-check">
+            <input v-model="state.form.leagueContact" type="checkbox" aria-describedby="acc-contact-help" />
+            <span>{{ state.view.leagueContactText }}</span>
+          </label>
+          <p id="acc-contact-help" class="ob-help ob-check-help">{{ LEAGUE_CONTACT_HINT }}</p>
+        </div>
       </fieldset>
 
       <dl class="ac-consent">
@@ -82,7 +87,7 @@ onServerPrefetch(() => props.editor.load());
       </dl>
 
       <div class="hm-actions">
-        <button class="lobby-btn primary small" type="submit" :disabled="state.saving">{{ state.saving ? "Saving…" : "Save contact details" }}</button>
+        <button class="ob-btn primary small" type="submit" :disabled="state.saving">{{ state.saving ? "Saving…" : "Save contact details" }}</button>
         <span v-if="state.notice" class="hm-notice" role="status">{{ state.notice }}</span>
         <span v-else-if="editor.dirty()" class="muted hm-small">Unsaved changes.</span>
       </div>
@@ -90,7 +95,7 @@ onServerPrefetch(() => props.editor.load());
     </form>
     <p v-else class="lobby-error hm-small" role="alert">
       {{ state.error }}
-      <button class="lobby-btn small hm-retry" type="button" @click="editor.load()">Retry</button>
+      <button class="ob-btn small hm-retry" type="button" @click="editor.load()">Retry</button>
     </p>
   </div>
 </template>

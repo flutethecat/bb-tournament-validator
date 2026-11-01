@@ -24,9 +24,10 @@ import { PRIVACY_VERSION } from "../../spa/src/privacy/version.js";
 import { countryByCode, KEEPS_LEADING_ZERO } from "./countries.js";
 export { PRIVACY_VERSION };
 /** The wording version of the league-contact consent. */
-export const LEAGUE_CONTACT_VERSION = "2026-10-31";
-export const LEAGUE_CONTACT_TEXT =
-  "Organisers of leagues and tournaments I join may contact me by email or phone about fixtures and league business.";
+export const LEAGUE_CONTACT_VERSION = "2026-10-31b";
+/** Organisers message through Super FUMBBL (the portal mailer and notifications); they see an address or phone only
+ *  when the coach shares it with that league or tournament (consent.sharing). */
+export const LEAGUE_CONTACT_TEXT = "Organisers of leagues and tournaments I join may message me through Super FUMBBL.";
 
 export const PREFERRED_NAME_MAX = 40;
 export const EMAIL_MAX = 200;

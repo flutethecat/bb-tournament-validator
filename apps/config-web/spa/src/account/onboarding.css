@@ -1,48 +1,117 @@
-/* New-user flow: the "Welcome to Super FUMBBL" modal (OnboardingDialog.vue) and the Account page's Contact & consent
-   section (AccountContact.vue). Builds on tn-modal / tn-panel / tn-band (tournaments.css) and ac-* (account.css);
-   tokens only. */
+/* New-user flow: the "Welcome to Super FUMBBL" dialog (OnboardingDialog.vue) and the Account page's Contact & consent
+   section (AccountContact.vue), in the site's own language (owner 10-31): a bevelled panel like the coach page and the
+   Roster Builder, Silkscreen section bands, the builder's muted field labels and inputs, bevel-and-lift buttons; the
+   display face (SNES Italic) is used for the dialog title only. Self-contained (does not lean on tournaments.css, which
+   is not loaded on every page). Tokens only, so the Light theme follows. */
 
-.ob-backdrop { z-index: 90; }
-.tn-modal.ob-modal { width: min(560px, 100%); }
-.ob-modal .tn-band { font-size: 1.05rem; }
-.ob-intro { margin: 0; }
-.ob-form, .ob-fieldset { display: grid; gap: 14px; }
-.ob-fieldset, .ob-phones { min-width: 0; margin: 0; padding: 0; border: 0; }
-.ob-field { display: grid; gap: 4px; min-width: 0; }
-.ob-field label, .ob-legend { font: 11px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-heading); padding: 0; }
-.ob-field input, .ob-field select {
-  min-height: 44px; padding: 4px 8px; color: var(--ui-text); background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line, var(--ui-border));
-  border-radius: 2px; font: inherit; width: 100%; box-sizing: border-box;
+/* ---- dialog frame */
+.ob-backdrop {
+  position: fixed; inset: 0; z-index: 90; display: flex; align-items: center; justify-content: center; padding: 16px;
+  overflow-y: auto; background: color-mix(in srgb, var(--sf-panel-drop) 72%, transparent);
 }
+@supports (backdrop-filter: blur(3px)) { .ob-backdrop { backdrop-filter: blur(3px); } }
+.ob-modal {
+  width: min(880px, 100%); max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); overflow-y: auto; box-sizing: border-box;
+  margin: auto; padding: 18px 22px 20px; color: var(--ui-text);
+  background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface);
+  border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: 0 4px 0 var(--sf-panel-drop), inset 0 1px 0 var(--sf-panel-hi);
+}
+.ob-modal:focus { outline: none; }
+.ob-head { margin: 0 0 14px; }
+.ob-title { margin: 0 0 4px; font: italic 1.7rem/1.1 var(--sf-wordmark-font); letter-spacing: .02em; color: var(--ui-heading); }
+.ob-intro { margin: 0; color: var(--ui-muted); }
+
+/* ---- sections: cards with a Silkscreen band, like the builder's panels */
+.ob-form { display: grid; gap: 14px; }
+.ob-fieldset { display: grid; gap: 14px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.ob-card {
+  min-width: 0; padding: 0 14px 14px; background: color-mix(in srgb, var(--ui-surface-2) 55%, transparent);
+  border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: inset 0 1px 0 var(--sf-panel-hi);
+}
+.ob-band {
+  margin: 0 -14px 12px; padding: 7px 12px; font: 12px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .14em;
+  color: var(--ui-heading); border-bottom: 2px solid var(--sf-panel-line); border-left: 4px solid var(--ui-heading);
+}
+.ob-grid { display: grid; gap: 12px 18px; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+.ob-grid > .ob-wide { grid-column: 1 / -1; }
+
+/* ---- fields: the Roster Builder / Tournament Creator label and input style */
+.ob-field { display: grid; gap: 4px; min-width: 0; }
+.ob-label { font: 10px/1.6 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); padding: 0; }
+.ob-label .ob-opt { text-transform: none; letter-spacing: 0; font: 12px/1.6 var(--font-body, system-ui, sans-serif); }
+.ob-field input, .ob-field select, .ob-readonly {
+  min-height: 44px; width: 100%; max-width: 100%; box-sizing: border-box; padding: 0 10px; color: var(--ui-text); font: inherit;
+  background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-radius: 2px;
+}
+.ob-field input:focus-visible, .ob-field select:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 1px; border-color: var(--ui-heading); }
 .ob-field input[aria-invalid="true"] { border-color: var(--ui-danger); }
-.ob-email-show { display: flex; align-items: center; gap: 10px; min-height: 44px; flex-wrap: wrap; }
-.ob-email-value { overflow-wrap: anywhere; font-weight: 600; }
-.ob-phones { display: grid; gap: 8px; }
-.ob-hint { margin: 0; }
-.ob-phone { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 200px) auto; gap: 8px; align-items: start; }
+.ob-field input:disabled, .ob-field select:disabled { opacity: .6; }
+.ob-help { margin: 0; font-size: 12px; line-height: 1.4; color: var(--ui-muted); }
+.ob-help.lobby-error { color: var(--ui-danger); }
+/* Email shown as a read-only value in the same field box, with a small Edit button. */
+.ob-email-show { display: flex; align-items: stretch; gap: 8px; min-width: 0; }
+.ob-readonly { display: flex; align-items: center; flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; color: var(--ui-text); border-style: dashed; }
+
+/* ---- the one phone: prefix adornment, national number, number's-country override */
+.ob-phone { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr) auto; align-items: end; min-width: 0; }
+.ob-phone > .ob-field:first-child { grid-column: 1 / -1; }
 .ob-phone-input { display: flex; align-items: stretch; min-width: 0; }
 .ob-phone-input input { flex: 1 1 auto; min-width: 0; }
-.ob-phone-prefix { display: inline-flex; align-items: center; padding: 0 10px; border: 1px solid var(--ui-border); border-right: 0; border-radius: 4px 0 0 4px; background: var(--ui-surface-2, var(--ui-surface)); color: var(--ui-muted); font-variant-numeric: tabular-nums; }
+.ob-phone-prefix {
+  display: inline-flex; align-items: center; padding: 0 10px; font-variant-numeric: tabular-nums; color: var(--ui-text);
+  background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface); border: 2px solid var(--sf-panel-line); border-right: 0; border-radius: 2px 0 0 2px;
+}
 .ob-phone-input[data-prefixed] input { border-top-left-radius: 0; border-bottom-left-radius: 0; }
-.ob-phone-remove { margin-top: 19px; min-height: 44px; }
-.ob-phone-add { justify-self: start; min-height: 40px; }
-.ob-check { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; line-height: 1.4; }
-.ob-check input { width: 20px; height: 20px; flex: none; margin: 1px 0 0; accent-color: var(--ui-primary); }
-.ob-check a { color: var(--ui-link, var(--ui-accent)); }
-.ob-privacy-help { margin-top: -8px; padding-left: 30px; }
-.ob-actions { display: flex; flex-wrap: wrap; gap: 10px; }
-.ob-actions .lobby-btn { min-height: 44px; }
+.ob-phone-open { justify-self: start; align-self: end; }
 
-@media (max-width: 520px) {
-  .ob-phone { grid-template-columns: minmax(0, 1fr); }
-  .ob-phone-remove { grid-column: 1 / -1; justify-self: start; margin-top: 0; }
+/* ---- checkboxes: the builder's (accent in the heading colour), not the browser's default */
+.ob-check { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; line-height: 1.4; }
+.ob-check input { width: 18px; height: 18px; flex: none; margin: 2px 0 0; accent-color: var(--ui-heading); }
+.ob-check a { color: var(--ui-link, var(--ui-accent)); }
+.ob-check-help { margin: 2px 0 10px 28px; }
+.ob-check-help:last-child { margin-bottom: 0; }
+
+/* ---- buttons: band font, bevel and a 3 px lift (the builder's buttons); primary like the Discord button's bevel */
+.ob-btn {
+  display: inline-flex; align-items: center; justify-content: center; min-height: 44px; box-sizing: border-box; margin: 0; padding: 0 16px;
+  font: 12px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; text-decoration: none; text-align: center; white-space: nowrap; cursor: pointer;
+  color: var(--ui-text); background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface-2);
+  border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: inset 0 1px 0 var(--sf-panel-hi), 0 3px 0 var(--sf-panel-drop);
+  transform: translateY(-1px); transition: transform .08s ease, box-shadow .08s ease, filter .08s ease;
+}
+.ob-btn.small { min-height: 36px; padding: 0 10px; font-size: 11px; }
+.ob-btn:hover:not(:disabled) { border-color: var(--ui-heading); transform: translateY(-2px); }
+.ob-btn:active:not(:disabled) { transform: translateY(1px); box-shadow: inset 0 1px 0 var(--sf-panel-hi), 0 1px 0 var(--sf-panel-drop); }
+.ob-btn:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.ob-btn.primary {
+  color: var(--ui-text-on-primary);
+  background: linear-gradient(color-mix(in srgb, var(--ui-primary) 82%, white), var(--ui-primary) 55%, color-mix(in srgb, var(--ui-primary) 80%, black));
+  border-color: color-mix(in srgb, var(--ui-primary) 60%, black); box-shadow: var(--sf-bevel), 0 3px 0 color-mix(in srgb, var(--ui-primary) 45%, black), 0 4px 6px var(--sf-discord-drop);
+}
+.ob-btn.primary:hover:not(:disabled) { filter: brightness(1.06); border-color: color-mix(in srgb, var(--ui-primary) 60%, black); }
+/* Disabled: flat and readable (no lift, muted ink on the panel face), never a dark blob. */
+.ob-btn:disabled, .ob-btn.primary:disabled {
+  cursor: not-allowed; transform: none; filter: none; color: var(--ui-muted);
+  background: var(--ui-surface-2); border: 2px dashed var(--sf-panel-line); box-shadow: none;
+}
+.ob-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.ob-actions .ob-btn.primary { min-width: 220px; }
+.ob-error { margin: 0; }
+
+@media (max-width: 720px) {
+  .ob-modal { padding: 14px 12px 16px; max-height: none; }
+  .ob-backdrop { align-items: flex-start; }
+  .ob-title { font-size: 1.4rem; }
+  .ob-grid { grid-template-columns: minmax(0, 1fr); }
+  .ob-actions .ob-btn { flex: 1 1 100%; }
+  .ob-actions .ob-btn.primary { min-width: 0; }
 }
 
-/* ---- Account page: Contact & consent */
-.ac-contact .ob-field input, .ac-contact .ob-field select { max-width: 420px; }
-.ac-contact .ob-phone { max-width: 640px; }
+/* ---- Account page: Contact & consent (inside an hm-panel; same fields and buttons) */
+.ac-contact .ob-form { gap: 12px; }
+.ac-contact .ob-grid { max-width: 820px; }
 .ac-consent { display: grid; gap: 4px; margin: 0; }
-.ac-consent dt { font: 11px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-heading); }
+.ac-consent dt { font: 10px/1.6 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
 .ac-consent dd { margin: 0 0 6px; }
 
 /* ---- League data sharing: the shell notice (LeagueShareNotice.vue) and the Account list (AccountLeagueSharing.vue) */
@@ -61,4 +130,4 @@
 .ac-share-fields > .lobby-btn { margin-left: auto; }
 .ac-share-fields .ob-check { margin: 0; }
 .ac-share-fields legend.tn-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-.ob-phone-open { justify-self: start; }
+.ob-phone-remove { min-height: 44px; }
