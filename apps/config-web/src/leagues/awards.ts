@@ -13,6 +13,7 @@
  *
  *   GET    /api/leagues/:id/honours                         public: { hallOfFame, pins, awards, revision, icons, recipients? (organisers) }
  *   POST   /api/leagues/:id/awards                          { revision, title, icon, recipient, seasonId?, note? } organisers + admins
+ *          recipient = { kind: "team", seasonId, teamId } | { kind: "coach", coachId } (an account id, never a display name)
  *   DELETE /api/leagues/:id/awards/:awardId                 { revision } (custom awards only)
  *   POST   /api/leagues/:id/hall-of-fame/pins               { revision, kind: champion|award|record, seasonId?, awardId?, text?, note? }
  *   DELETE /api/leagues/:id/hall-of-fame/pins/:pinId        { revision }
@@ -116,7 +117,8 @@ export interface PinView extends HallOfFamePin {
 export interface HonoursRecipients {
   seasons: Array<{ id: string; name: string; number: number }>;
   teams: Array<{ seasonId: string; id: string; name: string; race: string; coach: string }>;
-  coaches: Array<{ name: string; seasonIds: string[] }>;
+  /** Coaches with a fork account only (id = the account): a coach without one is reached through their team. */
+  coaches: Array<{ id: string; name: string; seasonIds: string[] }>;
 }
 
 export interface HonoursView {
@@ -130,9 +132,20 @@ export interface HonoursView {
 const sha = (s: string): string => createHash("sha256").update(s).digest("hex");
 const key = (s: string | undefined): string => (s ?? "").trim().toLowerCase();
 
-/** A season award's id: stable across re-reads and reorders (season + type + name + team + coach). */
-export const seasonAwardId = (seasonId: string, a: Pick<LeagueAward, "type" | "name" | "team" | "coach">): string =>
-  `s-${sha(`${seasonId}\0${a.type}\0${a.name}\0${a.team}\0${a.coach}`).slice(0, 16)}`;
+/**
+ * A season award's id, from fields account deletion never rewrites (coach names are left out, so a Hall of Fame pin
+ * survives anonymisation). Podium places: season + slot type + team (a re-crowned podium with another team is another
+ * award). Imported awards: season + position among the season's non-podium awards + category + type + name + team, so
+ * two otherwise equal rows never share an id.
+ */
+export const seasonAwardId = (seasonId: string, a: Pick<LeagueAward, "category" | "type" | "name" | "team" | "podium">, index: number): string =>
+  `s-${sha(a.podium ? `${seasonId}\0podium\0${a.type}\0${a.team}` : `${seasonId}\0${index}\0${a.category}\0${a.type}\0${a.name}\0${a.team}`).slice(0, 24)}`;
+
+/** The ids of a season's awards, in season.awards order (index = position among the non-podium awards). */
+export function seasonAwardIds(s: Pick<SeasonRecord, "id" | "awards">): string[] {
+  let n = 0;
+  return s.awards.map((a) => seasonAwardId(s.id, a, a.podium ? -1 : n++));
+}
 
 const seasonAt = (s: SeasonRecord): string | undefined => s.podium?.at ?? s.endedAt ?? s.importedAt;
 
@@ -142,9 +155,10 @@ export function awardList(league: Pick<LeagueRecord, "awards">, seasons: readonl
   const out: Array<AwardView & { n: number }> = [];
   for (const s of seasons) {
     const at = seasonAt(s);
-    for (const a of s.awards) {
+    const ids = seasonAwardIds(s);
+    for (const [i, a] of s.awards.entries()) {
       out.push({
-        id: seasonAwardId(s.id, a), source: a.podium ? "podium" : "imported", title: a.type === "Honorary award" ? a.name || a.type : a.type,
+        id: ids[i]!, source: a.podium ? "podium" : "imported", title: a.type === "Honorary award" ? a.name || a.type : a.type,
         icon: seasonAwardIcon(a), ...(a.coach ? { toCoach: a.coach } : {}), ...(a.team ? { toTeam: a.team } : {}), ...(a.race ? { race: a.race } : {}),
         seasonId: s.id, seasonName: s.name, note: a.description ?? "", ...(at ? { at } : {}), star: a.goldenStar === true, n: s.number,
       });
@@ -203,12 +217,12 @@ function resolvePins(pins: readonly HallOfFamePin[], hall: HallSeason[], awards:
 /** Teams and coaches an award may go to (managers only): every season's teams and participants. */
 export function honoursRecipients(seasons: readonly SeasonRecord[]): HonoursRecipients {
   const ordered = [...seasons].sort((a, b) => b.number - a.number);
-  const coaches = new Map<string, { name: string; seasonIds: string[] }>();
+  const coaches = new Map<string, { id: string; name: string; seasonIds: string[] }>();
   const addCoach = (name: string | undefined, account: string | undefined, seasonId: string): void => {
-    const shown = (name ?? "").trim() || (account ?? "").trim();
-    if (!shown) return;
-    const k = key(account) || key(shown);
-    const c = coaches.get(k) ?? { name: shown, seasonIds: [] };
+    const id = (account ?? "").trim();
+    if (!id) return;
+    const k = key(id);
+    const c = coaches.get(k) ?? { id, name: (name ?? "").trim() || id, seasonIds: [] };
     if (!c.seasonIds.includes(seasonId)) c.seasonIds.push(seasonId);
     coaches.set(k, c);
   };
@@ -246,7 +260,7 @@ export function myAwards(store: LeagueStore, coach: string): Array<AwardView & {
   for (const league of store.list()) {
     const seasons = store.seasons(league.id);
     const mine = new Set<string>();
-    for (const s of seasons) for (const a of s.awards) if (key(a.coachId) === me) mine.add(seasonAwardId(s.id, a));
+    for (const s of seasons) { const ids = seasonAwardIds(s); s.awards.forEach((a, i) => { if (key(a.coachId) === me) mine.add(ids[i]!); }); }
     for (const a of league.awards ?? []) if (key(a.toCoachId) === me) mine.add(a.id);
     if (!mine.size) continue;
     for (const a of awardList(league, seasons)) if (mine.has(a.id)) out.push({ ...a, leagueId: league.id, leagueName: league.name });
@@ -275,7 +289,11 @@ const text = (v: unknown, field: string, max: number, required: boolean, label: 
 
 type Recipient = Pick<LeagueCustomAward, "toCoach" | "toCoachId" | "toTeam" | "teamId" | "race">;
 
-/** Validates { kind: "team", seasonId, teamId } | { kind: "coach", coach } against the league's seasons. */
+/**
+ * Validates { kind: "team", seasonId, teamId } | { kind: "coach", coachId } against the league's seasons. A coach is
+ * resolved only by the exact account id on the league's team / participant rows, never by a display name (two coaches
+ * may show the same name).
+ */
 export function parseRecipient(input: unknown, seasons: readonly SeasonRecord[], scope: string | undefined): Recipient {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new HonoursError(400, "Pick who receives the award.", "recipient");
   const r = input as Record<string, unknown>;
@@ -291,13 +309,12 @@ export function parseRecipient(input: unknown, seasons: readonly SeasonRecord[],
     };
   }
   if (r.kind === "coach") {
-    const want = typeof r.coach === "string" ? key(r.coach) : "";
-    if (!want) throw new HonoursError(400, "Pick a coach of this league.", "recipient");
+    const want = typeof r.coachId === "string" ? key(r.coachId) : "";
+    if (!want) throw new HonoursError(400, "Pick a coach of this league (by account).", "recipient");
     for (const s of [...seasons].sort((a, b) => b.number - a.number)) {
       if (scope && s.id !== scope) continue;
       for (const row of [...s.teams, ...s.participants]) {
-        if (key(row.coach) === want || (row.coachId && key(row.coachId) === want))
-          return { toCoach: row.coach || row.coachId!, ...(row.coachId ? { toCoachId: row.coachId } : {}) };
+        if (row.coachId && key(row.coachId) === want) return { toCoach: row.coach || row.coachId, toCoachId: row.coachId };
       }
     }
     throw new HonoursError(400, scope ? "That coach did not play in that season." : "Pick a coach of this league.", "recipient");

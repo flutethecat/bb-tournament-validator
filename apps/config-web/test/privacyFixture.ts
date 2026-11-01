@@ -8,6 +8,7 @@ import { discordAvatarUrl } from "../src/auth/discordSso.js";
 import { coachSaveKey } from "../src/teamBuilderSaves.js";
 import { notificationFileName } from "../src/notifications.js";
 import type { PrivacyDeps } from "../src/privacy/collectors.js";
+import { seasonAwardId } from "../src/leagues/awards.js";
 
 export const ALICE_DISCORD = "900000000000000001";
 export const BOB_DISCORD = "900000000000000002";
@@ -133,6 +134,7 @@ export async function seed(root: string, opts: SeedOptions = {}): Promise<void> 
   });
 
   // leagues
+  const S1_CHAMPION = { category: "Season", type: "Overall Champion", name: "Champion", description: "", coach: "Alice Smith", coachId: "Alice", team: "Green Orcs", race: "Orc", goldenStar: true, podium: true as const };
   const lg = join(d.stateDir, "leagues", "l1");
   w(join(lg, "league.json"), {
     id: "l1", name: "Valley League", owner: opts.aliceOwnsLeague ? "Alice" : "Bob", organisers: ["Bob", "Alice"],
@@ -146,6 +148,8 @@ export async function seed(root: string, opts: SeedOptions = {}): Promise<void> 
     hallOfFame: [
       { id: "p-1", kind: "record", text: "Most TDs in a season: Alice, 31", note: "", by: "Alice", at: "2026-10-05T00:00:00Z" },
       { id: "p-2", kind: "award", awardId: "a-3", note: "", by: "Bob", at: "2026-10-05T00:00:00Z" },
+      // a pin to Alice's podium award: its id must survive her deletion (no coach name in season award ids)
+      { id: "p-3", kind: "award", awardId: seasonAwardId("s1", S1_CHAMPION, -1), note: "", by: "Bob", at: "2026-10-05T00:00:00Z" },
     ],
   });
   w(join(lg, "secrets.json"), { webhookUrl: "https://discord.example.test/api/webhooks/1/secret" });
@@ -169,7 +173,7 @@ export async function seed(root: string, opts: SeedOptions = {}): Promise<void> 
       { category: "c", stat: "td", kind: "player", rows: [{ rank: 1, name: "Grub", team: "Green Orcs", coach: "Alice Smith" }] },
       { category: "c", stat: "wins", kind: "coach", rows: [{ rank: 1, name: "Alice Smith", team: "", coach: "" }, { rank: 2, name: "BobNaf", team: "", coach: "" }] },
     ],
-    awards: [], news: [{ id: "n1", title: "Welcome", body: "Hello all", by: "Alice", at: "" }],
+    awards: [S1_CHAMPION], news: [{ id: "n1", title: "Welcome", body: "Hello all", by: "Alice", at: "" }],
     log: [{ at: "", by: "Bob", kind: "team-coach", text: "Bob assigned Alice Smith to Green Orcs" }],
     podium: { decidedBy: "organiser", proposed: { champion: "green-orcs" }, final: { champion: "green-orcs" }, overridden: true, by: "Alice", at: "" },
   });

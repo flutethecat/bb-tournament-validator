@@ -19,10 +19,12 @@ const busy = computed(() => state.busy === "award");
 const seasonName = (id: string): string => recipients.value.seasons.find((s) => s.id === id)?.name ?? "";
 const teams = computed(() => recipients.value.teams.filter((t) => !draft.seasonId || t.seasonId === draft.seasonId));
 const coaches = computed(() => recipients.value.coaches.filter((c) => !draft.seasonId || c.seasonIds.includes(draft.seasonId)));
+// The account id shows when it differs from the name, so two coaches with one display name stay apart.
+const coachLabel = (c: { id: string; name: string }): string => (c.name.trim().toLowerCase() === c.id.trim().toLowerCase() ? c.name : `${c.name} (${c.id})`);
 const teamKey = (t: { seasonId: string; id: string }): string => `${t.seasonId}/${t.id}`;
 watch(() => draft.seasonId, () => {
   if (draft.team && !teams.value.some((t) => teamKey(t) === draft.team)) draft.team = "";
-  if (draft.coach && !coaches.value.some((c) => c.name === draft.coach)) draft.coach = "";
+  if (draft.coach && !coaches.value.some((c) => c.id === draft.coach)) draft.coach = "";
 });
 const ready = computed(() => Boolean(draft.title.trim() && draft.icon && (draft.kind === "team" ? draft.team : draft.coach)));
 const missing = computed(() => (!draft.title.trim() ? "Enter a title." : draft.kind === "team" && !draft.team ? "Pick a team." : draft.kind === "coach" && !draft.coach ? "Pick a coach." : ""));
@@ -46,7 +48,7 @@ async function submit(): Promise<void> {
   const [seasonId, teamId] = draft.team.split("/");
   const ok = await honours.give({
     title: draft.title.trim(), icon: draft.icon, note: draft.note.trim(), ...(draft.seasonId ? { seasonId: draft.seasonId } : {}),
-    recipient: draft.kind === "team" ? { kind: "team", seasonId: seasonId!, teamId: teamId! } : { kind: "coach", coach: draft.coach },
+    recipient: draft.kind === "team" ? { kind: "team", seasonId: seasonId!, teamId: teamId! } : { kind: "coach", coachId: draft.coach },
   });
   if (ok) emit("close");
 }
@@ -85,12 +87,12 @@ async function submit(): Promise<void> {
       <label v-else class="sf-field"><span class="sf-k">Coach</span>
         <select v-model="draft.coach">
           <option value="" disabled>Pick a coach</option>
-          <option v-for="c in coaches" :key="c.name" :value="c.name">{{ c.name }}</option>
+          <option v-for="c in coaches" :key="c.id" :value="c.id">{{ coachLabel(c) }}</option>
         </select>
       </label>
       <p v-if="(draft.kind === 'team' ? teams : coaches).length === 0" class="aw-help">{{ draft.seasonId ? "No one in this season yet." : "This league has no teams yet." }}</p>
       <label class="sf-field"><span class="sf-k">Note (optional)</span><textarea v-model="draft.note" rows="3" maxlength="280" /></label>
-      <p class="aw-help">The coach is notified, and the award shows on their coach page.</p>
+      <p class="aw-help">The coach is notified, and the award shows on their coach page. Coaches without an account are reached through their team.</p>
       <p v-if="tried && missing" class="sf-error" role="alert">{{ missing }}</p>
       <p v-else-if="error" class="sf-error" role="alert">{{ error }}</p>
     </div>

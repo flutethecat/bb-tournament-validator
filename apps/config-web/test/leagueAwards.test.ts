@@ -78,14 +78,24 @@ describe("pure: award list, Hall of Fame, icons", () => {
     expect(list.find((a) => a.source === "podium" && a.star)?.toTeam).toBe("Orcs");
     expect(list[0]).toMatchObject({ id: "a-x", by: "Jay" });
     expect("seasonId" in list[0]!).toBe(false);
-    // ids of season awards are stable across reads and independent of order
-    const id = seasonAwardId("season-1", imported().awards[0]!);
-    expect(awardList({}, [{ ...imported(), awards: [...imported().awards].reverse() }]).some((a) => a.id === id)).toBe(true);
+    // ids of season awards are stable across reads; podium awards are listed after the imported ones and do not shift them
+    const id = seasonAwardId("season-1", imported().awards[0]!, 0);
+    expect(awardList({}, [imported()]).some((a) => a.id === id)).toBe(true);
+    const withPodium = { ...imported(), awards: [...imported().awards, award("Consolation", "Dwarfs", "Cat", "Dwarf", { podium: true })] };
+    expect(awardList({}, [withPodium]).some((a) => a.id === id)).toBe(true);
     // SPA filters
     expect(awardsFor(list, "league").map((a) => a.id)).toEqual(["a-x"]);
     expect(awardsFor(list, "season-1")).toHaveLength(3);
     expect(teamAwards(list, "season-2", { id: "orcs", name: "Orcs" }).map((a) => a.title)).toEqual(["Overall Champion"]);
     expect(movedOrder(["a", "b", "c"], "c", -1)).toEqual(["a", "c", "b"]);
+    // two imported rows equal but for the category get different ids; a coach rename (anonymisation) keeps the id
+    const twin = season(9, { awards: [award("Honorary award", "Orcs", "Ann", "Orc", { name: "MVP" }), award("Honorary award", "Orcs", "Ann", "Orc", { name: "MVP", category: "Cup" }), award("Honorary award", "Orcs", "Ann", "Orc", { name: "MVP" })] });
+    const twinIds = awardList({}, [twin]).map((a) => a.id);
+    expect(new Set(twinIds).size).toBe(3);
+    const renamed = { ...twin, awards: twin.awards.map((a) => ({ ...a, coach: "Deleted coach #1", coachId: "Deleted coach #1" })) };
+    expect(awardList({}, [renamed]).map((a) => a.id)).toEqual(twinIds);
+    const podiumRenamed = { ...crowned(), awards: crowned().awards.map((a) => ({ ...a, coach: "Deleted coach #1" })) };
+    expect(awardList({}, [podiumRenamed]).map((a) => a.id)).toEqual(awardList({}, [crowned()]).map((a) => a.id));
     expect(movedOrder(["a", "b"], "a", -1)).toEqual(["a", "b"]);
   });
 });
@@ -138,7 +148,7 @@ describe("award and Hall of Fame routes", () => {
     expect((await view(BOB)).recipients).toBeUndefined();
     const r = (await view(JAY)).recipients!;
     expect(r.seasons.map((s) => s.id)).toEqual(["season-3", "season-2", "season-1"]);
-    expect(r.coaches.map((c) => c.name)).toEqual(["Ann", "Bob", "Cat", "Dee"]);
+    expect(r.coaches.map((c) => c.id)).toEqual(["Ann", "Bob", "Dee"]); // accounts only: Cat is reached through the Dwarfs
     expect((await view(ADMIN)).recipients).toBeDefined();
     expect((await call("GET", "/api/leagues/nope/honours")).status).toBe(404);
     expect((await call("POST", "/api/leagues/tabbl/honours", JAY, {})).status).toBe(405);
@@ -163,7 +173,9 @@ describe("award and Hall of Fame routes", () => {
     expect((await call("POST", AW, JAY, give(0, { recipient: { kind: "team", seasonId: "season-3", teamId: "nope" } }))).body).toMatchObject({ field: "recipient" });
     expect((await call("POST", AW, JAY, give(0, { seasonId: "season-1" }))).body).toMatchObject({ field: "recipient" }); // team of another season
     expect((await call("POST", AW, JAY, give(0, { seasonId: "season-9" }))).body).toMatchObject({ field: "seasonId" });
-    expect((await call("POST", AW, JAY, give(0, { recipient: { kind: "coach", coach: "Zed" } }))).status).toBe(400);
+    expect((await call("POST", AW, JAY, give(0, { recipient: { kind: "coach", coachId: "Zed" } }))).status).toBe(400);
+    expect((await call("POST", AW, JAY, give(0, { recipient: { kind: "coach", coach: "Ann" } }))).body).toMatchObject({ field: "recipient" }); // display names are refused
+    expect((await call("POST", AW, JAY, give(0, { recipient: { kind: "coach", coachId: "Cat" } }))).status).toBe(400); // Cat has no account: give it to the team
     expect((await call("POST", AW, JAY, give(0, { note: "n".repeat(281) }))).body).toMatchObject({ field: "note" });
     expect(notes).toEqual([]);
 
@@ -188,14 +200,29 @@ describe("award and Hall of Fame routes", () => {
     expect(store.league("tabbl")!.awards).toHaveLength(1);
     expect(notes).toHaveLength(1);
 
-    // to a coach (league-wide), by an admin; a coach without an account is stored but nobody is notified; never the giver
-    expect((await call("POST", AW, ADMIN, give(1, { recipient: { kind: "coach", coach: "cat" }, icon: "block" }))).status).toBe(201);
-    expect(store.league("tabbl")!.awards![1]).toMatchObject({ toCoach: "Cat", by: "Root" });
-    expect(store.league("tabbl")!.awards![1]!.toCoachId).toBeUndefined();
+    // to a coach by account id (league-wide), by an admin: notified by account
+    expect((await call("POST", AW, ADMIN, give(1, { recipient: { kind: "coach", coachId: "ann" }, icon: "block" }))).status).toBe(201);
+    expect(store.league("tabbl")!.awards![1]).toMatchObject({ toCoach: "Ann", toCoachId: "Ann", by: "Root" });
     expect(store.league("tabbl")!.awards![1]!.seasonId).toBeUndefined();
+    expect(notes.map((n) => n.coach)).toEqual(["Bob", "Ann"]);
+    // a team whose coach has no account: stored, nobody notified
+    expect((await call("POST", AW, JAY, give(2, { recipient: { kind: "team", seasonId: "season-3", teamId: "dwarfs" } }))).status).toBe(201);
+    expect(store.league("tabbl")!.awards![2]).toMatchObject({ toCoach: "Cat", toTeam: "Dwarfs" });
+    expect(store.league("tabbl")!.awards![2]!.toCoachId).toBeUndefined();
+    // never the giver
     store.updateLeague("tabbl", (l) => { l.organisers.push("Dee"); });
-    expect((await call("POST", AW, { coach: "Dee" }, give(2, { recipient: { kind: "coach", coach: "Dee" } }))).status).toBe(201);
-    expect(notes).toHaveLength(1);
+    expect((await call("POST", AW, { coach: "Dee" }, give(3, { recipient: { kind: "coach", coachId: "Dee" } }))).status).toBe(201);
+    expect(notes).toHaveLength(2);
+  });
+
+  it("a coach recipient resolves only by the exact account id, never by another team's display name", async () => {
+    // Season 4 (newest) has a team whose coach SHOWS as "Bob" but is the account "Imp".
+    store.putSeason(season(4, { teams: [team("ravens", "Ravens", "Bob", "Human", "Imp")], participants: [] }));
+    expect((await call("POST", AW, JAY, give(0, { recipient: { kind: "coach", coachId: "Bob" } }))).status).toBe(201);
+    expect(store.league("tabbl")!.awards![0]).toMatchObject({ toCoach: "Bob", toCoachId: "Bob" });
+    expect(notes.map((n) => n.coach)).toEqual(["Bob"]);
+    const r = (await view(JAY)).recipients!;
+    expect(r.coaches.filter((c) => c.name === "Bob").map((c) => c.id).sort()).toEqual(["Bob", "Imp"]);
   });
 
   it("delete award: given awards only; podium and imported awards are protected; pins to it go too", async () => {

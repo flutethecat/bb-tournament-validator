@@ -25,6 +25,7 @@ import { deleteSave } from "../src/teamBuilderSaves.js";
 import { avatarStoreFor } from "../src/teamAvatars.js";
 import { coachAvatarKey } from "../src/coachAvatars.js";
 import { setResultCoachFilter, TournamentResultStore } from "../src/tournamentResults.js";
+import { honoursView } from "../src/leagues/awards.js";
 import { discordAvatarUrl, PendingSsoStore } from "../src/auth/discordSso.js";
 import {
   ALICE_DISCORD, ALICE_EMAIL, BOB_DISCORD, BOB_EMAIL, depsFor, filesContaining, JOSE_NFC, JOSE_NFD, png, seed, SHARE, TEST_MAP_KEY, walkFiles,
@@ -465,6 +466,11 @@ describe("delete", () => {
     expect(lgFile.awards[2]).toMatchObject({ toCoach: "Carol", by: "Bob" });
     expect(lgFile.hallOfFame[0]).toMatchObject({ by: P, text: `Most TDs in a season: ${P}, 31` });
     expect(lgFile.hallOfFame[1]).toMatchObject({ by: "Bob", awardId: "a-3" });
+    // the pin to Alice's podium award still resolves after her deletion, now showing the pseudonym
+    const seasonsNow = [readJ(join(deps.stateDir, "leagues", "l1", "seasons", "s1.json"))];
+    const pinned = honoursView(lgFile, seasonsNow, undefined).pins.find((p) => p.id === "p-3")!;
+    expect(pinned.resolved).toMatchObject({ title: "Overall Champion", team: "Green Orcs", coach: P });
+    expect(seasonsNow[0].awards[0]).toMatchObject({ coach: P, coachId: P });
     // anonymised history (explicit fields; Discord ids dropped; the waiting-room lease dropped, never renamed)
     expect(tf.entrants.e1.coach).toEqual({ coachId: P, ffbCoachId: P, verifiedAt: "2026-10-01T00:00:00Z" });
     expect(tf.entrants.e2.coach.discordUserId).toBe(BOB_DISCORD);

@@ -84,7 +84,8 @@ export interface HallPin {
 export interface HonoursRecipients {
   seasons: Array<{ id: string; name: string; number: number }>;
   teams: Array<{ seasonId: string; id: string; name: string; race: string; coach: string }>;
-  coaches: Array<{ name: string; seasonIds: string[] }>;
+  /** Coaches with an account only (id = the account the server resolves); others are reached through their team. */
+  coaches: Array<{ id: string; name: string; seasonIds: string[] }>;
 }
 
 export interface HonoursView {
@@ -95,7 +96,7 @@ export interface HonoursView {
   recipients?: HonoursRecipients;
 }
 
-export type Recipient = { kind: "team"; seasonId: string; teamId: string } | { kind: "coach"; coach: string };
+export type Recipient = { kind: "team"; seasonId: string; teamId: string } | { kind: "coach"; coachId: string };
 export interface GiveAwardInput { title: string; icon: string; recipient: Recipient; seasonId?: string; note: string }
 export type PinInput = { kind: "champion"; seasonId: string; note: string } | { kind: "award"; awardId: string; note: string } | { kind: "record"; text: string; note: string };
 

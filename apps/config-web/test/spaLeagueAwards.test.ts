@@ -54,7 +54,7 @@ const HONOURS = (): HonoursView => ({
   recipients: {
     seasons: [{ id: "season-2", name: "Season 2", number: 2 }, { id: "season-1", name: "Season 1", number: 1 }],
     teams: [{ seasonId: "season-2", id: "orcs", name: "Orcs", race: "Orc", coach: "Ann" }, { seasonId: "season-1", id: "elves", name: "Elves", race: "Wood Elf", coach: "Bob" }],
-    coaches: [{ name: "Ann", seasonIds: ["season-2"] }, { name: "Bob", seasonIds: ["season-1"] }],
+    coaches: [{ id: "Ann", name: "Ann", seasonIds: ["season-2"] }, { id: "bob-2", name: "Bob", seasonIds: ["season-1"] }],
   },
 });
 const PUBLIC = (): HonoursView => { const { recipients: _r, ...v } = HONOURS(); return v; };
@@ -169,8 +169,8 @@ describe("SPA: league awards and Hall of Fame", () => {
     });
     const hs = mods.honours.createHonours({ api: f });
     await hs.load("tabbl");
-    expect(await hs.give({ title: "Fair play", icon: "star", recipient: { kind: "coach", coach: "Ann" }, note: "" })).toBe(true);
-    expect(posted).toEqual({ title: "Fair play", icon: "star", recipient: { kind: "coach", coach: "Ann" }, note: "", seasonId: null, revision: 3 });
+    expect(await hs.give({ title: "Fair play", icon: "star", recipient: { kind: "coach", coachId: "Ann" }, note: "" })).toBe(true);
+    expect(posted).toEqual({ title: "Fair play", icon: "star", recipient: { kind: "coach", coachId: "Ann" }, note: "", seasonId: null, revision: 3 });
     expect(hs.state.view!.revision).toBe(4);
     expect(hs.state.notice).toBe('Award "Fair play" given.');
     expect(await hs.move("p-2", -1)).toBe(true);
