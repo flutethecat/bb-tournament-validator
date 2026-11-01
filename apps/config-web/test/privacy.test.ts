@@ -122,6 +122,80 @@ describe("anonymiser", () => {
   });
 });
 
+describe("round 3 regressions", () => {
+  it("1: an alias inside another coach's longer name is left alone; NFC and combining marks", () => {
+    const tx = createTextReplacer(["Alice"], P, ["alice smith", "bob"]);
+    expect(tx.text("Alice Smith won; Alice lost")).toBe(`Alice Smith won; ${P} lost`);
+    const jose = createTextReplacer(["Jose"], P);
+    expect(jose.text("Jose\u0301 won")).toBe("Jose\u0301 won"); // decomposed José is not Jose
+    expect(createTextReplacer(["Jos\u00e9"], P).text("Jose\u0301 won")).toBe(`${P} won`); // compared in NFC
+  });
+
+  it("2: an unreadable identities store refuses the plan (no job, nothing deleted)", async () => {
+    await seed(root);
+    const fs = await import("node:fs");
+    const good = fs.readFileSync(join(root, "identities.json"), "utf8");
+    fs.writeFileSync(join(root, "identities.json"), "{ not json");
+    const deps = depsFor(root);
+    await expect(new PrivacyService(deps).deleteCoach("Alice", "Alice", "self")).rejects.toThrow();
+    expect(listJobs(deps.stateDir)).toEqual([]);
+    fs.writeFileSync(join(root, "identities.json"), good);
+    expect(readIdentities().coaches.alice).toBeDefined();
+  });
+
+  it("3: without PRIVACY_MAP_KEY a resumed job runs no step; a failed step halts the job", async () => {
+    await seed(root);
+    const deps = depsFor(root);
+    const failing = { ...deps, disableForkAccount: async () => { throw new Error("connect ECONNREFUSED"); } };
+    await new PrivacyService(failing).deleteCoach("Alice", "Alice", "self");
+    const [jobId] = listJobs(deps.stateDir);
+    const lines = readJournal(deps.stateDir, jobId!);
+    expect(lines.filter((l) => l.type === "step").map((l) => (l as { step: string }).step).at(-1)).toBe("fork-account"); // nothing after it
+    const noKey = new PrivacyService({ ...failing, mapKey: undefined, disableForkAccount: async () => undefined });
+    expect(await noKey.resumeAll()).toEqual([jobId]);
+    expect(readJournal(deps.stateDir, jobId!)).toHaveLength(lines.length); // no step ran
+    expect(readIdentities().coaches.alice).toBeDefined();
+  });
+
+  it("4: the fence folds NFC like the avatar store: a decomposed spelling fences the composed one", async () => {
+    await seed(root);
+    fenceCoachHash(coachKeyHash(JOSE_NFD));
+    expect(() => createSession(JOSE_NFC, Date.now(), "discord")).toThrow(DeletionFenceError);
+    await expect(avatarStoreFor(depsFor(root).coachAvatarsDir).save(JOSE_NFC.toLowerCase(), coachAvatarKey(JOSE_NFC), png(), "png")).rejects.toThrow(DeletionFenceError);
+  });
+
+  it("6: an unreadable deleted-coach map fails the step; the write filters keep the last good map or fail closed", async () => {
+    await seed(root);
+    const deps = depsFor(root);
+    await new PrivacyService(deps).deleteCoach("Alice", "Alice", "self");
+    expect(deletedPseudonymFor(deps.stateDir, TEST_MAP_KEY, "alice")).toBe(P); // read once: the last good copy
+    const fs = await import("node:fs");
+    const mapPath = join(deps.stateDir, "privacy", "deleted-coaches.json");
+    fs.writeFileSync(mapPath, "{ broken");
+    expect(deletedPseudonymFor(deps.stateDir, TEST_MAP_KEY, "alice")).toBe(P); // never an empty map
+    const { recordDeletedCoach } = await import("../src/privacy/state.js");
+    expect(() => recordDeletedCoach(deps.stateDir, TEST_MAP_KEY, ["carol"], "Deleted coach #2")).toThrow();
+    expect(fs.readFileSync(mapPath, "utf8")).toBe("{ broken"); // previous mappings never overwritten
+    const out = await new PrivacyService(deps).deleteCoach("Carol", "Carol", "self");
+    expect(out.pending).toEqual(["deleted-map"]);
+    expect(readIdentities().coaches.carol).toBeDefined();
+  });
+
+  it("7: a fork step pending when the fork config disappears stays pending; a job planned without a fork skips it", async () => {
+    await seed(root);
+    const deps = depsFor(root);
+    await new PrivacyService({ ...deps, disableForkAccount: async () => { throw new Error("connect ECONNREFUSED"); } }).deleteCoach("Alice", "Alice", "self");
+    const [jobId] = listJobs(deps.stateDir);
+    expect(await new PrivacyService(deps).resumeAll()).toEqual([jobId]); // restarted without FORK_DB_HOST: still pending
+    expect(readAudit(deps.stateDir)).toEqual([]);
+    expect(readJournal(deps.stateDir, jobId!).some((l) => l.type === "step" && (l as { step: string; status: string }).step === "fork-account" && (l as { status: string }).status === "skipped")).toBe(false);
+    expect(await new PrivacyService({ ...deps, disableForkAccount: async () => undefined }).resumeAll()).toEqual([]);
+    expect(listJobs(deps.stateDir)).toEqual([]);
+    // a job planned on a host without a fork: the step is skipped
+    expect((await new PrivacyService(deps).deleteCoach("Carol", "Carol", "self")).pending).toEqual([]);
+  });
+});
+
 describe("reserved pseudonym names (P1-5)", () => {
   it("anything reading as 'Deleted coach' is reserved, whatever the case, spacing or Unicode form", () => {
     for (const n of ["Deleted coach #1", "deleted coach", "DELETED  COACH #9", "Deleted​coach", "Ｄｅｌｅｔｅｄ Coach", "deleted-coach", " Deleted_Coach#3"]) expect(isReservedCoachName(n), n).toBe(true);
@@ -283,6 +357,8 @@ describe("delete", () => {
     const naf = readJ(join(deps.stateDir, "naf-games.json")).coaches;
     expect(naf["1001"]).toBeUndefined();
     expect(naf["2002"].games[0].coaches).toEqual(["BobNaf", P]);
+    expect(naf["2002"].games[0].coachIds).toEqual(["2002", null]); // only Alice's slot; Bob keeps his link
+    expect(new NafRecordStore(deps.stateDir).get("2002")!.games[0]!.coachIds).toEqual(["2002", null]);
     expect(readJ(join(deps.stateDir, "replay-moments", "g1.json")).teams.home.coach).toBe(P);
     expect(events).toBeGreaterThanOrEqual(1); // the "coach deleted" event for the derived caches
     expect(season.fixtures[0].fork.teams.home.coach).toBe(P);
@@ -396,7 +472,10 @@ describe("delete", () => {
     fs.rmSync(join(deps.builderSavesDir, "corrupt.json"));
     mkdirSync(join(root, "sessions.json"), { recursive: true }); // the sessions store cannot be written
     const out = await new PrivacyService(deps).deleteCoach("Alice", "Alice", "self");
-    expect(out.pending).toEqual(expect.arrayContaining(["sessions", "final-sweep"]));
+    expect(out.pending).toEqual(["sessions"]); // the first step failed: nothing after it ran
+    expect(readJ(join(deps.libraryDir, "shared.json")).map((t: { teamId: string }) => t.teamId)).toEqual(["t7", "t8"]);
+    fs.rmSync(join(root, "sessions.json"), { recursive: true });
+    expect(await new PrivacyService(deps).resumeAll()).toEqual([]);
     expect(readJ(join(deps.libraryDir, "shared.json")).map((t: { teamId: string }) => t.teamId)).toEqual(["t8"]);
   });
 
@@ -467,7 +546,8 @@ describe("delete", () => {
     rmSync(f);
     mkdirSync(f);
     const out = await new PrivacyService(deps).deleteCoach("Alice", "Alice", "self");
-    expect(out.pending).toEqual(expect.arrayContaining(["notifications", "final-sweep"]));
+    expect(out.pending).toEqual(["notifications"]); // halted there
+    expect(readIdentities().coaches.alice).toBeDefined();
     expect(listJobs(deps.stateDir)).toHaveLength(1);
   });
 
@@ -480,14 +560,14 @@ describe("delete", () => {
     const [jobId] = listJobs(deps.stateDir);
     const journal = readFileSync(join(deps.stateDir, "privacy", "jobs", `${jobId}.jsonl`), "utf8");
     for (const re of [/alice/i, /Ally/, /1001/, new RegExp(ALICE_DISCORD)]) expect(journal).not.toMatch(re);
-    expect(svc.jobs().open).toEqual([{ jobId, pseudonym: P, pending: ["fork-account"], startedAt: expect.any(String) }]);
+    expect(svc.jobs().open).toEqual([{ jobId, pseudonym: P, pending: expect.arrayContaining(["fork-account", "identity"]), startedAt: expect.any(String) }]);
     t += (JOB_RETRY_DAYS - 1) * 86_400_000;
     expect(await svc.resumeAll()).toEqual([jobId]);
     t += 2 * 86_400_000;
     expect(await svc.resumeAll()).toEqual([]);
     expect(listJobs(deps.stateDir)).toEqual([]);
     expect(walkFiles(join(deps.stateDir, "privacy", "keys"))).toEqual([]);
-    expect(svc.jobs()).toEqual({ open: [], failed: [{ jobId, pseudonym: P, pending: ["fork-account"], startedAt: expect.any(String), abandonedAt: expect.any(String) }] });
+    expect(svc.jobs()).toEqual({ open: [], failed: [{ jobId, pseudonym: P, pending: expect.arrayContaining(["fork-account", "identity"]), startedAt: expect.any(String), abandonedAt: expect.any(String) }] });
     expect(readAudit(deps.stateDir)).toEqual([]);
   });
 
@@ -499,7 +579,7 @@ describe("delete", () => {
     const svc = new PrivacyService({ ...deps, disableForkAccount: async (coach) => { calls.push(coach); if (!up) throw new Error("connect ECONNREFUSED"); } });
     const out = await svc.deleteCoach("Alice", "Alice", "self");
     expect(out.pending).toEqual(["fork-account"]);
-    expect(readIdentities().coaches.alice).toBeUndefined(); // the rest of the job went ahead
+    expect(readIdentities().coaches.alice).toBeDefined(); // a failed step halts the job: later steps wait for it
     const [jobId] = listJobs(deps.stateDir);
     expect(readJournal(deps.stateDir, jobId!).filter((l) => l.type === "step" && l.status === "failed").map((l) => (l as { step: string }).step)).toEqual(["fork-account"]);
     expect(await svc.resumeAll()).toEqual([jobId]);

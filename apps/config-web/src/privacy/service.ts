@@ -14,7 +14,7 @@
 import type { ServerResponse } from "node:http";
 import { crc32 } from "../leagues/exportZip.js";
 import { discordAvatarUrl } from "../auth/discordSso.js";
-import { normalizeFfbCoachId, readIdentities } from "../auth/identitiesStore.js";
+import { normalizeFfbCoachId, readIdentitiesStrict } from "../auth/identitiesStore.js";
 import {
   avatarSlotCollision, buildPlan, collectExport, deleteContext, DELETE_STEPS, EXPORT_MAX_BYTES, ownedItems, splitPlan,
   type DeletePlan, type ExportFile, type OwnedItem, type PlanSecrets, type PrivacyDeps, type StoredPlan,
@@ -40,6 +40,7 @@ export interface OpenJob { jobId: string; pseudonym: string; pending: string[]; 
 
 export class PrivacyService {
   private chain: Promise<unknown> = Promise.resolve();
+  private warnedNoKey = false;
 
   constructor(readonly deps: PrivacyDeps, private readonly now: () => number = Date.now) {}
 
@@ -51,7 +52,7 @@ export class PrivacyService {
 
   /** The coach's spelling on the identity record (falls back to the given name). */
   canonicalCoach(coach: string): string {
-    return readIdentities().coaches[normalizeFfbCoachId(coach)]?.ffbCoachId ?? coach.trim();
+    return readIdentitiesStrict().coaches[normalizeFfbCoachId(coach)]?.ffbCoachId ?? coach.trim();
   }
 
   owned(coach: string): OwnedItem[] {
@@ -112,7 +113,17 @@ export class PrivacyService {
   resumeAll(): Promise<string[]> {
     return this.serial(async () => {
       const open: string[] = [];
-      for (const jobId of listJobs(this.deps.stateDir)) {
+      const jobs = listJobs(this.deps.stateDir);
+      if (jobs.length && !this.deps.mapKey) {
+        // Without the map key no step may run (the deleted-coach map could not be written): every journal stays pending.
+        if (!this.warnedNoKey) { console.error("[privacy] PRIVACY_MAP_KEY is not set: open delete jobs stay pending until it is."); this.warnedNoKey = true; }
+        for (const jobId of jobs) {
+          const first = readJournal(this.deps.stateDir, jobId)[0];
+          if (first?.type === "plan") fenceCoachHash((first as unknown as StoredPlan).coachHash);
+        }
+        return jobs;
+      }
+      for (const jobId of jobs) {
         const lines = readJournal(this.deps.stateDir, jobId);
         const first = lines[0];
         if (!first || first.type !== "plan") { removeJournal(this.deps.stateDir, jobId); destroyJobKey(this.deps.stateDir, jobId); continue; }
@@ -161,6 +172,7 @@ export class PrivacyService {
         // error codes / transport messages only (a path could name a file; keep it short and never the coach)
         const e = error as NodeJS.ErrnoException;
         appendJournal(dir, plan.jobId, { type: "step", step: step.id, status: "failed", at: new Date(this.now()).toISOString(), error: (e.code ?? String(e.message ?? e)).slice(0, 120) });
+        break; // a failed step halts the job: later steps never run ahead of it; the retry resumes here
       }
     }
     if (pending.length === 0) {

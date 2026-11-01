@@ -17,7 +17,7 @@ import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, rmSync, rmdirSync, unlinkSync } from "node:fs";
 import { basename, join } from "node:path";
 import { acquireFileWriteLock, atomicWriteTextFile, libraryWriteLockPath } from "@bb/fork-ops";
-import { normalizeFfbCoachId, rawIdentityRecord, readIdentities, removeIdentityRecord, type CoachIdentityRecord } from "../auth/identitiesStore.js";
+import { normalizeFfbCoachId, rawIdentityRecord, readIdentities, readIdentitiesStrict, removeIdentityRecord, type CoachIdentityRecord } from "../auth/identitiesStore.js";
 import { deleteSessionsForCoach, sessionsForCoach } from "../auth/session.js";
 import { coachAvatarId, coachAvatarKey, coachProxyCacheKeys, deleteCoachAvatarData } from "../coachAvatars.js";
 import { avatarStoreFor } from "../teamAvatars.js";
@@ -91,6 +91,8 @@ export interface StoredPlan {
   teamKeys: string[];
   /** Proxy-cache keys of the coach's Discord / admin-set avatar images. */
   proxyKeys: string[];
+  /** The fork account step must run (a fork was configured when the job was planned): never skipped later. */
+  forkRequired?: boolean;
   actor: string;
   at: string;
   sealed: string;
@@ -254,7 +256,7 @@ export function linkedDisplays(deps: PrivacyDeps, keys: ReadonlySet<string>): st
 export function otherCoachKeys(deps: PrivacyDeps, keys: ReadonlySet<string>): Set<string> {
   const out = new Set<string>();
   const add = (v: unknown) => { if (typeof v === "string" && v.trim()) out.add(nameKey(v)); };
-  for (const r of Object.values(readIdentities().coaches)) add(r.ffbCoachId);
+  for (const r of Object.values(readIdentitiesStrict().coaches)) add(r.ffbCoachId);
   for (const p of listFiles(deps.libraryDir, ".json")) for (const t of objs(readJson<unknown>(p))) add(t.coach);
   for (const r of vals(readJson<Obj>(join(deps.stateDir, "tournament-results.json"))?.results)) { if (isObj(r.home)) add(r.home.coach); if (isObj(r.away)) add(r.away.coach); }
   for (const e of vals(readJson<TournamentFile>(tournamentsFile(deps))?.entrants)) if (isObj(e.coach)) add(e.coach.ffbCoachId);
@@ -290,7 +292,7 @@ export function ownedItems(deps: PrivacyDeps, names: ReadonlySet<string>): Owned
 export function avatarSlotCollision(coach: string): boolean {
   const key = normalizeFfbCoachId(coach);
   const slot = coachAvatarId(coach);
-  return Object.values(readIdentities().coaches).some((r) => normalizeFfbCoachId(r.ffbCoachId) !== key && coachAvatarId(r.ffbCoachId) === slot);
+  return Object.values(readIdentitiesStrict().coaches).some((r) => normalizeFfbCoachId(r.ffbCoachId) !== key && coachAvatarId(r.ffbCoachId) === slot);
 }
 
 // ---- the registry -----------------------------------------------------------------------------------------------
@@ -611,7 +613,7 @@ export interface PlanInput {
 }
 
 export function buildPlan(deps: PrivacyDeps, input: PlanInput): DeletePlan {
-  const store = readIdentities();
+  const store = readIdentitiesStrict(); // an unreadable store refuses the plan (never an empty one by mistake)
   const record = store.coaches[normalizeFfbCoachId(input.sessionCoach)];
   const coach = record?.ffbCoachId ?? input.sessionCoach.trim();
   // the identity record's spelling first (free text is matched case-sensitively on it); the session spelling only when it differs
@@ -631,6 +633,7 @@ export function buildPlan(deps: PrivacyDeps, input: PlanInput): DeletePlan {
     ...(nafId ? { nafId } : {}),
     teamKeys: teamKeysFor(deps, names),
     proxyKeys: coachProxyCacheKeys(record, input.discordAvatarUrl),
+    forkRequired: Boolean(deps.disableForkAccount),
     actor: input.actor,
     at: input.now.toISOString(),
   };
@@ -832,7 +835,12 @@ export const DELETE_STEPS: DeleteStep[] = [
   {
     id: "fork-account",
     run: async ({ deps, plan }): Promise<StepStatus> => {
-      if (!deps.disableForkAccount) return "skipped";
+      // Skipped only when no fork existed for this job at plan time; a fork configured then must be reached, so a host that
+      // lost its fork config (or a fork that is down) keeps the step pending.
+      if (!deps.disableForkAccount) {
+        if (plan.forkRequired === false) return "skipped";
+        throw new Error("fork not configured");
+      }
       await deps.disableForkAccount(plan.coach); // throws when unreachable: the step stays pending
       return "done";
     },
@@ -948,7 +956,7 @@ export const DELETE_STEPS: DeleteStep[] = [
           const ids = Array.isArray(g.coachIds) ? (g.coachIds as unknown[]) : [];
           if (!ids.includes(nafId)) continue;
           g.coaches = coaches.map((c, i) => (ids[i] === nafId ? an.pseudonym : c));
-          delete g.coachIds;
+          g.coachIds = ids.map((id) => (id === nafId ? null : id)); // only this coach's slot; the other keeps their link
           changed = true;
         }
       }
@@ -981,7 +989,7 @@ export const DELETE_STEPS: DeleteStep[] = [
     id: "identity",
     run: ({ plan }) => {
       // Last: the earlier steps no longer need the record. The identities write listeners drop the avatar upload too.
-      const record = readIdentities().coaches[normalizeFfbCoachId(plan.coach)];
+      const record = readIdentitiesStrict().coaches[normalizeFfbCoachId(plan.coach)];
       for (const n of plan.coachNames) removeIdentityRecord(n, record?.identities?.discordUserId);
       return "done";
     },
@@ -1007,6 +1015,10 @@ export const deleteContext = (deps: PrivacyDeps, plan: DeletePlan): DeleteCtx =>
   let tx: TextReplacer | undefined;
   return {
     deps, plan, an, names,
-    text: () => (tx ??= createTextReplacer(textAliases([...plan.coachNames, ...plan.displays], otherCoachKeys(deps, names)), plan.pseudonym)),
+    text: () => {
+      if (tx) return tx;
+      const others = otherCoachKeys(deps, names);
+      return (tx = createTextReplacer(textAliases([...plan.coachNames, ...plan.displays], others), plan.pseudonym, [...others]));
+    },
   };
 };

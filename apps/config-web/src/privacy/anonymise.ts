@@ -123,21 +123,38 @@ export interface TextReplacer {
   texts(obj: unknown, names: readonly string[]): boolean;
 }
 
-/** Case-sensitive whole-word replacement of `aliases` (already filtered by textAliases); pseudonyms are left alone. */
-export function createTextReplacer(aliases: readonly string[], pseudonym: string): TextReplacer {
+/**
+ * Case-sensitive whole-word replacement of `aliases` (already filtered by textAliases); pseudonyms are left alone.
+ * `protectedNames` are other coaches' / accounts' names: an occurrence of an alias that is part of one of them at that
+ * position ("Alice" inside another coach's "Alice Smith") is never replaced. Text and names are compared in NFC, and
+ * combining marks count as word characters, so a decomposed "José" never matches an alias "Jose".
+ */
+export function createTextReplacer(aliases: readonly string[], pseudonym: string, protectedNames: readonly string[] = []): TextReplacer {
+  const W = String.raw`\p{L}\p{N}\p{M}_`;
+  const nfc = (x: string): string => x.normalize("NFC");
   // ONE alternation, longest first, applied once: a replacement is never matched again by a shorter alias.
-  const sorted = [...aliases].sort((a, b) => b.length - a.length);
-  const re = sorted.length ? new RegExp(`(?<![\\p{L}\\p{N}_#])(?:${sorted.map(escapeRe).join("|")})(?![\\p{L}\\p{N}_])`, "gu") : undefined;
-  const replaceSegment = (s: string): string => (re ? s.replace(re, pseudonym) : s);
+  const sorted = [...new Set(aliases.map(nfc))].sort((a, b) => b.length - a.length);
+  const re = sorted.length ? new RegExp(`(?<![${W}#])(?:${sorted.map(escapeRe).join("|")})(?![${W}])`, "gu") : undefined;
+  const lowerAliases = sorted.map((a) => a.toLowerCase());
+  const guards = [...new Set(protectedNames.map((p) => nfc(p.trim())).filter((p) => p && lowerAliases.some((a) => p.toLowerCase() !== a && p.toLowerCase().includes(a))))]
+    .sort((a, b) => b.length - a.length);
+  const guardRe = guards.length ? new RegExp(`(?<![${W}])(?:${guards.map(escapeRe).join("|")})(?![${W}])`, "giu") : undefined;
+  const replaceSegment = (seg: string): string => {
+    if (!re) return seg;
+    const spans: Array<[number, number]> = guardRe ? [...seg.matchAll(guardRe)].map((m) => [m.index!, m.index! + m[0].length]) : [];
+    return seg.replace(re, (m: string, offset: number) => (spans.some(([a, b]) => offset >= a && offset + m.length <= b) ? m : pseudonym));
+  };
   const text = (value: unknown): unknown => {
     if (typeof value !== "string" || !re) return value;
+    const input = nfc(value);
     let out = "";
     let last = 0;
-    for (const m of value.matchAll(PSEUDONYM_RE)) {
-      out += replaceSegment(value.slice(last, m.index)) + m[0];
+    for (const m of input.matchAll(PSEUDONYM_RE)) {
+      out += replaceSegment(input.slice(last, m.index)) + m[0];
       last = m.index! + m[0].length;
     }
-    return out + replaceSegment(value.slice(last));
+    out += replaceSegment(input.slice(last));
+    return out === input ? value : out; // untouched text keeps its original form
   };
   return {
     text,

@@ -20,7 +20,7 @@ export interface NafGame {
   variant: string;
   coaches: [string, string];
   /** The NAF coach ids from the Coaches cell's head2head link, in the same order as `coaches`; absent when the page carried no such link. */
-  coachIds?: [string, string];
+  coachIds?: [string | null, string | null];
   races: [string, string];
   score: [number, number];
 }
@@ -178,7 +178,10 @@ function validGame(value: unknown): NafGame | undefined {
   const score = g.score;
   if (!str(g.date) || !/^\d{4}-\d{2}-\d{2}$/.test(g.date) || !str(g.tournament) || !str(g.variant) || !pairOf(g.coaches) || !pairOf(g.races)) return undefined;
   if (!Array.isArray(score) || score.length !== 2 || !score.every((n) => Number.isInteger(n) && n >= 0 && n < 1000)) return undefined;
-  const ids = pairOf(g.coachIds) && isNafId(g.coachIds[0]) && isNafId(g.coachIds[1]) ? (g.coachIds as [string, string]) : undefined;
+  // A slot is null when that coach's account was deleted (src/privacy): the other coach keeps their link.
+  const slot = (v: unknown): boolean => v === null || isNafId(v);
+  const ids = Array.isArray(g.coachIds) && g.coachIds.length === 2 && slot(g.coachIds[0]) && slot(g.coachIds[1]) && (g.coachIds[0] !== null || g.coachIds[1] !== null)
+    ? (g.coachIds as [string | null, string | null]) : undefined;
   return { date: g.date, tournament: g.tournament, variant: g.variant, coaches: g.coaches, ...(ids ? { coachIds: ids } : {}), races: g.races, score: score as [number, number] };
 }
 function validProfile(value: unknown): NafProfile | undefined {
@@ -218,8 +221,8 @@ function filteredCoaches(coaches: Record<string, unknown>): Record<string, unkno
       if (!Array.isArray(game?.coaches) || !Array.isArray(game.coachIds)) return g;
       const swapped = (game.coachIds as unknown[]).map((cid) => (typeof cid === "string" ? nafIdFilter!(cid) : undefined));
       if (!swapped.some(Boolean)) return g;
-      const { coachIds: _drop, ...rest } = game as Record<string, unknown>;
-      return { ...rest, coaches: (game.coaches as unknown[]).map((c, i) => swapped[i] ?? c) };
+      // only the deleted coach's slot goes (null); the other coach keeps their id
+      return { ...game, coaches: (game.coaches as unknown[]).map((c, i) => swapped[i] ?? c), coachIds: (game.coachIds as unknown[]).map((cid, i) => (swapped[i] ? null : cid)) };
     });
     out[id] = { ...(rec as object), games };
   }
@@ -492,7 +495,8 @@ export function nafResultRows(store: NafRecordStore, identities: NafIdentities):
       const at = Date.parse(`${game.date}T12:00:00Z`);
       if (!Number.isFinite(at)) continue;
       const owner = (i: 0 | 1): string | undefined => {
-        const byLink = game.coachIds ? byId.get(game.coachIds[i]) : undefined;
+        const linkId = game.coachIds?.[i];
+        const byLink = linkId ? byId.get(linkId) : undefined;
         if (byLink) return byLink;
         if (!game.coachIds && names[i] === pageName.get(cached.nafId)) return byId.get(cached.nafId);
         return byName.get(names[i]);

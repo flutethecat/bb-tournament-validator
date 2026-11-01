@@ -364,6 +364,38 @@ function normalizedRecord(value: unknown, allowLegacy = false): CoachIdentityRec
   };
 }
 
+/**
+ * Strict read for account deletion planning: a missing store is empty, but an unreadable or unparsable one (or one
+ * without a coaches map) throws, so a plan is never built from an empty store by mistake.
+ */
+export function readIdentitiesStrict(): IdentityStore {
+  let text: string;
+  try { text = readFileSync(identitiesFile(), "utf8"); } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return emptyStore();
+    throw e;
+  }
+  const parsed = JSON.parse(text) as unknown;
+  const coaches = parsed && typeof parsed === "object" ? (parsed as { coaches?: unknown }).coaches : undefined;
+  if (!coaches || typeof coaches !== "object" || Array.isArray(coaches)) throw new Error("identities store has no coaches map.");
+  return parseIdentities(parsed);
+}
+
+function parseIdentities(parsed: unknown): IdentityStore {
+  if (!parsed || typeof parsed !== "object" || !("coaches" in parsed)) return emptyStore();
+  const coaches = (parsed as { coaches?: unknown }).coaches;
+  if (!coaches || typeof coaches !== "object" || Array.isArray(coaches)) return emptyStore();
+  const normalized: Record<string, CoachIdentityRecord> = {};
+  for (const value of Object.values(coaches)) {
+    try {
+      const record = normalizedRecord(value, true);
+      normalized[normalizeFfbCoachId(record.ffbCoachId)] = record;
+    } catch {
+      // A malformed record must not invalidate unrelated coaches.
+    }
+  }
+  return { version: 1, coaches: normalized };
+}
+
 export function readIdentities(): IdentityStore {
   try {
     const parsed = JSON.parse(readFileSync(identitiesFile(), "utf8")) as unknown;

@@ -12,7 +12,10 @@ import { createHash } from "node:crypto";
 
 /** EXACTLY the identity store's key function (normalizeFfbCoachId); test/privacy.test.ts pins the equality. */
 export const coachKey = (name: string): string => name.trim().toLowerCase();
-export const coachKeyHash = (name: string): string => createHash("sha256").update(`coach:${coachKey(name)}`, "utf8").digest("hex");
+/** The fence key: NFC then the identity fold, as the avatar store folds names (coachAvatarId). Broader than coachKey on
+ *  purpose: a decomposed and a composed spelling of one name are fenced together, whichever one a write arrives with. */
+export const fenceKey = (name: string): string => coachKey(name.normalize("NFC"));
+export const coachKeyHash = (name: string): string => createHash("sha256").update(`coach:${fenceKey(name)}`, "utf8").digest("hex");
 
 export class DeletionFenceError extends Error {
   readonly status = 409;

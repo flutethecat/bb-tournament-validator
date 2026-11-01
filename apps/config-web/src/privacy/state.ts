@@ -112,18 +112,34 @@ export function privacyMapKey(env: NodeJS.ProcessEnv = process.env): string | un
 const mapFile = (stateDir: string): string => join(privacyDir(stateDir), "deleted-coaches.json");
 let mapCache: { file: string; stamp: string; entries: Record<string, string> } | undefined;
 
-function readDeletedMap(stateDir: string): Record<string, string> {
+/**
+ * The map. Only a missing file is empty. Any other read or parse error: `strict` (the delete step that writes the map)
+ * throws, so a new entry never overwrites the previous mappings with an empty map; the write filters keep the last
+ * good copy read in this process, and with none they throw (fail closed: the writer refuses rather than stores names).
+ */
+function readDeletedMap(stateDir: string, strict = false): Record<string, string> {
   const file = mapFile(stateDir);
   let stamp = "none";
-  try { const st = statSync(file); stamp = `${st.mtimeMs}:${st.size}`; } catch { /* none */ }
+  try { const st = statSync(file); stamp = `${st.mtimeMs}:${st.size}`; } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") return failedMapRead(file, strict, e);
+  }
   if (mapCache && mapCache.file === file && mapCache.stamp === stamp) return mapCache.entries;
   let entries: Record<string, string> = {};
   try {
-    const raw = JSON.parse(readFileSync(file, "utf8")) as { entries?: Record<string, unknown> };
-    entries = Object.fromEntries(Object.entries(raw.entries ?? {}).filter((e): e is [string, string] => typeof e[1] === "string"));
-  } catch { /* none */ }
+    const raw = JSON.parse(readFileSync(file, "utf8")) as { entries?: unknown };
+    if (!raw || typeof raw !== "object" || (raw.entries !== undefined && (typeof raw.entries !== "object" || raw.entries === null || Array.isArray(raw.entries))))
+      throw new Error("deleted-coach map is malformed");
+    entries = Object.fromEntries(Object.entries((raw.entries ?? {}) as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === "string"));
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") return failedMapRead(file, strict, e);
+  }
   mapCache = { file, stamp, entries };
   return entries;
+}
+
+function failedMapRead(file: string, strict: boolean, error: unknown): Record<string, string> {
+  if (!strict && mapCache && mapCache.file === file) return mapCache.entries; // the last good copy
+  throw error;
 }
 
 export const mapHash = (mapKey: string, kind: "coach" | "naf" | "discord", value: string): string =>
@@ -136,7 +152,7 @@ function writeDeletedMap(stateDir: string, entries: Record<string, string>): voi
 
 /** `coachKeys` are identity-store keys (normalizeFfbCoachId); `nafId` only when verified as the coach's. */
 export function recordDeletedCoach(stateDir: string, mapKey: string, coachKeys: readonly string[], pseudonym: string, nafId?: string): void {
-  const entries = { ...readDeletedMap(stateDir) };
+  const entries = { ...readDeletedMap(stateDir, true) };
   for (const k of coachKeys) entries[mapHash(mapKey, "coach", k)] = pseudonym;
   if (nafId) entries[mapHash(mapKey, "naf", nafId)] = pseudonym;
   writeDeletedMap(stateDir, entries);
@@ -159,13 +175,15 @@ export function deletedPseudonymForNaf(stateDir: string, mapKey: string, nafId: 
 export const RECENT_DELETION_MS = 24 * 60 * 60_000;
 const markerFile = (stateDir: string): string => join(privacyDir(stateDir), "recent-deletions.json");
 
+/** Only a missing file is empty; any other read / parse error throws. */
 function readMarkers(stateDir: string, now: number): Record<string, number> {
-  try {
-    const raw = JSON.parse(readFileSync(markerFile(stateDir), "utf8")) as { markers?: Record<string, unknown> };
-    return Object.fromEntries(Object.entries(raw.markers ?? {}).filter((e): e is [string, number] => typeof e[1] === "number" && e[1] > now));
-  } catch {
-    return {};
+  let text: string;
+  try { text = readFileSync(markerFile(stateDir), "utf8"); } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return {};
+    throw e;
   }
+  const raw = JSON.parse(text) as { markers?: Record<string, unknown> };
+  return Object.fromEntries(Object.entries(raw.markers ?? {}).filter((e): e is [string, number] => typeof e[1] === "number" && e[1] > now));
 }
 
 /** A deleted account's Discord id (as a keyed hash) is refused at sign-in for 24 h (late OAuth callbacks). */
@@ -177,7 +195,11 @@ export function markRecentDeletion(stateDir: string, discordMark: string, now = 
 
 export function isRecentlyDeleted(stateDir: string, mapKey: string | undefined, discordUserId: string, now = Date.now()): boolean {
   if (!mapKey || !discordUserId) return false;
-  return Object.hasOwn(readMarkers(stateDir, now), mapHash(mapKey, "discord", discordUserId.trim()));
+  try {
+    return Object.hasOwn(readMarkers(stateDir, now), mapHash(mapKey, "discord", discordUserId.trim()));
+  } catch {
+    return true; // unreadable markers: fail closed (the sign-in is refused until the file is readable again)
+  }
 }
 
 // ---- audit ------------------------------------------------------------------------------------------------------
