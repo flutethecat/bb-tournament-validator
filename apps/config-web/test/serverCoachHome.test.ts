@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createSession } from "../src/auth/session.js";
+import { LeagueStore } from "../src/leagues/store.js";
 import { ONBOARDED_CONSENT } from "./onboardedFixture.js";
 
 // Coach home routes over HTTP: GET /api/build-log (public, cached 60 s), GET /api/me/deadlines and GET/PUT
@@ -41,6 +42,20 @@ beforeAll(async () => {
     homecoach: { ffbCoachId: "HomeCoach", level: "player", banned: false, silenced: false, note: "", profile: {}, identities: {}, consent: ONBOARDED_CONSENT, updatedAt: "", updatedBy: "" },
   } }), "utf8");
   writeFileSync(join(root, "organizers.json"), JSON.stringify({ organizers: [] }), "utf8");
+  // One league with HomeCoach seated in its active season (GET /api/me/leagues), next to another coach's team.
+  const leagues = new LeagueStore(join(root, "state"));
+  leagues.upsertLeague({ id: "home-league", name: "Home League", fullName: "Home League", slug: "home-league", organisers: [] });
+  const t = (id: string, name: string, coach: string) => ({
+    id, name, race: "Orc", coach, coachId: coach, teamValue: null, treasury: null, rerolls: null, fans: null, assistantCoaches: null,
+    cheerleaders: null, apothecary: false, tier: "", raceLeague: "", players: [], formerPlayers: [],
+  });
+  const side = (team: string) => ({ team, teamId: team.toLowerCase(), coach: "", race: "Orc", score: null, cas: null, conceded: false });
+  leagues.putSeason({
+    id: "season-1", leagueId: "home-league", number: 1, name: "Season 1", sourceSlug: "home-s1", ruleset: "BB2025", status: "active",
+    phases: [], participants: [], honours: [], awards: [], unattributedStats: [], importedAt: "2026-10-30T00:00:00.000Z", source: "manual",
+    teams: [t("mine", "Mine", "HomeCoach"), t("theirs", "Theirs", "AwayCoach")],
+    fixtures: [{ id: "fx1", category: "Season", phase: "Regular", phaseId: "season-regular", group: "", round: 2, table: 1, home: side("Theirs"), away: side("Mine"), suspended: false }],
+  });
   writeFileSync(join(root, "build-log.json"), JSON.stringify([
     { date: "2026-10-29", title: "Older", body: "First entry.", links: [{ label: "Tournaments", href: "/app/tournaments" }, { label: "bad", href: "javascript:alert(1)" }] },
     { date: "2026-10-30", title: "Newer", body: "Second entry.", links: [] },
@@ -83,6 +98,24 @@ describe("coach home HTTP routes", () => {
   it("the me routes need a session", async () => {
     expect((await fetch(`${origin}/api/me/deadlines`)).status).toBe(401);
     expect((await fetch(`${origin}/api/me/scheduling`)).status).toBe(401);
+    expect((await fetch(`${origin}/api/me/leagues`)).status).toBe(401);
+  });
+
+  it("GET /api/me/leagues answers only the coach's own seat, team and next fixture, never cached", async () => {
+    const { token } = createSession("HomeCoach", Date.now(), "discord");
+    const res = await fetch(`${origin}/api/me/leagues`, { headers: bearer(token) });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+    const body = await res.json() as { leagues: Array<{ id: string; teams: Array<{ name: string; next: { opponent: string; round: number; to: string } | null }> }> };
+    expect(body.leagues.map((l) => l.id)).toEqual(["home-league"]);
+    expect(body.leagues[0]!.teams).toHaveLength(1);
+    expect(body.leagues[0]!.teams[0]).toMatchObject({ name: "Mine", next: { opponent: "Theirs", round: 2, to: "/leagues/home-league?tab=fixtures&fixture=fx1" } });
+    expect(JSON.stringify(body)).not.toContain("AwayCoach");
+    // a coach with no seat gets an empty list
+    const other = createSession("Stranger", Date.now(), "discord");
+    const none = await fetch(`${origin}/api/me/leagues`, { headers: bearer(other.token) });
+    expect(none.status).toBe(200);
+    expect(await none.json()).toEqual({ leagues: [] });
   });
 
   it("GET /api/me/deadlines answers the coach's timezone and an empty list with no events", async () => {

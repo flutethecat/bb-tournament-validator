@@ -23,7 +23,7 @@ const ui = inject(SHELL_UI_KEY)!;
 const route = useRoute();
 const open = reactive(readNavOpen());
 
-interface Row { key: string; to: string; label: string; level: number; count?: number; chip?: { label: string; tone: ChipTone }; muted?: boolean; crest?: string; logo?: string; sub?: string }
+interface Row { key: string; to: string; label: string; level: number; count?: number; chip?: { label: string; tone: ChipTone }; muted?: boolean; crest?: string; logo?: string; sub?: string; wrap?: boolean }
 interface NavAction { key: string; label: string; to: string }
 interface Category { id: NavCategoryId; label: string; icon: string; to?: string; rows: Row[]; external?: ExternalLink[]; actions?: NavAction[]; count: number }
 
@@ -45,8 +45,22 @@ const tournamentRows = computed<Row[]>(() => {
   return rows;
 });
 
-// Leagues have no store yet: one muted note under the Leagues header.
-const leagueRows: Row[] = [{ key: "l:none", to: LEAGUES_TO, label: "No active leagues", level: 1, muted: true }];
+// Leagues (spec-main-landing-nav §2): one row per league where the coach holds a seat in an active season, their team
+// under it (crest, name, race, W-D-L record chip), then the next unplayed fixture. Signed out or none: one muted note.
+const leagueRows = computed<Row[]>(() => {
+  const rows: Row[] = [];
+  for (const l of session.signedIn() ? tree.state.leagues : []) {
+    rows.push({ key: `l:${l.id}`, to: l.to, label: l.name, level: 1 });
+    for (const t of l.teams) {
+      rows.push({ key: `l:${t.key}:team`, to: t.to, label: t.name, level: 2, crest: t.crest || undefined, sub: t.race, chip: { label: t.record, tone: "muted" }, wrap: true });
+      rows.push(t.fixture
+        ? { key: `l:${t.key}:fixture`, to: t.fixture.to, label: t.fixture.label, level: 3, wrap: true }
+        : { key: `l:${t.key}:fixture`, to: `${l.to}${l.to.includes("?") ? "&" : "?"}tab=fixtures`, label: "No fixture yet", level: 3, muted: true });
+    }
+  }
+  if (!rows.length) rows.push({ key: "l:none", to: LEAGUES_TO, label: "No active leagues", level: 1, muted: true });
+  return rows;
+});
 const linkRows = (prefix: string, links: { label: string; to: string }[]): Row[] => links.map((l) => ({ key: `${prefix}:${l.to}`, to: l.to, label: l.label, level: 1 }));
 
 // Testing: site admins only, per the latest session read (session.admin() fails closed and the shell re-reads
@@ -59,7 +73,7 @@ const homeBadge = computed(() => !session.signedIn() ? 0 : homeBadgeCount({ unre
 
 const categories = computed<Category[]>(() => [
   // Action buttons under the rows (owner 10-31): Browse Leagues; Build a team (Roster Builder) and Browse Tournaments.
-  { id: "leagues", label: "Leagues", icon: "leagues", to: LEAGUES_TO, rows: leagueRows, actions: [{ key: "a:leagues", label: "Browse Leagues", to: LEAGUES_TO }], count: 0 },
+  { id: "leagues", label: "Leagues", icon: "leagues", to: LEAGUES_TO, rows: leagueRows.value, actions: [{ key: "a:leagues", label: "Browse Leagues", to: LEAGUES_TO }], count: session.signedIn() ? tree.state.leagues.length : 0 },
   { id: "tournaments", label: "Tournaments", icon: "tournaments", to: "/tournaments", rows: tournamentRows.value, actions: [{ key: "a:build", label: "Build a team", to: "/tournament-team-builder" }, { key: "a:tournaments", label: "Browse Tournaments", to: "/tournaments" }], count: tree.state.tournaments.length },
   { id: "leaderboards", label: "Leaderboards", icon: "leaderboards", to: "/leaderboards", rows: [], count: 0 },
   { id: "help", label: "Help", icon: "help", to: "/help", rows: [], count: 0 },
@@ -74,11 +88,12 @@ const activeKey = computed(() => {
   const cats = categories.value;
   const ordered: { key: string; to: string }[] = [
     ...tournamentRows.value.filter((r) => r.key !== "t:none"),
+    ...leagueRows.value.filter((r) => r.key !== "l:none" && !r.muted),
     { key: "home", to: HOME_LINK.to },
     ...cats.filter((c) => c.to).map((c) => ({ key: `c:${c.id}`, to: c.to! })),
     // Pages with no row of their own (the child rows were removed) light their parent category header.
     ...PARENT_ROUTES,
-    ...cats.flatMap((c) => c.rows).filter((r) => !r.key.startsWith("t:") && r.key !== "l:none"),
+    ...cats.flatMap((c) => c.rows).filter((r) => !r.key.startsWith("t:") && !r.key.startsWith("l:")),
   ];
   const to = pickActive(ordered.map((r) => r.to), route.fullPath);
   return to === undefined ? "" : ordered.find((r) => r.to === to)?.key ?? "";
@@ -143,7 +158,7 @@ function onHeadToggle(id: NavCategoryId, e: MouseEvent): void {
           <RouterLink v-slot="{ href, navigate }" :to="r.to" custom>
             <a
               :href="href" class="sf-row" :style="{ '--sf-level': r.level }" :data-level="r.level"
-              :data-active="activeKey === r.key ? 'true' : undefined" :data-muted="r.muted ? 'true' : undefined"
+              :data-active="activeKey === r.key ? 'true' : undefined" :data-muted="r.muted ? 'true' : undefined" :data-wrap="r.wrap ? 'true' : undefined"
               :aria-current="activeKey === r.key ? 'page' : undefined" @click="navigate"
             >
               <img v-if="r.crest && !r.logo" class="sf-crest" :src="r.crest" alt="" loading="lazy" />

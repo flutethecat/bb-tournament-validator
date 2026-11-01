@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // League settings, Registrations: which rosters may register (official / NAF-approved / unofficial), whether
 // registration is open, max registrations and max per race (blank = no limit). No bulk actions
-// here (owner 10-30): mark paid / validated / check in live in a season's Participants tab.
+// here (owner 10-30); the footnote points organisers at the Teams tab's Assign coach account (no Participants tab yet).
 import { computed, inject, reactive, watch } from "vue";
 import { LEAGUE_SETTINGS_KEY } from "../leagues/settings";
 
@@ -74,7 +74,7 @@ function save(): void {
           <small v-if="errors.maxPerRace" class="ls-field-error">{{ errors.maxPerRace }}</small>
         </label>
       </div>
-      <p class="hm-small hm-empty">Mark paid, validate and check in coaches from a season's Participants tab.</p>
+      <p class="hm-small hm-empty">Link each team to its coach's account from the league's Teams tab (open a team, then Assign coach account).</p>
     </section>
     <div class="ls-actions ls-savebar">
       <button class="sf-btn primary" type="submit" :disabled="!valid || state.busy === 'registrations'">Save registrations</button>

@@ -1,7 +1,8 @@
 // Left nav trees (League / Tournament / Coach page) for the signed-in coach. Reads:
 // GET /api/fork/tournaments?coach=me (active, upcoming and the last finished, every format, most recent first),
 // GET /api/tournaments/:id (entrants + fixtures) and GET /api/tabletop/fixtures (the coach's unresolved fixtures),
-// plus the coach-page GET /api/me/deadlines for the Deadlines count. No DOM; rendered by ShellNav.vue.
+// plus the coach-page GET /api/me/deadlines for the Deadlines count and GET /api/me/leagues (the coach's seats in active
+// league seasons). No DOM; rendered by ShellNav.vue.
 
 import { reactive, type InjectionKey } from "vue";
 import type { Fetcher } from "../session";
@@ -33,9 +34,78 @@ export interface TreeTournament {
   fixture: { label: string; to: string } | null;
 }
 
+/** One league team of the coach, as GET /api/me/leagues sends it (src/leagues/myLeagues.ts). */
+export interface MyLeagueTeamView {
+  id: string;
+  name: string;
+  race: string;
+  record: { wins: number; draws: number; losses: number };
+  to: string;
+  next: { id: string; round: number; opponent: string; home: boolean; date?: string; to: string } | null;
+}
+export interface MyLeagueView {
+  id: string;
+  name: string;
+  season: { id: string; number: number; name: string };
+  to: string;
+  teams: MyLeagueTeamView[];
+}
+
+export interface TreeLeagueTeam {
+  key: string;
+  name: string;
+  race: string;
+  crest: string;
+  /** "W-D-L". */
+  record: string;
+  to: string;
+  /** null = no unplayed fixture. */
+  fixture: { label: string; to: string } | null;
+}
+export interface TreeLeague {
+  id: string;
+  name: string;
+  to: string;
+  teams: TreeLeagueTeam[];
+}
+
+const isPath = (v: unknown): v is string => typeof v === "string" && v.startsWith("/") && !v.startsWith("//");
+const count = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0);
+const NBSP = String.fromCharCode(160);
+
+/** Tree rows from GET /api/me/leagues; malformed entries are dropped (links must be app paths). */
+export function treeLeagues(rows: unknown, art: ArtManifests): TreeLeague[] {
+  if (!Array.isArray(rows)) return [];
+  const out: TreeLeague[] = [];
+  for (const raw of rows as MyLeagueView[]) {
+    if (!raw || typeof raw.id !== "string" || typeof raw.name !== "string" || !isPath(raw.to)) continue;
+    const teams: TreeLeagueTeam[] = [];
+    for (const t of Array.isArray(raw.teams) ? raw.teams : []) {
+      if (!t || typeof t.name !== "string" || !isPath(t.to)) continue;
+      const race = typeof t.race === "string" ? t.race : "";
+      const r = t.record ?? { wins: 0, draws: 0, losses: 0 };
+      const n = t.next && isPath(t.next.to) ? t.next : null;
+      teams.push({
+        key: `${raw.id}:${typeof t.id === "string" ? t.id : t.name}`,
+        name: t.name,
+        race,
+        crest: resolveCrest(art, race),
+        record: `${count(r.wins)}-${count(r.draws)}-${count(r.losses)}`,
+        to: t.to,
+        // A no-break space keeps "Round N" together when the row wraps.
+        fixture: n ? { label: `${n.opponent ? `vs ${n.opponent}` : "Bye"} · Round${NBSP}${count(n.round)}`, to: n.to } : null,
+      });
+    }
+    out.push({ id: raw.id, name: raw.name, to: raw.to, teams });
+  }
+  return out;
+}
+
 export interface CoachTreeState {
   coach: string;
   tournaments: TreeTournament[];
+  /** The coach's leagues (a seat in an active season), from GET /api/me/leagues. */
+  leagues: TreeLeague[];
   deadlines: DeadlineView[];
   timezone: string;
   loading: boolean;
@@ -129,7 +199,7 @@ export function treeTournament(
 
 export function createCoachTree(deps: { api: Fetcher; now?: () => number }) {
   const clock = deps.now ?? Date.now;
-  const state = reactive<CoachTreeState>({ coach: "", tournaments: [], deadlines: [], timezone: "", loading: false, loaded: false });
+  const state = reactive<CoachTreeState>({ coach: "", tournaments: [], leagues: [], deadlines: [], timezone: "", loading: false, loaded: false });
   let gen = 0;
   let art: ArtManifests | undefined;
   let inflight: Promise<void> | undefined;
@@ -147,7 +217,7 @@ export function createCoachTree(deps: { api: Fetcher; now?: () => number }) {
   async function load(coach: string, force = false): Promise<void> {
     if (!coach) {
       gen++;
-      Object.assign(state, { coach: "", tournaments: [], deadlines: [], timezone: "", loading: false, loaded: false });
+      Object.assign(state, { coach: "", tournaments: [], leagues: [], deadlines: [], timezone: "", loading: false, loaded: false });
       return;
     }
     if (!force && state.coach === coach && state.loading && inflight) return inflight;
@@ -161,13 +231,14 @@ export function createCoachTree(deps: { api: Fetcher; now?: () => number }) {
     state.coach = coach;
     state.loading = true;
     const settle = async <T>(p: Promise<T>, fallback: T): Promise<T> => { try { return await p; } catch { return fallback; } };
-    const [active, upcoming, finished, tabletop, deadlines, crests] = await Promise.all([
+    const [active, upcoming, finished, tabletop, deadlines, crests, leagues] = await Promise.all([
       settle(mineIn("", MAX_TREE_TOURNAMENTS), [] as TournamentSummary[]),
       settle(mineIn("status=draft&", MAX_TREE_TOURNAMENTS), [] as TournamentSummary[]),
       settle(mineIn("status=completed&", MAX_FINISHED_TOURNAMENTS), [] as TournamentSummary[]),
       settle(deps.api<{ fixtures?: TabletopFixtureRow[] }>("/api/tabletop/fixtures").then((r) => (Array.isArray(r?.fixtures) ? r.fixtures : [])), [] as TabletopFixtureRow[]),
       settle(deps.api<{ timezone?: string; deadlines?: DeadlineView[] }>("/api/me/deadlines"), {} as { timezone?: string; deadlines?: DeadlineView[] }),
       art ? Promise.resolve(art.crests) : settle(deps.api<ArtManifests["crests"]>("/crests/manifest.json"), undefined),
+      settle(deps.api<{ leagues?: unknown }>("/api/me/leagues").then((r) => r?.leagues), [] as unknown),
     ]);
     art = { crests };
     const seen = new Set<string>();
@@ -180,6 +251,7 @@ export function createCoachTree(deps: { api: Fetcher; now?: () => number }) {
     const details = await Promise.all(entered.map((t) => settle(deps.api<TournamentDetailResponse>(`/api/tournaments/${enc(t.id)}`), undefined)));
     if (mine !== gen) return;
     state.tournaments = entered.map((t, i) => treeTournament(t, details[i], coach, tabletop, art!));
+    state.leagues = treeLeagues(leagues, art);
     state.deadlines = Array.isArray(deadlines.deadlines) ? deadlines.deadlines : [];
     state.timezone = typeof deadlines.timezone === "string" ? deadlines.timezone : "";
     state.loading = false;

@@ -44,7 +44,7 @@ const signIn = computed(() => discordLoginUrl(appPath(`/tournaments/${t.value.id
     </div>
     <div class="tn-front-body">
       <p class="tn-front-chips">
-        <RouterLink v-if="t.seriesId" class="sf-chip tn-chip-link" data-tone="info" :to="`/series/${encodeURIComponent(t.seriesId)}`">Series</RouterLink>
+        <span v-if="t.seriesId" class="sf-chip" data-tone="info" data-series="true">Series</span>
         <span class="sf-chip" :data-tone="STATUS_TONE[t.status] ?? 'muted'" :data-status="t.status">{{ STATUS_LABEL[t.status] ?? t.status }}</span>
         <span v-if="t.nafSanctioned" class="sf-chip" data-tone="info" data-naf="sanctioned">NAF sanctioned</span>
       </p>

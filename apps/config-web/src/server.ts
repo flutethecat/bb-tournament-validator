@@ -327,6 +327,7 @@ import { settleNafOwedEntries, tournamentApi } from "./tournaments/api.js";
 import { tournamentBannerApi, tournamentBannerPath } from "./tournaments/page.js";
 import { leagueApi, leaguePath } from "./leagues/api.js";
 import { LeagueStore } from "./leagues/store.js";
+import { myLeagues } from "./leagues/myLeagues.js";
 import { createLeagueForkClient } from "./leagues/forkClient.js";
 import { syncLeagueForkResults } from "./leagues/forkPlay.js";
 import { registerLeagueEvents } from "./leagues/events.js";
@@ -2556,6 +2557,15 @@ async function handleApi(
       now: new Date(),
     });
     return sendJson(res, 200, { timezone, deadlines });
+  }
+
+  // Sidebar Leagues section: the coach's own seats in active league seasons (team, record, next fixture). Own data only.
+  if (path === "/api/me/leagues" && method === "GET") {
+    if (!auth) return sendJson(res, 401, { error: "Authentication required." });
+    let leagues: ReturnType<typeof myLeagues> = [];
+    try { leagues = myLeagues(leagueStore, auth.coach); } catch { /* league store unreadable: none */ }
+    res.setHeader("cache-control", "private, no-store");
+    return sendJson(res, 200, { leagues });
   }
 
   if (path === "/api/me/scheduling" && (method === "GET" || method === "PUT")) {
