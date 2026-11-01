@@ -819,30 +819,38 @@ describe("Super FUMBBL fixture routes", () => {
 
   // ---- review regressions (Sol 6.1 round 2) ----
 
-  it("R2-2: GET jnlp runs the same roster check and launch recording: a stale team is rebuilt first", async () => {
+  it("GET jnlp is read-only (Sol 11-01 P2): before POST launch it answers 409 and rebuilds, withdraws and records nothing", async () => {
+    await call("POST", `${base}/fork/generate`, ANN, {});
+    const s = store.season("tabbl", "season-7")!;
+    s.teams[0]!.players[0]!.availableSpp = 30; // stale roster: only POST launch may rebuild it
+    store.putSeason(s);
+    fork.next = { kind: "scheduled", gameId: "g44" };
+    const before = JSON.stringify(fixture().fork);
+    const j = await call("GET", `${base}/fork/jnlp`, ANN); // e.g. an <img> or a link on a same-site page
+    expect(j.status).toBe(409);
+    expect(fork.deletes).toEqual([]);
+    expect(fork.launches).toHaveLength(0);
+    expect(JSON.stringify(fixture().fork)).toBe(before);
+    expect(fixture().fork!.launched).toBeUndefined();
+  });
+
+  it("POST launch rebuilds a stale team and records the launch; the GET then serves the rebuilt game's file and writes nothing", async () => {
     await call("POST", `${base}/fork/generate`, ANN, {});
     const s = store.season("tabbl", "season-7")!;
     s.teams[0]!.players[0]!.availableSpp = 30;
     store.putSeason(s);
     fork.next = { kind: "scheduled", gameId: "g44" };
+    const launch = await call("POST", `${base}/fork/launch`, ANN, {});
+    expect(launch.status).toBe(200);
+    expect(fork.deletes).toEqual(["g42"]);
+    const after = JSON.stringify(fixture().fork);
+    expect(fixture().fork).toMatchObject({ gameId: "g44", launched: { home: expect.any(String) } });
     const j = await call("GET", `${base}/fork/jnlp`, ANN);
     expect(j.status).toBe(200);
-    expect(fork.deletes).toEqual(["g42"]);
     expect(j.download!.bytes.toString()).toContain('game="g44"');
-    expect(fixture().fork).toMatchObject({ gameId: "g44", launched: { home: expect.any(String) } });
-  });
-
-  it("R2-2: GET jnlp on a stale roster whose old game cannot be withdrawn answers 409 and records nothing", async () => {
-    await call("POST", `${base}/fork/generate`, ANN, {});
-    const s = store.season("tabbl", "season-7")!;
-    s.teams[0]!.players[0]!.availableSpp = 30;
-    store.putSeason(s);
-    fork.deleteOk = false;
-    const j = await call("GET", `${base}/fork/jnlp`, ANN);
-    expect(j.status).toBe(409);
-    expect(fork.launches).toHaveLength(0);
-    expect(fixture().fork).toMatchObject({ status: "scheduled", gameId: "g42" });
-    expect(fixture().fork!.launched).toBeUndefined();
+    expect(JSON.stringify(fixture().fork)).toBe(after);
+    // The other seat has not pressed Start Game: no file for it yet.
+    expect((await call("GET", `${base}/fork/jnlp`, BOB)).status).toBe(409);
   });
 
   it("R2-5: a team record without a fingerprint counts as stale: rebuilt through a confirmed withdrawal", async () => {

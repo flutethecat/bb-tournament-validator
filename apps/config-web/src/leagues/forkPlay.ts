@@ -7,7 +7,7 @@
  *        fork teams from the league rosters (once per fixture), schedule the fork game (once), invite the opponent and tell
  *        the organisers and admins. Idempotent: a second click re-uses the teams and the game.
  *   POST .../fork/launch       the seated coach: records the launch and answers { jnlpUrl }
- *   GET  .../fork/jnlp         the seated coach only (403 otherwise): their seat's launch file (their own credential)
+ *   GET  .../fork/jnlp         read-only: the seated coach's launch file once POST launch recorded it (403 otherwise)
  *   POST .../fork/reset        organisers: { reason } clears a failed game (teams kept) so it can be generated again; logged
  *   POST .../fork/sync         organisers: look for the result now (the server also checks on a timer)
  *
@@ -471,20 +471,22 @@ async function launch(deps: ForkRouteDeps, client: LeagueForkClient, leagueId: s
 }
 
 /**
- * The launch file itself: the same fixture lock, seat and roster-freshness preparation as POST launch (a stale team is
- * rebuilt first, or 409 when its old game cannot be withdrawn), and the launch is recorded once the file is made.
+ * The launch file itself: READ-ONLY (Sol 6.1 P2, 11-01). A cookie GET can be fired by an <img> or a link, so every side
+ * effect (the roster check and rebuild, the launch record that locks the rosters) lives in POST .../fork/launch, which
+ * the fixture page calls before it opens this download. The file is served only to a seated coach whose launch was
+ * recorded; before that it answers 409, so a GET never hands out a file for a game the launch would rebuild.
  */
 async function launchFileRoute(deps: ForkRouteDeps, client: LeagueForkClient, leagueId: string, seasonId: string, fixtureId: string, who: LeagueApiIdentity): Promise<LeagueApiResult> {
-  const ready = await prepareLaunch(deps, client, leagueId, seasonId, fixtureId, who);
-  if ("status" in ready) return ready;
   const at = locate(deps.store, leagueId, seasonId, fixtureId);
   if (isResult(at)) return at;
-  const fork = at.fixture.fork;
-  const team = fork?.teams[ready.side];
-  if (!fork?.gameId || !team) return fail(409, "Generate the fixture on Super FUMBBL first.");
+  const seat = seatedLive(at, who);
+  if ("status" in seat) return seat;
+  const fork = seat.fork;
+  const team = fork.teams[seat.side];
+  if (!fork.gameId || !team) return fail(409, "Generate the fixture on Super FUMBBL first.");
+  if (!fork.launched?.[seat.side]) return fail(409, "Press Start Game on the fixture page to get your launch file.");
   try {
     const jnlp = await client.launchFile({ coach: team.coach, teamId: team.forkTeamId, gameName: fork.gameName ?? `league-${fixtureId}`, gameId: fork.gameId });
-    recordLaunch(deps, leagueId, seasonId, fixtureId, ready.side);
     const safe = (s: string): string => s.replace(/[^\w.-]+/g, "_").slice(0, 60) || "game";
     return { status: 200, download: { bytes: Buffer.from(jnlp, "utf8"), contentType: "application/x-java-jnlp-file; charset=utf-8", filename: `league_${safe(fixtureId)}_${safe(team.coach)}.jnlp` }, headers: { ...NO_STORE } };
   } catch (e) {
