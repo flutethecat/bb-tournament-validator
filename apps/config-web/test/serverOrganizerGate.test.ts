@@ -36,6 +36,7 @@ beforeAll(async () => {
   mkdirSync(join(root, "tournaments"), { recursive: true });
   const tournaments = new TournamentStore(join(root, "tournaments"));
   const cup = tournaments.createTournament({ name: "Gate Cup", packageName: "p", maxPlayers: 8, format: "swiss", organizerCoachId: "OrganizerCoach" });
+  tournaments.addOrganizer(cup.id, "PlainOwner"); // a registered PLAYER listed as a tournament organiser (no global organiser level)
   tournaments.registerEntrant(cup.id, { coachId: "TargetCoach", ffbCoachId: "TargetCoach", verifiedAt: "2026-10-31T00:00:00.000Z" }, "team-t");
   // Trip reloadFork's busy guard so this test never kills or spawns the fork process.
   writeFileSync(join(root, "log", "default.log"), "");
@@ -55,6 +56,7 @@ beforeAll(async () => {
       },
       // Onboarded (the new-user gate answers 428 to /api/account writes otherwise).
       leagueonlycoach: { ffbCoachId: "LeagueOnlyCoach", level: "organizer", banned: false, silenced: false, note: "", profile: {}, identities: {}, consent: ONBOARDED_CONSENT, updatedAt: "", updatedBy: "" },
+      plainowner: { ffbCoachId: "PlainOwner", level: "player", banned: false, silenced: false, note: "", profile: {}, identities: {}, consent: ONBOARDED_CONSENT, updatedAt: "", updatedBy: "" },
       plaincoach: { ffbCoachId: "PlainCoach", level: "player", banned: false, silenced: false, note: "", profile: {}, identities: {}, consent: ONBOARDED_CONSENT, updatedAt: "", updatedBy: "" },
       admincoach: {
         ffbCoachId: "AdminCoach",
@@ -291,7 +293,35 @@ describe("NAF identity HTTP gates", () => {
       body: JSON.stringify({ ffbCoachId: "TargetCoach", nafName: "Blocked" }),
     });
     expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({ error: "Organizer access required." });
+    expect(await response.json()).toEqual({ error: "That coach is not entered in a tournament you organise." });
+  });
+
+  it("a tournament organiser who is NOT a global organiser can set their entrant's NAF details (tournament role is enough)", async () => {
+    const res = await fetch(`${origin}/api/admin/identities/naf`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${createSession("PlainOwner").token}`, "content-type": "application/json" },
+      body: JSON.stringify({ ffbCoachId: "TargetCoach", nafName: "Plain Owner NAF", nafId: "777" }),
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()).coach).toEqual({ ffbCoachId: "TargetCoach", identities: { nafName: "Plain Owner NAF", nafId: "777" } });
+    expect(JSON.parse(readFileSync(join(root, "identities.json"), "utf8")).coaches.targetcoach.updatedBy).toBe("PlainOwner");
+    // ...but not a coach who is not in their tournament.
+    const other = await fetch(`${origin}/api/admin/identities/naf`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${createSession("PlainOwner").token}`, "content-type": "application/json" },
+      body: JSON.stringify({ ffbCoachId: "PlainCoach", nafName: "Nope" }),
+    });
+    expect(other.status).toBe(403);
+  });
+
+  it("a global organiser who is not on the coach's tournament still gets 403 and nothing is written", async () => {
+    const res = await fetch(`${origin}/api/admin/identities/naf`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${createSession("LeagueOnlyCoach").token}`, "content-type": "application/json" },
+      body: JSON.stringify({ ffbCoachId: "TargetCoach", nafName: "Global org edit" }),
+    });
+    expect(res.status).toBe(403);
+    expect(JSON.parse(readFileSync(join(root, "identities.json"), "utf8")).coaches.targetcoach.identities.nafName).not.toBe("Global org edit");
   });
 
   it("rejects SSO-owned identities through PATCH /api/account", async () => {

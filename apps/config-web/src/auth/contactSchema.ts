@@ -72,9 +72,9 @@ export interface CoachConsent {
 }
 
 /** The league data-sharing notice (owner 10-31) and its wording version. `{league}` is the league's name. */
-export const LEAGUE_SHARE_VERSION = "2026-10-31";
+export const LEAGUE_SHARE_VERSION = "2026-10-31b";
 export const LEAGUE_SHARE_TEXT =
-  "By joining {league}, its organisers can see your name and profile, and can send you league messages through Super FUMBBL (your email address is never shown to them).";
+  "You are joining {league}. Its organisers can see your coach name and your teams.";
 export const leagueShareText = (league: string): string => LEAGUE_SHARE_TEXT.replace("{league}", league);
 const LEAGUE_KEY = /^[a-z0-9-]{1,80}$/;
 const MAX_LEAGUE_ACKS = 200;

@@ -1423,6 +1423,8 @@ const WRITE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 function isOrganizerWrite(method: string, pathname: string): boolean {
   if (!WRITE_METHODS.has(method)) return false;
+  // The NAF route answers its own gate: a tournament owner/organiser needs no global organiser level (owner 10-31).
+  if (pathname === "/api/admin/identities/naf") return false;
   return (
     pathname === "/api/packages" ||
     pathname === "/api/packages/preview" || // organiser-only: resolves an unsaved package (Summary tab)
@@ -1446,6 +1448,7 @@ function isStateChangingApiWrite(method: string, pathname: string): boolean {
   if (!pathname.startsWith("/api/") || !WRITE_METHODS.has(method)) return false;
   return (
     isOrganizerWrite(method, pathname) ||
+    pathname === "/api/admin/identities/naf" || // CSRF guard still applies to this write
     pathname === "/api/auth/login" ||
     pathname === "/api/auth/logout" ||
     pathname === "/api/fork/library/ingest" ||
@@ -2274,11 +2277,9 @@ async function handleApi(
   }
 
   if (path === "/api/admin/identities/naf" && method === "POST") {
-    if (auth?.organizer !== true && !isAdminAuthed(req) && !isTokenAuthed(req)) {
-      return sendJson(res, auth ? 403 : 401, {
-        error: auth ? "Organizer access required." : "Authentication required.",
-      });
-    }
+    // Any signed-in coach reaches the checks below: a tournament role (owner or listed organiser) is enough, no global
+    // organiser level needed. Only a site admin, the coach themself, or an organiser of the target's tournament passes.
+    if (!auth && !isAdminAuthed(req) && !isTokenAuthed(req)) return sendJson(res, 401, { error: "Authentication required." });
     const rawBody = await readBody(req);
     if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody))
       return sendJson(res, 400, { error: "A JSON object is required." });
@@ -2289,8 +2290,9 @@ async function handleApi(
     // organiser) may set NAF details only for an active entrant of a tournament they run, and gets the NAF allow-list
     // back (publicIdentityRecord: coach name, NAF name, NAF number, NAF check). League organisers have no power here.
     const siteAdmin = auth?.admin === true || isAdminAuthed(req) || isTokenAuthed(req);
-    const self = auth !== undefined && normalizeFfbCoachId(auth.coach) === normalizeFfbCoachId(ffbCoachId);
-    let full = siteAdmin || self;
+    // Self stays a global-organiser power (as before): a plain coach cannot edit their own NAF through this route.
+    const self = auth?.organizer === true && normalizeFfbCoachId(auth.coach) === normalizeFfbCoachId(ffbCoachId);
+    const full = siteAdmin || self;
     if (!full && !(auth && tournamentOrganiserOf(auth.coach, ffbCoachId, { tournaments: tournamentStore })))
       return sendJson(res, 403, { error: "That coach is not entered in a tournament you organise." });
     try {

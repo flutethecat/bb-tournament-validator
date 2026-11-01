@@ -377,12 +377,12 @@ describe("league membership, data-sharing acknowledgement, organiser access and 
   it("share / decline / stop sharing: checkbox required, roster only, stored per league, other consent untouched", () => {
     seed(record("Kim", { consent: consent() }));
     expect(leagueSharingView(stored("Kim"), sources).leagues.map((l) => [l.id, l.status])).toEqual([["lg", "pending"], ["other", "pending"]]);
-    expect(leagueSharingView(stored("Kim"), sources).leagues[0]!.text).toBe("By joining Test League, its organisers can see your name and profile, and can send you league messages through Super FUMBBL (your email address is never shown to them).");
+    expect(leagueSharingView(stored("Kim"), sources).leagues[0]!.text).toBe("You are joining Test League. Its organisers can see your coach name and your teams.");
     expect(() => setLeagueSharing("Kim", { leagueId: "lg", share: true }, sources)).toThrow(/Tick the box/);
     expect(() => setLeagueSharing("Kim", { leagueId: "nope", share: true, acknowledged: true }, sources)).toThrow(/not on that league/);
     expect(() => setLeagueSharing("Kim", { leagueId: "lg", share: "yes" }, sources)).toThrow(/true or false/);
     setLeagueSharing("Kim", { leagueId: "lg", share: true, acknowledged: true }, sources, NOW);
-    expect(stored("Kim").consent?.leagues).toEqual({ lg: { at: NOW.toISOString(), version: "2026-10-31" } });
+    expect(stored("Kim").consent?.leagues).toEqual({ lg: { at: NOW.toISOString(), version: "2026-10-31b" } });
     setLeagueSharing("Kim", { leagueId: "other", share: false }, sources, NOW);
     expect(leagueSharingView(stored("Kim"), sources).leagues.map((l) => [l.id, l.status])).toEqual([["lg", "shared"], ["other", "declined"]]);
     // Stop sharing: the acknowledgement goes, the coach stays on the roster (declined), privacy / contact consent kept.

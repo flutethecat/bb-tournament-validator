@@ -281,7 +281,7 @@ describe("GET/POST /api/me/leagues/sharing", () => {
   it("lists the coach's leagues with the notice; sharing needs the checkbox; stop sharing is recorded", async () => {
     const view = await (await call("Quiet", "GET", "/api/me/leagues/sharing")).json();
     expect(view.leagues).toEqual([expect.objectContaining({ id: "lg", name: "Test League", status: "pending", onRoster: true })]);
-    expect(view.leagues[0].text).toBe("By joining Test League, its organisers can see your name and profile, and can send you league messages through Super FUMBBL (your email address is never shown to them).");
+    expect(view.leagues[0].text).toBe("You are joining Test League. Its organisers can see your coach name and your teams.");
     expect((await call("Quiet", "POST", "/api/me/leagues/sharing", { leagueId: "lg", share: true })).status).toBe(400);
     const shared = await call("Quiet", "POST", "/api/me/leagues/sharing", { leagueId: "lg", share: true, acknowledged: true });
     expect(shared.status).toBe(200);

@@ -269,7 +269,7 @@ describe("views (server-rendered against a mocked API)", () => {
   const SHARING = (rows: unknown[]) => ({ "/api/me/leagues/sharing": { version: "2026-10-31", leagues: rows } });
   const ROW = (id: string, status: string, extra: Record<string, unknown> = {}) => ({
     id, name: id === "lg" ? "Test League" : "Other League", status, onRoster: true,
-    text: `By joining ${id === "lg" ? "Test League" : "Other League"}, its organisers can see your name and profile, and can send you league messages through Super FUMBBL (your email address is never shown to them).`,
+    text: `You are joining ${id === "lg" ? "Test League" : "Other League"}. Its organisers can see your coach name and your teams.`,
     ...extra,
   });
 
@@ -278,7 +278,7 @@ describe("views (server-rendered against a mocked API)", () => {
     const panel = html.slice(html.indexOf('class="tn-panel ls-notice"'));
     expect(panel).toContain('role="region" aria-labelledby="ls-notice-h"');
     expect(panel).toContain("Your profile and Test League");
-    expect(panel).toContain("By joining Test League, its organisers can see your name and profile, and can send you league messages through Super FUMBBL (your email address is never shown to them).");
+    expect(panel).toContain("You are joining Test League. Its organisers can see your coach name and your teams.");
     expect(panel).toContain("I agree that the organisers of Test League can see my name and profile and send me league messages.");
     expect(checkboxes(panel.slice(0, panel.indexOf("</section>")))).toHaveLength(1);
     expect(panel).toMatch(/<button class="lobby-btn primary" type="button" disabled[^>]*>Share<\/button>/);
