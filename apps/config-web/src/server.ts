@@ -306,7 +306,7 @@ import {
   type TeamBuilderSave,
 } from "./teamBuilderSaves.js";
 import { sharedTeamView, type SharedViewInput } from "./teamShareView.js";
-import { TournamentStore } from "./tournaments/store.js";
+import { isTournamentManager, TournamentStore } from "./tournaments/store.js";
 import { DEFAULT_TOURNAMENT_TURN_TIMER } from "./tournaments/types.js";
 import { RateLimiter } from "./translate/guards.js";
 import { createTournamentNotifier, isNotificationApiPath, NotificationStore, notificationsApi, SenderRateLimiter, setActiveNotifier, setOrganiserThreadSink, type NotificationInput, type NotificationRecord } from "./notifications.js";
@@ -339,7 +339,7 @@ import { settleNafOwedEntries, tournamentApi } from "./tournaments/api.js";
 import { tournamentBannerApi, tournamentBannerPath } from "./tournaments/page.js";
 import { leagueApi, leaguePath } from "./leagues/api.js";
 import { seriesApi, seriesPath } from "./tournaments/series.js";
-import { LeagueStore } from "./leagues/store.js";
+import { isLeagueOrganiser, LeagueStore } from "./leagues/store.js";
 import { myLeagueDeadlines, myLeagues } from "./leagues/myLeagues.js";
 import { runDeadlineJob } from "./leagues/deadlines.js";
 import { createLeagueForkClient } from "./leagues/forkClient.js";
@@ -901,6 +901,16 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
     },
     isBanned,
     isOrganizer: (coach) => coachLevel(coach) !== "player" || isOrganizer(coach),
+    // after-start inducement edits: an organiser of the match's own league / tournament, or a site admin (owner 10-29)
+    managesMatch: (coach, match) => {
+      if (isAdmin(coach)) return true;
+      const leagueId = match.leagueSeason?.leagueId ?? (match.fixtureRef ? LEAGUE_FIXTURE_REF.exec(match.fixtureRef)?.[1] : undefined);
+      if (leagueId) { const lg = leagueStore.league(leagueId); return Boolean(lg && isLeagueOrganiser(lg, coach)); }
+      const fx = match.fixtureRef ? tournamentStore.match(match.fixtureRef) : undefined;
+      const t = fx ? tournamentStore.tournament(fx.tournamentId) : undefined;
+      if (t) return isTournamentManager(t, coach);
+      return coachLevel(coach) !== "player" || isOrganizer(coach); // a casual match: the recorder's organisers
+    },
     publishClock: (matchId, payload) => superService?.publishTabletopClock(matchId, payload),
     // the spectator view follows the game pages' player-lines policy (read here: tabletopDeps can run before that const)
     publicPlayerLines: publicPlayerLinesFromEnv(process.env.GAME_PAGES_PUBLIC_PLAYER_LINES),

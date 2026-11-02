@@ -146,6 +146,16 @@ export interface RecorderState {
   actionError: string;
 }
 
+/** GET .../inducements (organisers): the after-start inducement picker for either team (server-priced, server budgets). */
+export interface InducementEditMenu {
+  inducementOptions: Record<Side, Array<{ id: string; name: string; price: number; max: number | null; icon?: string; effectText?: string; custom?: boolean }>>;
+  budget: Record<Side, { role: "favourite" | "underdog" | "equal"; pettyCash: number; treasury: number; topUpLimit: number; spent: number; submitted: boolean }>;
+  current: Record<Side, Array<{ id: string; qty: number }>>;
+  editable: boolean;
+  reason?: string;
+  prayersLocked?: boolean;
+}
+
 export interface RecorderDeps {
   api: Fetcher;
   onSignedOut: () => void;
@@ -365,6 +375,11 @@ export function createRecorder(matchId: string, deps: RecorderDeps) {
     },
     confirm: () => act("confirm"),
     undoRevision: () => act("undo-revision"),
+    /** Organiser: the after-start inducement picker (GET; throws the server's refusal). */
+    inducementMenu: () => deps.api<InducementEditMenu>(`${base}/inducements`),
+    /** Organiser: replace one team's inducements after the start (an admin-stamped event; the server re-prices both budgets). */
+    editInducements: (team: Side, picks: Array<{ id: string; qty: number }> | "skip") =>
+      act("inducements", { team, id: newEventId(), ...(picks === "skip" ? { skip: true } : { picks }) }),
     dismissRejected: (id: string) => queue.dismissRejected(id),
     start() {
       stopped = false;

@@ -15,6 +15,28 @@
     ]
   },
   {
+    "date": "2026-11-02",
+    "title": "Organisers can edit inducements after the start",
+    "body": "The match recorder's Admin panel has Edit inducements: the same picker for either team, priced by the match's league or tournament table. Each change is logged as an admin event, can be undone like one, and the treasury is charged by the latest picks when the result is confirmed.",
+    "links": [
+      {
+        "label": "Tabletop",
+        "href": "/app/tabletop"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-02",
+    "title": "Choose a new Team Captain for tabletop teams",
+    "body": "When a tabletop team's captain dies, its team picker shows Captain vacant: choose, and the coach or an organiser picks a new captain who gains Team Captain and Pro for free. The choice is saved as its own team revision, so undoing a later match keeps it.",
+    "links": [
+      {
+        "label": "Tabletop",
+        "href": "/app/tabletop"
+      }
+    ]
+  },
+  {
     "date": "2026-11-01",
     "title": "Jaguar Warrior name",
     "body": "Amazon's Jaguar Warrior Blocker now shows as just Jaguar Warrior in the Roster Builder, the Sheet and PDF, and the team pages. The full name stays as the tooltip.",

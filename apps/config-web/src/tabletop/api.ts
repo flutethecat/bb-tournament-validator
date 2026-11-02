@@ -23,7 +23,7 @@ import {
   MAX_EVENTS_PER_BATCH, MAX_EVENTS_PER_MATCH, effectiveEvents, parseEvent, validateEvent, type Side, type TabletopEvent,
 } from "./events.js";
 import {
-  PRAYERS_TO_NUFFLE, coinCallerOf, inducementMenu, journeymenNeeded, makeJourneymen, overlayRosters, inducementOffersFor, planInducements, pregameStepOf, pregameSummary, seatsSwappable, teamValueWithJourneymen, weatherFor,
+  PRAYERS_TO_NUFFLE, coinCallerOf, inducementMenu, journeymenNeeded, latestInducement, makeJourneymen, overlayRosters, inducementOffersFor, planInducements, pregameStepOf, pregameSummary, seatsSwappable, teamValueWithJourneymen, weatherFor,
   type InducementOffers, type InducementOptionExtras, type MatchPhase,
 } from "./pregame.js";
 import type { AnnouncementKind, RecorderAnnouncement, ResultSummary } from "./discord.js";
@@ -42,6 +42,7 @@ import type { NafSummary } from "../nafRecords.js";
 import { applyPostMatch, sppCredits, sppForEvent, tallyMatch, type PostMatchOption, type PostMatchSummary, type TabletopPlayer, type TabletopTeamFile, SPP_VALUES } from "./postMatch.js";
 import { headRevision, type ChainChange, type CommitJournal, type LobbyInducements, type MatchRecord, type TabletopRepository, type TeamChain } from "./store.js";
 import { duplicatePlayerId, parseTeamRef } from "./teamFile.js";
+import { tabletopCaptainApi, teamCaptainVacancy } from "./captain.js";
 import type { NotificationInput } from "../notifications.js";
 
 export interface TabletopAuth { coach: string; method: string; /** A test sign-in session: matches it creates are flagged test. */ test?: boolean }
@@ -188,6 +189,9 @@ export interface TabletopApiDeps {
   loadTeamFile: (coach: string, teamSaveId: string) => TabletopTeamFile | { error: string } | undefined;
   isBanned: (coach: string) => boolean;
   isOrganizer: (coach: string) => boolean;
+  /** Organiser of THIS match's league or tournament, or a site admin (an after-start inducement edit; api.ts editInducements).
+   *  Absent (tests, older hosts): the recorder's organiser flag decides. */
+  managesMatch?: (coach: string, match: MatchRecord) => boolean;
   /** A coach's saved teams (id + name only, never roster bodies). */
   listSaves?: (coach: string) => Array<{ id: string; name: string }>;
   /** Every team the coach can play: fork library teams ("library:<id>") and builder saves (bare id). */
@@ -298,9 +302,13 @@ export async function tabletopApi(
     const teams = (deps.listTeams?.(coach) ?? saves.map((x) => ({ ref: x.id, name: x.name, race: "", tv: null })) as NonNullable<ReturnType<NonNullable<TabletopApiDeps["listTeams"]>>>)
       // Registrations and outstanding actions are the coach's own business: an opponent's lookup gets the plain list.
       .map((t) => (own ? { ref: t.ref, name: t.name, race: t.race, tv: t.tv, registered: t.registered ?? [], actions: t.actions ?? { count: 0, items: [] } } : { ref: t.ref, name: t.name, race: t.race, tv: t.tv }));
-    return { status: 200, body: { coach, saves, teams } };
+    // a team waiting for a new Team Captain (tabletop/captain.ts) is marked for its coach and for organisers
+    const vacant = own || organiser ? await teamCaptainVacancy(repo, coach, teams.map((t) => t.ref)) : new Set<string>();
+    return { status: 200, body: { coach, saves, teams: teams.map((t) => (vacant.has(t.ref) ? { ...t, captainVacant: true } : t)) } };
   }
-  const m = /^\/api\/tabletop\/matches\/([\w-]{1,64})(?:\/(events|submit|confirm|publish|undo-revision|resolve-conflict|pregame\/advance|pregame\/skip|seats\/swap|turn\/start|turn\/end|turn\/set))?$/.exec(path);
+  const captain = await tabletopCaptainApi(method, path, query, body, me, organiser, deps, dropAllSnapshots);
+  if (captain) return captain;
+  const m = /^\/api\/tabletop\/matches\/([\w-]{1,64})(?:\/(events|submit|confirm|publish|undo-revision|resolve-conflict|pregame\/advance|pregame\/skip|seats\/swap|turn\/start|turn\/end|turn\/set|inducements))?$/.exec(path);
   if (!m) return err(404, "Not found.");
   const id = m[1]!;
   const action = m[2];
@@ -309,6 +317,16 @@ export async function tabletopApi(
   if (!match) return err(404, "Match not found.");
   const role = viewerRole(match, me, organiser);
 
+  // Organiser edits of inducements after the start (owner 10-29): only an organiser of this league / tournament or an admin.
+  if (action === "inducements") {
+    if (!(deps.managesMatch ? deps.managesMatch(me, match) : organiser)) return err(403, "Only an organiser of this league or tournament (or an admin) can edit inducements after the start.");
+    if (method === "GET") return inducementEditMenu(match, deps);
+    if (method !== "POST") return err(405, "Method not allowed.");
+    return serial(id, async () => {
+      try { await recoverMatch(id, deps); } catch (e) { return recoveryFailure(e); }
+      return editInducements((await repo.getMatch(id))!, me, body, deps, now);
+    });
+  }
   if (!action) {
     if (method !== "GET") return err(405, "Method not allowed.");
     return matchView(match, role, deps);
@@ -457,7 +475,7 @@ const pick = (o: unknown, keys: readonly string[]): Rec => {
   return out;
 };
 /** Payload keys a spectator never sees: what a team spent from its treasury (its treasury follows from it). */
-const PRIVATE_PAYLOAD_KEYS: ReadonlySet<string> = new Set(["treasury", "pettyCash"]);
+const PRIVATE_PAYLOAD_KEYS: ReadonlySet<string> = new Set(["treasury", "pettyCash", "treasuryBefore"]);
 /** Payload keys that name a player: dropped when player lines are not public. */
 const PLAYER_PAYLOAD_KEYS: ReadonlySet<string> = new Set(["player", "victim", "thrower", "thrown"]);
 const PUBLIC_PLAYER_KEYS = ["id", "name", "number", "positionId", "position", "positionName", "kind", "sprite", "mng", "dead", "available"] as const;
@@ -867,6 +885,9 @@ async function postEvents(match: MatchRecord, me: string, organiser: boolean, bo
     }
     if (parsed.event.type === "undo") {
       if (reopenForUndo && !organiser) return err(403, "Once the match is submitted only an organiser can undo events.");
+      const target = running.find((e) => e.id === parsed.event.payload.target);
+      if (target?.type === "inducement" && target.payload.adminEdit === true && !(deps.managesMatch ? deps.managesMatch(me, match) : organiser))
+        return err(403, "Only an organiser of this league or tournament (or an admin) can undo an inducement edit.");
       if (!organiser) {
         const target = running.find((e) => e.id === parsed.event.payload.target);
         // a participant may also retract a casualty / injury THEY recorded, on either roster, while the match is recording
@@ -889,6 +910,14 @@ async function postEvents(match: MatchRecord, me: string, organiser: boolean, bo
     known.add(v.event.id);
     running.push(v.event);
     accepted.push(v.event);
+    // undoing an inducement edit also undoes the petty-cash adjustment it made to the other team (editInducements)
+    const follow = v.event.type === "undo" ? running.find((e) => e.type === "inducement" && e.payload.followsFrom === v.event.payload.target) : undefined;
+    if (follow) {
+      const extra: TabletopEvent = { ...v.event, id: `u${randomBytes(12).toString("hex")}`, team: follow.team, payload: { target: follow.id, with: v.event.id } };
+      known.add(extra.id);
+      running.push(extra);
+      accepted.push(extra);
+    }
   }
   if (stored.length + accepted.length > MAX_EVENTS_PER_MATCH) return err(409, "This match has too many events.");
   await deps.repo.appendEvents(match.id, accepted);
@@ -1085,12 +1114,16 @@ async function undoRevision(match: MatchRecord, deps: TabletopApiDeps, now: () =
   const chainAway = await deps.repo.getChain(match.away.coach, match.away.teamSaveId);
   if (!chainHome || !chainAway) return err(409, "Team files are missing.");
   const w = match.wroteRevisions;
-  if (w && (chainHome.head !== w.home || chainAway.head !== w.away))
+  if (w && (chainHome.head !== w.home || chainAway.head !== w.away)) {
+    // a Team Captain appointed after this match sits on top (tabletop/captain.ts): it is revoked explicitly, never dropped
+    const appointed = [chainHome, chainAway].find((c, i) => { const h = headRevision(c); return h.appointment && h.parent === (i === 0 ? w.home : w.away); });
+    if (appointed) return err(409, `${headRevision(appointed).teamFile.name} appointed a new Team Captain after this match; revoke the appointment first.`);
     return err(409, "A team has newer revisions than this match; revert those first.");
+  }
   let link = match.state === "published" ? match.fixtureLink : undefined;
   if (link) {
     const f = deps.fixtures?.get(link.id);
-    // An organiser cleared this publication's result in the tournament (owner ruling 10-29 §7): the fixture already let
+    // An organiser cleared this publication's result in the tournament (owner ruling 10-29 Â§7): the fixture already let
     // go of it, so the revert leaves the fixture alone (it is unplayed) and a later publish records it again.
     if (f && !f.resultReportedAt && f.clearedOpId === link.opId) link = undefined;
     else if (!f || f.resultOpId !== link.opId || f.revision !== link.expectedRevision + 1)
@@ -1446,7 +1479,7 @@ async function pregameAdvance(
   const all = () => [...stored, ...out];
   const teams = () => overlayRosters({ home: baseTeams.home, away: baseTeams.away }, all()) as Record<Side, TabletopTeamFile>;
   const prayersBought = (side: Side): number => {
-    const e = all().filter((x) => x.type === "inducement" && x.team === side).at(-1);
+    const e = latestInducement(all(), side);
     const picks = (e?.payload.picks as Array<{ id: string; qty: number }> | undefined) ?? [];
     return picks.find((p) => p.id === "prayers_to_nuffle")?.qty ?? 0;
   };
@@ -1508,7 +1541,7 @@ async function pregameAdvance(
     if (tvHome === undefined || tvAway === undefined) return err(422, "A team value is unknown, so petty cash cannot be worked out.");
     const role = tvHome === tvAway ? "equal" : (tvHome > tvAway) === (side === "home") ? "favourite" : "underdog";
     const other: Side = side === "home" ? "away" : "home";
-    const otherEvent = all().filter((e) => e.type === "inducement" && e.team === other).at(-1);
+    const otherEvent = latestInducement(all(), other);
     if (role === "underdog" && !otherEvent) return err(409, `The higher-value team (${other}) goes first: its treasury spending feeds the petty cash.`);
     const plan = planInducements({
       offers: inducementSourceFor(match, deps).offers,
@@ -1695,6 +1728,109 @@ async function pregameSkip(match: MatchRecord, me: string, organiser: boolean, d
   deps.publishClock?.(match.id, { ...clock, phase: "playing" });
   announce(deps, ["skip"], updated, events);
   return { status: 200, body: { match: updated, phase: "playing", clock, recorded: out.map((e) => e.id), pregame: pregameViewOf(updated, events, { home: undefined, away: undefined }, deps) } };
+}
+
+// ---- Organiser edits of inducements after the start (owner ruling 10-29, spec-landing-bubble-retro §9.2) -------------
+//
+// GET  .../inducements  the picker for either team: the effective table (league season or package rules), budgets, current picks
+// POST .../inducements  {team, picks: [{id, qty}] | skip: true, id?}: appends an admin-stamped `inducement` event that replaces
+//                       the team's inducements in force. Nothing is rewritten: the feed keeps every record, and the post-match
+//                       treasury debit follows the latest record in force (postMatch.ts tallyMatch).
+// Same price and budget rules as the pre-game step (planInducements). When the higher-value team's treasury spend changes, the
+// lower-value team's petty cash changes too: its picks are re-priced and, if its treasury top-up moves, a second admin event
+// (`followsFrom`) records that; if its picks no longer fit, the edit is refused so the organiser edits that team first.
+// Undo: the newest edit (with its adjustment) can be undone like any admin event, by an organiser (events.ts validateEvent).
+// Prayers to Nuffle are rolled before the kick-off, so their number cannot change once the coin step is reached.
+
+const PRAYER_LOCKED_PHASES: ReadonlySet<string> = new Set(["pregame:coin", "pregame:timers", "playing"]);
+const EARLY_PHASES: ReadonlySet<string> = new Set(["pregame:fans", "pregame:weather", "pregame:journeymen"]);
+const EDIT_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
+
+/** Why an organiser cannot edit this match's inducements right now ("" = they can). */
+function inducementEditBlock(match: MatchRecord): string {
+  if (match.state !== "recording" && match.state !== "submitted") return `This match is ${match.state}: reopen it first.`;
+  const phase = match.phase ?? "playing";
+  if (phase === "pregame:inducements") return "The pre-game inducement step is open: use its picker.";
+  if (EARLY_PHASES.has(phase) && !match.inducements) return "Inducements are chosen at the pre-game step.";
+  return "";
+}
+
+async function inducementEditMenu(match: MatchRecord, deps: TabletopApiDeps): Promise<TabletopResult> {
+  const events = await deps.repo.readEvents(match.id);
+  const teams = await currentTeams(deps.repo, match);
+  if (!teams.home || !teams.away) return err(409, "Team files are missing.");
+  const menu = inducementMenu({ teams: { home: teams.home, away: teams.away }, events, ...inducementSourceFor(match, deps) });
+  const picksOf = (s: Side) => ((latestInducement(events, s)?.payload.picks as Array<{ id: string; qty: number }> | undefined) ?? []).map((p) => ({ id: p.id, qty: p.qty }));
+  const block = inducementEditBlock(match);
+  return {
+    status: 200,
+    headers: { "cache-control": "no-store" },
+    body: { ...menu, current: { home: picksOf("home"), away: picksOf("away") }, editable: !block, ...(block ? { reason: block } : {}), prayersLocked: PRAYER_LOCKED_PHASES.has(match.phase ?? "playing") },
+  };
+}
+
+async function editInducements(match: MatchRecord, me: string, body: unknown, deps: TabletopApiDeps, now: () => Date): Promise<TabletopResult> {
+  const block = inducementEditBlock(match);
+  if (block) return err(409, block);
+  const b = (body && typeof body === "object" ? body : {}) as Record<string, any>;
+  if (b.team !== "home" && b.team !== "away") return err(400, 'team must be "home" or "away".');
+  if (b.id !== undefined && (typeof b.id !== "string" || !EDIT_ID_RE.test(b.id))) return err(400, "id must be 8-64 chars of [A-Za-z0-9_-] (a client uuid).");
+  const picks = b.skip === true ? [] : b.picks;
+  if (!Array.isArray(picks) || picks.length > 40) return err(400, "picks must be an array (or send skip: true).");
+  const side: Side = b.team;
+  const other: Side = side === "home" ? "away" : "home";
+  const stored = await deps.repo.readEvents(match.id);
+  if (b.id && stored.some((e) => e.id === b.id)) return { status: 200, body: { match, recorded: [], duplicates: [b.id] } }; // a retry
+  if (stored.length + 2 > MAX_EVENTS_PER_MATCH) return err(409, "This match has too many events.");
+  const teams = await currentTeams(deps.repo, match);
+  if (!teams.home || !teams.away) return err(409, "Team files are missing.");
+  const jm = (s: Side) => stored.filter((e) => e.type === "journeyman" && e.team === s).map((e) => e.payload.player as TabletopPlayer);
+  const tvHome = teamValueWithJourneymen(teams.home, jm("home"));
+  const tvAway = teamValueWithJourneymen(teams.away, jm("away"));
+  if (tvHome === undefined || tvAway === undefined) return err(422, "A team value is unknown, so petty cash cannot be worked out.");
+  const roleOf = (s: Side): "favourite" | "underdog" | "equal" => (tvHome === tvAway ? "equal" : (tvHome > tvAway) === (s === "home") ? "favourite" : "underdog");
+  const gap = Math.abs(tvHome - tvAway);
+  const { offers } = inducementSourceFor(match, deps);
+  const prev = latestInducement(stored, side);
+  const otherPrev = latestInducement(stored, other);
+  const spentOf = (e: TabletopEvent | undefined): number => Number((e?.payload as { treasury?: number } | undefined)?.treasury ?? 0);
+  const plan = planInducements({ offers, file: teams[side]!, picks, role: roleOf(side), tvDifference: gap, favouriteSpent: roleOf(side) === "underdog" ? spentOf(otherPrev) : 0 });
+  if ("error" in plan) return err(400, plan.error);
+  const prayers = (list: unknown): number => ((list as Array<{ id: string; qty: number }> | undefined) ?? []).find((p) => p.id === "prayers_to_nuffle")?.qty ?? 0;
+  const prayersChanged = prayers(prev?.payload.picks) !== prayers(plan.picks);
+  if (prayersChanged && PRAYER_LOCKED_PHASES.has(match.phase ?? "playing")) return err(409, "Prayers to Nuffle are rolled before the kick-off: their number cannot change now.");
+  const at = now().toISOString();
+  const clock = (match.phase ?? "playing") === "playing" ? currentClock(match, stored) : undefined;
+  const when = clock && clock.half !== null ? { half: clock.half, ...(clock.turn >= 1 ? { turn: clock.turn } : {}) } : {};
+  const id = typeof b.id === "string" ? b.id : `adm-ind-${side}-${randomBytes(6).toString("hex")}`;
+  const record = (eid: string, team: Side, p: { picks: unknown[]; total: number; treasury: number; pettyCash: number }, extra: Record<string, unknown>): TabletopEvent => ({
+    id: eid, matchId: match.id, type: "inducement", team, ...when,
+    payload: { picks: p.picks, total: p.total, treasury: p.treasury, pettyCash: p.pettyCash, skipped: p.picks.length === 0, submittedBy: me, adminEdit: true, ...extra },
+    ts: at, by: me, admin: true,
+  } as TabletopEvent);
+  const out: TabletopEvent[] = [record(id, side, plan, {
+    treasuryBefore: spentOf(prev), ...(prev ? { replaces: prev.id } : {}), ...(prayersChanged ? { prayersChanged: true } : {}),
+  })];
+  // The favourite's treasury spend feeds the underdog's petty cash: re-price the underdog's picks in force.
+  if (roleOf(side) === "favourite" && otherPrev && spentOf(prev) !== plan.treasury) {
+    const theirPicks = ((otherPrev.payload.picks as Array<{ id: string; qty: number }> | undefined) ?? []).map((p) => ({ id: p.id, qty: p.qty }));
+    const again = planInducements({ offers, file: teams[other]!, picks: theirPicks, role: "underdog", tvDifference: gap, favouriteSpent: plan.treasury });
+    if ("error" in again) return err(409, `That leaves ${match[other].teamName} over its budget (${again.error}) Edit their inducements first.`);
+    if (again.treasury !== spentOf(otherPrev) || again.pettyCash !== Number(otherPrev.payload.pettyCash ?? 0))
+      out.push(record(`${id.slice(0, 60)}-pc`, other, again, { followsFrom: id, replaces: otherPrev.id, treasuryBefore: spentOf(otherPrev) }));
+  }
+  await deps.repo.appendEvents(match.id, out);
+  const events = [...stored, ...out];
+  let updated = match;
+  if (match.state === "submitted") {
+    // the preview both coaches saw is stale: recompute it and clear the confirmations (as an organiser's undo after submit does)
+    const p = await computePreview(match, events, deps);
+    if (!p.ok) return p.error;
+    updated = { ...match, confirmations: {}, preview: { home: p.home.summary, away: p.away.summary }, updatedAt: at };
+    await deps.repo.updateMatch(updated);
+  }
+  const treasury = Object.fromEntries(out.map((e) => [e.team, { before: Number(e.payload.treasuryBefore ?? 0), after: Number(e.payload.treasury ?? 0) }]));
+  return { status: 200, body: { match: updated, recorded: out.map((e) => e.id), treasury, pregame: pregameSummary(events, match.phase ?? "playing") } };
 }
 
 // ---- Lane R3: match clock and turns ------------------------------------------------------------------------

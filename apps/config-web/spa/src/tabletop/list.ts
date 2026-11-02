@@ -4,13 +4,15 @@
 import { reactive, type InjectionKey } from "vue";
 import { ApiError } from "../shared/api";
 import type { Fetcher } from "../session";
-import type { MatchView, PostMatchOption } from "./recorder";
+import type { MatchView, PostMatchOption, RosterPlayerView } from "./recorder";
 
 export interface NewMatchForm { myTeam: string; opponent: string; theirTeam: string; postMatch: PostMatchOption }
 
 export type MatchSummary = Pick<MatchView, "id" | "state" | "postMatch" | "home" | "away"> & { createdAt?: string };
 /** One pickable team: ref is "library:<teamId>" or "save:<saveId>". */
-export interface TeamOption { ref: string; name: string; race?: string; tv?: number | null }
+export interface TeamOption { ref: string; name: string; race?: string; tv?: number | null; /** The team's Team Captain died: a new one is appointed (tabletop/captain.ts). */ captainVacant?: true }
+/** GET /api/tabletop/teams/captain: the vacancy, the eligible players (picker rows) and the team revision a write must name. */
+export interface CaptainInfo { vacant: boolean; revision: number | null; teamName?: string; players: RosterPlayerView[] }
 export const teamKind = (ref: string): string => (ref.startsWith("library:") ? "Library" : "Builder save");
 
 export interface FixtureSide { coach: string; teamRef?: string; teamName?: string }
@@ -89,7 +91,20 @@ export function createTabletopList(deps: TabletopListDeps) {
     return res.match.id;
   }
 
-  return { state, refresh, create, lookupSaves, loadMyTeams, loadFixtures, createFromFixture };
+  const teamQuery = (coach: string, ref: string): string => `coach=${encodeURIComponent(coach.trim())}&team=${encodeURIComponent(ref)}`;
+  /** A tabletop team's captaincy (its coach or an organiser). */
+  const captainInfo = (coach: string, ref: string): Promise<CaptainInfo> => deps.api<CaptainInfo>(`/api/tabletop/teams/captain?${teamQuery(coach, ref)}`);
+  /** Appoint a new Team Captain; resolves "" or the server's refusal (the shared dialog shows it). */
+  async function appointCaptain(coach: string, ref: string, playerId: string, revision: number | null): Promise<string> {
+    try {
+      await deps.api("/api/tabletop/teams/captain", { method: "POST", body: { coach: coach.trim(), team: ref, playerId, revision } });
+      return "";
+    } catch (err) {
+      return (err as Error).message;
+    }
+  }
+
+  return { state, refresh, create, lookupSaves, loadMyTeams, loadFixtures, createFromFixture, captainInfo, appointCaptain };
 }
 
 export type TabletopList = ReturnType<typeof createTabletopList>;

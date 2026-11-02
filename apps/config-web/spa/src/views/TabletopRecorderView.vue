@@ -22,6 +22,7 @@ import TabletopMatchSummary from "../components/TabletopMatchSummary.vue";
 import TabletopSettings from "../components/TabletopSettings.vue";
 import TabletopTurnSet from "../components/TabletopTurnSet.vue";
 import TabletopAdmin from "../components/TabletopAdmin.vue";
+import TabletopInducementEdit from "../components/TabletopInducementEdit.vue";
 import TabletopRail from "../components/TabletopRail.vue";
 import TabletopPlayerPicker from "../components/TabletopPlayerPicker.vue";
 import TabletopSheetHead from "../components/TabletopSheetHead.vue";
@@ -325,6 +326,12 @@ function overrideEnd(): void {
 const showRemoved = computed(() => (organiser.value && mySide.value === null) || viewer.state.showRemoved);
 const shownRows = computed(() => (showRemoved.value ? rows.value : rows.value.filter((r) => r.removed === null)));
 const adminOpen = ref(false);
+/** Admin: Edit inducements after the start (an admin-stamped record; the server prices and budgets it). */
+const inducementEditOpen = ref(false);
+async function saveInducements(side: Side, picks: Array<{ id: string; qty: number }> | "skip"): Promise<boolean> {
+  await rec.editInducements(side, picks);
+  return !state.actionError;
+}
 /** Popups: focus moves into the topmost one, the page behind is inert and its scroll locked, focus returns to the opener on close. */
 const recRoot = ref<HTMLElement | null>(null);
 let sheetFocus: SheetFocus | undefined;
@@ -482,7 +489,7 @@ usePageTitle(() => (match.value ? `${match.value.home.teamName} vs ${match.value
       <TabletopAdmin
         v-else-if="organiser" collapsible @hide="setAdminHidden(true)" :recording="recording" :can-override="canOverrideEnd" :edit-mode="editMode" :busy="state.busy" :state="match.state" :can-confirm="canConfirm"
         @add="(k) => openPick(k)" @other="other = true" @change-turn="turnSetOpen = true" @override-end="overrideEnd"
-        @reopen="rec.undoRevision()" @confirm="rec.confirm()" @edit="(on) => (editMode = on)"
+        @reopen="rec.undoRevision()" @confirm="rec.confirm()" @edit="(on) => (editMode = on)" @inducements="inducementEditOpen = true"
       />
     </TabletopRail>
 
@@ -512,12 +519,13 @@ usePageTitle(() => (match.value ? `${match.value.home.teamName} vs ${match.value
         <TabletopAdmin
           :recording="recording" :can-override="canOverrideEnd" :edit-mode="editMode" :busy="state.busy" :state="match.state" :can-confirm="canConfirm"
           @add="(k) => { adminOpen = false; openPick(k); }" @other="adminOpen = false; other = true" @change-turn="adminOpen = false; turnSetOpen = true" @override-end="adminOpen = false; overrideEnd()"
-          @reopen="rec.undoRevision()" @confirm="rec.confirm()" @edit="(on) => (editMode = on)"
+          @reopen="rec.undoRevision()" @confirm="rec.confirm()" @edit="(on) => (editMode = on)" @inducements="adminOpen = false; inducementEditOpen = true"
         />
       </div>
     </div>
 
     <TabletopSettings v-if="settingsOpen" :theme="themeCtl" :settings="viewer" :edit-mode="editMode" :can-edit="canEdit" :removed-forced="organiser && mySide === null" :can-admin="organiser" @admin="settingsOpen = false; adminOpen = true" @edit="(on: boolean) => (editMode = on)" @change-turn="settingsOpen = false; turnSetOpen = true" @close="settingsOpen = false" />
+    <TabletopInducementEdit v-if="inducementEditOpen && organiser" :match="match" :icons="state.inducementIcons" :busy="state.busy" :error="state.actionError" :load="rec.inducementMenu" :save="saveInducements" @close="inducementEditOpen = false; state.actionError = ''" />
     <TabletopTurnSet v-if="turnSetOpen" :match="match" :clock="state.clock" :busy="state.busy" :error="state.actionError" @close="turnSetOpen = false" @save="saveTurn" />
     <TabletopOther v-if="other" @pick="onOther" @close="other = false" />
     <TabletopRosters v-if="rosters" :match="match" :teams="state.teams" :tally="state.tally" :art="state.art" :events="state.events" :inducement-icons="state.inducementIcons" @close="rosters = false" />

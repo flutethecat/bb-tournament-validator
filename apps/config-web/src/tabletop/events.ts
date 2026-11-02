@@ -137,7 +137,20 @@ export function validateEvent(event: TabletopEvent, stored: readonly TabletopEve
     const t = stored.find((e) => e.id === target);
     if (!t) return fail("undo target not found in this match.");
     if (t.type === "undo") return fail("an undo cannot be undone; record the event again instead.");
-    if ((PREGAME_EVENT_TYPES as readonly string[]).includes(t.type) || t.payload.pregame === true) return fail("pre-game events cannot be undone.");
+    // one exception: an organiser's after-start inducement edit (api.ts editInducements) is undone like any admin event
+    const adminEdit = t.type === "inducement" && t.payload.adminEdit === true;
+    if (!adminEdit && ((PREGAME_EVENT_TYPES as readonly string[]).includes(t.type) || t.payload.pregame === true)) return fail("pre-game events cannot be undone.");
+    if (adminEdit && typeof t.payload.followsFrom === "string") return fail("this petty-cash adjustment is undone with the edit it came from.");
+    if (adminEdit && t.payload.prayersChanged === true) return fail("this edit changed the Prayers to Nuffle, which are already rolled; record another edit instead.");
+    if (adminEdit) {
+      // a stack: only the newest inducement record still in force (with its petty-cash adjustment) can be taken back, so the
+      // two teams' budgets always return to a state that was valid together
+      const undone = new Set(stored.filter((e) => e.type === "undo").map((e) => e.payload.target));
+      const live = stored.filter((e) => e.type === "inducement" && !undone.has(e.id));
+      const last = live.at(-1);
+      if (!(last?.id === t.id || (last?.payload.followsFrom === t.id && live.at(-2)?.id === t.id)))
+        return fail("only the most recent inducement edit can be undone; record another edit instead.");
+    }
     if (stored.some((e) => e.type === "undo" && e.payload.target === target)) return fail("target already undone.");
     return { event: { ...event, team: t.team } };
   }

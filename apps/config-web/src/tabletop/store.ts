@@ -92,6 +92,8 @@ export interface TeamRevision {
   parent: number | null;
   teamFile: TabletopTeamFile;
   matchId?: string;
+  /** A Team Captain appointment (tabletop/captain.ts): an appended revision, never a match's. Who, when, whom, what was granted. */
+  appointment?: { by: string; at: string; admin: boolean; playerId: string; grants: string[] };
   createdAt: string;
 }
 

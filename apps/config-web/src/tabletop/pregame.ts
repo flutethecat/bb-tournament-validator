@@ -208,6 +208,13 @@ export function coinCallerOf(events: readonly TabletopEvent[]): Side {
  *  record, because every pre-game record (fans, inducements, the coin) names a seat. */
 export const seatsSwappable = (events: readonly TabletopEvent[]): boolean => events.every((e) => e.type === "seats");
 
+/** A team's inducements in force: its latest `inducement` event that no `undo` retracted (only an organiser's
+ *  after-start edit can be undone; api.ts editInducements). Every reader of "the latest submission" goes through here. */
+export function latestInducement(events: readonly TabletopEvent[], side: Side): TabletopEvent | undefined {
+  const undone = new Set(events.filter((e) => e.type === "undo").map((e) => e.payload.target));
+  return events.filter((e) => e.type === "inducement" && e.team === side && !undone.has(e.id)).at(-1);
+}
+
 export function pregameSummary(events: readonly TabletopEvent[], phase?: MatchPhase) {
   const of = (type: string, side?: Side) => events.filter((e) => e.type === type && (side === undefined || e.team === side));
   const side = <T,>(f: (s: Side) => T): Record<Side, T> => ({ home: f("home"), away: f("away") });
@@ -223,7 +230,7 @@ export function pregameSummary(events: readonly TabletopEvent[], phase?: MatchPh
     fans: fans.home || fans.away ? fans : undefined,
     weather,
     journeymen: side((s) => of("journeyman", s).map((e) => (e.payload.player as TabletopPlayer | undefined)?.id).filter(Boolean)),
-    inducements: side((s) => of("inducement", s).at(-1)?.payload), // the latest submission per team replaces earlier ones
+    inducements: side((s) => latestInducement(events, s)?.payload), // the latest submission per team replaces earlier ones
     prayers: side((s) => of("prayer", s).map((e) => e.payload)),
     // {mode, call, caller, result, winner, choice?}: choice arrives with a second advance after a server flip
     // before the call (coin phase): only {caller}, the away coach (derived from the seats, never drawn)
@@ -280,7 +287,7 @@ export function inducementMenu(input: {
 }): InducementMenu {
   const jm = (s: Side) => input.events.filter((e) => e.type === "journeyman" && e.team === s).map((e) => asPlayer(e.payload.player)).filter((p): p is TabletopPlayer => !!p);
   const tv = { home: teamValueWithJourneymen(input.teams.home, jm("home")) ?? null, away: teamValueWithJourneymen(input.teams.away, jm("away")) ?? null };
-  const latest = (s: Side) => input.events.filter((e) => e.type === "inducement" && e.team === s).at(-1);
+  const latest = (s: Side) => latestInducement(input.events, s);
   const options = (s: Side) => (input.ids ?? Object.keys(bb2025.inducements)).flatMap((id) => {
     const o = input.offers(input.teams[s], id);
     return "error" in o ? [] : [{ id, name: o.name, price: o.price, max: o.max, ...(input.extras?.[id] ?? {}) }];

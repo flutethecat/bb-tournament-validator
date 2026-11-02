@@ -279,7 +279,10 @@ export function eventSentence(e: RecordedEvent, who: string, teamName: string, s
     case "weather": return { lead: "Weather", rest: sub ? `: ${sub}` : "." };
     case "endOfMatch": return { lead: "End of match", rest: "." };
     case "halfStart": return { lead: word(pl.text) || "Start of half", rest: "." };
-    case "inducement": return { lead: teamName, rest: ` buys ${sub}.` };
+    // an organiser's after-start edit replaces the team's inducements (the petty-cash follow-on keeps the same picks)
+    case "inducement": return e.payload?.adminEdit === true
+      ? { lead: teamName, rest: e.payload.followsFrom ? ` petty cash re-priced: ${sub}.` : ` inducements changed by an organiser: ${sub}.` }
+      : { lead: teamName, rest: ` buys ${sub}.` };
     case "fans": return { lead: teamName, rest: ` fans: ${sub}.` };
     case "prayer": return { lead: teamName, rest: ` prays to Nuffle: ${sub}.` };
     case "journeyman": return { lead: teamName, rest: ` hires a journeyman: ${sub}.` };
@@ -319,6 +322,8 @@ export interface FeedRow {
   clock: string;
   /** Recorded by an organiser for a team they do not coach. */
   admin: boolean;
+  /** An organiser's after-start inducement edit: only organisers may undo it. */
+  adminEdit?: true;
   /** A retracted event kept in the log: who removed it, when (a time of day), and whether an organiser did. */
   removed: { by: string; at: string; admin: boolean } | null;
 }
@@ -399,7 +404,8 @@ export function feedRows(
       player: hide ? "" : pl?.name ?? "",
       position: pl?.positionName ?? pl?.position ?? pl?.positionId ?? "",
       when: half || turn ? `${half ? (half === "OT" || half >= 3 ? "OT" : `H${half}`) : ""}${half && turn ? " " : ""}${turn ? `T${turn}` : ""}` : "",
-      undoable: part === "main" && !PREGAME_TYPES.has(e.type) && isLive,
+      undoable: part === "main" && isLive && (!PREGAME_TYPES.has(e.type) || (e.type === "inducement" && e.payload?.adminEdit === true && !e.payload.followsFrom && e.payload.prayersChanged !== true)),
+      ...(e.type === "inducement" && e.payload?.adminEdit === true ? { adminEdit: true as const } : {}),
       glyph: EVENT_GLYPHS[e.type],
       half: half ?? 0,
       turn: turn ?? 0,

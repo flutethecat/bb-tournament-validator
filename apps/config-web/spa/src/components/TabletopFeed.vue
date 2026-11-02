@@ -33,7 +33,7 @@ const emit = defineEmits<{ (e: "undo", id: string): void }>();
         <small v-if="r.removed && r.part === 'main'" class="tt-ev-removed">Removed by {{ r.removed.by }}<template v-if="r.removed.at"> &middot; {{ r.removed.at }}</template><b v-if="r.removed.admin" class="tt-ev-admintag">ADMIN</b></small>
       </span>
       <span class="tt-ev-icon" :data-tip="r.label"><TabletopGlyph :glyph="r.glyph" /></span>
-      <button v-if="canUndo && r.undoable && (!undoSide || r.team === undoSide)" class="tt-trash" type="button" :aria-label="`Undo ${r.label}`" @click="emit('undo', r.id)">&#128465;</button>
+      <button v-if="canUndo && r.undoable && (!undoSide || (r.team === undoSide && !r.adminEdit))" class="tt-trash" type="button" :aria-label="`Undo ${r.label}`" @click="emit('undo', r.id)">&#128465;</button>
     </li>
   </ol>
 </template>

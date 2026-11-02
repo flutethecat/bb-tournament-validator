@@ -57,6 +57,8 @@ export interface TabletopPlayer {
   dead: boolean;
   /** Library teams: the stored lasting-injury names, preserved verbatim. */
   injuries?: string[];
+  /** The skills a Team Captain appointment granted free (../captain.ts captainGrantsFor): recorded, never inferred. */
+  captainGrants?: string[];
   /** Added for one match by the pre-game journeymen step; never part of a stored team revision. */
   journeyman?: boolean;
   /** rostered (default), star, mercenary or journeyman; stars and mercenaries earn no SPP. */

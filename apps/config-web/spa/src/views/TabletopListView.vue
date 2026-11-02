@@ -7,8 +7,10 @@ import { SESSION_KEY } from "../session";
 import { COACH_SEARCH_KEY, createCoachSearch } from "../tabletop/coachSearch";
 import TabletopTestMatchCard from "../components/TabletopTestMatchCard.vue";
 import AdminDeleteCoachCard from "../components/AdminDeleteCoachCard.vue";
+import CaptainVacantChip from "../components/CaptainVacantChip.vue";
+import CaptainVacantDialog from "../components/CaptainVacantDialog.vue";
 import { fmtK } from "../shared/format";
-import { createTabletopList, TABLETOP_LIST_KEY, teamKind, type TeamOption } from "../tabletop/list";
+import { createTabletopList, TABLETOP_LIST_KEY, teamKind, type CaptainInfo, type TeamOption } from "../tabletop/list";
 import type { PostMatchOption } from "../tabletop/recorder";
 
 const session = inject(SESSION_KEY)!;
@@ -102,6 +104,35 @@ async function onFixture(fixtureRef: string): Promise<void> {
   }
 }
 
+// Team Captain replacement (owner 10-30): a team whose captain died shows "Captain vacant: choose" under its picker; the
+// shared dialog (notice, player picker, confirm) appoints from the players the server says are eligible.
+const organiser = computed(() => session.state.info?.organizer === true);
+const myPicked = computed(() => myTeams.value.find((t) => t.ref === myTeam.value));
+const theirPicked = computed(() => (organiser.value ? saves.value.find((t) => t.ref === theirTeam.value) : undefined));
+const captain = ref<{ coach: string; ref: string; info: CaptainInfo } | null>(null);
+const captainErr = ref("");
+async function openCaptain(coach: string, ref: string): Promise<void> {
+  captainErr.value = "";
+  try {
+    const info = await list.captainInfo(coach, ref);
+    if (info.vacant) captain.value = { coach, ref, info };
+    else await reloadTeams(coach);
+  } catch (e) {
+    captainErr.value = (e as Error).message;
+  }
+}
+async function reloadTeams(coach: string): Promise<void> {
+  if (coach === session.coach()) await list.loadMyTeams();
+  else if (coach === opponent.value) saves.value = await list.lookupSaves(coach);
+}
+async function appoint(playerId: string): Promise<string> {
+  const c = captain.value;
+  if (!c) return "";
+  const failed = await list.appointCaptain(c.coach, c.ref, playerId, c.info.revision);
+  if (!failed) await reloadTeams(c.coach);
+  return failed;
+}
+
 const stateLabel = (s: string): string => (s === "recording" ? "Recording" : s === "submitted" ? "Waiting for confirmation" : s === "confirmed" ? "Confirmed" : s);
 
 onMounted(() => {
@@ -140,6 +171,7 @@ onMounted(() => {
           <option v-for="t in myTeams" :key="t.ref" :value="t.ref">{{ teamLabel(t) }}</option>
         </select>
         <p v-if="myTeamsErr" class="sf-error" role="alert">{{ myTeamsErr }}</p>
+        <p v-if="myPicked?.captainVacant" class="tt-cap-row"><CaptainVacantChip action @choose="openCaptain(session.coach(), myPicked.ref)" /></p>
         <label class="sf-k" for="tt-opp">Opponent coach</label>
         <input
           id="tt-opp"
@@ -168,6 +200,8 @@ onMounted(() => {
           <option value="">{{ lookedUp ? (saves.length ? "Pick their team" : "No saved teams found") : "Pick an opponent first" }}</option>
           <option v-for="t in saves" :key="t.ref" :value="t.ref">{{ teamLabel(t) }}</option>
         </select>
+        <p v-if="theirPicked?.captainVacant" class="tt-cap-row"><CaptainVacantChip action @choose="openCaptain(opponent, theirPicked.ref)" /></p>
+        <p v-if="captainErr" class="sf-error" role="alert">{{ captainErr }}</p>
         <label class="sf-k" for="tt-post">After the match</label>
         <select id="tt-post" v-model="postMatch" class="sf-input">
           <option v-for="(label, key) in POST_MATCH_LABELS" :key="key" :value="key">{{ label }}</option>
@@ -176,6 +210,8 @@ onMounted(() => {
       </form>
       <p v-if="err" class="sf-error" role="alert">{{ err }}</p>
     </section>
+
+    <CaptainVacantDialog v-if="captain" :team-name="captain.info.teamName ?? ''" :players="captain.info.players" :appoint="appoint" @close="captain = null" />
 
     <TabletopTestMatchCard />
     <AdminDeleteCoachCard />
@@ -196,3 +232,7 @@ onMounted(() => {
     </section>
   </div>
 </template>
+
+<style scoped>
+.tt-cap-row { margin: 4px 0 8px; }
+</style>
