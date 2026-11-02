@@ -2104,14 +2104,17 @@ async function handleApi(
     const testSession = getSession(sessionTokenFromRequest(req))?.test === true;
     let body: unknown;
     if (method === "POST") { try { body = await readBody(req, 8 * 1024); } catch { return sendJson(res, 400, { error: "Invalid JSON request body." }); } }
-    // The session may have ended (sign-out, account deletion) while the body was read: writes need it still current.
+    // The session may have ended (sign-out, account deletion) or lost its level while the body was read: writes use the
+    // identity and levels as they are NOW, never the ones resolved before the body.
+    let actor = auth;
     if ((method === "POST" || method === "DELETE") && auth) {
       if (isCoachFenced(auth.coach)) return sendJson(res, 410, { error: "This account is being deleted." });
       const current = requestIdentity(req);
       if (!current || normalizeFfbCoachId(current.coach) !== normalizeFfbCoachId(auth.coach)) return sendJson(res, 401, { error: "Authentication required." });
+      actor = current;
     }
-    const adminActor = auth?.admin ? auth.coach : isAdminAuthed(req) || isTokenAuthed(req) ? "admin" : undefined;
-    const result = organiserRequestsApi(method, path, query, auth ? { ...auth, ...(testSession ? { test: true } : {}) } : undefined, adminActor, body, {
+    const adminActor = actor?.admin ? actor.coach : isAdminAuthed(req) || isTokenAuthed(req) ? "admin" : undefined;
+    const result = organiserRequestsApi(method, path, query, actor ? { ...actor, ...(testSession ? { test: true } : {}) } : undefined, adminActor, body, {
       store: organiserRequestStore,
       notify: (coach, input) => { notificationStore.add(coach, input); },
     });

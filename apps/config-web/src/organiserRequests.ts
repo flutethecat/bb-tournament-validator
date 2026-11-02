@@ -200,18 +200,32 @@ export class OrganiserRequestStore {
     return row;
   }
 
-  /** Decide a pending request. `apply` runs first (the identity write for an approval): when it throws, nothing changes. */
+  get(id: string): OrganiserRequest | undefined { return this.read().requests.find((r) => r.id === id); }
+
+  /**
+   * Decide a pending request. The decision is recorded FIRST; `apply` (the identity write for an approval) runs after.
+   * When `apply` throws, the request goes back to pending and the error is rethrown, so rights are never granted
+   * without an approved request on record (and a failed record write never grants anything).
+   */
   decide(id: string, decision: "approved" | "declined", actor: string, reason: string, apply?: (row: OrganiserRequest) => void): OrganiserRequest {
     const data = this.read();
     const row = data.requests.find((r) => r.id === id);
     if (!row) throw new OrganiserRequestError(404, "No such request.");
     if (row.status !== "pending") throw new OrganiserRequestError(409, `This request was already ${row.status}.`);
-    apply?.(row);
+    const before = { ...row };
     row.status = decision;
     row.closedAt = this.now().toISOString();
     row.decidedBy = actor;
     if (reason) row.reason = reason; else delete row.reason;
     this.write(data);
+    if (apply) {
+      try { apply(row); } catch (e) {
+        const again = this.read();
+        const i = again.requests.findIndex((r) => r.id === id);
+        if (i >= 0) { again.requests[i] = before; this.write(again); }
+        throw e;
+      }
+    }
     return row;
   }
 }
@@ -227,6 +241,11 @@ export function grantOrganiserLevel(coach: string, actor: string, now = new Date
   if (stored.level !== "player") return "already";
   upsertIdentity({ ...stored, level: "organizer", updatedAt: now.toISOString(), updatedBy: actor });
   return "granted";
+}
+
+/** The stored identity level ("player" when there is no record). */
+export function currentLevel(coach: string): string {
+  return readIdentitiesStrict().coaches[coachKey(coach)]?.level ?? "player";
 }
 
 /** Site admins (identity level admin, not banned): the queue's notification recipients. */
@@ -246,6 +265,8 @@ export interface OrganiserRequestDeps {
   notify: (coach: string, input: NotificationInput) => void;
   admins?: () => string[];
   grant?: (coach: string, actor: string) => "granted" | "already";
+  /** The coach's stored site level (identity record; banned ignored). */
+  levelOf?: (coach: string) => string;
   log?: (line: string) => void;
 }
 export interface OrganiserRequestResult { status: number; body: unknown }
@@ -331,6 +352,14 @@ export function organiserRequestsApi(
     if (auth?.test) return { status: 403, body: { error: "Test sign-in sessions can't decide organiser requests." } };
     const reason = boundedText(isObj(body) ? body.reason : undefined, "The reason", REASON_MAX, true);
     const decision = m[2] === "approve" ? "approved" : "declined";
+    const target = deps.store.get(m[1]!);
+    if (!target) return { status: 404, body: { error: "No such request." } };
+    if (coachKey(target.coach) === coachKey(adminActor) || (auth && coachKey(target.coach) === coachKey(auth.coach)))
+      return { status: 403, body: { error: "You can't decide your own request." } };
+    // A decline never leaves rights unrecorded: a coach who already holds the level (granted elsewhere, or by an
+    // approval whose request write was lost) is refused here, so the record and the level never disagree silently.
+    if (decision === "declined" && (deps.levelOf ?? currentLevel)(target.coach) !== "player")
+      return { status: 409, body: { error: `${target.coach} is already an organiser. Approve the request to record it, or change their level in the identities admin first.` } };
     const grant = deps.grant ?? ((coach: string, actor: string) => grantOrganiserLevel(coach, actor));
     let granted: "granted" | "already" | undefined;
     const row = deps.store.decide(m[1]!, decision, adminActor, reason, decision === "approved" ? (r) => { granted = grant(r.coach, adminActor); } : undefined);

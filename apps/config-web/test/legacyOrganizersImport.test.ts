@@ -1,11 +1,11 @@
 // organizers.json retirement (registration spec 2026-11-02 Q14): the one-time import into identity levels. Isolated
 // identities file, organizers file and state dir per test. Invented names only.
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { coachLevel, isOrganizer } from "../src/auth/access.js";
-import { readIdentities } from "../src/auth/identitiesStore.js";
+import { readIdentities, upsertIdentity } from "../src/auth/identitiesStore.js";
 import { importLegacyOrganizers, LEGACY_IMPORT_ACTOR, legacyOrganizersMarker } from "../src/auth/organizers.js";
 import { clearFences, coachKeyHash, fenceCoachHash } from "../src/privacy/fence.js";
 
@@ -109,5 +109,30 @@ describe("legacy organiser import", () => {
     const c = readIdentities().coaches;
     expect(c.tarkin!.level).toBe("player");
     expect(Object.keys(c)).not.toContain("deleted coach #4");
+  });
+  it("losing the marker never re-grants: each coach is imported once, recorded on the identity record", () => {
+    writeOrganizers(["Tarkin", "Fives", "Piett"]);
+    importLegacyOrganizers(state, { log });
+    const c = readIdentities().coaches;
+    for (const k of ["tarkin", "fives", "piett"]) expect(c[k]!.legacyOrganiserImported).toEqual(expect.any(String));
+    // an admin revokes Tarkin later (the admin identities writer rebuilds the record without the flag: it is carried)
+    upsertIdentity({ ffbCoachId: "Tarkin", level: "player", banned: false, silenced: false, note: "", profile: {}, identities: {}, updatedAt: "", updatedBy: "Admin" });
+    expect(readIdentities().coaches.tarkin!.legacyOrganiserImported).toEqual(expect.any(String));
+    rmSync(legacyOrganizersMarker(state)); // the marker is lost
+    expect(importLegacyOrganizers(state, { log })).toMatchObject({ status: "imported", elevated: 0, unchanged: 3 });
+    expect(coachLevel("Tarkin")).toBe("player");
+  });
+
+  it("a marker that cannot be written aborts the import with nothing applied; a 'running' marker resumes", () => {
+    writeOrganizers(["Tarkin"]);
+    mkdirSync(legacyOrganizersMarker(state), { recursive: true }); // a directory where the marker file goes: writes fail
+    expect(importLegacyOrganizers(state, { log }).status).toBe("failed");
+    expect(coachLevel("Tarkin")).toBe("player");
+    expect(readIdentities().coaches.tarkin!.legacyOrganiserImported).toBeUndefined();
+    rmSync(legacyOrganizersMarker(state), { recursive: true });
+    writeFileSync(legacyOrganizersMarker(state), JSON.stringify({ version: 1, status: "running" }), "utf8"); // a crash mid-import
+    expect(importLegacyOrganizers(state, { log }).status).toBe("imported");
+    expect(coachLevel("Tarkin")).toBe("organizer");
+    expect(JSON.parse(readFileSync(legacyOrganizersMarker(state), "utf8")).status).toBe("done");
   });
 });

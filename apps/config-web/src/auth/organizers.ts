@@ -39,20 +39,32 @@ export function readLegacyOrganizerNames(file = organizersFile()): string[] | un
 }
 
 export interface LegacyImportResult {
-  /** "imported" (ran now), "already" (marker found), "failed" (no marker written; retried next start). */
+  /** "imported" (ran now), "already" (marker found), "failed" (nothing or only part applied; retried next start). */
   status: "imported" | "already" | "failed";
   elevated: number;
   unchanged: number;
   skipped: number;
 }
 
+function writeMarker(marker: string, value: Record<string, unknown>): void {
+  mkdirSync(dirname(marker), { recursive: true });
+  atomicWriteTextFile(marker, `${JSON.stringify({ version: 1, ...value }, null, 2)}
+`);
+}
+
 /**
  * One-time, idempotent import of organizers.json into identity levels. Each name (identity key: trim + lower case, the
- * same fold the legacy reader used) gets level "organizer" on its identity record: a player record is raised, an
- * organiser or admin record is left alone, and a coach with no record gets a minimal player record raised to organiser
- * (so nobody who had rights through the file loses them). A banned coach's record is raised too (coachLevel still
- * answers "player" while banned, exactly as the legacy bridge did). A name the identities writer refuses (a reserved
- * pseudonym, a coach whose deletion is running) is skipped. The marker is written only after every name was handled.
+ * same fold the legacy reader used) is handled once per coach and the result is recorded ON the identity record
+ * (legacyOrganiserImported): a player record is raised to organiser, an organiser or admin record keeps its level, and a
+ * coach with no record gets a minimal record at organiser (so nobody who had rights through the file loses them). A
+ * record that already carries legacyOrganiserImported is never touched again, so losing the marker can never re-grant a
+ * level an admin removed later. A banned coach's record is raised too (coachLevel still answers "player" while banned,
+ * exactly as the legacy bridge did). A name the identities writer refuses (a reserved pseudonym, a coach whose deletion
+ * is running) is skipped.
+ *
+ * The marker is written as "running" BEFORE any identity write (a failure there aborts the import with nothing
+ * applied) and as "done" after every name was handled; a "running" marker resumes on the next start (safe: per-coach
+ * records stop any re-grant).
  */
 export function importLegacyOrganizers(stateDir: string, options: { file?: string; now?: Date; log?: (line: string) => void } = {}): LegacyImportResult {
   const log = options.log ?? ((line: string) => console.log(line));
@@ -60,8 +72,12 @@ export function importLegacyOrganizers(stateDir: string, options: { file?: strin
   const marker = legacyOrganizersMarker(stateDir);
   const result: LegacyImportResult = { status: "already", elevated: 0, unchanged: 0, skipped: 0 };
   if (existsSync(marker)) {
-    if (existsSync(file)) log("[organizers] organizers.json is deprecated and no longer read for permissions (imported into identity levels); it can be removed.");
-    return result;
+    let done = false;
+    try { done = (JSON.parse(readFileSync(marker, "utf8")) as { status?: unknown }).status !== "running"; } catch { done = false; }
+    if (done) {
+      if (existsSync(file)) log("[organizers] organizers.json is deprecated and no longer read for permissions (imported into identity levels); it can be removed.");
+      return result;
+    }
   }
   let names: string[] | undefined;
   try {
@@ -72,6 +88,12 @@ export function importLegacyOrganizers(stateDir: string, options: { file?: strin
     return { ...result, status: "failed" };
   }
   const at = (options.now ?? new Date()).toISOString();
+  try {
+    writeMarker(marker, { status: "running", startedAt: at });
+  } catch (e) {
+    log(`[organizers] legacy organiser import aborted (its marker could not be written), nothing applied, retried on the next start: ${(e as Error).message}`);
+    return { ...result, status: "failed" };
+  }
   const seen = new Set<string>();
   for (const raw of names ?? []) {
     const name = raw.trim();
@@ -81,20 +103,25 @@ export function importLegacyOrganizers(stateDir: string, options: { file?: strin
     if (name.length > MAX_FFB_COACH_ID_LENGTH) { result.skipped++; continue; }
     try {
       const stored = readIdentitiesStrict().coaches[key];
-      if (stored && stored.level !== "player") { result.unchanged++; continue; }
+      if (stored?.legacyOrganiserImported) { result.unchanged++; continue; } // handled once already: never re-applied
+      if (stored && stored.level !== "player") {
+        upsertIdentity({ ...stored, legacyOrganiserImported: at });
+        result.unchanged++;
+        continue;
+      }
       upsertIdentity(stored
-        ? { ...stored, level: "organizer", updatedAt: at, updatedBy: LEGACY_IMPORT_ACTOR }
-        : { ffbCoachId: name, level: "organizer", banned: false, silenced: false, note: "", profile: {}, identities: {}, updatedAt: at, updatedBy: LEGACY_IMPORT_ACTOR });
+        ? { ...stored, level: "organizer", legacyOrganiserImported: at, updatedAt: at, updatedBy: LEGACY_IMPORT_ACTOR }
+        : { ffbCoachId: name, level: "organizer", banned: false, silenced: false, note: "", profile: {}, identities: {}, legacyOrganiserImported: at, updatedAt: at, updatedBy: LEGACY_IMPORT_ACTOR });
       result.elevated++;
     } catch {
       result.skipped++;
     }
   }
   try {
-    mkdirSync(dirname(marker), { recursive: true });
-    atomicWriteTextFile(marker, `${JSON.stringify({ version: 1, importedAt: at, source: names ? "organizers.json" : "absent", elevated: result.elevated, unchanged: result.unchanged, skipped: result.skipped }, null, 2)}\n`);
+    writeMarker(marker, { status: "done", importedAt: at, source: names ? "organizers.json" : "absent", elevated: result.elevated, unchanged: result.unchanged, skipped: result.skipped });
   } catch (e) {
-    log(`[organizers] legacy organiser import ran but its marker could not be written (it runs again next start, harmlessly): ${(e as Error).message}`);
+    log(`[organizers] legacy organiser import ran but its marker could not be finished; it resumes next start and changes nothing already imported: ${(e as Error).message}`);
+    return { ...result, status: "failed" };
   }
   log(`[organizers] imported organizers.json into identity levels: ${result.elevated} raised, ${result.unchanged} already organisers or admins, ${result.skipped} skipped. The file is no longer read for permissions.`);
   return { ...result, status: "imported" };

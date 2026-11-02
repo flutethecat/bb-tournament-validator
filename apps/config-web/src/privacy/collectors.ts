@@ -1105,7 +1105,7 @@ export const DELETE_STEPS: DeleteStep[] = [
       const tx = text();
       rewriteJson(organiserRequestsFile(deps), (d) => objs(d.requests).map((r) => {
         if (an.matches(r.coach)) {
-          an.fields(r, ["coach"], []);
+          an.fields(r, ["coach", "decidedBy"], []); // both, when either names the coach (a self-decided request)
           Object.assign(r, { competition: "", region: "", note: "", links: [] });
           delete r.reason;
           return true;

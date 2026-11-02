@@ -60,6 +60,9 @@ export interface CoachIdentityRecord {
   contact?: CoachContact;
   /** League-contact consent and privacy-notice acceptance (src/auth/contactSchema.ts). Absent = onboarding needed. */
   consent?: CoachConsent;
+  /** When the one-time organizers.json import handled this coach (src/auth/organizers.ts). Once set, the import never
+   *  touches the record again, so a level an admin changed later is never re-granted. Carried through every write. */
+  legacyOrganiserImported?: string;
   updatedAt: string;
   updatedBy: string;
 }
@@ -150,6 +153,7 @@ export function confirmProvisionalSignup(record: CoachIdentityRecord, discordUse
     ...record,
     ...(!Object.hasOwn(record, "contact") && stored?.contact ? { contact: stored.contact } : {}),
     ...(!Object.hasOwn(record, "consent") && stored?.consent ? { consent: stored.consent } : {}),
+    ...(!Object.hasOwn(record, "legacyOrganiserImported") && stored?.legacyOrganiserImported ? { legacyOrganiserImported: stored.legacyOrganiserImported } : {}),
   });
   const section = readProvisionalSection();
   if (section[discordUserId]?.operationId === operationId) delete section[discordUserId];
@@ -368,6 +372,8 @@ function normalizedRecord(value: unknown, allowLegacy = false): CoachIdentityRec
     ...(connections ? { connections } : {}),
     ...(contact ? { contact } : {}),
     ...(consent ? { consent } : {}),
+    ...(typeof record.legacyOrganiserImported === "string" && record.legacyOrganiserImported
+      ? { legacyOrganiserImported: boundedString(record.legacyOrganiserImported, "legacyOrganiserImported", MAX_IDENTITY_VALUE_LENGTH) } : {}),
     updatedAt: boundedString(record.updatedAt, "updatedAt", MAX_IDENTITY_VALUE_LENGTH),
     updatedBy: boundedString(record.updatedBy, "updatedBy", MAX_IDENTITY_VALUE_LENGTH),
   };
@@ -544,6 +550,7 @@ export function upsertIdentity(record: CoachIdentityRecord): IdentityStore {
     ...withConn,
     ...(!Object.hasOwn(record, "contact") && stored?.contact ? { contact: stored.contact } : {}),
     ...(!Object.hasOwn(record, "consent") && stored?.consent ? { consent: stored.consent } : {}),
+    ...(!Object.hasOwn(record, "legacyOrganiserImported") && stored?.legacyOrganiserImported ? { legacyOrganiserImported: stored.legacyOrganiserImported } : {}),
   };
   const normalized = normalizedRecord(carried);
   const store: IdentityStore = {

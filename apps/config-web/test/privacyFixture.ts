@@ -92,6 +92,7 @@ export async function seed(root: string, opts: SeedOptions = {}): Promise<void> 
   w(join(d.stateDir, "organiser-requests.json"), { version: 1, requests: [
     { id: "or000000000001", coach: "Alice", run: "league", competition: "Ally Example Cup", region: "North", note: "I am Alice and I run a club.", links: ["https://example.test/alice-club"], status: "pending", createdAt: "2026-11-01T00:00:00.000Z" },
     { id: "or000000000002", coach: "Bob", run: "tournament", competition: "Bob Open", region: "", note: "Alice can vouch for me.", links: [], status: "declined", createdAt: "2026-10-30T00:00:00.000Z", closedAt: "2026-10-31T00:00:00.000Z", decidedBy: "Alice", reason: "Ask Alice again later." },
+    { id: "or000000000003", coach: "Alice", run: "both", competition: "", region: "", note: "Self check.", links: [], status: "approved", createdAt: "2026-10-20T00:00:00.000Z", closedAt: "2026-10-21T00:00:00.000Z", decidedBy: "Alice" },
   ] });
 
   // avatars

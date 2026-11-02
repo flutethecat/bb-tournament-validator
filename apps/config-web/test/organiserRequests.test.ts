@@ -170,4 +170,40 @@ describe("admin queue", () => {
     expect(res.body).toMatchObject({ level: "already", request: { decidedBy: "admin" } });
     expect(coachLevel("OrgCoach")).toBe("organizer");
   });
+  it("blocks deciding your own request (P3)", () => {
+    const row = store.submit("Boss", parseSubmit(good)); // an admin's own pending row (e.g. sent before promotion)
+    for (const d of ["approve", "decline"]) {
+      expect(call("POST", `${ADMIN}/${row.id}/${d}`, coach("Boss"), {}, "Boss")).toEqual({ status: 403, body: { error: "You can't decide your own request." } });
+    }
+    expect(store.get(row.id)?.status).toBe("pending");
+    expect(call("POST", `${ADMIN}/${row.id}/decline`, coach("Chief"), {}, "Chief").status).toBe(409); // Boss already holds a level
+  });
+
+  it("decline is refused while the coach already holds the level, so rights are never left unrecorded", () => {
+    const row2 = store.submit("Other", parseSubmit(good));
+    writeFileSync(process.env.IDENTITIES_FILE!, JSON.stringify({ version: 1, coaches: { ...readIdentities().coaches, other: { ...readIdentities().coaches.other, level: "organizer" } } }), "utf8");
+    const res = call("POST", `${ADMIN}/${row2.id}/decline`, coach("Boss"), {}, "Boss");
+    expect(res.status).toBe(409);
+    expect((res.body as { error: string }).error).toMatch(/already an organiser/);
+    expect(store.get(row2.id)?.status).toBe("pending");
+    expect(call("POST", `${ADMIN}/${row2.id}/approve`, coach("Boss"), {}, "Boss").body).toMatchObject({ level: "already", request: { status: "approved" } });
+  });
+
+  it("approval records the decision before the identity write; a failed grant puts the request back to pending", () => {
+    const id = submit("NewCoach");
+    notes = [];
+    let seen = "";
+    const failing = { ...deps(), grant: () => { seen = store.get(id)!.status; throw Object.assign(new Error("This account is being deleted."), { status: 409 }); } };
+    const res = organiserRequestsApi("POST", `${ADMIN}/${id}/approve`, new URLSearchParams(), coach("Boss"), "Boss", {}, failing)!;
+    expect(seen).toBe("approved"); // on disk before the grant ran
+    expect(res.status).toBe(409);
+    expect(store.get(id)).toMatchObject({ status: "pending" });
+    expect(store.get(id)).not.toHaveProperty("decidedBy");
+    expect(coachLevel("NewCoach")).toBe("player");
+    expect(notes).toEqual([]); // no outcome notification for an undone decision
+    // a request write that fails grants nothing
+    writeFileSync(store.file, "{broken", "utf8");
+    expect(call("POST", `${ADMIN}/${id}/approve`, coach("Boss"), {}, "Boss").status).toBe(500);
+    expect(coachLevel("NewCoach")).toBe("player");
+  });
 });

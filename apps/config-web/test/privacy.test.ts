@@ -358,7 +358,7 @@ describe("export", () => {
     expect(account.consent.privacy.acceptedVersion).toBe("2026-10-31");
     expect(account.legacyOrganiser).toBe(true);
     // her own organiser requests only, without who decided (Bob's request, decided by her, is not hers)
-    expect(JSON.parse(text("organiser-requests.json")).map((r: { id: string; decidedBy?: string }) => [r.id, r.decidedBy])).toEqual([["or000000000001", undefined]]);
+    expect(JSON.parse(text("organiser-requests.json")).map((r: { id: string; decidedBy?: string }) => [r.id, r.decidedBy])).toEqual([["or000000000001", undefined], ["or000000000003", undefined]]);
     expect(account.sessions.length).toBeGreaterThan(0);
     expect(JSON.stringify(account.sessions)).not.toMatch(/[a-f0-9]{64}/);
     expect(JSON.parse(text("builder-saves.json"))).toEqual([{ id: "s1", name: "Green Orcs", sharedAt: "2026-10-01T00:00:00Z", body: {}, shared: true }]);
@@ -468,6 +468,7 @@ describe("delete", () => {
     // its text with her name replaced, and her name as the deciding admin becomes the pseudonym
     const orq = readJ(join(deps.stateDir, "organiser-requests.json")).requests;
     expect(orq[0]).toEqual({ id: "or000000000001", coach: P, run: "league", competition: "", region: "", note: "", links: [], status: "pending", createdAt: "2026-11-01T00:00:00.000Z" });
+    expect(orq[2]).toMatchObject({ coach: P, decidedBy: P, note: "" }); // self-decided: both fields anonymised
     expect(orq[1]).toMatchObject({ coach: "Bob", decidedBy: P, note: `${P} can vouch for me.`, reason: `Ask ${P} again later.`, competition: "Bob Open" });
     const tf = readJ(join(deps.tournamentsDir, "tournaments.json"));
     expect(tf.version).toBe(4);

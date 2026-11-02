@@ -1,6 +1,7 @@
 // Organiser requests over HTTP, and the organizers.json import at server start (registration spec 2026-11-02 Q1, Q14).
 // Isolated state: every store points into this suite's temp root. Invented names only.
 import { once } from "node:events";
+import { request as httpRequest } from "node:http";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -130,5 +131,27 @@ describe("organiser requests over HTTP", () => {
     const w = await fetch(`${origin}/api/me/organiser-request`, { method: "DELETE", headers: as("Fresh2") });
     expect(w.status).toBe(200);
     expect(await w.json()).toMatchObject({ request: { status: "withdrawn" } });
+  });
+  it("an admin demoted while the body is in flight is refused (levels re-read after the body)", async () => {
+    const sent = await fetch(`${origin}/api/me/organiser-request`, { method: "POST", headers: as("Fresh3"), body: JSON.stringify(good) });
+    const { request } = (await sent.json()) as { request: { id: string } };
+    const writeIdentities = (level: string) => {
+      const file = join(root, "identities.json");
+      const data = JSON.parse(readFileSync(file, "utf8"));
+      data.coaches.chief2 = rec("Chief2", level);
+      writeFileSync(file, JSON.stringify(data), "utf8");
+    };
+    writeIdentities("admin");
+    const headers = as("Chief2");
+    const status = await new Promise<number>((resolve, reject) => {
+      const u = new URL(`${origin}/api/admin/organiser-requests/${request.id}/approve`);
+      const req = httpRequest({ hostname: u.hostname, port: u.port, path: u.pathname, method: "POST", headers }, (res) => { res.resume(); resolve(res.statusCode ?? 0); });
+      req.on("error", reject);
+      req.write('{"reason":');
+      setTimeout(() => { writeIdentities("player"); req.end('"late"}'); }, 150);
+    });
+    expect(status).toBe(403);
+    const mine = (await (await fetch(`${origin}/api/me/organiser-request`, { headers: as("Fresh3") })).json()) as { request: { status: string } };
+    expect(mine.request.status).toBe("pending");
   });
 });
