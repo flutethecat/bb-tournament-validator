@@ -6,7 +6,9 @@
 // organiser edited carries an "Edited" chip (who and when; why for the coaches who play it and the managers), and the
 // activity feed under the rounds lists every result edit the viewer may see, stamped admin.
 import { computed, ref } from "vue";
+import { RouterLink } from "vue-router";
 import Crest from "./Crest.vue";
+import { tournamentLobbyPath } from "../leagues/lobby";
 import type { TournamentDetailState } from "../tournaments/detail";
 import { activityViews, editedTitle, onlyMine, remainingRounds, ROUND_TONE, roundViews } from "../tournaments/detail";
 import "../tournaments/resultEdits.css";
@@ -51,6 +53,10 @@ const left = computed(() => (props.data.tournament ? remainingRounds(props.data.
             </template>
             <span v-else-if="f.away" class="muted">vs</span>
             <span v-else class="muted">Bye</span>
+            <RouterLink
+              v-if="f.away && !f.played && mineIds.has(f.id) && data.tournament" class="sf-btn small tn-lobby" data-lobby
+              :to="tournamentLobbyPath(data.tournament.id, f.id)"
+            >Lobby</RouterLink>
             <span v-if="f.edited" class="sf-chip tn-edited" tabindex="0" :title="editedTitle(f.edited)" :aria-label="editedTitle(f.edited)">Edited</span>
           </div>
           <div class="tn-side tn-away">

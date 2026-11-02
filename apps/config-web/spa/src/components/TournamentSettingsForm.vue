@@ -22,6 +22,7 @@ interface Form {
   startsAt: string; endsAt: string; maxPlayers: number | ""; roundCount: number | "";
   pairingSystem: TournamentPairingSystem; seedingMode: TournamentSeedingMode; primaryTiebreaker: "buchholz" | "sonnebornBerger";
   nafSanctioned: boolean;
+  playOnFork: boolean;
 }
 const fromRecord = (): Form => ({
   startsAt: toLocalInput(t.value.startsAt),
@@ -32,6 +33,7 @@ const fromRecord = (): Form => ({
   seedingMode: t.value.seedingMode ?? "elo",
   primaryTiebreaker: t.value.tiebreakers?.[0] === "sonnebornBerger" ? "sonnebornBerger" : "buchholz",
   nafSanctioned: t.value.nafSanctioned === true,
+  playOnFork: t.value.playOnFork === true,
 });
 const form = reactive<Form>(fromRecord());
 // A refetch after any write resets the form to what the server holds.
@@ -48,6 +50,7 @@ const patch = computed<TournamentSettingsPatch>(() => {
   if (form.seedingMode !== before.seedingMode) out.seedingMode = form.seedingMode;
   if (form.primaryTiebreaker !== before.primaryTiebreaker) out.primaryTiebreaker = form.primaryTiebreaker;
   if (form.nafSanctioned !== before.nafSanctioned) out.nafSanctioned = form.nafSanctioned;
+  if (form.playOnFork !== before.playOnFork) out.playOnFork = form.playOnFork;
   return out;
 });
 const dirty = computed(() => Object.keys(patch.value).length > 0);
@@ -80,6 +83,11 @@ async function addOrganizer() { if (newOrganizer.value.trim()) { await detail.ad
       <span class="tn-fact-k">NAF</span>
       <span class="tn-check-line"><input v-model="form.nafSanctioned" type="checkbox" /> NAF sanctioned</span>
       <small class="muted hm-small">The NAF name and number on each coach's profile are shared with the organisers. A coach without them adds them to register, or ticks "I am not a NAF member".</small>
+    </label>
+    <label class="tn-field sf-field tn-check-field">
+      <span class="tn-fact-k">Where it is played</span>
+      <span class="tn-check-line"><input v-model="form.playOnFork" type="checkbox" data-play-on-fork /> Play on Super FUMBBL</span>
+      <small class="muted hm-small">Fixture lobbies then release the online launch and skip the inducement step. Off: START opens the match reporter for a tabletop game.</small>
     </label>
     <div class="tn-actions tn-form-actions">
       <button class="sf-btn primary" type="submit" :disabled="!dirty || busy">Save settings</button>

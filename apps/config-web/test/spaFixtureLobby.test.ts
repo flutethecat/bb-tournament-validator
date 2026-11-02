@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
-import { createFixtureLobby, draftOf, draftTotal, leagueLobbyPath, mySide, picksOf, type LobbyView } from "../spa/src/leagues/lobby";
+import { createFixtureLobby, draftOf, draftTotal, leagueLobbyPath, mySide, picksOf, tournamentLobbyPath, type LobbyView } from "../spa/src/leagues/lobby";
 import { fixtureOpenForLobby } from "../spa/src/leagues/fixtureNav";
 
 // SPA fixture lobby controller (spa/src/leagues/lobby.ts) against a mocked Fetcher: the inducement draft, Lock, the
@@ -64,6 +64,18 @@ describe("fixture lobby controller", () => {
     expect(lobby.state.dirty).toBe(false);
     expect(lobby.state.notice).toBe("Bob spent 100K.");
     expect(calls.some((c) => c.path === `${B}/presence`)).toBe(true);
+  });
+
+  it("a tournament scheduled match: its own SPA path and API base (match ids carry colons)", async () => {
+    const id = "t1:round:1:match:2";
+    expect(tournamentLobbyPath("t1", id)).toBe("/tournaments/t1/fixtures/t1%3Around%3A1%3Amatch%3A2/lobby");
+    const T = `/api/tournaments/t1/fixtures/${encodeURIComponent(id)}/lobby`;
+    const { f, calls } = fetcher({ [`GET ${T}`]: view("home"), [`POST ${T}/roster`]: { lobby: view("home") } });
+    const lobby = createFixtureLobby({ api: f, timers: timers().t });
+    await lobby.loadTournament("t1", id);
+    expect(lobby.state.view?.viewer.role).toBe("home");
+    await lobby.roster(true);
+    expect(calls.find((c) => c.path === `${T}/roster`)?.body).toEqual({ locked: true });
   });
 
   it("a spectator never sends a heartbeat; a refused action shows the server's reason", async () => {

@@ -151,6 +151,8 @@ export interface TournamentSummary {
   deadlines?: TournamentDeadlines;
   /** NAF sanctioned (owner 10-31): the coach's profile NAF name and number go to the organisers, or "I am not a NAF member". */
   nafSanctioned?: boolean;
+  /** Fixtures are played on Super FUMBBL: the fixture lobby gates the launch and has no inducement step. Absent = tabletop. */
+  playOnFork?: boolean;
 }
 
 export interface TournamentLocation { venue?: string; address?: string; mapUrl?: string }

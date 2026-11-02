@@ -95,6 +95,9 @@ export interface TournamentRecord {
   /** NAF sanctioned (owner 10-31): coach registration needs the NAF name and number on the coach's profile (shared with
    *  the organisers), or the "I am not a NAF member" box. Absent = false. */
   nafSanctioned?: boolean;
+  /** Fixtures are played on Super FUMBBL (online): the fixture lobby gates the launch and has no inducement step.
+   *  Absent = tabletop (the lobby's START creates the recorder match). Organiser-editable through the settings route. */
+  playOnFork?: boolean;
   /** Custom awards organisers and admins gave (src/tournaments/honours.ts). The podium is derived, never stored here. */
   awards?: TournamentAward[];
   /** Bumped by every award write; writes send it back (body `revision` or If-Match): 428 missing, 409 stale. */

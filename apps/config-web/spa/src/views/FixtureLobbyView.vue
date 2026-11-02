@@ -1,5 +1,6 @@
 <script setup lang="ts">
-// Fixture lobby (/app/leagues/:id/seasons/:seasonId/fixtures/:fixtureId/lobby; spec-landing-bubble-retro §8 layout v2):
+// Fixture lobby (/app/leagues/:id/seasons/:seasonId/fixtures/:fixtureId/lobby, and for a tournament scheduled match
+// /app/tournaments/:id/fixtures/:fixtureId/lobby with source "tournament"; spec-landing-bubble-retro §8 layout v2):
 // one lobby per fixture where the two coaches chat, lock their rosters and pre-match inducements, press Ready and start
 // the game. Public read: anyone may watch (no chat, no unrevealed picks); the two coaches and the organisers act.
 // Layout: breadcrumb + Standings / Rules / Leave lobby, the recorder's hero split, then 300 / fluid / 300 columns
@@ -15,11 +16,12 @@ import LobbyInducements from "../components/LobbyInducements.vue";
 import LobbyStart from "../components/LobbyStart.vue";
 import { crestFor, day, initials } from "../leagues/league";
 import { createFixtureLobby, FIXTURE_LOBBY_KEY, kGold, mySide, otherSide, type LobbySide } from "../leagues/lobby";
-import { leagueFixtureRef, proposePath } from "../schedule/schedule";
+import { leagueFixtureRef, proposePath, tournamentFixtureRef } from "../schedule/schedule";
 import "../leagues/leagues.css";
 import "../leagues/lobby.css";
 
-const props = defineProps<{ id: string; seasonId: string; fixtureId: string }>();
+const props = defineProps<{ id: string; seasonId?: string; fixtureId: string; source?: "league" | "tournament" }>();
+const isTournament = computed(() => props.source === "tournament");
 const fetcher = inject(API_KEY)!;
 const lobby = inject(FIXTURE_LOBBY_KEY, null) ?? createFixtureLobby({ api: fetcher });
 provide(FIXTURE_LOBBY_KEY, lobby);
@@ -30,17 +32,20 @@ const right = computed<LobbySide>(() => otherSide(left.value));
 const crests = ref<Record<string, string>>({});
 usePageTitle(() => (view.value ? `${view.value.sides.home.team.name} v ${view.value.sides.away.team.name}` : "Fixture lobby"));
 
+const loadLobby = (): Promise<void> => (isTournament.value ? lobby.loadTournament(props.id, props.fixtureId) : lobby.load(props.id, props.seasonId ?? "", props.fixtureId));
 onMounted(async () => {
-  await lobby.load(props.id, props.seasonId, props.fixtureId);
+  await loadLobby();
   lobby.start();
   try { crests.value = (await fetcher<{ crests?: Record<string, string> }>("/crests/manifest.json"))?.crests ?? {}; } catch { /* initials badges */ }
 });
-watch(() => [props.id, props.seasonId, props.fixtureId], () => { void lobby.load(props.id, props.seasonId, props.fixtureId); });
+watch(() => [props.id, props.seasonId, props.fixtureId, props.source], () => { void loadLobby(); });
 onBeforeUnmount(() => lobby.stop());
 
 // "Propose a time" (Schedule, ruling §7): for the two coaches while the lobby is open.
 const proposeTo = computed(() => (view.value?.open && (view.value.viewer.role === "home" || view.value.viewer.role === "away")
-  ? proposePath(leagueFixtureRef(props.id, props.seasonId, props.fixtureId)) : ""));
+  ? proposePath(isTournament.value ? tournamentFixtureRef(props.fixtureId) : leagueFixtureRef(props.id, props.seasonId ?? "", props.fixtureId)) : ""));
+const competitionsTo = computed(() => (isTournament.value ? "/tournaments" : "/leagues"));
+const roundText = computed(() => (view.value ? `Round ${view.value.header.round}${view.value.header.rounds ? ` of ${view.value.header.rounds}` : ""}` : ""));
 const crest = (s: LobbySide): string => (view.value ? crestFor(crests.value, view.value.sides[s].team.race) : "");
 const midLine = computed(() => {
   const h = view.value?.header;
@@ -55,14 +60,14 @@ const midLine = computed(() => {
     <section v-else-if="!view" class="hm-panel" aria-labelledby="fl-err">
       <header class="hm-band"><h2 id="fl-err">Fixture lobby</h2></header>
       <p class="sf-error" role="alert">{{ state.error || "Can't load this lobby." }}</p>
-      <RouterLink class="sf-btn small" :to="`/leagues/${encodeURIComponent(id)}`">Back to the league</RouterLink>
+      <RouterLink class="sf-btn small" :to="`${competitionsTo}/${encodeURIComponent(id)}`">{{ isTournament ? "Back to the tournament" : "Back to the league" }}</RouterLink>
     </section>
     <template v-else>
       <div class="fl-crumbs">
         <nav aria-label="Breadcrumb">
-          <RouterLink to="/leagues">Leagues</RouterLink><span aria-hidden="true">/</span>
+          <RouterLink :to="competitionsTo">{{ isTournament ? "Tournaments" : "Leagues" }}</RouterLink><span aria-hidden="true">/</span>
           <RouterLink :to="view.links.competition">{{ view.header.competition }}</RouterLink><span aria-hidden="true">/</span>
-          <span>Round {{ view.header.round }}{{ view.header.table ? ` · Table ${view.header.table}` : "" }}</span>
+          <span>{{ roundText }}{{ view.header.table ? ` · Table ${view.header.table}` : "" }}</span>
         </nav>
         <div class="sf-btn-row">
           <RouterLink v-if="proposeTo" class="sf-btn small primary" data-propose :to="proposeTo">Propose a time</RouterLink>
@@ -75,7 +80,7 @@ const midLine = computed(() => {
       <header class="fl-hero" aria-label="Fixture">
         <template v-for="(s, i) in [left, right]" :key="s">
           <div v-if="i === 1" class="fl-hero-mid">
-            <small>Round {{ view.header.round }}{{ view.header.phase ? ` · ${view.header.phase}` : "" }}</small>
+            <small>{{ roundText }}{{ view.header.phase ? ` · ${view.header.phase}` : "" }}</small>
             <span class="fl-vs">VS</span>
             <small>{{ midLine }}</small>
           </div>

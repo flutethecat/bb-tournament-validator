@@ -231,7 +231,7 @@ describe("nav tree controller", () => {
     await tree.load("Alice");
     expect(tree.state.tournaments.map((t) => t.id)).toEqual(["t1", "t2"]);
     const [t1, t2] = tree.state.tournaments;
-    expect(t1).toMatchObject({ name: "Spring Cup", status: { label: "Live" }, to: "/tournaments/t1", fixture: { label: "Round 2 · vs Bob", to: "/tournaments/t1?tab=rounds" } });
+    expect(t1).toMatchObject({ name: "Spring Cup", status: { label: "Live" }, to: "/tournaments/t1", fixture: { label: "Round 2 · vs Bob", to: "/tournaments/t1/fixtures/m1/lobby" } });
     expect(t1!.team).toMatchObject({ name: "Alice Orcs", race: "Orc", crest: "/crests/orc.png", validity: { label: "Valid", tone: "ok" }, to: "/tournaments/t1/team/e1" });
     expect(t2).toMatchObject({ status: { label: "Pending" }, fixture: null, team: { validity: { label: "2 problems", tone: "urgent" } } });
     expect(tree.state.deadlines).toHaveLength(2);
@@ -711,7 +711,7 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(rowFor(nav, "/app/tournaments/t1")).toMatch(/Spring Cup[\s\S]*data-tone="ok">Live</);
     expect(rowFor(nav, "/app/tournaments/t1/team/e1")).toMatch(/src="\/crests\/orc.png"[\s\S]*Alice Orcs[\s\S]*Orc[\s\S]*>Valid</);
     expect(rowFor(nav, "/app/tournaments/t1/team/e1")).toContain('data-level="2"');
-    expect(rowFor(nav, "/app/tournaments/t1?tab=rounds")).toMatch(/data-level="3"[\s\S]*Round 2 · vs Bob/);
+    expect(rowFor(nav, "/app/tournaments/t1/fixtures/m1/lobby")).toMatch(/data-level="3"[\s\S]*Round 2 · vs Bob/);
     expect(rowFor(nav, "/app/tournaments/t2")).toMatch(/Autumn Open[\s\S]*>Pending</);
     expect(nav).toMatch(/href="\/app\/tournaments\/t2\?tab=rounds" class="sf-row"[^>]*data-muted="true"[^>]*>[\s\S]*No fixture yet/);
     expect(nav).toContain(">2 problems<");
@@ -745,9 +745,9 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(active(home)).toHaveLength(1);
     expect(active(home)[0]).toContain('href="/app/home" class="sf-top-link"');
     expect(active(home)[0]).toContain('aria-current="page"');
-    const fixture = await at("/tournaments/t1?tab=rounds");
+    const fixture = await at("/tournaments/t1/fixtures/m1/lobby");
     expect(active(fixture)).toHaveLength(1);
-    expect(active(fixture)[0]).toContain('href="/app/tournaments/t1?tab=rounds"');
+    expect(active(fixture)[0]).toContain('href="/app/tournaments/t1/fixtures/m1/lobby"');
     // the tournaments list: the Tournaments header is the one highlighted (the "No active ..." notes never are)
     const list = await at("/tournaments");
     expect(active(list)).toHaveLength(1);

@@ -176,10 +176,10 @@ function lobbyTeam(team: LeagueTeam | undefined, name: string, race: string): Lo
 
 // ---- statistics and head-to-head ------------------------------------------------------------------------------------
 
-interface Game { at: string; outcome: "W" | "D" | "L"; td: number; cas: number }
-interface Meeting extends LobbyMeeting { coaches: { home: string; away: string } }
+export interface Game { at: string; outcome: "W" | "D" | "L"; td: number; cas: number }
+export interface Meeting extends LobbyMeeting { coaches: { home: string; away: string } }
 
-function statsOf(games: Game[]): LobbyCoachStats {
+export function statsOf(games: Game[]): LobbyCoachStats {
   const sorted = [...games].sort((a, b) => a.at.localeCompare(b.at));
   const n = sorted.length;
   const sum = (k: "td" | "cas") => sorted.reduce((t, g) => t + g[k], 0);
@@ -216,7 +216,7 @@ const HISTORY_TTL_MS = 30_000;
  * Every game of the two coaches (all leagues, plus results-store rows that are not league games) and every meeting
  * between them. Cached per store version / results revision for 30 s (writes by another process show within that).
  */
-function coachHistory(store: LeagueStore, deps: LeagueLobbyDeps, coaches: Record<LobbySide, string>): { games: Map<string, Game[]>; meetings: Meeting[] } {
+export function coachHistory(store: LeagueStore, deps: LeagueLobbyDeps, coaches: Record<LobbySide, string>): { games: Map<string, Game[]>; meetings: Meeting[] } {
   const keys = LOBBY_SIDES.map((s) => coaches[s].trim().toLowerCase());
   const cacheKey = `${store.version()}|${deps.resultsRevision?.() ?? ""}|${keys.join("|")}`;
   const now = Date.now();
@@ -274,7 +274,7 @@ function coachHistory(store: LeagueStore, deps: LeagueLobbyDeps, coaches: Record
 }
 
 /** Wins of each lobby side's coach, draws and TD / CAS totals over every meeting (newest first, 50 listed). */
-function headToHead(meetings: Meeting[], coaches: Record<LobbySide, string>): LobbyHeadToHead {
+export function headToHead(meetings: Meeting[], coaches: Record<LobbySide, string>): LobbyHeadToHead {
   const h: LobbyHeadToHead = { wins: { home: 0, away: 0 }, draws: 0, td: { home: 0, away: 0 }, cas: { home: 0, away: 0 }, meetings: [] };
   for (const m of meetings) {
     const homeIsHome = same(m.coaches.home, coaches.home);

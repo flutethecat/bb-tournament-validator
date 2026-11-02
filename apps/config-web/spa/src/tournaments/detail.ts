@@ -137,6 +137,7 @@ export interface TournamentSettingsPatch {
   seedingMode?: TournamentSeedingMode;
   primaryTiebreaker?: "buchholz" | "sonnebornBerger";
   nafSanctioned?: boolean;
+  playOnFork?: boolean;
   /** Tournament page fields: null clears (location / deadlines replace as a whole). */
   location?: TournamentLocation | null;
   startTime?: string | null;

@@ -11,6 +11,7 @@ import { resolveCrest, type ArtManifests } from "../tabletop/art";
 import { rosterState } from "../tournaments/detail";
 import { chipFor, type DeadlineChip, type DeadlineView } from "./deadlines";
 import { proposePath, refFromLobbyPath, tournamentFixtureRef } from "../schedule/schedule";
+import { tournamentLobbyPath } from "../leagues/lobby";
 
 export type ChipTone = "ok" | "soon" | "urgent" | "overdue" | "info" | "muted";
 
@@ -180,7 +181,8 @@ export function treeTournament(
   if (f) {
     const home = f.home.entrantId === myId;
     const opp = home ? (f.away ? nameOf(f.away.entrantId, f.away.coach.ffbCoachId) : "") : nameOf(f.home.entrantId, f.home.coach.ffbCoachId);
-    fixture = { label: `Round ${f.roundNumber} · ${opp ? `vs ${opp}` : "Bye"}`, to: `${to}?tab=rounds`, ...(f.away ? { propose: proposePath(tournamentFixtureRef(f.id)) } : {}) };
+    // a real fixture opens its lobby; a bye has none
+    fixture = { label: `Round ${f.roundNumber} · ${opp ? `vs ${opp}` : "Bye"}`, to: f.away ? tournamentLobbyPath(t.id, f.id) : `${to}?tab=rounds`, ...(f.away ? { propose: proposePath(tournamentFixtureRef(f.id)) } : {}) };
   } else {
     const tf = tabletop.find((x) => x.tournament?.id === t.id);
     if (tf) {

@@ -181,6 +181,8 @@ export interface TabletopApiDeps {
   /** A league season's inducement table (League settings, Inducements tab) and the fork accounts seated on its teams
    *  (LeagueTeam.coachId); undefined when there is no such season. */
   leagueInducements?: (leagueId: string, seasonId: string) => { config: SeasonInducements | undefined; active: boolean; coaches: readonly string[] } | undefined;
+  /** Does this (non-league) fixture have a fixture lobby? Then only the lobby's START creates its match. Throws when unreadable. */
+  fixtureHasLobby?: (fixtureRef: string) => boolean;
   /** The coach's own saved team as a team file (baseline revision), or undefined if they have no such save. */
   /** The baseline team file; `{ error }` (client-safe) when the stored team can't be admitted (e.g. an invalid Team Captain). */
   loadTeamFile: (coach: string, teamSaveId: string) => TabletopTeamFile | { error: string } | undefined;
@@ -645,6 +647,13 @@ export async function createMatch(
   // A league fixture starts from its lobby only (the start gate, the inducement hold and the presence rule live there).
   if (typeof b.fixtureRef === "string" && b.fixtureRef.startsWith("league:") && !options.fromLobby)
     return err(409, "Start this league fixture from its fixture lobby.");
+  // Any other fixture (tournaments) starts from its lobby once someone opened one (a lobby write: chat, a lock, Ready);
+  // fixtures without a lobby keep the direct recorder path.
+  if (typeof b.fixtureRef === "string" && b.fixtureRef && !b.fixtureRef.startsWith("league:") && !options.fromLobby && deps.fixtureHasLobby) {
+    let lobby: boolean;
+    try { lobby = deps.fixtureHasLobby(b.fixtureRef); } catch { return err(500, "Could not read the fixture lobby right now."); }
+    if (lobby) return err(409, "Start this fixture from its fixture lobby.");
+  }
   let home = side(b.home);
   let away = side(b.away);
   if (!home || !away) return err(400, b.fixtureRef ? "Choose both teams: a fixture team could not be found automatically (send home.team / away.team as library:<id> or save:<id>)." : "home and away each need {coach, team}, team being library:<id> or save:<id>.");

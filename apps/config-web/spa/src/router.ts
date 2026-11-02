@@ -127,6 +127,14 @@ export const routes: RouteRecordRaw[] = [
     props: true,
     meta: { title: "Fixture lobby" },
   },
+  // Tournament fixture lobby: the same page for a scheduled match (drafts answer 404 except to their managers).
+  {
+    path: "/tournaments/:id([\\w-]{1,64})/fixtures/:fixtureId([^/]{1,200})/lobby",
+    name: "tournament-fixture-lobby",
+    component: FixtureLobbyView,
+    props: (r) => ({ id: String(r.params.id), fixtureId: String(r.params.fixtureId), source: "tournament" }),
+    meta: { title: "Fixture lobby" },
+  },
   // League settings (cog on the league page): organisers and site admins; others get the "not one of yours" note.
   { path: "/leagues/:id([a-z0-9-]{1,64})/settings", name: "league-settings", component: LeagueSettingsView, props: true, meta: { requiresAuth: true, title: "League settings" } },
   // Redraft: the organisers' board; a coach's own redraft (?team= opens the dialog from the notification link).

@@ -106,6 +106,8 @@ function isPublicRequest(method: string, pathname: string): boolean {
       // Tournament banner image: a public read (PUT/DELETE stay session-gated and manager-checked in-handler).
       /^\/api\/tournaments\/[^/]+\/banner$/.test(pathname) ||
       /^\/api\/fork\/tournaments\/[^/]+\/banner$/.test(pathname) ||
+      // Tournament fixture lobby: a read-only view for anyone (drafts 404 except for managers; writes stay session-gated).
+      /^\/api\/tournaments\/[^/]+\/fixtures\/[^/]+\/lobby$/.test(pathname) ||
       // Tabletop match view: a read-only spectator view for anyone (owner ruling 10-30); the handler decides the role and
       // refuses an anonymous visitor on a test match. Every other tabletop route stays session-gated.
       /^\/api\/tabletop\/matches\/[\w-]{1,64}$/.test(pathname) ||

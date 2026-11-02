@@ -88,6 +88,7 @@ td.tn-team > .tn-side-text, td.tn-team > .tn-team-name { display: inline-grid; v
 .tn-score { display: grid; justify-items: center; min-width: 64px; padding: 2px 10px; background: var(--ui-surface); border: 2px solid var(--sf-panel-line); border-radius: 2px; }
 .tn-score-main { font-size: 1.2rem; font-family: var(--font-heading); font-weight: 500; }
 .tn-score-sub { font-size: 12px; }
+.tn-lobby { margin: 4px 0 2px; }
 
 /* ---- My entry */
 .tn-entry-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }

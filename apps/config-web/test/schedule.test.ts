@@ -434,7 +434,7 @@ describe("tournament scheduled matches", () => {
     h.zones.set("eve", { timezone: "America/New_York", availability: [] });
     const p = h.propose("Ann", M1, [S1]).body.proposal;
     expect(p).toMatchObject({ from: "Ann", to: "Eve" });
-    expect(h.mine("Eve").fixtures[0]).toMatchObject({ ref: M1, kind: "tournament", title: "Round 1 vs Ann's Orcs", competition: "Autumn Open", link: "/tournaments/t1?tab=rounds" });
+    expect(h.mine("Eve").fixtures[0]).toMatchObject({ ref: M1, kind: "tournament", title: "Round 1 vs Ann's Orcs", competition: "Autumn Open", link: "/tournaments/t1/fixtures/m1/lobby" });
     expect(h.respond("Eve", { proposalId: p.id, action: "accept", slot: S1 }).status).toBe(200);
     const snap = h.tournaments.snapshot();
     expect(Object.keys(snap.scheduledMatches)).toEqual(["m1"]);

@@ -75,7 +75,8 @@ export function sideHasStep(fx: LobbyFixture, side: LobbySide): boolean {
 
 // ---- menu -------------------------------------------------------------------------------------------------------
 
-export interface MenuItem { id: string; name: string; price: number; max: number; icon: string; effect: string }
+/** `max` is what the coach may still add; `prefilled` = how many the team already has (Builder-bought, non-removable). */
+export interface MenuItem { id: string; name: string; price: number; max: number; icon: string; effect: string; prefilled?: number }
 export interface MenuCategory {
   id: InducementCategory;
   label: string;
@@ -108,7 +109,8 @@ export function menuFor(fx: LobbyFixture, side: LobbySide): MenuCategory[] {
       cat.off.push({ id: row.id, name: row.name, reason: row.price === null || /variable price/.test(o.error) ? "Hire at the table" : "Not for this team" });
       continue;
     }
-    cat.items.push({ id: row.id, name: o.name, price: o.price, max: o.max ?? row.cap, icon: row.iconSrc, effect: row.effectText });
+    const pre = prefilledQty(fx, side, row.id);
+    cat.items.push({ id: row.id, name: o.name, price: o.price, max: Math.max(0, (o.max ?? row.cap) - pre), icon: row.iconSrc, effect: row.effectText, ...(pre ? { prefilled: pre } : {}) });
   }
   const stars = cats.get("star")!;
   const cap = starCap(fx);
@@ -118,6 +120,32 @@ export function menuFor(fx: LobbyFixture, side: LobbySide): MenuCategory[] {
     for (const s of team.stars) stars.items.push({ id: `${STAR_PREFIX}${s.name}`, name: s.name, price: s.cost, max: 1, icon, effect: "" });
   } else stars.off.push({ id: "star_players", name: "Star players", reason: "Ruleset off" });
   return [...cats.values()];
+}
+
+// ---- pre-filled (Builder-bought) inducements --------------------------------------------------------------------
+
+export const prefilledQty = (fx: Pick<LobbyFixture, "prefilled">, side: LobbySide, id: string): number =>
+  (fx.prefilled?.[side] ?? []).reduce((n, p) => n + (p.id === id ? p.qty : 0), 0);
+
+/** The team's pre-filled lines (cost 0: paid in the Builder), named from the ruleset table. */
+export function prefilledLines(fx: LobbyFixture, side: LobbySide): ResolvedPick[] {
+  return (fx.prefilled?.[side] ?? []).filter((p) => p.qty > 0).map((p) => {
+    const o = fx.offers(fx.sides[side].team.file, p.id);
+    const name = "error" in o ? (fx.table.find((r) => r.id === p.id)?.name ?? p.id) : o.name;
+    return { id: p.id, name, qty: p.qty, cost: 0, prefilled: p.qty };
+  });
+}
+
+/** Adds the pre-filled lines to a resolved side (merged into a picked line of the same id). Totals do not change. */
+function withPrefilled(fx: LobbyFixture, side: LobbySide, plan: ResolvedSide): ResolvedSide {
+  const lines = prefilledLines(fx, side);
+  if (!lines.length) return plan;
+  const picks = plan.picks.map((p) => ({ ...p }));
+  for (const l of lines) {
+    const hit = picks.find((p) => p.id === l.id);
+    if (hit) { hit.qty += l.qty; hit.prefilled = l.qty; } else picks.push(l);
+  }
+  return { ...plan, picks };
 }
 
 // ---- pick validation ----------------------------------------------------------------------------------------------
@@ -160,7 +188,8 @@ export function priceSide(fx: LobbyFixture, side: LobbySide, picks: readonly Lob
     const o = fx.offers(team.file, p.id);
     if ("error" in o) return { error: o.error };
     const max = o.max ?? row.cap;
-    if (p.qty > max) return { error: `${o.name}: at most ${max}.` };
+    const pre = prefilledQty(fx, side, p.id);
+    if (p.qty + pre > max) return { error: pre ? `${o.name}: at most ${max}, and the team already has ${pre} from the Builder.` : `${o.name}: at most ${max}.` };
     lines.push({ id: p.id, name: o.name, qty: p.qty, cost: o.price * p.qty });
   }
   if (stars > starCap(fx)) return { error: `At most ${starCap(fx)} star players.` };
@@ -283,7 +312,8 @@ export function resolveStart(fx: LobbyFixture, rec: LobbyRecord, opts: { force: 
   if (rec.started) return { kind: "refused", status: 409, error: "The match has already started." };
   if (!(opts.force ? g.forceArmed : g.armed)) return { kind: "refused", status: 409, error: g.blockers[0] ?? "Not ready to start." };
   const empty = (pettyCash = 0): ResolvedSide => ({ picks: [], total: 0, treasury: 0, pettyCash });
-  if (inducementStep(fx)) return { kind: "go", resolution: { home: empty(), away: empty(), pettyCash: 0, treasurySpend: 0, stars: [] } };
+  const pre = (s: LobbySide, plan: ResolvedSide): ResolvedSide => (fx.mode === "tabletop" ? withPrefilled(fx, s, plan) : plan);
+  if (inducementStep(fx)) return { kind: "go", resolution: { home: pre("home", empty()), away: pre("away", empty()), pettyCash: 0, treasurySpend: 0, stars: [] } };
   const r = tvRoles(fx);
   const over = r.overdog!, under = r.underdog!;
   // (1) the overdog's locked list
@@ -307,7 +337,7 @@ export function resolveStart(fx: LobbyFixture, rec: LobbyRecord, opts: { force: 
   if ("error" in underPlan) return { kind: "refused", status: 409, error: `${fx.sides[under].team.name}: ${underPlan.error}` };
   const plans: Record<LobbySide, ResolvedSide> = { [over]: overPlan, [under]: underPlan } as Record<LobbySide, ResolvedSide>;
   const stars = applyStarRule(fx, rec, plans);
-  return { kind: "go", resolution: { home: plans.home, away: plans.away, pettyCash: underPlan.pettyCash, treasurySpend: spend, stars } };
+  return { kind: "go", resolution: { home: pre("home", plans.home), away: pre("away", plans.away), pettyCash: underPlan.pettyCash, treasurySpend: spend, stars } };
 }
 
 /** The banner a hold shows (§9.1 copy). */

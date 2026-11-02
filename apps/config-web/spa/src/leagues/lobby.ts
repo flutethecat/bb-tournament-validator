@@ -8,9 +8,10 @@ import type { Fetcher } from "../session";
 export type LobbySide = "home" | "away";
 export type LobbyRole = LobbySide | "organiser" | "spectator";
 
-export interface LobbyMenuItem { id: string; name: string; price: number; max: number; icon: string; effect: string }
+/** `max` = how many the coach may still add; `prefilled` = how many the team already has from the Builder (non-removable). */
+export interface LobbyMenuItem { id: string; name: string; price: number; max: number; icon: string; effect: string; prefilled?: number }
 export interface LobbyMenuCategory { id: string; label: string; cap?: number; items: LobbyMenuItem[]; off: Array<{ id: string; name: string; reason: string }> }
-export interface LobbyPickLine { id: string; name: string; qty: number; cost: number }
+export interface LobbyPickLine { id: string; name: string; qty: number; cost: number; prefilled?: number }
 export interface LobbyBudget { role: "overdog" | "underdog" | "equal"; pettyCash: number; treasury: number; topUpLimit: number; limit: number }
 export interface LobbyStats { played: number; wins: number; draws: number; losses: number; points?: number; tdPerGame: number; casPerGame: number; form: Array<"W" | "D" | "L"> }
 
@@ -24,6 +25,8 @@ export interface LobbySideView {
   };
   standing: { rank: number; points: number; group: string } | null;
   stats: { season: LobbyStats; allTime: LobbyStats };
+  /** SPA path of the full roster (tournaments: the entrant's team page); absent = the competition's team tab. */
+  teamLink?: string;
   online: boolean;
   rosterLocked: boolean;
   ready: boolean;
@@ -38,6 +41,8 @@ export interface LobbySideView {
     picks: LobbyPickLine[] | null;
     total: number | null;
     menu: LobbyMenuCategory[];
+    /** Bought in the Builder (tournaments): pre-filled, non-removable, paid from the roster's gold. null = not shown to you. */
+    prefilled?: LobbyPickLine[] | null;
   };
 }
 
@@ -51,7 +56,7 @@ export interface LobbyView {
   open: boolean;
   closedReason?: string;
   revision: number;
-  header: { competition: string; season?: string; phase?: string; group?: string; round: number; table?: number; date?: string; deadline?: string; ruleset: string };
+  header: { competition: string; season?: string; phase?: string; group?: string; round: number; rounds?: number; table?: number; date?: string; deadline?: string; ruleset: string };
   links: { competition: string; fixture: string; standings: string; rules: string };
   viewer: { role: LobbyRole; signedIn: boolean; organiser: boolean; canChat: boolean; canStart: boolean; canForce: boolean };
   sides: Record<LobbySide, LobbySideView>;
@@ -64,6 +69,8 @@ export interface LobbyView {
   headToHead: { wins: Record<LobbySide, number>; draws: number; td: Record<LobbySide, number>; cas: Record<LobbySide, number>; meetings: LobbyMeeting[] };
   organisers: string[];
   recorderTeams?: Array<{ ref: string; name: string; race: string; tv: number | null }>;
+  /** Tournaments: the team this fixture plays (the submitted roster), or why the roster cannot be locked. */
+  fixedTeam?: { ref: string; name: string; race: string } | { error: string };
 }
 
 export const otherSide = (s: LobbySide): LobbySide => (s === "home" ? "away" : "home");
@@ -118,7 +125,14 @@ export function createFixtureLobby(deps: { api: Fetcher; timers?: LobbyTimers })
   }
 
   async function load(leagueId: string, seasonId: string, fixtureId: string): Promise<void> {
-    base = `/api/leagues/${encodeURIComponent(leagueId)}/seasons/${encodeURIComponent(seasonId)}/fixtures/${encodeURIComponent(fixtureId)}/lobby`;
+    await loadApi(`/api/leagues/${encodeURIComponent(leagueId)}/seasons/${encodeURIComponent(seasonId)}/fixtures/${encodeURIComponent(fixtureId)}/lobby`);
+  }
+  /** A tournament scheduled match's lobby. */
+  async function loadTournament(tournamentId: string, matchId: string): Promise<void> {
+    await loadApi(`/api/tournaments/${encodeURIComponent(tournamentId)}/fixtures/${encodeURIComponent(matchId)}/lobby`);
+  }
+  async function loadApi(path: string): Promise<void> {
+    base = path;
     await refresh();
     state.loaded = true;
   }
@@ -172,7 +186,7 @@ export function createFixtureLobby(deps: { api: Fetcher; timers?: LobbyTimers })
   }
 
   return {
-    state, load, refresh, start, stop, heartbeat,
+    state, load, loadTournament, refresh, start, stop, heartbeat,
     setCount(id: string, n: number): void {
       state.draft = { ...state.draft, [id]: Math.max(0, n) };
       state.dirty = true;
@@ -193,6 +207,10 @@ export function createFixtureLobby(deps: { api: Fetcher; timers?: LobbyTimers })
 }
 export type FixtureLobbyController = ReturnType<typeof createFixtureLobby>;
 export const FIXTURE_LOBBY_KEY: InjectionKey<FixtureLobbyController> = Symbol("fixture-lobby");
+
+/** SPA path of a tournament scheduled match's lobby. */
+export const tournamentLobbyPath = (tournamentId: string, matchId: string): string =>
+  `/tournaments/${encodeURIComponent(tournamentId)}/fixtures/${encodeURIComponent(matchId)}/lobby`;
 
 /** SPA path of a league fixture's lobby. */
 export const leagueLobbyPath = (leagueId: string, seasonId: string, fixtureId: string): string =>

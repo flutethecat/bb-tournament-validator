@@ -38,7 +38,7 @@ const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[
 const tiebreakerLadder = (primary: TournamentPrimaryTiebreaker): TournamentRecord["tiebreakers"] =>
   [primary, "touchdownDifferential", "casualtyDifferential"];
 
-export type TournamentUpdate = Partial<Pick<TournamentRecord, "maxPlayers" | "format" | "packageName" | "startsAt" | "endsAt" | "roundCount" | "organizerCoachId" | "turnTimer" | "inducementOptIns" | "pairingSystem" | "seedingMode" | "nafSanctioned">> & {
+export type TournamentUpdate = Partial<Pick<TournamentRecord, "maxPlayers" | "format" | "packageName" | "startsAt" | "endsAt" | "roundCount" | "organizerCoachId" | "turnTimer" | "inducementOptIns" | "pairingSystem" | "seedingMode" | "nafSanctioned" | "playOnFork">> & {
   primaryTiebreaker?: TournamentPrimaryTiebreaker;
 };
 
@@ -572,6 +572,8 @@ export class TournamentStore {
       else if (patch.endsAt !== undefined) tournament.endsAt = patch.endsAt;
       if (patch.pairingSystem !== undefined) tournament.pairingSystem = patch.pairingSystem;
       if (patch.seedingMode !== undefined) tournament.seedingMode = patch.seedingMode;
+      if (patch.playOnFork === true) tournament.playOnFork = true;
+      else if (patch.playOnFork === false) delete tournament.playOnFork;
       if (patch.nafSanctioned === true && tournament.nafSanctioned !== true) {
         tournament.nafSanctioned = true;
         // Entries made before the tournament was sanctioned owe a NAF answer now.

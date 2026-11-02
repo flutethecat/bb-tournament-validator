@@ -15,8 +15,11 @@ const canEdit = computed(() => props.mine && props.view.viewer.role === props.si
 const teamRef = ref(s.value.teamRef ?? "");
 watch(() => s.value.teamRef, (v) => { if (v) teamRef.value = v; });
 const busy = computed(() => lobby.state.busy !== "");
-const teamLink = computed(() => `${props.view.links.competition}${props.view.links.competition.includes("?") ? "&" : "?"}tab=teams&team=${encodeURIComponent(s.value.team.id)}`);
-const lockRoster = (): void => { void lobby.roster(true, props.view.mode === "tabletop" ? teamRef.value : undefined); };
+const teamLink = computed(() => s.value.teamLink ?? `${props.view.links.competition}${props.view.links.competition.includes("?") ? "&" : "?"}tab=teams&team=${encodeURIComponent(s.value.team.id)}`);
+// tournaments play the submitted roster: the server takes it (no choice here)
+const fixed = computed(() => props.view.fixedTeam);
+const fixedError = computed(() => (fixed.value && "error" in fixed.value ? fixed.value.error : ""));
+const lockRoster = (): void => { void lobby.roster(true, props.view.mode === "tabletop" && !fixed.value ? teamRef.value : undefined); };
 </script>
 
 <template>
@@ -56,14 +59,16 @@ const lockRoster = (): void => { void lobby.roster(true, props.view.mode === "ta
     </div>
     <div v-if="canEdit" class="fl-status" data-own-controls>
       <template v-if="!s.rosterLocked">
-        <label v-if="view.mode === 'tabletop'" class="sf-field">
+        <p v-if="fixed && 'ref' in fixed" class="fl-note" data-fixed-team>Plays your submitted team: <strong>{{ fixed.name }}</strong>{{ fixed.race ? ` · ${fixed.race}` : "" }}</p>
+        <p v-else-if="fixedError" class="sf-error" role="alert" data-fixed-team>{{ fixedError }}</p>
+        <label v-else-if="view.mode === 'tabletop'" class="sf-field">
           <span class="sf-k">Recorder team</span>
           <select v-model="teamRef" class="fl-select" aria-label="Team you will record this match with">
             <option value="" disabled>Choose a team</option>
             <option v-for="t in view.recorderTeams ?? []" :key="t.ref" :value="t.ref">{{ t.name }}{{ t.race ? ` · ${t.race}` : "" }}</option>
           </select>
         </label>
-        <button type="button" class="sf-btn small primary" :disabled="busy || (view.mode === 'tabletop' && !teamRef)" @click="lockRoster">Lock roster</button>
+        <button type="button" class="sf-btn small primary" :disabled="busy || Boolean(fixedError) || (view.mode === 'tabletop' && !fixed && !teamRef)" @click="lockRoster">Lock roster</button>
       </template>
       <template v-else>
         <button type="button" class="sf-btn small" :disabled="busy" @click="lobby.roster(false)">Unlock roster</button>

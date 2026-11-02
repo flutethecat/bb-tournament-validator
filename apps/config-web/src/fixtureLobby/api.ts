@@ -16,7 +16,7 @@
 import { plainText } from "../leagues/inducementRules.js";
 import {
   budgetFor, CHAT_KEEP, CHAT_MAX_CHARS, gateOf, holdBanner, inducementStep, kGold, menuFor, newLobby, parsePicks, picksVisible, planSide,
-  priceSide, resolveStart, sideHasStep, tvRoles, type LobbyViewer,
+  prefilledLines, priceSide, resolveStart, sideHasStep, tvRoles, type LobbyViewer,
 } from "./core.js";
 import type { LobbyPresence } from "./presence.js";
 import type { FixtureLobbyStore } from "./store.js";
@@ -104,8 +104,11 @@ export function lobbyView(fx: LobbyFixture, stored: LobbyRecord | undefined, aut
     const visible = picksVisible(fx, rec, viewer, s);
     const priced = visible ? priceSide(fx, s, st.picks) : undefined;
     const own = viewer.kind === "side" && viewer.side === s;
+    // a private roster (tournament snapshot): the mini roster and the Builder-bought list are for insiders only
+    const shown = insider || !fx.rosterPrivate;
     return {
-      coach: f.coach, coachId: f.coachId, team, standing: f.standing ?? null, stats: f.stats,
+      coach: f.coach, coachId: f.coachId, team: shown ? team : { ...team, roster: [] }, standing: f.standing ?? null, stats: f.stats,
+      ...(fx.teamLinks?.[s] ? { teamLink: fx.teamLinks[s] } : {}),
       online: deps.presence.online(fx.key, f.coachId),
       rosterLocked: st.rosterLocked, ready: st.ready,
       // the recorder team is the coach's own business (and the organisers')
@@ -120,10 +123,13 @@ export function lobbyView(fx: LobbyFixture, stored: LobbyRecord | undefined, aut
         picks: visible ? (priced && !("error" in priced) ? priced.lines : st.picks.map((p) => ({ id: p.id, name: p.id, qty: p.qty, cost: 0 }))) : null,
         total: priced && !("error" in priced) ? priced.total : null,
         menu: menuFor(fx, s),
+        prefilled: shown ? prefilledLines(fx, s) : null,
       },
     };
   };
-  const recorderTeams = viewer.kind === "side" && fx.mode === "tabletop" && auth
+  const fixed = viewer.kind === "side" && fx.mode === "tabletop" && fx.fixedTeams ? fx.fixedTeams[viewer.side] : undefined;
+  const recorderTeams = fixed ? ("error" in fixed ? [] : [{ ref: fixed.ref, name: fixed.name, race: fixed.race, tv: fx.sides[(viewer as { side: LobbySide }).side].team.tv }])
+    : viewer.kind === "side" && fx.mode === "tabletop" && auth
     ? (deps.recorderTeams?.(auth.coach) ?? []).filter((t) => fx.recorderTeamAllowed(viewer.side, t)).map((t) => ({ ref: t.ref, name: t.name, race: t.race ?? "", tv: t.tv ?? null }))
     : undefined;
   return {
@@ -151,6 +157,8 @@ export function lobbyView(fx: LobbyFixture, stored: LobbyRecord | undefined, aut
     headToHead: fx.headToHead,
     organisers: fx.organisers,
     ...(recorderTeams ? { recorderTeams } : {}),
+    // a fixed team (tournaments): the roster lock plays it; `error` says why it cannot be locked
+    ...(fixed ? { fixedTeam: "error" in fixed ? { error: fixed.error } : { ref: fixed.ref, name: fixed.name, race: fixed.race } } : {}),
   };
 }
 export type LobbyView = ReturnType<typeof lobbyView>;
@@ -213,7 +221,13 @@ export async function lobbyRoute(
         if (typeof input.locked !== "boolean") return fail(400, "locked must be true or false.");
         const st = rec.sides[s];
         if (input.locked) {
-          if (fx.mode === "tabletop") {
+          const fixedTeam = fx.mode === "tabletop" ? fx.fixedTeams?.[s] : undefined;
+          if (fixedTeam) {
+            // the competition plays a fixed team (tournaments: the submitted roster): no free choice
+            if ("error" in fixedTeam) return fail(409, fixedTeam.error);
+            if (typeof input.teamRef === "string" && input.teamRef !== fixedTeam.ref) return fail(400, `This fixture plays your submitted team (${fixedTeam.name}).`);
+            st.teamRef = fixedTeam.ref;
+          } else if (fx.mode === "tabletop") {
             const ref = typeof input.teamRef === "string" ? input.teamRef : st.teamRef;
             const teams = (deps.recorderTeams?.(fx.sides[s].coachId) ?? []).filter((t) => fx.recorderTeamAllowed(s, t));
             if (!ref || !teams.some((t) => t.ref === ref))

@@ -329,6 +329,7 @@ import { adoptLobbyMatch, dropAllSnapshots, clockView, createMatch, isTabletopAp
 import { FixtureLobbyStore } from "./fixtureLobby/store.js";
 import { LobbyPresence } from "./fixtureLobby/presence.js";
 import type { LeagueLobbyDeps } from "./fixtureLobby/league.js";
+import { LOBBY_BODY_MAX as TOURNAMENT_LOBBY_BODY_MAX, tournamentLobbyKey, tournamentLobbyPath, tournamentLobbyRoute, type TournamentLobbyDeps } from "./fixtureLobby/tournament.js";
 import { LEAGUE_FIXTURE_REF, leagueFixtureView, recordLeagueFixture, retractLeagueFixture } from "./leagues/tabletopFixtures.js";
 import { FileTabletopRepository } from "./tabletop/store.js";
 import { createRecorderWebhook, recorderAnnouncement } from "./tabletop/discord.js";
@@ -997,6 +998,8 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
       const season = leagueStore.league(leagueId) ? leagueStore.season(leagueId, seasonId) : undefined;
       return season ? { config: season.rules?.inducements, active: season.status === "active", coaches: season.teams.map((t) => t.coachId ?? "").filter(Boolean) } : undefined;
     },
+    // A tournament fixture somebody opened a lobby for starts from that lobby only (src/fixtureLobby/tournament.ts).
+    fixtureHasLobby: (fixtureRef) => fixtureLobbyStore.get(tournamentLobbyKey(fixtureRef)) !== undefined,
   };
   if (first) await recoverTabletop(deps);
   return deps;
@@ -1027,6 +1030,47 @@ function fixtureLobbyDeps(): LeagueLobbyDeps {
       return createMatch(input.actor, input.organiser || deps.isOrganizer(input.actor), body, deps, () => new Date(), { inducementsByCoach: input.inducementsByCoach, fromLobby: true });
     },
     adoptMatch: async (input) => adoptLobbyMatch(await tabletopDeps(), input),
+  };
+}
+
+/** The live Team Builder save of a submission when it is still the one the tournament snapshotted (same updatedAt). */
+function liveSubmittedSave(coach: string, submission: TournamentSubmission): TeamBuilderSave | undefined {
+  if (!submission.saveId.startsWith("save:")) return undefined;
+  const id = submission.saveId.slice("save:".length);
+  const save = readSaves(BUILDER_SAVES_DIR, coach).find((x) => x.id === id);
+  return save && save.updatedAt === submission.revision ? save : undefined;
+}
+const rosteredOf = (v: unknown): Array<{ key: string; count: number }> => (Array.isArray(v) ? v : [])
+  .filter((x): x is { key: string; count?: number } => Boolean(x) && typeof x === "object" && typeof (x as { key?: unknown }).key === "string")
+  .map((x) => ({ key: x.key.trim(), count: typeof x.count === "number" ? x.count : 1 }));
+
+/** Tournament fixture lobby deps: the league lobby's (store, presence, chat, recorder) plus the tournament's teams. */
+function tournamentLobbyDeps(): TournamentLobbyDeps {
+  return {
+    ...fixtureLobbyDeps(),
+    tournaments: tournamentStore,
+    leagues: leagueStore,
+    packageOf: (name) => packages.get(name)?.pkg,
+    // the submitted roster: the live save while it is still the snapshotted one (it keeps the Builder's team value),
+    // else the snapshot itself; a library submission (or none) plays the registered library team
+    teamOf: (coach, submission, libraryTeamId) => {
+      const snap = submission?.snapshot;
+      if (submission?.saveId.startsWith("save:") && snap && typeof snap === "object" && typeof (snap as { rosterId?: unknown }).rosterId === "string") {
+        const body = snap as Record<string, unknown>;
+        const save: TeamBuilderSave = liveSubmittedSave(coach, submission) ?? {
+          id: submission.saveId.slice("save:".length), name: submission.teamName ?? String(body.teamName ?? "Team"), packageName: String(body.packageName ?? ""),
+          rosterId: body.rosterId as string, raceName: submission.race ?? "", teamId: submission.teamId ?? null,
+          updatedAt: submission.revision, createdAt: submission.submittedAt, body,
+        };
+        return { file: teamFileFromSave(save), rostered: rosteredOf(body.rosteredInducements ?? body.inducements) };
+      }
+      const teamId = submission?.saveId.startsWith("library:") ? submission.saveId.slice("library:".length) : libraryTeamId;
+      const detail = teamDetailEndpoint({ coach, organizer: false }, teamId, { libraryDir: LIBRARY_DIR, teamsDir: forkConfigFromEnv()?.teamsDir });
+      if (detail.status !== 200) return undefined;
+      const lib = readLibrary(LIBRARY_DIR, coach).find((x) => x.teamId === teamId);
+      return { file: teamFileFromLibraryDetail(detail.body.team), rostered: rosteredOf(lib?.rosteredInducements) };
+    },
+    submissionCurrent: (coach, submission) => liveSubmittedSave(coach, submission) !== undefined,
   };
 }
 
@@ -2126,6 +2170,24 @@ async function handleApi(
         return sendJson(res, banner.status, banner.body);
       }
     }
+    // Fixture lobby of a scheduled match (src/fixtureLobby/tournament.ts): public read; writes (CSRF + onboarding above).
+    if (tournamentLobbyPath(path)) {
+      let input: Record<string, unknown> = {};
+      if (method === "POST") {
+        const read = await readLobbyBody(req, readJsonBody, TOURNAMENT_LOBBY_BODY_MAX);
+        if ("error" in read) return sendJson(res, read.status, { error: read.error });
+        if (!read.body || typeof read.body !== "object" || Array.isArray(read.body)) return sendJson(res, 400, { error: "A JSON object is required." });
+        input = read.body as Record<string, unknown>;
+      }
+      // re-resolved after the body read: a session ended meanwhile writes nothing
+      const who = method === "POST" ? requestIdentity(req) : auth;
+      if (method === "POST" && auth && (!who || who.coach !== auth.coach)) return sendJson(res, 401, { error: "Authentication required." });
+      const lobby = await tournamentLobbyRoute(method, path, who ? { coach: who.coach, admin: who.admin === true } : undefined, input, tournamentLobbyDeps());
+      if (lobby) {
+        for (const [name, value] of Object.entries(lobby.headers ?? {})) res.setHeader(name, value);
+        return sendJson(res, lobby.status, lobby.body);
+      }
+    }
     const body = WRITE_METHODS.has(method) && method !== "DELETE" ? await readBody(req) : undefined;
     let eloSnapshot: ReturnType<typeof computeElo> | undefined;
     const result = await tournamentApi(method, path, query, auth, body, {
@@ -2141,6 +2203,8 @@ async function handleApi(
       notify: tournamentNotifier,
       results: () => tournamentResults.list(),
       ifMatch: typeof req.headers["if-match"] === "string" ? req.headers["if-match"] : undefined,
+      // a fixture lobby that has not STARTed holds the online launch (src/fixtureLobby/tournament.ts)
+      fixtureLobby: (matchId) => { const rec = fixtureLobbyStore.get(tournamentLobbyKey(matchId)); return rec ? { started: Boolean(rec.started) } : undefined; },
       sharing: {
         grant: (coach, scope, fields, at) => { storeGrant(coach, scope, fields, at); },
         contact: (viewer, coach, tournamentId) => sharedContact(viewer, coach, `tournament:${tournamentId}`),

@@ -232,7 +232,9 @@
       "properties": {
         "allowed": { "type": "array", "items": { "type": "string" }, "description": "Inducement ids allowed, or ['*'] for all, [] for none." },
         "caps": { "type": "object", "additionalProperties": { "type": "number" }, "description": "Per-inducement max overrides." },
-        "rosterOnly": { "type": "object", "additionalProperties": { "type": "array", "items": { "type": "string" } }, "description": "Inducement id -> roster names that may buy it; every other roster is refused (e.g. Halfling Master Chef: Halfling only)." }
+        "rosterOnly": { "type": "object", "additionalProperties": { "type": "array", "items": { "type": "string" } }, "description": "Inducement id -> roster names that may buy it; every other roster is refused (e.g. Halfling Master Chef: Halfling only)." },
+        "treasuryTopUp": { "type": "boolean", "description": "Fixture lobby: coaches may spend team treasury on pre-match inducements (absent = false in tournaments)." },
+        "highlander": { "type": "boolean", "description": "Fixture lobby: a star both teams hire stays with the team that locked first (absent = the star leaves both teams)." }
       }
     },
 

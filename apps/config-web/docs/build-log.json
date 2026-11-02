@@ -1,5 +1,20 @@
 [
   {
+    "date": "2026-11-02",
+    "title": "Fixture lobbies for tournament matches",
+    "body": "Each tournament match now has a lobby where the two coaches chat, lock their submitted rosters, pick inducements under the tournament's rules and start the game. Inducements bought in the Roster Builder show up already filled in and can't be removed. Open it with Lobby on your tournament's My entry or Rounds, from the sidebar, or from an agreed game on the Schedule.",
+    "links": [
+      {
+        "label": "Tournaments",
+        "href": "/app/tournaments"
+      },
+      {
+        "label": "Schedule",
+        "href": "/app/schedule"
+      }
+    ]
+  },
+  {
     "date": "2026-11-01",
     "title": "Jaguar Warrior name",
     "body": "Amazon's Jaguar Warrior Blocker now shows as just Jaguar Warrior in the Roster Builder, the Sheet and PDF, and the team pages. The full name stays as the tooltip.",

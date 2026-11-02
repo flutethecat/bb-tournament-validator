@@ -3,6 +3,7 @@
 // rows (icon tile, name, cap caption, count, caret; expanded rows carry a -/n/+ stepper), the budget caption, and the
 // footer (Auto-Buy for the underdog, Save / Lock). The opponent's panel is read-only: their options until their picks
 // are revealed (both locked, or the overdog's final list once START held). Budgets, reveal and holds come from the server.
+// Tournaments: inducements bought in the Builder sit on top, pre-filled and non-removable (paid from the roster's gold).
 import { computed, inject, ref, watch } from "vue";
 import { draftTotal, FIXTURE_LOBBY_KEY, kGold, otherSide, type LobbyMenuCategory, type LobbySide, type LobbyView } from "../leagues/lobby";
 
@@ -43,7 +44,8 @@ const toggle = (id: string): void => {
 // the underdog kicked back by a hold sees the menu open
 watch(held, (h) => { if (h && own.value) open.value = new Set(ind.value.menu.filter((c) => c.items.length).map((c) => c.id)); }, { immediate: true });
 
-const countOf = (c: LobbyMenuCategory): number => c.items.reduce((n, i) => n + (editable.value ? (draft.value[i.id] ?? 0) : (ind.value.picks?.find((p) => p.id === i.id)?.qty ?? 0)), 0);
+const prefilled = computed(() => ind.value.prefilled ?? []);
+const countOf = (c: LobbyMenuCategory): number => c.items.reduce((n, i) => n + (i.prefilled ?? 0) + (editable.value ? (draft.value[i.id] ?? 0) : (ind.value.picks?.find((p) => p.id === i.id)?.qty ?? 0)), 0);
 const countCaption = (c: LobbyMenuCategory): string => {
   if (!c.items.length) return c.off.length ? c.off[0]!.reason : "None";
   if (editable.value || (ind.value.visible && ind.value.picks)) return c.cap ? `${countOf(c)} of ${c.cap}` : `${countOf(c)} picked`;
@@ -73,6 +75,16 @@ const overdogNote = computed(() => {
     </header>
     <p v-if="held && own" class="fl-banner" role="status" data-hold><strong>Your pick</strong>{{ held.banner }} Adjust your list and lock it: START re-arms.</p>
     <p v-else-if="held && !own && view.viewer.role !== 'spectator'" class="fl-banner" role="status" data-hold><strong>Waiting</strong>Waiting for {{ s.coach }} to lock inducements.</p>
+    <div v-if="prefilled.length" class="fl-prefilled" data-prefilled>
+      <p class="fl-prefilled-head">Bought in the Builder</p>
+      <ul class="fl-items" aria-label="Bought in the Builder">
+        <li v-for="p in prefilled" :key="p.id" class="fl-item" data-prefilled-row>
+          <span class="fl-item-name">{{ p.name }}<small>Already paid · can't be removed</small></span>
+          <span class="fl-stepper" :aria-label="`${p.name}: ${p.qty} bought in the Builder`"><output>×{{ p.qty }}</output></span>
+          <span class="sf-chip" data-tone="info">Builder</span>
+        </li>
+      </ul>
+    </div>
     <p v-if="!view.inducements.step" class="fl-note">{{ view.inducements.reason }}</p>
     <template v-else>
       <ul v-if="ind.visible && ind.picks && !editable && ind.picks.length" class="fl-picked" aria-label="Picked inducements">
@@ -92,7 +104,7 @@ const overdogNote = computed(() => {
           </button>
           <ul v-if="open.has(c.id)" :id="`fl-cat-${side}-${c.id}`" class="fl-items">
             <li v-for="i in c.items" :key="i.id" class="fl-item">
-              <span class="fl-item-name">{{ i.name }}<small v-if="i.effect">{{ i.effect }}</small></span>
+              <span class="fl-item-name">{{ i.name }}<small v-if="i.prefilled">{{ i.prefilled }} from the Builder</small><small v-if="i.effect">{{ i.effect }}</small></span>
               <span v-if="editable" class="fl-stepper" role="group" :aria-label="`${i.name}: count`">
                 <button type="button" :disabled="!(draft[i.id] ?? 0)" :aria-label="`One fewer ${i.name}`" @click="step(i.id, -1, i.max)">−</button>
                 <output>{{ draft[i.id] ?? 0 }}</output>

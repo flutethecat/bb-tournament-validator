@@ -11,6 +11,7 @@ import { computed, inject, onMounted, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 import TeamSelect from "./TeamSelect.vue";
 import { proposePath, tournamentFixtureRef } from "../schedule/schedule";
+import { tournamentLobbyPath } from "../leagues/lobby";
 import ShareFieldsPicker from "./ShareFieldsPicker.vue";
 import NafProfileField from "./NafProfileField.vue";
 import { API_KEY } from "../app";
@@ -176,6 +177,7 @@ async function doWithdraw() { await detail.withdraw(); }
             v-if="next.opponentEntrantId" class="sf-btn small"
             :to="{ name: 'tournament-team', params: { id: t.id, eid: next.opponentEntrantId } }"
           >Opponent's team</RouterLink>
+          <RouterLink v-if="next.opponentEntrantId" class="sf-btn small" data-lobby :to="tournamentLobbyPath(t.id, next.fixtureId)">Lobby</RouterLink>
           <RouterLink v-if="next.opponentEntrantId && t.status === 'active'" class="sf-btn small" data-propose :to="proposePath(tournamentFixtureRef(next.fixtureId))">Propose a time</RouterLink>
         </div>
 

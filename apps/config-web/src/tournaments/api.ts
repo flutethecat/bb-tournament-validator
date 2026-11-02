@@ -62,6 +62,9 @@ export interface TournamentApiDeps {
   results?(): StoredTournamentResult[];
   /** The request's If-Match header (award DELETE carries its revision there). */
   ifMatch?: string;
+  /** The fixture lobby of a scheduled match (src/fixtureLobby/tournament.ts): undefined = nobody opened one. A lobby that
+   *  has not STARTed holds the online launch (waiting presence and launching / launched). Throws when unreadable. */
+  fixtureLobby?(matchId: string): { started: boolean } | undefined;
   now?: () => Date;
 }
 
@@ -1247,6 +1250,11 @@ export async function tournamentApi(
           return { status: 400, body: { error: "nafSanctioned must be true or false." } };
         patch.nafSanctioned = input.nafSanctioned;
       }
+      if (input.playOnFork !== undefined) {
+        if (typeof input.playOnFork !== "boolean")
+          return { status: 400, body: { error: "playOnFork must be true or false." } };
+        patch.playOnFork = input.playOnFork;
+      }
       if (input.roundCount !== undefined) patch.roundCount = requestedRoundCount(input.roundCount);
       if (input.turnTimer !== undefined) {
         const t = jsonObject(input.turnTimer);
@@ -1601,6 +1609,8 @@ export async function tournamentApi(
         deps.store.clearWaiting(matchId, identity.coach);
         return { status: 204, body: undefined };
       }
+      const held = lobbyHold(deps, matchId);
+      if (held) return held;
       const input = body === undefined ? {} : jsonObject(body);
       const ttlMs = input.ttlMs === undefined ? undefined : integer(input.ttlMs, "ttlMs");
       const lease = deps.store.renewWaiting(matchId, identity.coach, ttlMs, now);
@@ -1633,6 +1643,8 @@ export async function tournamentApi(
       const input = jsonObject(body);
       if (!(["launching", "launched", "launch_failed"] as unknown[]).includes(input.status))
         return { status: 400, body: { error: "status must be launching, launched, or launch_failed." } };
+      const held = input.status === "launch_failed" ? undefined : lobbyHold(deps, matchId);
+      if (held) return held;
       const match = deps.store.recordLaunch(matchId, {
         expectedRevision: integer(input.revision, "revision"),
         status: input.status as "launching" | "launched" | "launch_failed",
@@ -1719,6 +1731,15 @@ export async function tournamentApi(
     if (error instanceof TournamentStoreError) return { status: error.status, body: { error: error.message } };
     throw error;
   }
+}
+
+/** A fixture with a fixture lobby launches only after the lobby's START (as league fixtures, src/leagues/forkPlay.ts).
+ *  Fixtures nobody opened a lobby for keep the old path. Fails closed when the lobby cannot be read. */
+function lobbyHold(deps: TournamentApiDeps, matchId: string): TournamentApiResult | undefined {
+  if (!deps.fixtureLobby) return undefined;
+  let lobby: { started: boolean } | undefined;
+  try { lobby = deps.fixtureLobby(matchId); } catch { return { status: 500, body: { error: "Could not read the fixture lobby right now." } }; }
+  return lobby && !lobby.started ? { status: 409, body: { error: "Start this match from the fixture lobby first." } } : undefined;
 }
 
 export function entrantByCoach(entrants: readonly TournamentEntrantRecord[], coach: string): TournamentEntrantRecord | undefined {

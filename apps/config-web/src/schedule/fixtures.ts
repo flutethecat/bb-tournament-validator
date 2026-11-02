@@ -191,7 +191,8 @@ function tournamentEntries(store: TournamentStore): FixtureEntry[] {
       sides: { home: side(m.home), away: side(m.away) },
       ...(deadline ? { deadline } : {}),
       ...(scheduled ? { scheduled } : {}),
-      link: `/tournaments/${enc(t.id)}?tab=rounds`,
+      // the fixture lobby (src/fixtureLobby/tournament.ts), as league fixtures
+      link: `/tournaments/${enc(t.id)}/fixtures/${enc(m.id)}/lobby`,
       open: true,
     });
   }

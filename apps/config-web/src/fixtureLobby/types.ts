@@ -60,7 +60,8 @@ export interface LobbyHold {
   was: number;
 }
 
-export interface ResolvedPick { id: string; name: string; qty: number; cost: number }
+/** `prefilled`: how many of `qty` the team already had (Builder-bought, tournaments): paid in the Builder, so not charged. */
+export interface ResolvedPick { id: string; name: string; qty: number; cost: number; prefilled?: number }
 export interface ResolvedSide {
   picks: ResolvedPick[];
   total: number;
@@ -186,6 +187,8 @@ export interface LobbyFixture {
     phase?: string;
     group?: string;
     round: number;
+    /** Rounds in the competition (tournaments: "Round 2 of 5"). */
+    rounds?: number;
     table?: number;
     date?: string;
     deadline?: string;
@@ -209,4 +212,19 @@ export interface LobbyFixture {
   recorderTeamAllowed: (side: LobbySide, team: { ref: string; name: string; race?: string }) => boolean;
   /** How START creates the match: the recorder's fixtureRef and the extra createMatch fields (league season, league name). */
   start: { fixtureRef: string; extra: Record<string, unknown> };
+  /**
+   * Inducements the team already has (tournaments: bought in the Builder with the roster's gold). Shown pre-filled and
+   * non-removable; they share the per-item caps with the coach's picks, cost nothing here and reach the reporter with
+   * the resolved lists. Absent = none.
+   */
+  prefilled?: Record<LobbySide, LobbyPick[]>;
+  /**
+   * Tabletop fixtures that play a fixed team (tournaments: the entrant's submitted / snapshotted roster): the roster lock
+   * takes it (no free choice of recorder team), or is refused with the reason. Absent = the coach picks a recorder team.
+   */
+  fixedTeams?: Record<LobbySide, { ref: string; name: string; race: string } | { error: string }>;
+  /** The mini roster and the pre-filled list are for the two coaches and the organisers only (tournament snapshots). */
+  rosterPrivate?: boolean;
+  /** SPA path of each side's full roster (default: the competition page's team tab). */
+  teamLinks?: Partial<Record<LobbySide, string>>;
 }
