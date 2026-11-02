@@ -40,7 +40,9 @@ export interface FriendsFile { version: 1; friends: FriendEntry[]; incoming: Req
 export interface BlockEntry { coach: string; at: string }
 export interface BlocksFile { version: 1; blocked: BlockEntry[] }
 export interface OrganiserContext { kind: "tournament"; id: string; name: string }
-export interface MessageRecord { id: number; from: string; text: string; at: string; organiser?: OrganiserContext }
+/** A message copied from a fixture summary's coaches' messages (league UX pass 11-02): the fixture and its page. */
+export interface FixtureContext { title: string; link: string }
+export interface MessageRecord { id: number; from: string; text: string; at: string; organiser?: OrganiserContext; fixture?: FixtureContext }
 export interface ThreadFile { version: 1; id: string; coaches: [string, string]; createdAt: string; seq: number; organiser?: true; messages: MessageRecord[] }
 export interface IndexEntry {
   id: string;
@@ -323,7 +325,7 @@ export class SocialStore {
    * Append one message (creating the thread when none exists). Updates both coaches' index rows. Returns the thread,
    * the stored message, and whether the recipient had nothing unread in this thread before (a new burst: notify once).
    */
-  append(from: string, to: string, text: string, organiser?: OrganiserContext): { thread: ThreadFile; message: MessageRecord; created: boolean; burst: boolean } {
+  append(from: string, to: string, text: string, organiser?: OrganiserContext, fixture?: FixtureContext): { thread: ThreadFile; message: MessageRecord; created: boolean; burst: boolean } {
     assertNotFenced(from);
     assertNotFenced(to);
     if (isReservedCoachName(to) || isReservedCoachName(from)) throw new SocialError(410, "This coach's account was deleted.");
@@ -339,7 +341,9 @@ export class SocialStore {
       if (!THREAD_ID.test(id) || this.thread(id)) throw new SocialError(500, "Could not start a conversation.");
       thread = { version: 1, id, coaches: [from, to], createdAt: at, seq: 0, messages: [] };
     }
-    const message: MessageRecord = { id: thread.seq + 1, from, text: clean, at, ...(organiser ? { organiser } : {}) };
+    const fx = fixture && typeof fixture.title === "string" && typeof fixture.link === "string" && fixture.link.startsWith("/app/")
+      ? { title: [...fixture.title].slice(0, 160).join(""), link: fixture.link.slice(0, 300) } : undefined;
+    const message: MessageRecord = { id: thread.seq + 1, from, text: clean, at, ...(organiser ? { organiser } : {}), ...(fx ? { fixture: fx } : {}) };
     const next: ThreadFile = {
       ...thread,
       seq: message.id,

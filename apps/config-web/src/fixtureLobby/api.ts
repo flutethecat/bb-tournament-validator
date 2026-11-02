@@ -3,7 +3,9 @@
  *
  *   GET  .../lobby                 the lobby view (public read; spectators get no chat and no unrevealed picks)
  *   POST .../lobby/presence        heartbeat (the two coaches and organisers; signed in only)
- *   POST .../lobby/chat            { text }  plain text, at most 500 characters, rate-limited (coaches + organisers)
+ *   POST .../lobby/chat            { text }  plain text, at most 500 characters, rate-limited. The two coaches; the
+ *                                  organisers only once a coach pressed "Ask an organiser" (they cannot read it before)
+ *   POST .../lobby/ask             {}  a coach asks the organisers into the messages (once; the organisers are notified)
  *   POST .../lobby/roster          { locked, teamRef?, side? }  lock / unlock the roster (tabletop: with the recorder team)
  *   POST .../lobby/ready           { ready, side? }
  *   POST .../lobby/inducements     { side, picks[], autoBuy?, lock? }  own side only; organisers any side (but never
@@ -13,7 +15,9 @@
  * Writes need a session (the server's CSRF and onboarding gates run first). Every write for one lobby is serialised
  * (store.withLobby); START is idempotent (a second START returns the first match).
  */
+import { starProfanity } from "../discord/profanity.js";
 import { plainText } from "../leagues/inducementRules.js";
+import type { NotificationInput } from "../notifications.js";
 import {
   budgetFor, CHAT_KEEP, CHAT_MAX_CHARS, fixedTeamStale, gateOf, holdBanner, inducementStep, kGold, menuFor, newLobby, parsePicks, picksVisible, planSide,
   prefilledLines, priceSide, resolveStart, sideHasStep, tvRoles, type LobbyViewer,
@@ -53,7 +57,33 @@ export interface LobbyDeps {
    * undefined = there is none.
    */
   adoptMatch?: (input: StartTabletopInput) => Promise<{ matchId: string } | { error: string } | undefined>;
+  /** Inbox notes (the coach's notifications; actionable "fixture-message" rows also queue a Discord DM). Fire-and-forget. */
+  notify?: (coach: string, input: NotificationInput) => void;
+  /**
+   * Copies a coach's fixture message into the two coaches' Messages thread (so it shows in both inboxes): `{ burst }` =
+   * copied, and whether the other coach had nothing unread there (notify once per burst); "blocked" = either coach
+   * blocked the other (no copy and no note); undefined = not available (a time-gated note instead).
+   */
+  mirror?: (from: string, to: string, text: string, context: { title: string; link: string }) => { burst: boolean } | "blocked" | undefined;
+  /** Per-fixture note gate when there is no Messages burst to go by (default: one shared in-memory gate). */
+  notices?: LobbyNoticeGate;
 }
+
+/** At most one note per fixture and recipient every NOTICE_GAP_MS when there is no burst signal (memory only, bounded). */
+export const NOTICE_GAP_MS = 10 * 60_000;
+export class LobbyNoticeGate {
+  private readonly last = new Map<string, number>();
+  take(key: string, coach: string, now: number): boolean {
+    const k = `${key}\n${coach.trim().toLowerCase()}`;
+    const at = this.last.get(k);
+    if (at !== undefined && now - at < NOTICE_GAP_MS) return false;
+    if (this.last.size >= 10_000) this.last.delete(this.last.keys().next().value!);
+    this.last.delete(k);
+    this.last.set(k, now);
+    return true;
+  }
+}
+const sharedNotices = new LobbyNoticeGate();
 
 /** What START sends to the recorder (and what a recovery checks an open match against): the fixture's current coaches,
  *  the locked recorder teams and the resolved lists by coach. */
@@ -68,7 +98,7 @@ function startInput(fx: LobbyFixture, rec: LobbyRecord, actor: string, organiser
   };
 }
 
-export const LOBBY_ACTIONS = ["presence", "chat", "roster", "ready", "inducements", "start"] as const;
+export const LOBBY_ACTIONS = ["presence", "chat", "ask", "roster", "ready", "inducements", "start"] as const;
 export type LobbyAction = (typeof LOBBY_ACTIONS)[number];
 export const isLobbyAction = (v: unknown): v is LobbyAction => typeof v === "string" && (LOBBY_ACTIONS as readonly string[]).includes(v);
 
@@ -97,6 +127,8 @@ export function lobbyView(fx: LobbyFixture, stored: LobbyRecord | undefined, aut
   const step = inducementStep(fx);
   const roles = tvRoles(fx);
   const gate = gateOf(fx, rec, onlineOf(fx, deps));
+  // the coaches' messages: the two coaches; the organisers only once a coach asked for one
+  const readsChat = Boolean(auth) && (viewer.kind === "side" || (viewer.kind === "organiser" && Boolean(rec.askedOrganiser)));
   const side = (s: LobbySide) => {
     const f = fx.sides[s];
     const st = rec.sides[s];
@@ -108,6 +140,7 @@ export function lobbyView(fx: LobbyFixture, stored: LobbyRecord | undefined, aut
     const shown = insider || !fx.rosterPrivate;
     return {
       coach: f.coach, coachId: f.coachId, team: shown ? team : { ...team, roster: [] }, standing: f.standing ?? null, stats: f.stats,
+      rating: f.rating ?? null, winRate: winRateOf(f.stats.allTime),
       ...(fx.teamLinks?.[s] ? { teamLink: fx.teamLinks[s] } : {}),
       online: deps.presence.online(fx.key, f.coachId),
       rosterLocked: st.rosterLocked, ready: st.ready,
@@ -141,7 +174,7 @@ export function lobbyView(fx: LobbyFixture, stored: LobbyRecord | undefined, aut
       role: viewer.kind === "side" ? viewer.side : viewer.kind,
       signedIn: Boolean(auth),
       organiser,
-      canChat: insider && Boolean(auth),
+      canChat: readsChat,
       canStart: insider && Boolean(auth) && gate.armed && !rec.started,
       canForce: organiser && gate.forceArmed && !gate.armed && !rec.started,
     },
@@ -154,8 +187,15 @@ export function lobbyView(fx: LobbyFixture, stored: LobbyRecord | undefined, aut
     hold: rec.hold ? { ...rec.hold, banner: holdBanner(fx, rec.hold) } : null,
     started: rec.started ? { ...rec.started, to: rec.started.matchId ? `/tabletop/${encodeURIComponent(rec.started.matchId)}` : fx.links.fixture } : null,
     resolved: rec.started && rec.resolved ? rec.resolved : null,
-    chat: insider && auth ? rec.chat.slice(-200).map((m) => (m.system ? { ...m, text: renderSystem(fx, m) } : m)) : null,
+    chat: readsChat ? rec.chat.slice(-200).map((m) => (m.system ? { ...m, text: renderSystem(fx, m) } : m)) : null,
+    messages: {
+      asked: Boolean(rec.askedOrganiser),
+      askedAt: rec.askedOrganiser?.at ?? null,
+      canAsk: viewer.kind === "side" && Boolean(auth) && !rec.askedOrganiser && fx.organisers.length > 0,
+    },
     headToHead: fx.headToHead,
+    lastMeeting: fx.headToHead.meetings[0] ?? null,
+    teamHeadToHead: fx.teamHeadToHead ? { ...fx.teamHeadToHead, meetings: fx.teamHeadToHead.meetings.slice(0, 10) } : null,
     organisers: fx.organisers,
     ...(recorderTeams ? { recorderTeams } : {}),
     // a fixed team (tournaments): the roster lock plays it; `error` says why it cannot be locked
@@ -186,6 +226,7 @@ export async function lobbyRoute(
     deps.presence.beat(fx.key, auth.coach);
     return { status: 200, headers: NO_STORE, body: { ok: true } };
   }
+  if (action === "ask" && viewer.kind !== "side") return fail(403, "Only the two coaches can ask an organiser.");
   if (action === "chat") {
     const text = plainText(input.text, false);
     if (!text) return fail(400, "Write a message (plain text, one line).");
@@ -193,7 +234,8 @@ export async function lobbyRoute(
     const wait = deps.chatLimiter?.take([`lobby:${fx.key}:${auth.coach.trim().toLowerCase()}`], 0) ?? 0;
     if (wait > 0) return { ...fail(429, "You are sending messages too fast. Try again in a moment."), headers: { ...NO_STORE, "retry-after": String(wait) } };
   }
-  return write(fx, auth, deps, async (rec, now) => {
+  let after: (() => void) | undefined;
+  const out = await write(fx, auth, deps, async (rec, now) => {
     const at = now.toISOString();
     const whoSide = viewer.kind === "side" ? viewer.side : undefined;
     const target = (): LobbySide | LobbyResult => {
@@ -212,7 +254,18 @@ export async function lobbyRoute(
     const closed = rec.started ? "The match has started." : !fx.open ? (fx.closedReason || "This fixture is closed.") : "";
     switch (action) {
       case "chat": {
-        say(rec, { from: auth.coach, text: plainText(input.text, false)!, at, role: whoSide ?? "organiser" });
+        if (!whoSide && !rec.askedOrganiser) return fail(403, "The coaches' messages are private until a coach asks an organiser.");
+        const text = plainText(input.text, false)!;
+        say(rec, { from: auth.coach, text, at, role: whoSide ?? "organiser" });
+        after = () => noteMessage(fx, deps, auth.coach, whoSide, text, now);
+        return ok();
+      }
+      case "ask": {
+        if (!fx.organisers.length) return fail(409, "This competition has no organisers to ask.");
+        if (rec.askedOrganiser) return ok(); // once
+        rec.askedOrganiser = { at, by: auth.coach };
+        system(rec, fx, whoSide, "{actor} asked an organiser to join the messages.", at, auth.coach);
+        after = () => noteAsk(fx, deps, auth.coach);
         return ok();
       }
       case "roster": {
@@ -262,6 +315,59 @@ export async function lobbyRoute(
       default: return fail(404, "Not found.");
     }
   });
+  if (out.status === 200 && after) { try { after(); } catch { /* notes are fire-and-forget */ } }
+  return out;
+}
+
+/** Win rate as the league statistics count it (a draw is half a win), 0..1; null without games. */
+export const winRateOf = (s: { played: number; wins: number; draws: number }): number | null =>
+  s.played > 0 ? Math.round(((s.wins + s.draws / 2) / s.played) * 1000) / 1000 : null;
+
+/** "Orcs v Elves". */
+const fixtureLabel = (fx: LobbyFixture): string => `${fx.sides.home.team.name} v ${fx.sides.away.team.name}`;
+/** What a Discord DM names (notices always obscure listed words, owner 11-02). */
+const dmSubject = (fx: LobbyFixture): string => starProfanity(`${fixtureLabel(fx)} · ${fx.header.competition}`);
+const noteLink = (fx: LobbyFixture): string => `/app${fx.links.lobby ?? fx.links.fixture}`;
+
+function sendNote(deps: LobbyDeps, coach: string, input: NotificationInput): void {
+  try { deps.notify?.(coach, input); } catch { /* fire-and-forget */ }
+}
+
+/**
+ * A new message: the other coach gets an inbox note and (through the DM queue) a Discord DM, once per burst. A coach's
+ * message is also copied into the two coaches' Messages thread (their inboxes); a block either way stops the copy and the
+ * note. An organiser's message (after Ask) notes both coaches, time-gated. The DM never carries the message text.
+ */
+function noteMessage(fx: LobbyFixture, deps: LobbyDeps, from: string, whoSide: LobbySide | undefined, text: string, now: Date): void {
+  const gate = deps.notices ?? sharedNotices;
+  const note = (to: string) => sendNote(deps, to, {
+    type: "fixture-message", title: `New message from ${from} about ${fixtureLabel(fx)}`,
+    body: [...text.replace(/\s+/g, " ")].slice(0, 140).join(""), link: noteLink(fx), from, subject: dmSubject(fx), action: true,
+  });
+  if (!whoSide) {
+    for (const s of LOBBY_SIDES) {
+      const to = fx.sides[s].coachId;
+      if (to && gate.take(fx.key, to, now.getTime())) note(to);
+    }
+    return;
+  }
+  const to = fx.sides[otherSide(whoSide)].coachId;
+  if (!to) return;
+  let copied: ReturnType<NonNullable<LobbyDeps["mirror"]>>;
+  try { copied = deps.mirror?.(from, to, text, { title: `${fixtureLabel(fx)} · ${fx.header.competition}`, link: noteLink(fx) }); } catch { copied = undefined; }
+  if (copied === "blocked") return;
+  if (copied ? copied.burst : gate.take(fx.key, to, now.getTime())) note(to);
+}
+
+/** "Ask an organiser": every organiser of the competition gets an actionable note (and DM). */
+function noteAsk(fx: LobbyFixture, deps: LobbyDeps, coach: string): void {
+  for (const o of fx.organisers) {
+    if (same(o, coach)) continue;
+    sendNote(deps, o, {
+      type: "fixture-message", title: `${coach} asked an organiser to join the messages about ${fixtureLabel(fx)}`,
+      body: "The coaches' messages for this fixture are now open to the organisers.", link: noteLink(fx), from: coach, subject: dmSubject(fx), action: true,
+    });
+  }
 }
 
 type Mutation = (rec: LobbyRecord, now: Date) => Promise<LobbyResult | "ok" | { ok: true; extra: Record<string, unknown> }>;

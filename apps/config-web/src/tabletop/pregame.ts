@@ -215,6 +215,15 @@ export function latestInducement(events: readonly TabletopEvent[], side: Side): 
   return events.filter((e) => e.type === "inducement" && e.team === side && !undone.has(e.id)).at(-1);
 }
 
+/**
+ * The team's inducements are confirmed at the table: its latest submission was made in the recorder. A list pre-filled
+ * from the fixture summary (lobby: true) pre-fills the picker and waits for a coach to confirm or change it.
+ */
+export function inducementConfirmed(events: readonly TabletopEvent[], side: Side): boolean {
+  const e = latestInducement(events, side);
+  return Boolean(e) && e!.payload.lobby !== true;
+}
+
 export function pregameSummary(events: readonly TabletopEvent[], phase?: MatchPhase) {
   const of = (type: string, side?: Side) => events.filter((e) => e.type === type && (side === undefined || e.team === side));
   const side = <T,>(f: (s: Side) => T): Record<Side, T> => ({ home: f("home"), away: f("away") });
@@ -263,7 +272,10 @@ export interface InducementBudget {
   topUpLimit: number;
   /** What the latest submission for this team spent (0 when none yet). */
   spent: number;
+  /** Confirmed at the table. A list pre-filled from the fixture summary (lobby) is not, until a coach confirms or changes it. */
   submitted: boolean;
+  /** The current list came pre-filled from the fixture summary (lobby) and still waits for a confirm here. */
+  lobby?: true;
 }
 /** Display extras a league season's custom inducement carries into the picker (icon path, effect text). */
 export interface InducementOptionExtras { icon: string; effectText: string; custom: true }
@@ -298,10 +310,12 @@ export function inducementMenu(input: {
     const treasury = input.teams[s].treasury;
     const own = latest(s);
     const spent = Number((own?.payload as { total?: number } | undefined)?.total ?? 0);
-    if (mine === null || theirs === null || mine === theirs) return { role: "equal", pettyCash: 0, treasury, topUpLimit: 0, spent, submitted: !!own };
-    if (mine > theirs) return { role: "favourite", pettyCash: 0, treasury, topUpLimit: treasury, spent, submitted: !!own };
+    const fromLobby = own?.payload.lobby === true;
+    const done = { submitted: !!own && !fromLobby, ...(fromLobby ? { lobby: true as const } : {}) };
+    if (mine === null || theirs === null || mine === theirs) return { role: "equal", pettyCash: 0, treasury, topUpLimit: 0, spent, ...done };
+    if (mine > theirs) return { role: "favourite", pettyCash: 0, treasury, topUpLimit: treasury, spent, ...done };
     const favSpent = Number((latest(other)?.payload as { treasury?: number } | undefined)?.treasury ?? 0);
-    return { role: "underdog", pettyCash: theirs - mine + favSpent, treasury, topUpLimit: Math.min(TREASURY_TOP_UP_CAP, treasury), spent, submitted: !!own };
+    return { role: "underdog", pettyCash: theirs - mine + favSpent, treasury, topUpLimit: Math.min(TREASURY_TOP_UP_CAP, treasury), spent, ...done };
   };
   return {
     inducementOptions: { home: options("home"), away: options("away") },

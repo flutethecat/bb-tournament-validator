@@ -9,6 +9,7 @@
 // URL in a name is broken up, so the action link is the only link in the message (no masked-link phishing).
 
 import type { NotificationRecord, NotificationType } from "../notifications.js";
+import { starProfanity } from "../discord/profanity.js";
 import { oneLine } from "./templates.js";
 
 export interface ActionMessageInput {
@@ -36,6 +37,8 @@ export const ACTION_DM: Partial<Record<NotificationType, ActionMessageBuilder>> 
   // Organiser requests (registration spec 2026-11-02 §8.3): the subject is the whole sentence ("Bob asked to become an
   // organiser." to admins, "Your organiser request was approved." to the coach).
   "organiser-request": ({ subject, url }) => `${subject} Open it: ${url}`,
+  // Fixture summary messages (league UX pass 11-02): never the message text, only who wrote and about which fixture.
+  "fixture-message": ({ title, url }) => `${title}. Read and reply: ${url}`,
 };
 
 /** Types that DM only when the emitter marks the row actionable (NotificationInput.action). Every other emitter of these
@@ -61,9 +64,10 @@ export function actionDmText(m: ActionMessageInput): { text: string; plain: stri
   const build = ACTION_DM[m.record.type];
   if (!build) return undefined;
   if (ACTION_DM_WHEN_FLAGGED.has(m.record.type) && m.action !== true) return undefined;
-  const from = oneLine(m.record.from) || "Someone";
-  const subject = oneLine(m.subject ?? "") || "your fixture";
-  const title = oneLine(m.record.title);
+  // Discord notices always obscure listed words (owner 11-02): names and titles are starred before escaping
+  const from = starProfanity(oneLine(m.record.from)) || "Someone";
+  const subject = starProfanity(oneLine(m.subject ?? "")) || "your fixture";
+  const title = starProfanity(oneLine(m.record.title));
   return {
     text: build({ from: escapeDiscordName(from), subject: escapeDiscordName(subject), url: m.url, title: escapeDiscordName(title) }),
     plain: build({ from, subject, url: m.url, title }),

@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-02",
+    "title": "Fixture summary: the match page before kick-off",
+    "body": "A league fixture's page now opens with a match summary (team value, record, position, form, petty cash, treasury and inducement budget), coach cards with Rating, win rate and rank, and the coaches' previous meetings with a link to the last one. Coaches pick inducements there in private until both lock, and the picks fill the recorder's picker at the start, where they can still be changed. The coaches' messages are just for the two of you (ask an organiser to bring them in), appear in your Messages inbox, and a new one sends the other coach a note and a Discord message.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-02",
     "title": "Weekly Digest marks organiser-typed scores as edited",
     "body": "A score an organiser typed or changed shows in the Weekly Digest as \"(edited)\" and counts as a normal result. Only outcomes an admin decided (forfeits, deadline forfeits, concessions with no recorded game) are labelled as an administrative win, loss or draw, with no score.",
     "links": [

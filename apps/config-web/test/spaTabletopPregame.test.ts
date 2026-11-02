@@ -146,6 +146,23 @@ describe("inducement picker", () => {
     expect(html.indexOf('data-side="away"')).toBeLessThan(html.indexOf('data-side="home"'));
     expect(html).toContain("Waiting for Bob Elves (higher team value)");
   });
+
+  it("lists pre-filled from the fixture summary show in the cart, unconfirmed: Confirm (not Resubmit), and the underdog waits", async () => {
+    const match = { id: "m", state: "recording", home: { coach: "Alice", teamName: "Alice Orcs", teamSaveId: "a" }, away: { coach: "Bob", teamName: "Bob Elves", teamSaveId: "b" }, postMatch: "full", createdBy: "Alice", confirmations: {} };
+    const html = await mount(mods.pregameC, {
+      match, teams: { home: undefined, away: undefined }, phase: "pregame:inducements", busy: false, error: "", mySide: "home",
+      pregame: {
+        step: "inducements", inducementOptions: { home: options, away: options },
+        inducements: { home: { picks: [{ id: options[0]!.id, name: options[0]!.name, qty: 1 }], lobby: true }, away: { picks: [], lobby: true } },
+        budget: { home: { role: "underdog", pettyCash: 200_000, treasury: 0, topUpLimit: 0, spent: 0, submitted: false, lobby: true }, away: { role: "favourite", pettyCash: 0, treasury: 100_000, topUpLimit: 100_000, spent: 0, submitted: false, lobby: true } },
+      },
+    });
+    expect(html).toContain("Pre-filled from the fixture summary");
+    expect(html).not.toContain("Chosen");
+    expect(html).not.toContain("Resubmit");
+    expect(html).toContain("Waiting for Bob Elves (higher team value)");
+    expect(html).toContain(`1 x ${options[0]!.name}`);
+  });
 });
 
 describe("recorder controller", () => {

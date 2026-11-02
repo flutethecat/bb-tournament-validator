@@ -9,7 +9,7 @@ import { API_KEY } from "../app";
 import { SESSION_KEY, writesAllowed } from "../session";
 import { NOTIFICATIONS_KEY } from "../home/notifications";
 import {
-  MESSAGE_MAX_CHARS, MESSAGES_KEY, messagesPath, shortDate, socialApi, useSocialActions,
+  fixtureRoute, MESSAGE_MAX_CHARS, MESSAGES_KEY, messagesPath, shortDate, socialApi, useSocialActions,
   type BlockRow, type FriendsResponse, type ThreadResponse, type ThreadSummary,
 } from "../home/social";
 import SocialAvatar from "../components/SocialAvatar.vue";
@@ -280,6 +280,7 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer); });
             :data-mine="m.mine ? 'true' : undefined" :data-organiser="m.organiser ? 'true' : undefined"
           >
             <span v-if="m.organiser" class="so-org">Organiser · {{ m.organiser.name }}</span>
+            <span v-if="m.fixture" class="so-org" data-fixture-context>Fixture · <RouterLink v-if="fixtureRoute(m.fixture.link)" :to="fixtureRoute(m.fixture.link)">{{ shown(m.fixture.title) }}</RouterLink><template v-else>{{ shown(m.fixture.title) }}</template></span>
             <p class="so-text">{{ shown(m.text) }}</p>
             <time class="so-when" :datetime="m.at">{{ m.mine ? "You" : m.from }} · {{ shortDate(m.at) }}</time>
           </li>

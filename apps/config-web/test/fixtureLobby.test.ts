@@ -301,7 +301,7 @@ describe("league fixture lobby routes", () => {
     expect((await post("Ann", "roster", { locked: true, teamRef: "library:ann-team" })).status).toBe(200);
   });
 
-  it("chat: plain text, 500 characters at most, kept for coaches + organisers only; system lines record locks", async () => {
+  it("chat: plain text, 500 characters at most, kept for the two coaches (organisers after Ask); system lines record locks", async () => {
     expect((await post("Ann", "chat", { text: "Hi! <b>see you</b>" })).status).toBe(200);
     expect((await post("Ann", "chat", { text: "x".repeat(501) })).status).toBe(400);
     expect((await post("Ann", "chat", { text: "bell\u0007" })).status).toBe(400);
@@ -317,7 +317,10 @@ describe("league fixture lobby routes", () => {
     const lines = (await view("Ann")).chat!.map((m) => (m as { text: string }).text);
     expect(lines.at(-1)).toBe("Bob locked inducements.");
     expect(lines.join(" ")).not.toMatch(/100K/);
-    expect((await view("Org")).chat).toHaveLength(3);
+    // the organisers read the coaches' messages only once a coach pressed "Ask an organiser"
+    expect((await view("Org")).chat).toBeNull();
+    expect((await post("Ann", "ask", {})).status).toBe(200);
+    expect((await view("Org")).chat).toHaveLength(4);
     expect((await view("Eve")).chat).toBeNull();
   });
 
@@ -596,13 +599,14 @@ describe("league fixtures in the tabletop recorder (START's createMatch)", () =>
     expect(match.home.coach).toBe("Bob");
     expect(match.inducements).toEqual({ home: lists.bob, away: lists.ann });
     expect(match.fixtureSwap).toBe(true);
-    // the reporter starts with both lobby submissions recorded (treasury as resolved) and skips the inducement step
+    // the reporter starts with both lobby submissions recorded (treasury as resolved): they pre-fill the picker, and the
+    // inducement step still runs so each team confirms or changes its list (owner 11-02, Q3)
     const id = (made.body as { match: { id: string } }).match.id;
     const events = await deps.repo.readEvents(id);
     expect(events.filter((e) => e.type === "inducement").map((e) => [e.team, e.payload.total, e.payload.treasury, e.payload.lobby])).toEqual([["home", 0, 0, true], ["away", 100_000, 0, true]]);
     const adv = async () => (await tabletopApi("POST", `/api/tabletop/matches/${id}/pregame/advance`, { coach: "Ann", method: "discord" }, { mode: "site" }, deps))!;
     for (let i = 0; i < 3; i += 1) expect((await adv()).status).toBe(200);
-    expect((await deps.repo.getMatch(id))!.phase).toBe("pregame:coin");
+    expect((await deps.repo.getMatch(id))!.phase).toBe("pregame:inducements");
     recordLeagueFixture(store, ref, { opId: "op1", expectedRevision: 0, homeScore: 2, awayScore: 0, homeCasualties: 1, awayCasualties: 0 }, NOW);
     const f = store.season("alpha", "season-1")!.fixtures[0]!;
     expect(f).toMatchObject({ home: { score: 2, cas: 1 }, away: { score: 0 }, tabletop: { revision: 1, opId: "op1" } });

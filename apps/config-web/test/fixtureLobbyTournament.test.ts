@@ -141,7 +141,11 @@ describe("tournament fixture lobby", () => {
     expect((await post("Eve", "chat", { text: "hi" })).status).toBe(403);
     expect((await call(undefined, "POST", `${L}/chat`, { text: "hi" })).status).toBe(401);
     expect((await post("Ann", "chat", { text: "Hi Bob" })).status).toBe(200);
-    expect((await view("Org")).chat).toHaveLength(1);
+    // the managers read the coaches' messages only after a coach asks an organiser
+    expect((await view("Org")).chat).toBeNull();
+    expect((await post("Org", "chat", { text: "hello" })).status).toBe(403);
+    expect((await post("Ann", "ask", {})).status).toBe(200);
+    expect((await view("Org")).chat).toHaveLength(2);
     expect((await view("Eve")).chat).toBeNull();
     // gates: a public read on requireSession; every write is CSRF-covered
     const req = (method: string) => ({ method, headers: {} }) as IncomingMessage;

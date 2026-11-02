@@ -29,7 +29,8 @@ import type { LeagueFixture, LeagueRecord, LeagueTeam, SeasonRecord } from "../l
 import type { TabletopTeamFile } from "../tabletop/postMatch.js";
 import { deriveTeamResult, type StoredTournamentResult } from "../tournamentResults.js";
 import { lobbyRoute, type LobbyDeps } from "./api.js";
-import { LOBBY_SIDES, type LobbyCoachStats, type LobbyFixture, type LobbyFixtureSide, type LobbyHeadToHead, type LobbyMeeting, type LobbySide, type LobbyTeam } from "./types.js";
+import type { CoachEloRating } from "../coachElo.js";
+import { LOBBY_SIDES, type LobbyCoachRating, type LobbyCoachStats, type LobbyFixture, type LobbyFixtureSide, type LobbyHeadToHead, type LobbyMeeting, type LobbySide, type LobbyTeam } from "./types.js";
 import { publishedLeagues } from "../leagues/lifecycle.js";
 import { fixtureRedraftBlock } from "../leagues/redraftWindow.js";
 
@@ -39,6 +40,8 @@ export interface LeagueLobbyDeps extends LobbyDeps {
   /** Counting results (fork + published tabletop) for coach statistics and head-to-head; absent = league fixtures only. */
   results?: () => StoredTournamentResult[];
   resultsRevision?: () => string;
+  /** The site rating of every coach (the existing Elo, by lower-cased coach); absent = no Rating on the coach cards. */
+  ratings?: () => ReadonlyMap<string, CoachEloRating>;
 }
 
 const enc = encodeURIComponent;
@@ -67,7 +70,8 @@ export async function leagueLobbyRoutes(
   const fixture = season.fixtures.find((f) => f.id === fixtureId);
   if (!fixture) return fail(404, "Fixture not found.");
   const fx = leagueLobbyFixture(lg, season, fixture, auth, deps.store, lobby, lobby.now?.() ?? deps.now?.() ?? new Date());
-  return lobbyRoute(method, action, fx, auth, input, lobby);
+  // notifications go through the league's (draft-aware) notifier when the league API has one
+  return lobbyRoute(method, action, fx, auth, input, deps.notify ? { ...lobby, notify: deps.notify } : lobby);
 }
 
 // ---- the fixture ----------------------------------------------------------------------------------------------------
@@ -88,6 +92,7 @@ export function leagueLobbyFixture(
   const base = `/leagues/${enc(league.id)}`;
   const coachIds = { home: f.home.coachId ?? "", away: f.away.coachId ?? "" };
   const history = coachHistory(store, deps, coachIds);
+  const rate = ratingsOf(deps);
   const side = (s: LobbySide): LobbyFixtureSide => {
     const fs = f[s];
     const team = season.teams.find((t) => (fs.teamId ? t.id === fs.teamId : t.name === fs.team));
@@ -97,7 +102,11 @@ export function leagueLobbyFixture(
       coachId: cid,
       coach: fs.coach || cid,
       team: lobbyTeam(team, fs.team, fs.race),
-      ...(row ? { standing: { rank: row.rank, points: row.points, group: row.group } } : {}),
+      ...(row ? { standing: {
+        rank: row.rank, points: row.points, group: row.group, played: row.played, wins: row.wins, draws: row.draws, losses: row.losses,
+        ...(row.latest ? { latest: row.latest.slice(-5) } : {}),
+      } } : {}),
+      ...(rate ? { rating: rate(cid) } : {}),
       stats: {
         season: { ...statsOf(seasonGames(season, cid)), ...(row ? { points: row.points } : {}) },
         allTime: statsOf(history.games.get(cid.trim().toLowerCase()) ?? []),
@@ -121,13 +130,15 @@ export function leagueLobbyFixture(
     ...(closedReason ? { closedReason } : {}),
     header: {
       competition: league.name, season: season.name, phase: f.phase, ...(f.group ? { group: f.group } : {}), round: f.round,
-      ...(f.table ? { table: f.table } : {}), ...(f.date ? { date: f.date } : {}), ...(deadline ? { deadline } : {}), ruleset: season.ruleset,
+      ...(f.table ? { table: f.table } : {}), ...(f.date ? { date: f.date } : {}), ...(deadline ? { deadline } : {}),
+      ...(agreedTime(f.scheduledTime) ? { scheduled: agreedTime(f.scheduledTime)! } : {}), ruleset: season.ruleset,
     },
     links: {
       competition: `${base}${seasonQuery(store, league, season, {})}`,
       fixture: `${base}${seasonQuery(store, league, season, { tab: "fixtures", fixture: f.id })}`,
       standings: `${base}${seasonQuery(store, league, season, { tab: "standings" })}`,
       rules: `${base}${seasonQuery(store, league, season, {})}`,
+      lobby: `${base}/seasons/${enc(season.id)}/fixtures/${enc(f.id)}/lobby`,
     },
     sides: lobbySides,
     // Owner ruling §9.2: treasury top-up allowed in leagues by default. Highlander is a tournament package option.
@@ -136,6 +147,7 @@ export function leagueLobbyFixture(
     offers, ids, table: effectiveInducements(config),
     isOrganiser: (coach) => isLeagueOrganiser(league, coach) || Boolean(auth?.admin && same(auth.coach, coach)),
     headToHead: headToHead(history.meetings, coachIds),
+    teamHeadToHead: teamMeetings(store, league, lobbySides, history.meetings),
     organisers: [...new Set([...(league.owner ? [league.owner] : []), ...league.organisers])],
     // the recorder team must be this season's league team: same name, same roster (race)
     recorderTeamAllowed: (s, t) => {
@@ -289,5 +301,70 @@ export function headToHead(meetings: Meeting[], coaches: Record<LobbySide, strin
     h.cas.home += casOf("home"); h.cas.away += casOf("away");
   }
   h.meetings = meetings.slice(0, 50).map(({ coaches: _c, ...m }) => m);
+  return h;
+}
+
+// ---- schedule, ratings and the teams' own meetings (fixture summary, UX pass 11-02) ---------------------------------
+
+const ISO = (v: unknown): v is string => typeof v === "string" && !Number.isNaN(Date.parse(v));
+/** The agreed time on a fixture (Schedule writes it), only when well formed. */
+export function agreedTime(v: unknown): { start: string; end: string; agreedAt: string } | undefined {
+  if (!v || typeof v !== "object") return undefined;
+  const o = v as Record<string, unknown>;
+  if (!ISO(o.start) || !ISO(o.end)) return undefined;
+  return { start: o.start, end: o.end, agreedAt: ISO(o.agreedAt) ? o.agreedAt : o.start };
+}
+
+/**
+ * The coach's Rating (the existing Elo until Glicko lands) and their rank among every rated coach (highest first; a tie
+ * shares the better rank). A coach with no rated game has no Rating (null).
+ */
+export function ratingsOf(deps: Pick<LeagueLobbyDeps, "ratings">): ((coach: string) => LobbyCoachRating | null) | undefined {
+  if (!deps.ratings) return undefined;
+  let map: ReadonlyMap<string, CoachEloRating>;
+  try { map = deps.ratings(); } catch { return undefined; }
+  const sorted = [...map.values()].filter((r) => r.games > 0).map((r) => r.rating).sort((a, b) => b - a);
+  return (coach) => {
+    const r = coach ? map.get(coach.trim().toLowerCase()) : undefined;
+    if (!r || r.games <= 0) return null;
+    const rank = sorted.findIndex((v) => v <= r.rating) + 1;
+    return { value: Math.round(r.rating), games: r.games, provisional: r.provisional, ...(rank > 0 ? { rank, of: sorted.length } : {}) };
+  };
+}
+
+/**
+ * Every played meeting of the two TEAMS in this league (any season: league team ids are the slug of name + coach, so a
+ * team keeps its id across seasons), as a head-to-head by side. null when it is the same set of games as the coaches'
+ * own meetings (nothing more to say), or when a side has no team record.
+ */
+export function teamMeetings(store: LeagueStore, league: LeagueRecord, sides: Record<LobbySide, LobbyFixtureSide>, coachMeetings: readonly Meeting[]): LobbyHeadToHead | null {
+  const ids = { home: sides.home.team.id, away: sides.away.team.id };
+  if (!ids.home || !ids.away || ids.home === ids.away) return null;
+  const meetings: Array<Meeting & { homeTeamId: string }> = [];
+  for (const season of store.seasons(league.id)) {
+    for (const f of season.fixtures) {
+      const t = [f.home.teamId, f.away.teamId];
+      if (!(t.includes(ids.home) && t.includes(ids.away)) || !fixturePlayed(f) || f.home.score === null || f.away.score === null) continue;
+      meetings.push({
+        at: fixtureAt(f, season), event: `${league.name} · ${season.name} · Round ${f.round}`,
+        home: { coach: f.home.coach, team: f.home.team, score: f.home.score }, away: { coach: f.away.coach, team: f.away.team, score: f.away.score },
+        cas: { home: f.home.cas, away: f.away.cas },
+        to: `/leagues/${enc(league.id)}?${new URLSearchParams({ season: season.id, tab: "fixtures", fixture: f.id })}`,
+        coaches: { home: f.home.coachId ?? "", away: f.away.coachId ?? "" }, homeTeamId: f.home.teamId ?? "",
+      });
+    }
+  }
+  meetings.sort((a, b) => b.at.localeCompare(a.at));
+  const coachLinks = new Set(coachMeetings.map((m) => m.to).filter(Boolean));
+  if (meetings.length === coachLinks.size && meetings.every((m) => coachLinks.has(m.to))) return null;
+  const h: LobbyHeadToHead = { wins: { home: 0, away: 0 }, draws: 0, td: { home: 0, away: 0 }, cas: { home: 0, away: 0 }, meetings: [] };
+  for (const m of meetings) {
+    const homeIsHome = m.homeTeamId === ids.home;
+    const a = homeIsHome ? m.home.score : m.away.score, b = homeIsHome ? m.away.score : m.home.score;
+    if (a > b) h.wins.home++; else if (b > a) h.wins.away++; else h.draws++;
+    h.td.home += a; h.td.away += b;
+    h.cas.home += (homeIsHome ? m.cas.home : m.cas.away) ?? 0; h.cas.away += (homeIsHome ? m.cas.away : m.cas.home) ?? 0;
+  }
+  h.meetings = meetings.slice(0, 50).map(({ coaches: _c, homeTeamId: _t, ...m }) => m);
   return h;
 }

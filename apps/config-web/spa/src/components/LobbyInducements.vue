@@ -7,7 +7,8 @@
 import { computed, inject, ref, watch } from "vue";
 import { draftTotal, FIXTURE_LOBBY_KEY, kGold, otherSide, type LobbyMenuCategory, type LobbySide, type LobbyView } from "../leagues/lobby";
 
-const props = defineProps<{ view: LobbyView; side: LobbySide }>();
+// `embedded`: inside the fixture summary's Inducements pane (its band and side tabs above): no panel or band of its own.
+const props = defineProps<{ view: LobbyView; side: LobbySide; embedded?: boolean }>();
 const lobby = inject(FIXTURE_LOBBY_KEY)!;
 const s = computed(() => props.view.sides[props.side]);
 const ind = computed(() => s.value.inducements);
@@ -68,11 +69,12 @@ const overdogNote = computed(() => {
 </script>
 
 <template>
-  <section class="hm-panel fl-panel" :aria-labelledby="`fl-ind-${side}`" :data-side="side" data-panel="inducements">
-    <header class="hm-band" :data-seat="side">
+  <component :is="embedded ? 'div' : 'section'" :class="embedded ? 'fs-ind-body' : 'hm-panel fl-panel'" :aria-labelledby="embedded ? undefined : `fl-ind-${side}`" :data-side="side" data-panel="inducements">
+    <header v-if="!embedded" class="hm-band" :data-seat="side">
       <h2 :id="`fl-ind-${side}`">{{ title }}</h2>
       <span class="hm-cap" :class="{ 'fl-cap-amber': own && ind.hasStep }">{{ caption }}</span>
     </header>
+    <p v-else class="fs-ind-cap" :class="{ 'fl-amber': own && ind.hasStep }" data-ind-caption>{{ caption }}</p>
     <p v-if="held && own" class="fl-banner" role="status" data-hold><strong>Your pick</strong>{{ held.banner }} Adjust your list and lock it: START re-arms.</p>
     <p v-else-if="held && !own && view.viewer.role !== 'spectator'" class="fl-banner" role="status" data-hold><strong>Waiting</strong>Waiting for {{ s.coach }} to lock inducements.</p>
     <div v-if="prefilled.length" class="fl-prefilled" data-prefilled>
@@ -139,5 +141,5 @@ const overdogNote = computed(() => {
       <p v-if="own && live && ind.hasStep && ind.budget.role === 'underdog' && ind.budget.topUpLimit" class="fl-note">Your treasury can add up to {{ kGold(ind.budget.topUpLimit) }} on top of petty cash.</p>
       <p v-if="overdogNote" class="fl-note fl-amber">{{ overdogNote }}</p>
     </template>
-  </section>
+  </component>
 </template>

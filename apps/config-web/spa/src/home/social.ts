@@ -26,7 +26,10 @@ export interface ThreadSummary {
   unread: number;
 }
 export interface ThreadsResponse { threads: ThreadSummary[]; unread: number }
-export interface MessageView { id: number; from: string; mine: boolean; text: string; at: string; organiser?: { kind: string; id: string; name: string } }
+/** `fixture`: copied from a fixture summary's coaches' messages (its title and SPA link, /app/...). */
+export interface MessageView { id: number; from: string; mine: boolean; text: string; at: string; organiser?: { kind: string; id: string; name: string }; fixture?: { title: string; link: string } }
+/** A fixture summary link as a router path (the server sends /app/...; only site paths are followed). */
+export const fixtureRoute = (link: string): string => (link.startsWith("/app/") ? link.slice(4) : "");
 export interface ThreadResponse {
   thread: { id: string; with: string; avatar: string | null; deleted: boolean; organiser: boolean; blockedByMe: boolean; canSend: boolean; reason?: string };
   messages: MessageView[];

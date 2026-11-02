@@ -121,7 +121,8 @@ const options = (s: Side): InducementOption[] => {
   return Array.isArray(o) ? (o as InducementOption[]) : [];
 };
 const budget = (s: Side): InducementBudget | undefined => obj(obj(props.pregame.budget)?.[s]) as InducementBudget | undefined;
-const submitted = (s: Side): boolean => budget(s)?.submitted === true || !!obj(obj(props.pregame.inducements)?.[s]);
+/** Confirmed here. A list pre-filled from the fixture summary (budget.lobby) waits for a confirm or a change. */
+const submitted = (s: Side): boolean => budget(s)?.submitted === true || (!!obj(obj(props.pregame.inducements)?.[s]) && budget(s)?.lobby !== true);
 /** Higher team value first (its treasury spend feeds the petty cash); equal values: home then away. */
 const order = computed<Side[]>(() => (budget("away")?.role === "favourite" ? ["away", "home"] : ["home", "away"]));
 const lastPicks = (s: Side): Array<{ id: string; qty: number }> => ((obj(obj(props.pregame.inducements)?.[s])?.picks as Array<{ id: string; qty: number }> | undefined) ?? []);
@@ -234,7 +235,7 @@ const weatherObj = computed(() => obj(props.pregame.weather));
       <h3>Inducements</h3>
       <TabletopInducementPicker
         v-for="s in order" :key="s" :side="s" :team-name="team(s)" :coach="coach(s)" :options="options(s)" :budget="budget(s)" :icons="inducementIcons"
-        :busy="busy" :can-edit="canAct" :waiting-for="waitingFor(s)" :submitted="submitted(s)" :initial="lastPicks(s)"
+        :busy="busy" :can-edit="canAct" :waiting-for="waitingFor(s)" :submitted="submitted(s)" :initial="lastPicks(s)" :from-lobby="budget(s)?.lobby === true"
         @submit="(sd, picks) => emit('advance', { team: sd, picks })" @skip="(sd) => emit('advance', { team: sd, skip: true })"
       />
     </div>

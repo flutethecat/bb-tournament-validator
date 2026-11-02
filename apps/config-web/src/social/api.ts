@@ -22,7 +22,7 @@ import { SenderRateLimiter } from "../notifications.js";
 import { isReservedCoachName } from "../privacy/fence.js";
 import {
   MESSAGE_TEXT_MAX, SocialError, SocialStore, socialKey, THREAD_ID,
-  type IndexEntry, type MessageRecord, type OrganiserContext, type ThreadFile,
+  type FixtureContext, type IndexEntry, type MessageRecord, type OrganiserContext, type ThreadFile,
 } from "./store.js";
 
 export const NOT_ACCEPTING = "This coach is not accepting messages";
@@ -121,6 +121,7 @@ function threadSummary(deps: SocialApiDeps, me: string, row: IndexEntry) {
 
 const messageView = (me: string, m: MessageRecord) => ({
   id: m.id, from: m.from, mine: socialKey(m.from) === socialKey(me), text: m.text, at: m.at, ...(m.organiser ? { organiser: m.organiser } : {}),
+  ...(m.fixture && typeof m.fixture.title === "string" && typeof m.fixture.link === "string" ? { fixture: { title: m.fixture.title, link: m.fixture.link } } : {}),
 });
 
 function threadView(deps: SocialApiDeps, me: string, t: ThreadFile, query: URLSearchParams) {
@@ -178,6 +179,18 @@ function send(deps: SocialApiDeps, me: string, toName: string, rawText: unknown,
 
 /** An organiser's tournament message, appended to the organiser <-> coach thread (blocks do not apply, spec §4.5). The
  *  caller already sent the notification, so none is raised here. Fire-and-forget: errors are the caller's to swallow. */
+/**
+ * A coach's message on a fixture summary, copied into the two coaches' thread so it shows in both inboxes (league UX pass
+ * 11-02). Blocks apply (either way: no copy, "blocked"); a deleted / fenced / unknown account gets no copy (undefined).
+ * Returns whether the recipient had nothing unread in the thread before (a new burst: the caller notifies once).
+ */
+export function appendFixtureMessage(deps: Pick<SocialApiDeps, "store" | "coach" | "isFenced">, from: string, to: string, text: string, fixture: FixtureContext): { burst: boolean } | "blocked" | undefined {
+  const a = deps.coach(from), b = deps.coach(to);
+  if (!a || !b || socialKey(a) === socialKey(b) || deps.isFenced(a) || deps.isFenced(b)) return undefined;
+  if (deps.store.blockedEitherWay(a, b)) return "blocked";
+  return { burst: deps.store.append(a, b, text, undefined, fixture).burst };
+}
+
 export function appendOrganiserMessage(store: SocialStore, organiser: string, coach: string, text: string, context: OrganiserContext): void {
   if (socialKey(organiser) === socialKey(coach)) return;
   store.append(organiser, coach, text, context);

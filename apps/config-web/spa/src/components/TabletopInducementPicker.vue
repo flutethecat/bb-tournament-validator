@@ -8,7 +8,7 @@ import type { Side } from "../tabletop/recorder";
 
 /** `icon` / `effectText` / `custom`: a league season's own inducement type (League settings, Inducements). */
 export interface InducementOption { id: string; name: string; price?: number; cost?: number; max?: number | null; icon?: string; effectText?: string; custom?: boolean }
-export interface InducementBudget { role: "favourite" | "underdog" | "equal"; pettyCash: number; treasury: number; topUpLimit: number; spent: number; submitted: boolean }
+export interface InducementBudget { role: "favourite" | "underdog" | "equal"; pettyCash: number; treasury: number; topUpLimit: number; spent: number; submitted: boolean; lobby?: true }
 
 const props = defineProps<{
   side: Side;
@@ -25,6 +25,8 @@ const props = defineProps<{
   submitted: boolean;
   /** The team's last submission: the cart starts from it, so a resubmission edits rather than retypes. */
   initial?: Array<{ id: string; qty: number }>;
+  /** The cart came pre-filled from the fixture summary: confirm it or change it. */
+  fromLobby?: boolean;
 }>();
 const emit = defineEmits<{ (e: "submit", side: Side, picks: Array<{ id: string; qty: number }>): void; (e: "skip", side: Side): void }>();
 
@@ -70,6 +72,7 @@ const submit = (): void => emit("submit", props.side, cart.value.map((l) => ({ i
       <span v-if="submitted" class="tt-ipk-done" role="status">&#10003; Chosen</span>
     </header>
     <p v-if="roleLine" class="tt-ipk-role muted">{{ roleLine }}</p>
+    <p v-if="fromLobby && !submitted" class="tt-ipk-role" data-from-lobby role="status">Pre-filled from the fixture summary. Confirm it, or change it first.</p>
     <p v-if="waitingFor" class="tt-ipk-wait" role="status">Waiting for {{ waitingFor }} (higher team value) to choose first<span class="tt-dots"><i>.</i><i>.</i><i>.</i></span></p>
     <div class="tt-ipk-grid">
       <div class="tt-ipk-list" role="list">

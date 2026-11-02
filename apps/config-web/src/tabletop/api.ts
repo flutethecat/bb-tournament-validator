@@ -24,7 +24,7 @@ import {
   MAX_EVENTS_PER_BATCH, MAX_EVENTS_PER_MATCH, effectiveEvents, parseEvent, validateEvent, type Side, type TabletopEvent,
 } from "./events.js";
 import {
-  PRAYERS_TO_NUFFLE, coinCallerOf, inducementMenu, journeymenNeeded, latestInducement, makeJourneymen, overlayRosters, inducementOffersFor, planInducements, pregameStepOf, pregameSummary, seatsSwappable, teamValueWithJourneymen, weatherFor,
+  PRAYERS_TO_NUFFLE, coinCallerOf, inducementConfirmed, inducementMenu, journeymenNeeded, latestInducement, makeJourneymen, overlayRosters, inducementOffersFor, planInducements, pregameStepOf, pregameSummary, seatsSwappable, teamValueWithJourneymen, weatherFor,
   type InducementOffers, type InducementOptionExtras, type MatchPhase,
 } from "./pregame.js";
 import type { AnnouncementKind, RecorderAnnouncement, ResultSummary } from "./discord.js";
@@ -1617,9 +1617,9 @@ async function pregameAdvance(
       if ("error" in made) return err(422, `${match[side].coach}: ${made.error}`);
       made.players.forEach((player, i) => mk(`pg-journeyman-${side}-${i + 1}`, "journeyman", side, { player, cost: made.cost / need }));
     }
-    // Inducements bought in the fixture lobby are already recorded (createMatch seeds both submissions): the step is done.
-    const seeded = match.inducements && sides.every((sd) => all().some((e) => e.type === "inducement" && e.team === sd));
-    next = seeded ? (prayersBought("home") + prayersBought("away") > 0 ? "pregame:prayers" : "pregame:coin") : "pregame:inducements";
+    // Inducements picked on the fixture summary (lobby) are seeded by createMatch: they PRE-FILL the picker, and each team
+    // confirms or changes its list here (owner 11-02, round answer Q3), so the step always runs.
+    next = "pregame:inducements";
   } else if (phase === "pregame:inducements") {
     if (b.team !== "home" && b.team !== "away") return err(400, 'team must be "home" or "away".');
     const side: Side = b.team;
@@ -1635,7 +1635,8 @@ async function pregameAdvance(
     const role = tvHome === tvAway ? "equal" : (tvHome > tvAway) === (side === "home") ? "favourite" : "underdog";
     const other: Side = side === "home" ? "away" : "home";
     const otherEvent = latestInducement(all(), other);
-    if (role === "underdog" && !otherEvent) return err(409, `The higher-value team (${other}) goes first: its treasury spending feeds the petty cash.`);
+    // a list pre-filled from the fixture summary counts only once confirmed here
+    if (role === "underdog" && !inducementConfirmed(all(), other)) return err(409, `The higher-value team (${other}) goes first: its treasury spending feeds the petty cash.`);
     const plan = planInducements({
       offers: inducementSourceFor(match, deps).offers,
       file: baseTeams[side]!, picks, role, tvDifference: Math.abs(tvHome - tvAway),
@@ -1646,7 +1647,7 @@ async function pregameAdvance(
       picks: plan.picks, total: plan.total, treasury: plan.treasury, pettyCash: plan.pettyCash, skipped: plan.picks.length === 0,
       submittedBy: me, ...(earlier > 0 ? { replaces: earlier } : {}),
     });
-    const both = sides.every((s) => all().some((e) => e.type === "inducement" && e.team === s));
+    const both = sides.every((s) => inducementConfirmed(all(), s));
     if (both) next = prayersBought("home") + prayersBought("away") > 0 ? "pregame:prayers" : "pregame:coin";
   } else if (phase === "pregame:prayers") {
     if (!rollMode) return err(400, 'mode must be "site" or "hand".');
@@ -1772,7 +1773,7 @@ async function pregameAdvance(
       match: updated, phase: next, clock, recorded: out.map((e) => e.id), pregame: pregameViewOf(updated, events, baseTeams, deps),
       teams: overlayRosters({ home: baseTeams.home, away: baseTeams.away }, events),
       ...(phase === "pregame:timers" && next === phase ? { waitingFor: sides.filter((sd) => !events.some((e) => e.type === "timerAgree" && e.team === sd)) } : {}),
-      ...(phase === "pregame:inducements" && next === phase ? { waitingFor: sides.filter((s) => !events.some((e) => e.type === "inducement" && e.team === s)) } : {}),
+      ...(phase === "pregame:inducements" && next === phase ? { waitingFor: sides.filter((s) => !inducementConfirmed(events, s)) } : {}),
     },
   };
 }

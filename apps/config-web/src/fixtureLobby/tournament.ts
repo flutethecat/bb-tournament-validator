@@ -37,7 +37,7 @@ import { isTournamentManager, tournamentOwner, type TournamentStore } from "../t
 import type { ScheduledMatchRecord, TournamentRecord, TournamentSubmission } from "../tournaments/types.js";
 import { lobbyRoute, type LobbyAuth, type LobbyDeps, type LobbyResult } from "./api.js";
 import { STAR_PREFIX } from "./core.js";
-import { coachHistory, headToHead, statsOf, type Game } from "./league.js";
+import { agreedTime, coachHistory, headToHead, statsOf, type Game } from "./league.js";
 import { LOBBY_SIDES, type LobbyFixture, type LobbyFixtureSide, type LobbyPick, type LobbySide, type LobbyTeam } from "./types.js";
 
 /** One side's team: the team file the lobby judges (race, TV, treasury, players) and what the Builder bought. */
@@ -279,9 +279,9 @@ export function tournamentLobbyFixture(t: TournamentRecord, m: ScheduledMatchRec
     ...(closedReason ? { closedReason } : {}),
     header: {
       competition: t.name, round: m.roundNumber, rounds: t.roundCount,
-      ...(m.scheduledTime ? { date: m.scheduledTime.start } : {}), ruleset: t.packageName,
+      ...(m.scheduledTime ? { date: m.scheduledTime.start } : {}), ...(agreedTime(m.scheduledTime) ? { scheduled: agreedTime(m.scheduledTime)! } : {}), ruleset: t.packageName,
     },
-    links: { competition: base, fixture: `${base}?tab=rounds`, standings: `${base}?tab=standings`, rules: base },
+    links: { competition: base, fixture: `${base}?tab=rounds`, standings: `${base}?tab=standings`, rules: base, lobby: `${base}/fixtures/${enc(m.id)}/lobby` },
     sides,
     rules: packageLobbyRules(pkg),
     noInducements: pkg ? "" : "This tournament's ruleset cannot be read, so inducements cannot be priced. Ask an organiser.",

@@ -34,6 +34,8 @@ export const NOTIFICATION_TYPES = [
   "registration-outcome",
   "check-in",
   "organiser-request",
+  // Fixture summary (league UX pass 11-02): a coaches' message on a fixture, or a coach asking an organiser to join.
+  "fixture-message",
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 

@@ -23,8 +23,12 @@ export interface LobbySideView {
     assistantCoaches: number | null; cheerleaders: number | null; playerCount: number;
     roster: Array<{ number: number | null; name: string; position: string; skills: string[]; spp: number }>;
   };
-  standing: { rank: number; points: number; group: string } | null;
+  standing: { rank: number; points: number; group: string; played?: number; wins?: number; draws?: number; losses?: number; latest?: Array<"W" | "D" | "L"> } | null;
   stats: { season: LobbyStats; allTime: LobbyStats };
+  /** The coach's Rating (the existing Elo until Glicko lands) and overall rank; null = unrated. */
+  rating?: { value: number; games: number; provisional: boolean; rank?: number; of?: number } | null;
+  /** All-time win rate, 0..1 (a draw is half); null without games. */
+  winRate?: number | null;
   /** SPA path of the full roster (tournaments: the entrant's team page); absent = the competition's team tab. */
   teamLink?: string;
   online: boolean;
@@ -47,6 +51,7 @@ export interface LobbySideView {
 }
 
 export interface LobbyChatLine { id: string; from: string; text: string; at: string; system?: true; role?: LobbySide | "organiser" }
+export interface LobbyHeadToHead { wins: Record<LobbySide, number>; draws: number; td: Record<LobbySide, number>; cas: Record<LobbySide, number>; meetings: LobbyMeeting[] }
 export interface LobbyMeeting { at: string; event: string; home: { coach: string; team: string; score: number }; away: { coach: string; team: string; score: number }; cas: { home: number | null; away: number | null }; to?: string }
 
 export interface LobbyView {
@@ -56,8 +61,8 @@ export interface LobbyView {
   open: boolean;
   closedReason?: string;
   revision: number;
-  header: { competition: string; season?: string; phase?: string; group?: string; round: number; rounds?: number; table?: number; date?: string; deadline?: string; ruleset: string };
-  links: { competition: string; fixture: string; standings: string; rules: string };
+  header: { competition: string; season?: string; phase?: string; group?: string; round: number; rounds?: number; table?: number; date?: string; deadline?: string; scheduled?: { start: string; end: string; agreedAt: string }; ruleset: string };
+  links: { competition: string; fixture: string; standings: string; rules: string; lobby?: string };
   viewer: { role: LobbyRole; signedIn: boolean; organiser: boolean; canChat: boolean; canStart: boolean; canForce: boolean };
   sides: Record<LobbySide, LobbySideView>;
   inducements: { step: boolean; reason: string; rules: { treasuryTopUp: boolean; highlander: boolean; starClash: string }; gap: number; underdog: LobbySide | null; overdog: LobbySide | null; overdogFinal: boolean };
@@ -66,7 +71,12 @@ export interface LobbyView {
   started: { at: string; by: string; mode: "tabletop" | "fork"; matchId?: string; admin?: true; to: string } | null;
   resolved: { home: { picks: LobbyPickLine[]; total: number }; away: { picks: LobbyPickLine[]; total: number }; stars: Array<{ name: string; kept?: LobbySide; removedFrom: LobbySide[]; refunded: boolean }> } | null;
   chat: LobbyChatLine[] | null;
-  headToHead: { wins: Record<LobbySide, number>; draws: number; td: Record<LobbySide, number>; cas: Record<LobbySide, number>; meetings: LobbyMeeting[] };
+  /** The coaches' messages: organisers join once a coach asks (asked); canAsk = the viewer may press "Ask an organiser". */
+  messages?: { asked: boolean; askedAt: string | null; canAsk: boolean };
+  headToHead: LobbyHeadToHead;
+  lastMeeting?: LobbyMeeting | null;
+  /** The two teams' own meetings when they differ from the coaches' (null = the same games, or none). */
+  teamHeadToHead?: LobbyHeadToHead | null;
   organisers: string[];
   recorderTeams?: Array<{ ref: string; name: string; race: string; tv: number | null }>;
   /** Tournaments: the team this fixture plays (the submitted roster), or why the roster cannot be locked. */
@@ -196,6 +206,7 @@ export function createFixtureLobby(deps: { api: Fetcher; timers?: LobbyTimers })
       if (state.view) state.draft = draftOf(state.view.sides[mySide(state.view)].inducements.picks);
     },
     chat: (text: string) => act("chat", "chat", { text }),
+    askOrganiser: () => act("ask", "ask", {}, "The organisers can now read and join these messages."),
     roster: (locked: boolean, teamRef?: string) => act("roster", "roster", { locked, ...(teamRef ? { teamRef } : {}) }, locked ? "Roster locked." : "Roster unlocked."),
     ready: (ready: boolean) => act("ready", "ready", { ready }, ready ? "You are ready." : ""),
     savePicks: (side: LobbySide) => act("picks", "inducements", { side, picks: picksOf(state.draft) }, "Inducements saved."),

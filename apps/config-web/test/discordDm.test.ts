@@ -134,7 +134,7 @@ const noSecrets = (text: string) => {
 describe("which notifications DM", () => {
   it("the table has exactly the proposal types and organiser requests, with short plain text and the link", () => {
     // + the registration rows (registration spec Q18), which DM only when flagged actionable (test/registrationCore.test.ts).
-    expect(Object.keys(ACTION_DM).sort()).toEqual(["check-in", "organiser-request", "proposal-accepted", "proposal-countered", "proposal-received", "registration", "registration-outcome"]);
+    expect(Object.keys(ACTION_DM).sort()).toEqual(["check-in", "fixture-message", "organiser-request", "proposal-accepted", "proposal-countered", "proposal-received", "registration", "registration-outcome"]);
     const text = actionDmText({ record: { type: "proposal-received", from: "Ann", title: "t", link: "/app/schedule" }, subject: "Round 1 vs Eve's Elves · Autumn Open", url: "https://site.example.test/app/schedule?proposal=p1" });
     expect(text).toEqual({
       text: "Ann proposed times for Round 1 vs Eve's Elves · Autumn Open. Accept or decline: https://site.example.test/app/schedule?proposal=p1",

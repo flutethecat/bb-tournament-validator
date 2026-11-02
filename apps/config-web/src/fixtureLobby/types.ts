@@ -95,6 +95,8 @@ export interface LobbyRecord {
   /** A START in flight (written before the match is created, so a crash never makes two). */
   starting?: { opId: string; at: string; by: string; resolution?: LobbyResolution };
   started?: { at: string; by: string; admin?: true; mode: LobbyMode; matchId?: string };
+  /** A coach pressed "Ask an organiser": from then on the organisers read and write the coaches' messages. */
+  askedOrganiser?: { at: string; by: string };
   chat: LobbyChatMessage[];
   createdAt: string;
   updatedAt: string;
@@ -164,12 +166,17 @@ export interface LobbyHeadToHead {
   meetings: LobbyMeeting[];
 }
 
+/** The coach's site rating (the existing Elo, labelled "Rating" until Glicko lands); rank among every rated coach. */
+export interface LobbyCoachRating { value: number; games: number; provisional: boolean; rank?: number; of?: number }
+
 export interface LobbyFixtureSide {
   /** The seat's fork account (empty when the side has no account yet). */
   coachId: string;
   coach: string;
   team: LobbyTeam;
-  standing?: { rank: number; points: number; group: string };
+  /** The team's row in this phase's standings (record and latest form from the same row). */
+  standing?: { rank: number; points: number; group: string; played?: number; wins?: number; draws?: number; losses?: number; latest?: Array<"W" | "D" | "L"> };
+  rating?: LobbyCoachRating | null;
   stats: { season: LobbyCoachStats; allTime: LobbyCoachStats };
 }
 
@@ -192,9 +199,12 @@ export interface LobbyFixture {
     table?: number;
     date?: string;
     deadline?: string;
+    /** The time the two coaches agreed (Schedule: an accepted proposal). */
+    scheduled?: { start: string; end: string; agreedAt: string };
     ruleset: string;
   };
-  links: { competition: string; fixture: string; standings: string; rules: string };
+  /** `lobby`: this page's SPA path (router form, no /app), for notification links. */
+  links: { competition: string; fixture: string; standings: string; rules: string; lobby?: string };
   sides: Record<LobbySide, LobbyFixtureSide>;
   rules: LobbyRules;
   /** Why the lobby has no inducement step ("" = it has one). */
@@ -204,6 +214,8 @@ export interface LobbyFixture {
   table: EffectiveInducement[];
   isOrganiser: (coach: string) => boolean;
   headToHead: LobbyHeadToHead;
+  /** Meetings of the two TEAMS (league: every season of this league), when they differ from the coaches' meetings. */
+  teamHeadToHead?: LobbyHeadToHead | null;
   organisers: string[];
   /**
    * Tabletop fixtures: whether a recorder team (library team / Roster Builder save) IS this side's competition team.

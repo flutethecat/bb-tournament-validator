@@ -317,7 +317,7 @@ import { isTournamentManager, TournamentStore } from "./tournaments/store.js";
 import { DEFAULT_TOURNAMENT_TURN_TIMER } from "./tournaments/types.js";
 import { RateLimiter } from "./translate/guards.js";
 import { createTournamentNotifier, isNotificationApiPath, NotificationStore, notificationsApi, SenderRateLimiter, setActiveNotifier, setOrganiserThreadSink, type NotificationInput, type NotificationRecord } from "./notifications.js";
-import { appendOrganiserMessage, createSocialLimiters, isSocialApiPath, socialApi, type SocialApiDeps } from "./social/api.js";
+import { appendFixtureMessage, appendOrganiserMessage, createSocialLimiters, isSocialApiPath, socialApi, type SocialApiDeps } from "./social/api.js";
 import { SocialStore } from "./social/store.js";
 import { isScheduleApiPath, scheduleApi, type ScheduleApiDeps } from "./schedule/api.js";
 import { createFixtureSource } from "./schedule/fixtures.js";
@@ -1133,6 +1133,11 @@ function fixtureLobbyDeps(): LeagueLobbyDeps {
     chatLimiter: fixtureLobbyChatLimiter,
     results: () => tournamentResults.list(),
     resultsRevision: () => tournamentResults.revision(),
+    // fixture summary (league UX pass 11-02): the coach cards' Rating (the existing Elo until Glicko lands), the
+    // coaches' messages copied into their Messages inboxes, and the inbox notes (actionable rows queue the Discord DM)
+    ratings: () => computeElo(tournamentResults.list()),
+    notify: leagueNotify,
+    mirror: (from, to, text, context) => appendFixtureMessage(socialDeps, from, to, text, context),
     // the coach's recorder teams (the same refs POST /api/tabletop/matches takes): library teams and Roster Builder saves
     recorderTeams: (coach) => {
       try {
