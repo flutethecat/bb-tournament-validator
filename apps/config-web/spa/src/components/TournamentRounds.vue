@@ -23,6 +23,13 @@ const filter = ref<"all" | "mine">("all");
 const rounds = computed(() => (filter.value === "mine" && myId.value ? onlyMine(all.value, props.data.fixtures, myId.value) : all.value));
 const fixtureCount = computed(() => all.value.reduce((n, r) => n + r.fixtures.length, 0));
 const left = computed(() => (props.data.tournament ? remainingRounds(props.data.tournament) : 0));
+// Pairing avoidance: the round says when its draw had to pair coaches from the same club or region.
+const clashText = (n: number): string => {
+  const c = props.data.rounds.find((r) => r.number === n)?.clashes ?? [];
+  if (!c.length) return "";
+  const kinds = [...new Set(c.flatMap((x) => x.kinds))].map((k) => (k === "club" ? "club" : "region")).join(" or ");
+  return `${c.length === 1 ? "1 pairing shares" : `${c.length} pairings share`} a ${kinds}: no draw avoiding it was possible.`;
+};
 </script>
 
 <template>
@@ -40,6 +47,7 @@ const left = computed(() => (props.data.tournament ? remainingRounds(props.data.
     <p v-if="!fixtureCount" class="hm-empty">Fixtures are shown to signed-in participants and organisers. Nothing to show here yet.</p>
     <section v-for="r in rounds" :key="r.number" class="hm-panel tn-round" :aria-labelledby="`tn-round-${r.number}-h`">
       <header class="hm-band"><h2 :id="`tn-round-${r.number}-h`">Round {{ r.number }}</h2><span class="sf-chip" :data-tone="ROUND_TONE[r.status] ?? 'muted'" :data-status="r.status">{{ r.status }}</span></header>
+      <p v-if="clashText(r.number)" class="sf-notice" role="note" data-clash>{{ clashText(r.number) }}</p>
       <ul v-if="r.fixtures.length" class="tn-fixtures">
         <li v-for="f in r.fixtures" :key="f.id" class="tn-fixture" :class="{ 'tn-mine': mineIds.has(f.id) }" :data-played="f.played">
           <div class="tn-side tn-home">

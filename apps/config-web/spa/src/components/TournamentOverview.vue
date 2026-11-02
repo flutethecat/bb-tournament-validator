@@ -2,19 +2,24 @@
 // Overview tab: the facts panel (only what the server sent; a key/value list like the league's season panel), the
 // organiser's summary and "What to bring" notes (markdown-lite), the News panel, then the slot (My entry). The Details panel
 // ends with the "Pay entry fee" block when the organiser set a payment link (not on a finished tournament; a draft reaches
-// only its managers).
+// only its managers). The HOUSE RULES panel (owner 11-02) follows Details: the changed rows (Progression and what carries
+// included), then "Everything else as <ruleset>", with an Edit link to Manage for its managers.
 import { computed, inject } from "vue";
 import { RouterLink } from "vue-router";
 import type { TournamentSummary } from "../shared/api";
 import { factsStrip, TOURNAMENT_DETAIL_KEY } from "../tournaments/detail";
 import { FORMAT_LABEL } from "../tournaments/list";
 import MarkdownLite from "./MarkdownLite.vue";
+import HouseRulesPanel from "./HouseRulesPanel.vue";
 import PayEntryFee from "./PayEntryFee.vue";
+import { rulesetLabel } from "../shared/competition";
 import TournamentNews from "./TournamentNews.vue";
 
 const props = defineProps<{ tournament: TournamentSummary }>();
 const facts = computed(() => factsStrip(props.tournament));
 const detail = inject(TOURNAMENT_DETAIL_KEY, null);
+const rulesetName = computed(() => rulesetLabel(props.tournament.rulesetPackName ?? props.tournament.packageName, "the ruleset"));
+const houseEdit = computed(() => (detail?.state.capabilities.manage ? { query: { tab: "manage" }, hash: "#tn-edit-h" } : null));
 const showPay = computed(() => {
   const t = props.tournament;
   if (!t.paymentLinks || t.status === "completed" || t.status === "cancelled") return false;
@@ -41,6 +46,7 @@ const showPay = computed(() => {
         </dl>
         <PayEntryFee v-if="showPay" id-prefix="tn" :entry-fee="tournament.entryFee" :links="tournament.paymentLinks" />
       </section>
+      <HouseRulesPanel kind="tournament" :rules="tournament.houseRules" :ruleset="rulesetName" id-prefix="tn" :edit-to="houseEdit" />
     </div>
     <div class="hm-col tn-main-col">
       <section v-if="tournament.summary || tournament.notes" class="hm-panel" aria-labelledby="tn-about-h">

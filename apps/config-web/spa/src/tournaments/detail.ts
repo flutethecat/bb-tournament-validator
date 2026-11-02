@@ -138,6 +138,12 @@ export interface TournamentSettingsPatch {
   primaryTiebreaker?: "buchholz" | "sonnebornBerger";
   nafSanctioned?: boolean;
   playOnFork?: boolean;
+  /** Creation wizards v2: the tiebreaker chain after points, W/D/L, house rules (merged by the server), avoidance, regions. */
+  tiebreakers?: import("../../../src/competition/format").ChainTiebreaker[];
+  points?: { win: number; draw: number; loss: number };
+  houseRules?: import("../../../src/competition/houseRules").HouseRules;
+  pairingAvoid?: import("../../../src/competition/format").PairingAvoid;
+  regions?: string[];
   /** Tournament page fields: null clears (location / deadlines replace as a whole). */
   location?: TournamentLocation | null;
   startTime?: string | null;

@@ -168,7 +168,7 @@ usePageTitle(() => state.league?.name);
       <template v-else-if="season">
         <template v-if="tab === 'overview'">
           <LeagueNews :season="season" :manage="manage" />
-          <LeagueOverview :league="state.league" :season="season" :summary="current!" :crests="state.crests" />
+          <LeagueOverview :league="state.league" :season="season" :summary="current!" :crests="state.crests" :can-manage="manage" />
         </template>
         <LeagueStandings v-else-if="tab === 'standings'" :season="season" :me="session.coach()" />
         <LeagueFixtureSummary v-else-if="tab === 'fixtures' && fixtureRef" :league-id="id" :season-id="season.id" :fixture-id="fixtureRef" :back="fixturesQuery" />

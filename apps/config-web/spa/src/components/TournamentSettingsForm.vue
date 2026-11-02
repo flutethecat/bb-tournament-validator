@@ -1,8 +1,15 @@
 <script setup lang="ts">
-// Edit Tournament: settings (start and end date, player cap, Swiss rounds, pairing system, seeding mode, first
-// tiebreaker, NAF sanctioned) saved with one PATCH of the changed fields, and the roles block (owner and organisers; editable by the
-// owner or an admin, read-only for other organisers).
+// Edit Tournament: settings (start and end date, Played on, player cap, Swiss rounds, pairing system, seeding mode, NAF
+// sanctioned; creation wizards v2: points, the tiebreaker chain, pairing avoidance, regions and the house rules) saved with
+// one PATCH of the changed fields, and the roles block (owner and organisers; editable by the owner or an admin, read-only
+// for other organisers). Site admins see the read-only Authorised chip.
 import { computed, inject, reactive, ref, watch } from "vue";
+import {
+  DEFAULT_POINTS, defaultHouseRules, tiebreakerChainOf, type ChainTiebreaker, type HouseRules, type PairingAvoid, type PointsScheme,
+} from "../shared/competition";
+import CompetitionFormatFields from "./CompetitionFormatFields.vue";
+import HouseRulesFields from "./HouseRulesFields.vue";
+import PlayedOnToggle from "./PlayedOnToggle.vue";
 import type { TournamentPairingSystem, TournamentSeedingMode } from "../shared/api";
 import {
   fromLocalInput, PAIRING_LABEL, SEEDING_LABEL, toLocalInput, TOURNAMENT_DETAIL_KEY, type TournamentSettingsPatch,
@@ -23,6 +30,11 @@ interface Form {
   pairingSystem: TournamentPairingSystem; seedingMode: TournamentSeedingMode; primaryTiebreaker: "buchholz" | "sonnebornBerger";
   nafSanctioned: boolean;
   playOnFork: boolean;
+  points: PointsScheme;
+  chain: ChainTiebreaker[];
+  avoid: PairingAvoid;
+  regions: string[];
+  houseRules: HouseRules;
 }
 const fromRecord = (): Form => ({
   startsAt: toLocalInput(t.value.startsAt),
@@ -34,7 +46,14 @@ const fromRecord = (): Form => ({
   primaryTiebreaker: t.value.tiebreakers?.[0] === "sonnebornBerger" ? "sonnebornBerger" : "buchholz",
   nafSanctioned: t.value.nafSanctioned === true,
   playOnFork: t.value.playOnFork === true,
+  points: t.value.points ? { win: t.value.points.win, draw: t.value.points.draw, loss: t.value.points.loss } : { ...DEFAULT_POINTS },
+  chain: t.value.tiebreakerChain ?? tiebreakerChainOf(t.value.tiebreakers),
+  avoid: t.value.pairingAvoid ?? "none",
+  regions: [...(t.value.regions ?? [])],
+  houseRules: structuredClone(t.value.houseRules ?? defaultHouseRules("tournament")),
 });
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+const cleanRegions = (r: string[]) => r.map((x) => x.trim()).filter(Boolean);
 const form = reactive<Form>(fromRecord());
 // A refetch after any write resets the form to what the server holds.
 watch(() => JSON.stringify(fromRecord()), () => Object.assign(form, fromRecord()));
@@ -48,7 +67,11 @@ const patch = computed<TournamentSettingsPatch>(() => {
   if (t.value.format === "swiss" && Number(form.roundCount) !== before.roundCount) out.roundCount = Number(form.roundCount);
   if (form.pairingSystem !== before.pairingSystem) out.pairingSystem = form.pairingSystem;
   if (form.seedingMode !== before.seedingMode) out.seedingMode = form.seedingMode;
-  if (form.primaryTiebreaker !== before.primaryTiebreaker) out.primaryTiebreaker = form.primaryTiebreaker;
+  if (!same(form.chain, before.chain)) out.tiebreakers = [...form.chain];
+  if (!same(form.points, before.points)) out.points = { win: Number(form.points.win), draw: Number(form.points.draw), loss: Number(form.points.loss) };
+  if (form.avoid !== before.avoid) out.pairingAvoid = form.avoid;
+  if (!same(cleanRegions(form.regions), before.regions)) out.regions = cleanRegions(form.regions);
+  if (!same(form.houseRules, before.houseRules)) out.houseRules = structuredClone(form.houseRules);
   if (form.nafSanctioned !== before.nafSanctioned) out.nafSanctioned = form.nafSanctioned;
   if (form.playOnFork !== before.playOnFork) out.playOnFork = form.playOnFork;
   return out;
@@ -64,11 +87,17 @@ async function addOrganizer() { if (newOrganizer.value.trim()) { await detail.ad
 
 <template>
   <form v-if="canWrite" class="tn-form-grid" @submit.prevent="save">
+    <p v-if="session.admin()" class="tn-field tn-auth-line"><span class="sf-chip" :data-tone="t.authorised !== false ? 'ok' : 'muted'" data-authorised title="Site admins only">{{ t.authorised !== false ? "Authorised" : "Not authorised" }}</span></p>
+    <div class="tn-field sf-field tn-check-field" data-field="played-on">
+      <span class="tn-fact-k">Played on</span>
+      <PlayedOnToggle v-model="form.playOnFork" />
+      <small class="muted hm-small">Super FUMBBL: fixture lobbies release the online launch and skip the inducement step. Tabletop: START opens the match reporter.</small>
+    </div>
     <label class="tn-field sf-field"><span class="tn-fact-k">Starts (UTC)</span><input v-model="form.startsAt" type="datetime-local" /></label>
     <label class="tn-field sf-field"><span class="tn-fact-k">Ends (UTC)</span><input v-model="form.endsAt" type="datetime-local" /></label>
     <TournamentRulesFields
       v-model:max-players="form.maxPlayers" v-model:round-count="form.roundCount" v-model:primary-tiebreaker="form.primaryTiebreaker"
-      :swiss="t.format === 'swiss'" :tiebreaker-disabled="t.status === 'completed'"
+      :swiss="t.format === 'swiss'" :tiebreaker-disabled="t.status === 'completed'" hide-tiebreaker
     >
       <label v-if="t.format === 'swiss'" class="tn-field sf-field">
         <span class="tn-fact-k">Pairing system</span>
@@ -84,11 +113,13 @@ async function addOrganizer() { if (newOrganizer.value.trim()) { await detail.ad
       <span class="tn-check-line"><input v-model="form.nafSanctioned" type="checkbox" /> NAF sanctioned</span>
       <small class="muted hm-small">The NAF name and number on each coach's profile are shared with the organisers. A coach without them adds them to register, or ticks "I am not a NAF member".</small>
     </label>
-    <label class="tn-field sf-field tn-check-field">
-      <span class="tn-fact-k">Where it is played</span>
-      <span class="tn-check-line"><input v-model="form.playOnFork" type="checkbox" data-play-on-fork /> Play on Super FUMBBL</span>
-      <small class="muted hm-small">Fixture lobbies then release the online launch and skip the inducement step. Off: START opens the match reporter for a tabletop game.</small>
-    </label>
+    <div class="tn-field tn-wide-field">
+      <CompetitionFormatFields
+        v-model:points="form.points" v-model:chain="form.chain" v-model:avoid="form.avoid" v-model:regions="form.regions"
+        id-prefix="tn" :swiss="t.format === 'swiss'" :locked="t.status === 'completed'"
+      />
+    </div>
+    <div class="tn-field tn-wide-field"><HouseRulesFields v-model="form.houseRules" kind="tournament" id-prefix="tn" /></div>
     <div class="tn-actions tn-form-actions">
       <button class="sf-btn primary" type="submit" :disabled="!dirty || busy">Save settings</button>
       <button class="sf-btn" type="button" :disabled="!dirty || busy" @click="Object.assign(form, fromRecord())">Reset</button>

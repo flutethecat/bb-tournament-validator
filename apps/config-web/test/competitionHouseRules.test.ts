@@ -204,3 +204,36 @@ describe("league: wizard -> draft -> publish -> settings edit", () => {
     expect(pub.league.houseRules).toEqual(defaultHouseRules("league"));
   });
 });
+
+describe("CSRF and read-only GETs on the creation wizards v2 routes", () => {
+  it("every new write rides a CSRF-guarded method; the reads are not state-changing", async () => {
+    const { isStateChangingApiRequest } = await import("../src/auth/csrf.js");
+    for (const [m, p] of [["POST", "/api/tournaments"], ["PATCH", "/api/tournaments/t1"], ["POST", "/api/tournaments/t1/publish"], ["POST", "/api/leagues"], ["PATCH", "/api/leagues/l1/draft"], ["PATCH", "/api/leagues/l1/settings"], ["POST", "/api/leagues/l1/publish"]] as const)
+      expect(isStateChangingApiRequest(m, p), `${m} ${p}`).toBe(true);
+    for (const p of ["/api/tournaments/t1", "/api/leagues/l1", "/api/leagues/l1/draft", "/api/leagues/l1/settings", "/api/packages"])
+      expect(isStateChangingApiRequest("GET", p), p).toBe(false);
+  });
+  it("GET reads never write: the tournament and league records are unchanged after them", async () => {
+    const dir = tmp("bbtv-hr-get-");
+    const store = new TournamentStore(dir);
+    const res = await tcall(store, "POST", "/api/tournaments", owner, { name: "Read Cup", packageName: "BB2025 Default", maxPlayers: 8, format: "swiss", publish: false, houseRules: { brawlingBrutes: "off" } });
+    const id = (res!.body as { tournament: { id: string } }).tournament.id;
+    // The tournament records (settings, house rules) never change on a read. (The detail read refreshes the derived
+    // standings cache, which predates this lane and holds no settings.)
+    const snap = () => readdirSync(dir).filter((f) => f.endsWith(".json")).map((f) => JSON.stringify(JSON.parse(readFileSync(join(dir, f), "utf8")).tournaments)).join("\n");
+    const before = snap();
+    await tcall(store, "GET", `/api/tournaments/${id}`, owner);
+    await tcall(store, "GET", "/api/tournaments", owner);
+    expect(snap()).toBe(before);
+    const ldir = tmp("bbtv-hr-lget-");
+    lstore = new LeagueStore(ldir);
+    const made = await lcall("POST", "/api/leagues", OLGA, { name: "Read League" });
+    const lid = (made.body as { id: string }).id;
+    const lsnap = () => JSON.stringify(lstore.league(lid)) + JSON.stringify(lstore.seasons(lid));
+    const lbefore = lsnap();
+    await lcall("GET", `/api/leagues/${lid}/draft`, OLGA);
+    await lcall("GET", `/api/leagues/${lid}/settings`, OLGA);
+    await lcall("GET", `/api/leagues/${lid}`, OLGA);
+    expect(lsnap()).toBe(lbefore);
+  });
+});

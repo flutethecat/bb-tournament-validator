@@ -2,16 +2,21 @@
 // League page, Overview tab: the selected season's summary (rules, status, dates, games, champion and podium),
 // the organisers, the season's inducement table, and the latest results as result cards (most recent nine, newest first).
 // The season panel ends with the "Pay entry fee" block (server-built: links, fee, and only the viewer's own teams' paid
-// status) while the season is not finished.
+// status) while the season is not finished. The HOUSE RULES panel (owner 11-02) follows the season panel: the changed rows,
+// then "Everything else as <ruleset>", with an Edit link for organisers (League settings, Information).
 import { computed } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import LeagueInducements from "./LeagueInducements.vue";
+import HouseRulesPanel from "./HouseRulesPanel.vue";
 import PayEntryFee from "./PayEntryFee.vue";
+import { rulesetLabel } from "../shared/competition";
 import ResultCard from "./ResultCard.vue";
 import { latestResults, resultCardProps, RULESET_TONE, SEASON_STATUS_LABEL, seasonDates } from "../leagues/league";
 import type { LeagueSummary, SeasonRecord, SeasonSummary } from "../leagues/types";
 
-const props = defineProps<{ league: LeagueSummary; season: SeasonRecord; summary: SeasonSummary; crests: Record<string, string> }>();
+const props = defineProps<{ league: LeagueSummary; season: SeasonRecord; summary: SeasonSummary; crests: Record<string, string>; canManage?: boolean }>();
+const rulesetName = computed(() => rulesetLabel(props.league.rulesetPackage, props.season.ruleset));
+const houseEdit = computed(() => (props.canManage ? { name: "league-settings", params: { id: props.league.id }, query: { tab: "information" }, hash: "#house-rules" } : null));
 const route = useRoute();
 const latest = computed(() => latestResults(props.season, 9).map((f) => ({ id: f.id, card: resultCardProps(props.league, props.season, f, props.crests) })));
 const podium = computed(() => props.season.awards.filter((a) => a.type === "Overall Champion" || a.type === "Runner-up" || a.type === "Consolation"));
@@ -58,6 +63,7 @@ const phases = computed(() => props.season.phases.filter((p) => props.season.fix
           :links="{ payPal: payment.payPal, venmo: payment.venmo }" :status="payStatus"
         />
       </section>
+      <HouseRulesPanel kind="league" :rules="league.houseRules" :ruleset="rulesetName" id-prefix="lg" :edit-to="houseEdit" />
       <section class="hm-panel" aria-labelledby="lg-org-h">
         <header class="hm-band"><h2 id="lg-org-h">Organisers</h2></header>
         <p v-if="!league.organisers.length" class="hm-empty">No organisers listed.</p>

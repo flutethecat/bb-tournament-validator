@@ -358,7 +358,7 @@ describe("league settings routes (server-rendered)", () => {
     expect((await render("/leagues/tabbl?tab=fixtures", detail, COACH)).html).not.toContain("Fixtures editor");
   });
 
-  it("External connections: NAF disabled note, export link, masked webhook only, Super FUMBBL toggle", async () => {
+  it("External connections: NAF disabled note, export link, masked webhook only (Played on moved to Information)", async () => {
     const { html } = await render("/leagues/tabbl/settings?tab=connections", loaded(), ORGANISER);
     expect(html).toContain("NAF results report");
     expect(html).toContain("available for tournaments only");
@@ -367,8 +367,12 @@ describe("league settings routes (server-rendered)", () => {
     expect(html).toContain('type="password"');
     expect(html).toContain("Send test post");
     for (const t of ["League news", "Fixture created", "Match started", "Match result", "Redraft and season milestones"]) expect(html).toContain(t);
-    expect(html).toContain("Play on Super FUMBBL");
-    expect(html).toMatch(/role="switch"[^>]*checked/);
+    // creation wizards v2: Played on is a General (Information) setting
+    expect(html).not.toContain("Let league games be played on Super FUMBBL");
+    const info = await render("/leagues/tabbl/settings?tab=information", loaded(), ORGANISER);
+    expect(info.html).toContain("data-played-on");
+    expect(info.html).toMatch(/aria-pressed="true" data-played="fork">Super FUMBBL/);
+    expect(info.html).toContain('id="ls-house-h"');
   });
 
   it("not one of yours: a coach who is not an organiser gets the friendly note", async () => {

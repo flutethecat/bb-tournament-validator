@@ -1,5 +1,7 @@
 // League API shapes the SPA reads (server: src/leagues/types.ts + src/leagues/api.ts + src/leagues/stats.ts).
 
+import type { HouseRules } from "../../../src/competition/houseRules";
+
 export type LeagueRuleset = "BB2020" | "BB2025";
 
 export interface SeasonSummary {
@@ -36,6 +38,10 @@ export interface LeagueSummary {
   currentSeason?: SeasonSummary;
   /** Lane L5: "draft" = only its organisers and admins see it. */
   visibility?: "draft";
+  /** Creation wizards v2 (absent on older servers): house rules, the ruleset card's package, the authorised flag. */
+  houseRules?: HouseRules;
+  rulesetPackage?: string;
+  authorised?: boolean;
 }
 
 export interface FixtureSide {
@@ -447,7 +453,16 @@ export interface TeamBuildingRules { rosters: TeamBuildingRosterRule[]; eliteSki
 export interface LeagueSettingsView {
   id: string;
   revision: number;
-  information: { name: string; fullName: string; description: string; ruleset: LeagueRuleset; mode: "individual"; address: LeagueAddress | null };
+  information: {
+    name: string; fullName: string; description: string; ruleset: LeagueRuleset; mode: "individual"; address: LeagueAddress | null;
+    /** Creation wizards v2 (absent on older servers): Played on, and the ruleset card's package. */
+    playOnFork?: boolean;
+    rulesetPackage?: string | null;
+  };
+  /** Creation wizards v2 (absent on older servers): house rules, the organiser's regions, and the authorised flag. */
+  houseRules?: HouseRules;
+  competitionRegions?: string[];
+  authorised?: boolean;
   permissions: { owner: string; organisers: string[]; admins: string[]; canEditOrganisers: boolean; canChangeOwner: boolean };
   registrations: LeagueRegistrations;
   connections: {

@@ -29,8 +29,7 @@ const eventKeys = computed(() => Object.keys(DISCORD_EVENT_LABEL) as DiscordEven
 const eventsDirty = computed(() => eventKeys.value.some((k) => events[k] !== c.value.discord.events[k]));
 const saveEvents = () => settings.save("connections", { discord: { events: { ...events } } }, "discord-events", "Events saved.");
 
-const setFork = (e: Event) => settings.save("connections", { playOnFork: (e.target as HTMLInputElement).checked }, "fork",
-  (e.target as HTMLInputElement).checked ? "Play on Super FUMBBL is on." : "Play on Super FUMBBL is off.");
+// Play on Super FUMBBL moved to Information (Played on, creation wizards v2).
 </script>
 
 <template>
@@ -81,17 +80,6 @@ const setFork = (e: Event) => settings.save("connections", { playOnFork: (e.targ
       </div>
       <p v-if="state.errors['discord-events'] || state.errors['discord-test']" class="sf-error" role="alert">{{ state.errors['discord-events'] || state.errors['discord-test'] }}</p>
       <p v-else-if="state.notices['discord-events'] || state.notices['discord-test']" class="hm-notice" role="status">{{ state.notices['discord-events'] || state.notices['discord-test'] }}</p>
-    </section>
-
-    <section class="hm-panel" aria-labelledby="ls-fork-h">
-      <header class="hm-band"><h2 id="ls-fork-h">Play on Super FUMBBL</h2><span class="hm-cap">{{ c.playOnFork ? "On" : "Off" }}</span></header>
-      <label class="ls-check">
-        <input type="checkbox" role="switch" :checked="c.playOnFork" :aria-checked="c.playOnFork ? 'true' : 'false'" :disabled="busy" @change="setFork" />
-        Let league games be played on Super FUMBBL
-      </label>
-      <p class="hm-small hm-empty">When on, league admins allow single fixtures on the Fixtures tab; both coaches and the organisers are notified.</p>
-      <p v-if="state.errors.fork" class="sf-error" role="alert">{{ state.errors.fork }}</p>
-      <p v-else-if="state.notices.fork" class="hm-notice" role="status">{{ state.notices.fork }}</p>
     </section>
   </div>
 </template>

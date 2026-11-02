@@ -9,6 +9,8 @@ defineProps<{
   /** Create: blank rounds = Auto (the server picks). Edit: always a number. */
   roundsOptional?: boolean;
   tiebreakerDisabled?: boolean;
+  /** Edit Tournament edits the whole chain instead (CompetitionFormatFields). */
+  hideTiebreaker?: boolean;
 }>();
 const maxPlayers = defineModel<number | "">("maxPlayers", { required: true });
 const roundCount = defineModel<number | "">("roundCount", { required: true });
@@ -25,7 +27,7 @@ const primaryTiebreaker = defineModel<TournamentPrimaryTiebreaker>("primaryTiebr
     />
   </label>
   <slot />
-  <label class="tn-field sf-field">
+  <label v-if="!hideTiebreaker" class="tn-field sf-field">
     <span class="tn-fact-k">First tiebreaker</span>
     <select v-model="primaryTiebreaker" :disabled="tiebreakerDisabled">
       <option v-for="(label, key) in TIEBREAKER_LABEL" :key="key" :value="key">{{ label }}</option>

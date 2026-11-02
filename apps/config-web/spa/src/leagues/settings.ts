@@ -19,7 +19,8 @@ export const SETTINGS_TABS: ReadonlyArray<{ id: SettingsTab; label: string }> = 
 export const isSettingsTab = (v: unknown): v is SettingsTab => typeof v === "string" && SETTINGS_TABS.some((t) => t.id === v);
 
 /** The PATCH sections; each tab saves its own. */
-export type SettingsSection = "administration" | "information" | "registrations" | "teamBuilding" | "connections";
+/** "competition" sends its payload's keys at the top level (house rules + regions, creation wizards v2). */
+export type SettingsSection = "administration" | "information" | "registrations" | "teamBuilding" | "connections" | "competition";
 
 export const COUNTRY_LABEL: Record<LeagueCountry, string> = { US: "United States", CA: "Canada" };
 export const REGION_LABEL: Record<LeagueCountry, string> = { US: "State", CA: "Province or territory" };
@@ -122,7 +123,7 @@ export function createLeagueSettings(deps: { api: Fetcher }) {
     state.busy = key;
     say(key, "");
     try {
-      const res = await deps.api<{ settings: LeagueSettingsView }>(`${base()}/settings`, { method: "PATCH", body: { revision: state.view.revision, [section]: payload } });
+      const res = await deps.api<{ settings: LeagueSettingsView }>(`${base()}/settings`, { method: "PATCH", body: { revision: state.view.revision, ...(section === "competition" ? payload as Record<string, unknown> : { [section]: payload }) } });
       state.view = res.settings;
       say(key, "", notice);
       if (section === "information" || section === "administration" || section === "connections") await loadLeague().catch(() => undefined);

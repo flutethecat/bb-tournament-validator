@@ -126,6 +126,13 @@ export interface TournamentSummary {
   roundCount: number;
   currentRound: number;
   tiebreakers?: string[];
+  /** Creation wizards v2 (absent on older servers): the chain after points, W/D/L, house rules, avoidance, regions, authorised. */
+  tiebreakerChain?: import("../../../src/competition/format").ChainTiebreaker[];
+  points?: { win: number; draw: number; loss: number; bye?: number };
+  houseRules?: import("../../../src/competition/houseRules").HouseRules;
+  pairingAvoid?: import("../../../src/competition/format").PairingAvoid;
+  regions?: string[];
+  authorised?: boolean;
   startsAt?: string;
   entrantCount?: number;
   /** v4 (phase 2/3): roles, dates, systems, lock and start stamps. */
@@ -228,7 +235,11 @@ export interface TournamentEntrant {
 
 export interface TournamentSharedContact { coach: string; preferredName?: string; email?: string; phones?: Array<{ number: string; label?: string }> }
 
-export interface TournamentRound { id: string; number: number; status: "pending" | "active" | "completed"; scheduledMatchIds: string[] }
+export interface TournamentRound {
+  id: string; number: number; status: "pending" | "active" | "completed"; scheduledMatchIds: string[];
+  /** Pairing avoidance (creation wizards v2): pairs drawn although they share a club or region (no other draw existed). */
+  clashes?: Array<{ homeEntrantId: string; awayEntrantId: string; kinds: Array<"club" | "region"> }>;
+}
 
 export interface TournamentFixtureSide { entrantId: string; teamId: string; coach: { ffbCoachId: string } }
 
