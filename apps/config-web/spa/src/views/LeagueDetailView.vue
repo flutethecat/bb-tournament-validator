@@ -142,7 +142,10 @@ usePageTitle(() => state.league?.name);
 
       <!-- fit to 1920x1080 (owner 11-02): the header stays; the tab content scrolls in this pane -->
       <div class="lg-tab-body sf-fill sf-scroll sf-col">
-      <template v-if="tab === 'overview'">
+      <!-- Overview (owner 11-02): the latest results in a scrolling box on the left, the front, season row and news in the
+           middle, the season facts and side panels on the right; at 1920x1080 each column scrolls on its own -->
+      <div v-if="tab === 'overview'" class="lg-ov">
+        <div class="lg-ov-main">
         <LeagueFront :league="state.league" :seasons="state.seasons" />
         <section class="hm-panel lg-seasons" aria-labelledby="lg-season-h">
           <header class="hm-band"><h2 id="lg-season-h">Season</h2><span v-if="current" class="hm-cap">{{ seasonDates(current) }}</span></header>
@@ -162,14 +165,14 @@ usePageTitle(() => state.league?.name);
         </section>
         <!-- Registration spec 11-02 (lane L7): signed-in coaches, newest season, while its registration is open -->
         <LeagueBuildTeamLink v-if="session.coach() && current && current.id === state.seasons[0]?.id" :league-id="id" :season-id="current.id" />
-      </template>
+        <LeagueNews v-if="season" :season="season" :manage="manage" />
+        </div>
+        <LeagueOverview v-if="season" :league="state.league" :season="season" :summary="current!" :crests="state.crests" :can-manage="manage" />
+      </div>
       <p v-if="current && !season && state.seasonError" class="lobby-error" role="alert">{{ state.seasonError }}</p>
       <p v-else-if="current && !season" class="hm-empty" role="status">Loading {{ current.name }}...</p>
       <template v-else-if="season">
-        <template v-if="tab === 'overview'">
-          <LeagueNews :season="season" :manage="manage" />
-          <LeagueOverview :league="state.league" :season="season" :summary="current!" :crests="state.crests" :can-manage="manage" />
-        </template>
+        <template v-if="tab === 'overview'"><!-- in .lg-ov above --></template>
         <LeagueStandings v-else-if="tab === 'standings'" :season="season" :me="session.coach()" />
         <LeagueFixtureSummary v-else-if="tab === 'fixtures' && fixtureRef" :league-id="id" :season-id="season.id" :fixture-id="fixtureRef" :back="fixturesQuery" />
         <LeagueFixtures v-else-if="tab === 'fixtures'" :league="state.league" :season="season" :crests="state.crests" :manage="manage" />

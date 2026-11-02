@@ -30,8 +30,9 @@ const props = defineProps<{
   tone?: { home?: string; away?: string };
   concede?: "home" | "away" | null;
   suspended?: boolean;
-  /** "lg" scales the card up (Past Games strip); the default is the compact size other views use. */
-  size?: "lg";
+  /** "lg" scales the card up (Past Games strip); "sm" is the dense one-line card (league Overview, owner 11-02: no
+   *  empty space, about half the default size); the default is the size other views use. */
+  size?: "lg" | "sm";
 }>();
 
 /** A CSS colour we are willing to put in a style attribute (hex, rgb()/hsl(), or a bare colour name). */

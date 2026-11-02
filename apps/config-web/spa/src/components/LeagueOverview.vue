@@ -1,6 +1,8 @@
 <script setup lang="ts">
-// League page, Overview tab: the selected season's summary (rules, status, dates, games, champion and podium),
-// the organisers, the season's inducement table, and the latest results as result cards (most recent nine, newest first).
+// League page, Overview tab: the latest results as compact result cards (most recent twelve, newest first) in their own
+// scrolling box, and the side column: the selected season's summary (rules, status, dates, games, champion and podium),
+// the house rules, the organisers and the season's inducement table. Two root nodes, laid out by the page's .lg-ov grid
+// (owner 11-02: results on the left, the rest beside them, the whole overview on one 1920x1080 screen).
 // The season panel ends with the "Pay entry fee" block (server-built: links, fee, and only the viewer's own teams' paid
 // status) while the season is not finished. The HOUSE RULES panel (owner 11-02) follows the season panel: the changed rows,
 // then "Everything else as <ruleset>", with an Edit link for organisers (League settings, Information).
@@ -18,7 +20,7 @@ const props = defineProps<{ league: LeagueSummary; season: SeasonRecord; summary
 const rulesetName = computed(() => rulesetLabel(props.league.rulesetPackage, props.season.ruleset));
 const houseEdit = computed(() => (props.canManage ? { name: "league-settings", params: { id: props.league.id }, query: { tab: "information" }, hash: "#house-rules" } : null));
 const route = useRoute();
-const latest = computed(() => latestResults(props.season, 9).map((f) => ({ id: f.id, card: resultCardProps(props.league, props.season, f, props.crests) })));
+const latest = computed(() => latestResults(props.season, 12).map((f) => ({ id: f.id, card: resultCardProps(props.league, props.season, f, props.crests) })));
 const podium = computed(() => props.season.awards.filter((a) => a.type === "Overall Champion" || a.type === "Runner-up" || a.type === "Consolation"));
 const honorary = computed(() => props.season.awards.filter((a) => a.type === "Honorary award"));
 const fixturesLink = computed(() => ({ name: "league-detail", params: { id: props.league.id }, query: { ...(route.query.season ? { season: String(route.query.season) } : {}), tab: "fixtures" } }));
@@ -28,17 +30,16 @@ const phases = computed(() => props.season.phases.filter((p) => props.season.fix
 </script>
 
 <template>
-  <div class="hm-grid lg-overview">
-    <div class="hm-col">
-      <section class="hm-panel" aria-labelledby="lg-latest-h">
-        <header class="hm-band"><h2 id="lg-latest-h">Latest results</h2><RouterLink class="hm-cap" :to="fixturesLink">All fixtures</RouterLink></header>
-        <p v-if="!latest.length" class="hm-empty">No results yet this season.</p>
-        <ul v-else class="lg-results" aria-label="Latest results">
-          <li v-for="r in latest" :key="r.id"><ResultCard v-bind="r.card" /></li>
-        </ul>
-      </section>
+  <section class="hm-panel lg-ov-results" aria-labelledby="lg-latest-h">
+    <header class="hm-band"><h2 id="lg-latest-h">Latest results</h2><RouterLink class="hm-cap" :to="fixturesLink">All fixtures</RouterLink></header>
+    <p v-if="!latest.length" class="hm-empty">No results yet this season.</p>
+    <div v-else class="lg-ov-scroll">
+      <ul class="lg-results lg-results-sm" aria-label="Latest results">
+        <li v-for="r in latest" :key="r.id"><ResultCard v-bind="r.card" size="sm" /></li>
+      </ul>
     </div>
-    <div class="hm-col">
+  </section>
+  <div class="lg-ov-side">
       <section class="hm-panel" aria-labelledby="lg-summary-h">
         <header class="hm-band"><h2 id="lg-summary-h">{{ season.name }}</h2><span class="hm-cap">{{ SEASON_STATUS_LABEL[season.status] }}</span></header>
         <dl class="tl-facts lg-facts">
@@ -73,6 +74,5 @@ const phases = computed(() => props.season.phases.filter((p) => props.season.fix
         <p v-if="league.description" class="lg-desc">{{ league.description }}</p>
       </section>
       <LeagueInducements :league-id="league.id" :season-id="season.id" />
-    </div>
   </div>
 </template>

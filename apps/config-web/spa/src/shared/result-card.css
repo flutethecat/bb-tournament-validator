@@ -130,3 +130,28 @@ a.rc-card:focus-visible { outline: 2px solid var(--ui-accent, var(--ui-heading))
 
 /* The Past Games grid scrolls inside the panel (band header fixed above), like the coach page What's new box. */
 .rc-scroll { max-height: 560px; overflow-y: auto; scrollbar-gutter: stable; padding: 4px 8px 10px 4px; } /* room for the card lift and drop */
+
+/* Dense cards (size="sm", the league Overview; owner 11-02): the same card with the empty space taken out and about half
+   the size: crest, name and coach on one line each side of the score, the race and the competition left out (the page
+   already names the league and season), the date small on the top line. The sides never stack, whatever the width. */
+.rc-card[data-size="sm"] { gap: 1px; min-height: 0; padding: 4px 8px 6px; box-shadow: 0 2px 0 var(--sf-panel-drop, #000), inset 0 1px 0 var(--sf-panel-hi, #626b77); }
+.rc-card[data-size="sm"] .rc-top { font-size: 11px; line-height: 1.1; }
+.rc-card[data-size="sm"] .rc-body { gap: 8px; margin-inline: 0; }
+.rc-card[data-size="sm"] .rc-team { flex-direction: row; align-items: center; gap: 6px; text-align: left; }
+.rc-card[data-size="sm"] .rc-away { flex-direction: row-reverse; text-align: right; }
+.rc-card[data-size="sm"] .rc-crestcol { width: auto; min-width: 0; max-width: none; }
+.rc-card[data-size="sm"] .rc-crest { width: 30px; height: 30px; }
+.rc-card[data-size="sm"] .rc-initials { font-size: 11px; }
+.rc-card[data-size="sm"] .rc-race, .rc-card[data-size="sm"] .rc-comp { display: none; }
+.rc-card[data-size="sm"] .rc-who { gap: 1px; justify-items: start; }
+.rc-card[data-size="sm"] .rc-away .rc-who { justify-items: end; }
+.rc-card[data-size="sm"] .rc-name { font-size: 13px; line-height: 1.15; letter-spacing: .02em; }
+.rc-card[data-size="sm"] .rc-coach { flex-direction: row; justify-content: flex-start; gap: 4px; font-size: 12px; }
+.rc-card[data-size="sm"] .rc-away .rc-coach { flex-direction: row-reverse; justify-content: flex-start; }
+.rc-card[data-size="sm"] .rc-avatar { width: 16px; height: 16px; font-size: 8px; }
+.rc-card[data-size="sm"] .rc-centre { gap: 2px; }
+.rc-card[data-size="sm"] .rc-nums { gap: 10px; }
+.rc-card[data-size="sm"] .rc-num { font-size: 20px; }
+.rc-card[data-size="sm"] .rc-cas { font-size: 10px; }
+.rc-card[data-size="sm"] .rc-score[data-conceded="true"] { padding: 2px 8px; }
+.rc-card[data-size="sm"] .rc-flag { font-size: 9px; }
