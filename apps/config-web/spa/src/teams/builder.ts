@@ -513,6 +513,22 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     return m;
   };
 
+  /** Players by position for the Roster summary (owner 11-01): one row per position held, in the hire list's order (cost,
+   *  then name), stars after (in the order they were hired). Empty roster: no rows. */
+  function positionBreakdown(): Array<{ positionId: string; name: string; count: number; star: boolean }> {
+    const counts = positionCounts();
+    const out: Array<{ positionId: string; name: string; count: number; star: boolean }> = [];
+    for (const c of positionCards()) {
+      const count = counts.get(c.position.positionId) ?? 0;
+      if (count) out.push({ positionId: c.position.positionId, name: c.name, count, star: false });
+    }
+    for (const sl of state.slots) {
+      const p = positionById(sl.positionId);
+      if (p?.isStar && !out.some((o) => o.positionId === p.positionId)) out.push({ positionId: p.positionId, name: shortName(p), count: counts.get(p.positionId) ?? 0, star: true });
+    }
+    return out;
+  }
+
   // ── money ─────────────────────────────────────────────────────────────────────────────────────────────────────────
   const isStarSlot = (s: Slot): boolean => positionById(s.positionId)?.isStar === true;
   const rawPlayerCost = (): number => state.slots.filter((s) => !isStarSlot(s)).reduce((n, s) => n + (positionById(s.positionId)?.cost ?? 0), 0);
@@ -1671,7 +1687,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     // derived
     positionById, shortName, raceRules, tierRules, statRules, allowedStats, packSummary, captainAvailable, slotCanCaptain, leagueOptions,
     leaguePresentation, activeLeague, selectedSpecialRule, accessOf, isElite, eliteMark, skillClass, totals, valueLines, validity, canExport, canBuild, canSave,
-    skillPoints, positionCards, starChoices, starRow, starCap, starPickCount, starsAllowed, starSpTable, inducementRows, rulesetLines, tierLabel, raceTable,
+    skillPoints, positionCards, positionBreakdown, starChoices, starRow, starCap, starPickCount, starsAllowed, starSpTable, inducementRows, rulesetLines, tierLabel, raceTable,
     eligibleRosters, staffRows: () => staffRows(state.roster), staffIcon, skillIcon, spritePath, crestPath, pickerSections, skillPrice, statSteps, advanceLock,
     captainIndex, skillAllowance, slotLocks, legalSet, requestBody, sheetModel, teamViewModel, gateCtx, named, signedIn: (): boolean => Boolean(deps.coach()),
     free, ignoring, capped, canShare, skillBlock, moreSkills, rulesetCards, rulesetLabel, freeRaces, canAddStar,

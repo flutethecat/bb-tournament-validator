@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-01",
+    "title": "Players by position in the Roster summary",
+    "body": "Under Players, the Roster summary now lists how many of each position you have, such as 2× Jaguar Warrior, in the hire list's order with star players after. It updates as you hire and fire.",
+    "links": [
+      {
+        "label": "Roster Builder",
+        "href": "/app/tournament-team-builder"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-01",
     "title": "Finer stat increase rules for organisers",
     "body": "The Tournament Creator's Advanced tab has a Stat increases section: pick positions or keywords (such as Big Guy or Lineman) that can't advance, block a stat for everyone or for chosen players, and cap increases per team. The Advance dialog greys out each blocked button and says which tournament rule applies, and the validator enforces the same rules.",
     "links": [

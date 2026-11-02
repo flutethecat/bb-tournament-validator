@@ -153,6 +153,23 @@ describe("tournament builder controller", () => {
     expect(b.canBuild()).toBe(false);
   });
 
+  it("Players by position (owner 11-01): counts in hire-list order, stars after, empty roster has none, live on hire and fire", async () => {
+    const { b } = await ready(mockFetcher(routes()));
+    b.setTeamName("Reavers");
+    expect(b.positionBreakdown()).toEqual([]);
+    b.addPosition("hlin"); b.addPosition("hlin"); b.addPosition("hlin"); b.addPosition("hogr"); b.addPosition("hbli"); b.addPosition("hbli");
+    b.addStar(b.starChoices()[0]!.key);
+    const line = () => b.positionBreakdown().map((r) => `${r.count}× ${r.name}`);
+    // Ogre 140k, Blitzer 85k, Lineman 50k (the hire list's cost order), the star last; the race prefix is dropped.
+    expect(line()).toEqual(["1× Ogre", "2× Blitzer", "3× Lineman", "1× Grim Ironjaw"]);
+    expect(b.positionBreakdown().map((r) => r.star)).toEqual([false, false, false, true]);
+    const i = b.state.slots.findIndex((s) => s.positionId === "hogr");
+    b.state.slots.splice(i, 1);
+    expect(line()).toEqual(["2× Blitzer", "3× Lineman", "1× Grim Ironjaw"]);
+    b.state.slots.splice(0, b.state.slots.length);
+    expect(b.positionBreakdown()).toEqual([]);
+  });
+
   it("stars never take skills; the star cap counts picks; inducements price at the team's terms", async () => {
     const { b } = await ready(mockFetcher(routes()));
     b.setTeamName("Reavers");

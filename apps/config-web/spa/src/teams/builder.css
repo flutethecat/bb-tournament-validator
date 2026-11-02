@@ -579,3 +579,9 @@
   .tb-step-row .tb-stepper button { width: 40px; height: 40px; }
 }
 .tb-col-right .tb-finding { font-size: 14px; }
+
+/* Players by position under the Players figure (owner 11-01): small, muted, no borders; the count keeps the text colour. */
+.tv-totals.tb-value > div:has(> .tb-posbreak) { flex-wrap: wrap; }
+.tv-totals.tb-value .tb-posbreak { flex: 0 0 100%; list-style: none; margin: 0; padding: 0; font-size: 12px; line-height: 1.35; color: var(--ui-muted); text-align: left; }
+.tv-totals.tb-value .tb-posbreak li { overflow-wrap: anywhere; }
+.tv-totals.tb-value .tb-posbreak b { font: inherit; text-shadow: none; text-align: left; color: var(--ui-text); font-weight: 600; }
