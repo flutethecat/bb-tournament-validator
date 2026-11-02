@@ -7,7 +7,7 @@ import { costSP, isElite } from "../cost/costSP";
 import { canonicalizeStatRuleRaces, cleanStatIncreaseRules, playerStatRuleBlock, statRuleBlock, teamCapBlock } from "../cost/statRules";
 import { MAX_STAT_STEPS, starPackPicks, statIncreasesGold, statIncreasesOf, statIncreasesOverLimit } from "../cost/extras";
 import { skillsGold } from "../cost/costGold";
-import { inducementCatalog, inducementIdForName, inducementIdInCatalog, inducementReducedFor } from "../dataset/inducements";
+import { inducementCatalog, inducementIdForName, inducementIdInCatalog, inducementReducedFor, usesSevensInducements } from "../dataset/inducements";
 import { hasLinemanKeyword, SEVENS_VETERAN_MA_DELTA } from "../dataset/bb2025/sevens";
 import { effectiveStaffPrices, priceStaff } from "../cost/staff";
 import type { Dataset } from "../dataset/types";
@@ -162,10 +162,12 @@ export const sevensVeteran: Rule = {
         continue;
       }
       // Printed MA: one lower than the position (skipped when stat increases are on, where the base MA may have moved).
-      const want = rp.position.MA + SEVENS_VETERAN_MA_DELTA;
+      // validate() already hands a Veteran its Veteran base (the position's MA minus one).
+      const want = rp.position.MA;
+      const full = want - SEVENS_VETERAN_MA_DELTA;
       if (pkg.special.statIncreasesAllowed !== true && rp.player.MA !== want)
         findings.push(
-          err("sevens-veteran", `${label(rp)} is the Veteran, so MA should read ${want} (one lower than ${rp.position.MA}); the sheet shows ${rp.player.MA}.`, {
+          err("sevens-veteran", `${label(rp)} is the Veteran, so MA should read ${want} (one lower than ${full}); the sheet shows ${rp.player.MA}.`, {
             playerRef: rp.player.number,
             expected: `MA ${want}`,
             actual: `MA ${rp.player.MA}`,
@@ -920,9 +922,10 @@ export const inducements: Rule = {
   id: "inducements",
   check: (ctx) => {
     const { roster, pkg, data } = ctx;
-    if (pkg.inducements.set === "sevens") return sevensInducements(ctx);
+    if (usesSevensInducements(pkg)) return sevensInducements(ctx);
     const findings: Finding[] = [];
     const teamRules = new Set(roster.specialRules.map(normName));
+    const totals = new Map<string, { name: string; count: number; cap: number | null }>();
     for (const ind of roster.inducements) {
       const id = ind.id ?? inducementIdForName(data, ind.name) ?? normName(ind.name).replace(/ /g, "_");
       const meta = data.inducements[id];
@@ -954,14 +957,19 @@ export const inducements: Rule = {
         );
       const datasetCap = hasReduced ? meta?.reducedMax ?? meta?.max : meta?.max;
       const cap = pkg.inducements.caps[id] ?? datasetCap ?? null;
-      if (cap != null && (ind.count ?? 1) > cap)
+      const prior = totals.get(id);
+      if (prior) prior.count += ind.count ?? 1;
+      else totals.set(id, { name: ind.name, count: ind.count ?? 1, cap });
+    }
+    // Caps apply to the TOTAL per inducement, so the same item split over several rows can't dodge them.
+    for (const { name, count, cap } of totals.values())
+      if (cap != null && count > cap)
         findings.push(
-          err("inducements", `${ind.count ?? 1}× ${ind.name} exceeds the limit of ${cap}.`, {
+          err("inducements", `${count}× ${name} exceeds the limit of ${cap}.`, {
             expected: `<= ${cap}`,
-            actual: ind.count ?? 1,
+            actual: count,
           }),
         );
-    }
     return findings;
   },
 };
@@ -976,6 +984,7 @@ function sevensInducements({ roster, pkg, data, datasetRoster, sheetRoster }: Pa
   const catalog = inducementCatalog(pkg, data);
   const teamRules = new Set(roster.specialRules.map(normName));
   const limitText = pkg.format === "sevens" ? "the Sevens limit" : "the limit";
+  const totals = new Map<string, { name: string; count: number; cap: number | null }>();
   roster.inducements.forEach((ind, index) => {
     const id = ind.id && catalog[ind.id] ? ind.id : inducementIdInCatalog(catalog, ind.name);
     const meta = id ? catalog[id] : undefined;
@@ -1007,15 +1016,9 @@ function sevensInducements({ roster, pkg, data, datasetRoster, sheetRoster }: Pa
       findings.push(err("inducements", `${meta.name} is only available to teams that can hire an Apothecary.`, { suggestion: "Remove it." }));
     const reduced = inducementReducedFor(meta, roster.specialRules, roster.rosterName);
     const cap = pkg.inducements.caps[id] ?? (reduced ? meta.reducedMax ?? meta.max : meta.max) ?? null;
-    const count = ind.count ?? 1;
-    if (cap != null && count > cap)
-      findings.push(
-        err("inducements", `${count}× ${meta.name}; ${limitText} is ${cap}.`, {
-          expected: `<= ${cap}`,
-          actual: count,
-          suggestion: `Remove ${count - cap}× ${meta.name}.`,
-        }),
-      );
+    const prior = totals.get(id);
+    if (prior) prior.count += ind.count ?? 1;
+    else totals.set(id, { name: meta.name, count: ind.count ?? 1, cap });
     const sheetCost = sheetRoster?.inducements[index]?.cost;
     const each = ind.cost;
     if (sheetCost != null && each != null && sheetCost !== each)
@@ -1026,6 +1029,16 @@ function sevensInducements({ roster, pkg, data, datasetRoster, sheetRoster }: Pa
         }),
       );
   });
+  // Caps apply to the TOTAL per inducement, so the same item split over several rows can't dodge them.
+  for (const { name, count, cap } of totals.values())
+    if (cap != null && count > cap)
+      findings.push(
+        err("inducements", `${count}× ${name}; ${limitText} is ${cap}.`, {
+          expected: `<= ${cap}`,
+          actual: count,
+          suggestion: `Remove ${count - cap}× ${name}.`,
+        }),
+      );
   return findings;
 }
 
@@ -1037,6 +1050,17 @@ export const sideline: Rule = {
     const findings: Finding[] = [];
     const prices = effectiveStaffPrices(pkg);
     const sheetStaff = sheetRoster?.summary?.sidelineCost;
+    // A package that prices staff starts every team at dedicatedFansStart (Sevens Free Create 1, Matched Play 0): fewer
+    // isn't a legal roster.
+    const minFans = prices ? (pkg.sideline.dedicatedFansStart ?? 1) : 0;
+    if (roster.sideline.dedicatedFans < minFans)
+      findings.push(
+        err("sideline", `${roster.sideline.dedicatedFans} dedicated fans; this ruleset starts every team on ${minFans} (free).`, {
+          expected: `>= ${minFans}`,
+          actual: roster.sideline.dedicatedFans,
+          suggestion: `Set Dedicated Fans to at least ${minFans}.`,
+        }),
+      );
     if (prices && sheetStaff != null) {
       const priced = priceStaff(roster.sideline, prices, datasetRoster?.reRollCost ?? 0, pkg.sideline.dedicatedFansStart ?? 1);
       if (priced.total !== sheetStaff) {

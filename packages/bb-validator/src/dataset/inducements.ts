@@ -2,12 +2,18 @@ import type { Dataset, DatasetInducement } from "./types";
 import { normName } from "./lookup";
 import { SEVENS_INDUCEMENTS } from "./bb2025/sevens";
 
-/** The inducement list a package draws from: the Sevens list for `inducements.set: "sevens"`, else the dataset's core list. */
+/** Does a package draw from the Sevens inducement list? `inducements.set: "sevens"`, and ALWAYS for a Sevens package
+ *  (owner Q4: Sevens never re-opens Star Players or Mercenaries through the core list). */
+export function usesSevensInducements(pkg: { format?: string; inducements?: { set?: string } }): boolean {
+  return pkg.inducements?.set === "sevens" || pkg.format === "sevens";
+}
+
+/** The inducement list a package draws from: the Sevens list (see usesSevensInducements), else the dataset's core list. */
 export function inducementCatalog(
-  pkg: { inducements?: { set?: string } },
+  pkg: { format?: string; inducements?: { set?: string } },
   data: Dataset,
 ): Readonly<Record<string, DatasetInducement>> {
-  return pkg.inducements?.set === "sevens" ? SEVENS_INDUCEMENTS : data.inducements;
+  return usesSevensInducements(pkg) ? SEVENS_INDUCEMENTS : data.inducements;
 }
 
 /** The id of a stored inducement name in one catalog (current name, former alias, or the id spelled out); undefined when absent. */

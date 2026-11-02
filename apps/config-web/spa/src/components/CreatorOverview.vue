@@ -2,7 +2,7 @@
 // Tournament Creator, Overview tab: package details (name, date, ruleset, extends, description, data note), the gold /
 // team-value cap and its mode, the eligible races, and the package summary.
 import { computed, inject, ref } from "vue";
-import { isSevens, safeArray, tierClass } from "../tournaments/creatorCore";
+import { isSevens, safeArray, sevensDrops, tierClass } from "../tournaments/creatorCore";
 import { packageSummary, TOURNAMENT_CREATOR_KEY } from "../tournaments/creator";
 import CreatorOverride from "./CreatorOverride.vue";
 
@@ -24,12 +24,20 @@ const extendsOptions = computed(() => state.packageNames.filter((n) => n !== sta
 // Format toggle (Sevens spec 11-02): Sevens applies the Sevens defaults at once; Standard overwrites the rules, so it asks first.
 const sevens = computed(() => isSevens(pkg.value));
 const confirmStandard = ref(false);
+// Switching to Sevens drops whatever would fight the Sevens defaults (team rules, other tiers, packs...): list it first.
+const confirmSevens = ref<string[]>([]);
 function pickFormat(format: "standard" | "sevens"): void {
-  if (format === "standard" && sevens.value) { confirmStandard.value = true; return; }
   confirmStandard.value = false;
+  confirmSevens.value = [];
+  if (format === "standard" && sevens.value) { confirmStandard.value = true; return; }
+  if (format === "sevens" && !sevens.value) {
+    const drops = sevensDrops(pkg.value);
+    if (drops.length) { confirmSevens.value = drops; return; }
+  }
   c.setFormat(format);
 }
 function confirmToStandard(): void { confirmStandard.value = false; c.setFormat("standard"); }
+function confirmToSevens(): void { confirmSevens.value = []; c.setFormat("sevens"); }
 type TextField = "name" | "date" | "description" | "extends" | "dataNote";
 const onText = (field: TextField, e: Event): void => c.setField(field, (e.target as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement).value);
 </script>
@@ -62,10 +70,18 @@ const onText = (field: TextField, e: Event): void => c.setField(field, (e.target
       </div>
     </div>
     <div v-if="confirmStandard" class="cr-notice cr-confirm" role="alertdialog" aria-labelledby="cr-format-confirm">
-      <p id="cr-format-confirm">Switch back to Standard? This resets the budget, players, staff, inducements, stars, tiers and skills to the standard defaults and drops your Sevens edits.</p>
+      <p id="cr-format-confirm">Switch back to Standard? This resets the budget, players, staff, inducements, stars, tiers and skills to the standard defaults and drops your Sevens edits{{ pkg.extends ? `, and stops inheriting from ${pkg.extends}` : "" }}.</p>
       <div class="cr-row">
         <button type="button" class="cr-btn" @click="confirmStandard = false">Keep Sevens</button>
         <button type="button" class="cr-btn primary" @click="confirmToStandard">Switch to Standard</button>
+      </div>
+    </div>
+    <div v-if="confirmSevens.length" class="cr-notice cr-confirm" role="alertdialog" aria-labelledby="cr-format-confirm-sevens">
+      <p id="cr-format-confirm-sevens">Switch to Sevens? The Sevens defaults replace these:</p>
+      <ul class="cr-drops"><li v-for="d in confirmSevens" :key="d">{{ d }}</li></ul>
+      <div class="cr-row">
+        <button type="button" class="cr-btn" @click="confirmSevens = []">Keep Standard</button>
+        <button type="button" class="cr-btn primary" @click="confirmToSevens">Switch to Sevens</button>
       </div>
     </div>
     <p v-if="state.formatNotice" class="hm-notice" role="status">{{ state.formatNotice }}</p>

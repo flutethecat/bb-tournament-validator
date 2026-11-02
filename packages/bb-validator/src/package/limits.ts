@@ -9,7 +9,7 @@
 import { costGold } from "../cost/costGold";
 import { effectiveStaffPrices, STANDARD_STAFF_PRICES } from "../cost/staff";
 import { hasLinemanKeyword, SEVENS_VETERAN_MA_DELTA } from "../dataset/bb2025/sevens";
-import { inducementCatalog, inducementReducedFor } from "../dataset/inducements";
+import { inducementCatalog, inducementReducedFor, usesSevensInducements } from "../dataset/inducements";
 import { findRoster, normName } from "../dataset/lookup";
 import type { Dataset } from "../dataset/types";
 import { resolveTeamConfig } from "./resolveConfig";
@@ -58,8 +58,9 @@ export interface RosterLimits {
     cheerleaders: RosterLimitsStaffRow;
     /** max 0 when the roster can't hire an Apothecary. */
     apothecary: RosterLimitsStaffRow;
-    /** `start` = Dedicated Fans the team gets free (priced beyond these). */
-    dedicatedFans: RosterLimitsStaffRow & { start: number };
+    /** `start` = Dedicated Fans the team gets free (priced beyond these); `min` = fewest the team may have (the start,
+     *  when the package prices staff: Sevens Free Create 1, Matched Play 0). */
+    dedicatedFans: RosterLimitsStaffRow & { start: number; min: number };
   };
   starPlayersAllowed: boolean;
   inducementSet: InducementSet;
@@ -101,12 +102,13 @@ export function effectiveRosterLimits(
   const specialRules = opts.specialRules ?? roster.specialRules;
   const rules = new Set(specialRules.map(normName));
   const maxNonLineman = pkg.special.maxNonLineman ?? null;
+  const fansStart = pkg.sideline.dedicatedFansStart ?? 1;
   const priced = effectiveStaffPrices(pkg);
   const prices = priced ?? STANDARD_STAFF_PRICES;
   const catalog = inducementCatalog(pkg, data);
   const allAllowed = pkg.inducements.allowed.includes("*");
   const inducements: RosterLimitsInducement[] = Object.entries(catalog)
-    .filter(([, row]) => pkg.inducements.set === "sevens" || !row.optIn)
+    .filter(([, row]) => usesSevensInducements(pkg) || !row.optIn)
     .map(([id, row]) => {
       const reduced = inducementReducedFor(row, specialRules, roster.name);
       const onlyFor = pkg.inducements.rosterOnly?.[id];
@@ -149,10 +151,10 @@ export function effectiveRosterLimits(
       assistantCoaches: { price: prices.assistantCoach, max: pkg.sideline.maxAssistantCoaches },
       cheerleaders: { price: prices.cheerleader, max: pkg.sideline.maxCheerleaders },
       apothecary: { price: prices.apothecary, max: roster.apothecaryAllowed ? minCap(pkg.sideline.maxApothecary, 1) : 0 },
-      dedicatedFans: { price: prices.dedicatedFan, max: pkg.sideline.maxDedicatedFans, start: pkg.sideline.dedicatedFansStart ?? 1 },
+      dedicatedFans: { price: prices.dedicatedFan, max: pkg.sideline.maxDedicatedFans, start: fansStart, min: priced ? fansStart : 0 },
     },
     starPlayersAllowed: cfg.starPlayersAllowed,
-    inducementSet: pkg.inducements.set === "sevens" ? "sevens" : "core",
+    inducementSet: usesSevensInducements(pkg) ? "sevens" : "core",
     inducements,
     skills: {
       tier: cfg.tierNumber ?? null,

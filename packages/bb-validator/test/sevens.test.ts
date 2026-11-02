@@ -339,7 +339,7 @@ describe("effectiveRosterLimits (for the Roster Builder lane)", () => {
       assistantCoaches: { price: 20000, max: 3 },
       cheerleaders: { price: 20000, max: 3 },
       apothecary: { price: 80000, max: 1 },
-      dedicatedFans: { price: 20000, max: 5, start: 0 },
+      dedicatedFans: { price: 20000, max: 5, start: 0, min: 0 },
     });
     expect(l.inducements.map((i) => i.id)).toContain("desperate_measures");
     expect(l.inducements.find((i) => i.id === "bribes")).toMatchObject({ price: 100000, max: 2, allowed: true, available: true });
@@ -392,5 +392,71 @@ describe("composer support for Sevens previews", () => {
     expect(r.errors).toEqual([]);
     expect(r.warnings).toEqual([]);
     expect(r.recomputedSummary.goldUsed).toBe(595000);
+  });
+});
+
+describe("Sol review fixes (2c869b5e)", () => {
+  it("the format is resolved through the whole extends chain (Base -> Middle -> Leaf)", () => {
+    const raws: Record<string, DeepPartial<TournamentPackage>> = { Base: shipped, Middle: { name: "Middle", extends: "Base", skillAllotment: {} } };
+    const leaf = loadPackage({ name: "Leaf", extends: "Middle", skillAllotment: {} }, { resolveExtends: (n) => raws[n] });
+    expect(leaf.pkg.format).toBe("sevens");
+    expect(leaf.pkg.special).toMatchObject({ maxPlayers: 11, maxNonLineman: 4, veteran: true });
+    expect(leaf.pkg.starPlayers.allowed).toBe(false);
+    // The nearest explicit format wins, and a cycle ends the walk.
+    expect(loadPackage({ name: "Leaf", extends: "Middle", format: "standard", skillAllotment: {} }, { resolveExtends: (n) => raws[n] }).pkg.format).toBe("standard");
+    const loop: Record<string, DeepPartial<TournamentPackage>> = { A: { name: "A", extends: "B" }, B: { name: "B", extends: "A" } };
+    expect(loadPackage({ name: "C", extends: "A", skillAllotment: {} }, { resolveExtends: (n) => loop[n] }).pkg.format).toBeUndefined();
+  });
+
+  it("a Sevens package can't switch to the core inducement list: stars and Mercenaries stay refused", () => {
+    const { pkg: p, problems } = loadPackage({ ...shipped, inducements: { set: "core", allowed: ["*"], caps: {} } } as DeepPartial<TournamentPackage>);
+    expect(p.inducements.set).toBe("sevens");
+    expect(problems).toContain(`inducements.set "core" isn't available in Sevens (it would allow Star Players and Mercenaries); using the Sevens list.`);
+    // Even a hand-built package object with the core set is checked against the Sevens list.
+    const forced = { ...MATCHED, inducements: { ...MATCHED.inducements, set: "core" as const } };
+    const merc = validate(team("Human", humanPicks(), { inducements: [{ id: "mercenaries", name: "Mercenary Players", count: 1, cost: 0 }] }), forced, bb2025);
+    expect(messages(merc)).toContain("Mercenaries aren't available in Sevens.");
+  });
+
+  it("split inducement rows can't dodge a cap (Sevens and core lists)", () => {
+    const rows = [{ name: "Bribes", count: 2, cost: 100000 }, { name: "Bribes", count: 2, cost: 100000 }];
+    const sevens = validate(team("Human", humanPicks(), { reRolls: 0, sidelineCost: 0, inducements: rows }), { ...MATCHED, goldBudget: 2000000 }, bb2025);
+    expect(messages(sevens)).toContain("4× Bribes; the Sevens limit is 2.");
+    const standard = loadPackage({ name: "Plain", skillAllotment: {}, special: { minPlayers: 7 } }).pkg;
+    const human = team("Human", humanPicks().map((p) => ({ ...p, veteran: false })), { inducements: rows });
+    expect(messages(validate(human, standard, bb2025))).toContain("4× Bribes exceeds the limit of 3.");
+  });
+
+  it("a Veteran's +MA is still a stat increase: priced, and caught by a team cap of 0", () => {
+    const humanXml =
+      '<roster id="human.bb2025"><name>Human</name><reRollCost>50000</reRollCost><maxReRolls>8</maxReRolls><apothecary>true</apothecary><maxBigGuys>1</maxBigGuys>' +
+      '<position id="1"><quantity>16</quantity><name>Human Lineman</name><type>Regular</type><gender>male</gender></position>' +
+      '<position id="2"><quantity>2</quantity><name>Human Blitzer</name><type>Regular</type><gender>male</gender></position>' +
+      "</roster>";
+    const composed = composeTeam(
+      {
+        forkRosterXml: humanXml, coach: "T", teamName: "Vet", reRolls: 0, apothecary: false, dedicatedFans: 0,
+        picks: [{ positionId: "1", count: 1, veteran: true, chosenStatIncreases: ["MA"] }, { positionId: "1", count: 4 }, { positionId: "2", count: 2 }],
+        staffPrices: effectiveStaffPrices(MATCHED)!, freeDedicatedFans: 0, inducementSet: "sevens",
+      },
+      bb2025,
+    );
+    expect(composed.roster.players[0]).toMatchObject({ veteran: true, MA: 6 });
+    const capped = { ...MATCHED, special: { ...MATCHED.special, statIncreasesAllowed: true, statIncreaseRules: { maxPerTeam: 0 } } };
+    expect(messages(validate(composed.roster, capped, bb2025)).some((m) => m.startsWith("The team has 1 stat increases."))).toBe(true);
+    const open = { ...MATCHED, special: { ...MATCHED.special, statIncreasesAllowed: true } };
+    const priced = validate(composed.roster, open, bb2025);
+    expect(priced.recomputedSummary.statIncreasesCost).toBe(20000);
+    // Stat increases off: the +MA is refused outright.
+    expect(messages(validate(composed.roster, MATCHED, bb2025)).some((m) => m.includes("characteristic increase (+MA)"))).toBe(true);
+  });
+
+  it("Dedicated Fans can't go below the format's start (Sevens Free Create 1; Matched Play 0)", () => {
+    const league = loadPackage({ name: "Sevens Free Create", format: "sevens", skillAllotment: {}, sideline: { dedicatedFansStart: 1 } }).pkg;
+    expect(messages(validate(team("Human", humanPicks(), { fans: 0 }), league, bb2025))).toContain("0 dedicated fans; this ruleset starts every team on 1 (free).");
+    expect(messages(validate(team("Human", humanPicks(), { fans: 1 }), league, bb2025))).toEqual([]);
+    expect(messages(validate(team("Human", humanPicks(), { fans: 0 }), MATCHED, bb2025))).toEqual([]);
+    expect(effectiveRosterLimits(league, "Human", bb2025)!.staff.dedicatedFans).toMatchObject({ start: 1, min: 1 });
+    expect(effectiveRosterLimits(MATCHED, "Human", bb2025)!.staff.dedicatedFans).toMatchObject({ start: 0, min: 0 });
   });
 });

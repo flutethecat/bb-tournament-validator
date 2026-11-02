@@ -97,6 +97,8 @@ export const inducementDefs = (pkg: { inducements?: { set?: unknown } } | null |
  *  the count knobs. Name, date, description, data note and extends are kept. */
 export function applySevensDefaults(pkg: Pkg): void {
   const d = clone(SEVENS_DEFAULTS);
+  // Per-race budgets and skill allotments from the 11s rules (team rules) would override the Sevens 600k: dropped.
+  pkg.teamRules = [];
   pkg.format = "sevens";
   pkg.goldBudget = d.goldBudget;
   pkg.goldCapIncludesAddedSkills = false;
@@ -116,10 +118,25 @@ export function applySevensDefaults(pkg: Pkg): void {
   pkg.tiers = SEVENS_TIER_TABLE.map((t) => sevensTier(t.tier, t.rosters));
 }
 
+/** What applying the Sevens defaults will throw away (the Format toggle lists it before it applies). */
+export function sevensDrops(pkg: Pkg): string[] {
+  const n = (count: number, one: string, many: string): string => `${count} ${count === 1 ? one : many}`;
+  const out: string[] = [];
+  if (safeArray(pkg.teamRules).length) out.push(`${n(pkg.teamRules.length, "team rule", "team rules")} (per-race budgets and skills)`);
+  if (safeArray(pkg.tiers).length) out.push(`the current ${n(pkg.tiers.length, "tier", "tiers")} (replaced by the Sevens tier list)`);
+  if (safeArray(pkg.skillPackages).length) out.push(n(pkg.skillPackages.length, "skill package", "skill packages"));
+  if (pkg.matrix?.cells?.length) out.push("the cash x skills matrix");
+  if (safeArray(pkg.starPacks).length) out.push(n(safeArray(pkg.starPacks).length, "star pack", "star packs"));
+  if (safeArray(pkg.bannedStars).length) out.push(n(pkg.bannedStars.length, "banned star", "banned stars"));
+  if (pkg.goldBudget != null && pkg.goldBudget !== SEVENS_DEFAULTS.goldBudget) out.push(`the ${overviewGold(pkg.goldBudget)} gold cap (now 600k)`);
+  return out;
+}
+
 /** Back to the standard defaults (the Format toggle's Standard, after a confirm): everything but the package details is
- *  reset to a blank package's values. */
+ *  reset to a blank package's values. `extends` is cleared too: the base may be a Sevens package, which would make the
+ *  package Sevens again (and bring its Sevens-only fields back). */
 export function applyStandardDefaults(pkg: Pkg): void {
-  const keep = { name: pkg.name, date: pkg.date, description: pkg.description, dataNote: pkg.dataNote, extends: pkg.extends, ruleset: pkg.ruleset };
+  const keep = { name: pkg.name, date: pkg.date, description: pkg.description, dataNote: pkg.dataNote, extends: "", ruleset: pkg.ruleset };
   for (const key of Object.keys(pkg)) delete pkg[key];
   Object.assign(pkg, normalizePackage(fallbackRaw()), keep);
 }

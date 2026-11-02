@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { findRoster, loadPackage, SEVENS_INDUCEMENTS, SEVENS_PROFILE, SEVENS_STAFF_PRICES, SEVENS_TEAM_TIERS, sevensTierDef, type DeepPartial, type TournamentPackage } from "@bb/validator";
+import { findRoster, loadPackage, resolveTeamConfig, SEVENS_INDUCEMENTS, SEVENS_PROFILE, SEVENS_STAFF_PRICES, SEVENS_TEAM_TIERS, sevensTierDef, type DeepPartial, type TournamentPackage } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 import { createSession, onboardedCoaches } from "./onboardedFixture.js";
 import { packageSchemaProblems } from "../src/packageSchema.js";
@@ -15,7 +15,7 @@ import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
 import { createTournamentCreator, packageSummary } from "../spa/src/tournaments/creator";
 import {
-  freshView, inducementDefs, normalizePackage, SEVENS_DEFAULTS, SEVENS_INDUCEMENTS as UI_SEVENS_INDUCEMENTS, SEVENS_TIER_TABLE, sevensTier, serializePackage, type RawDoc,
+  applySevensDefaults, applyStandardDefaults, sevensDrops, freshView, inducementDefs, normalizePackage, SEVENS_DEFAULTS, SEVENS_INDUCEMENTS as UI_SEVENS_INDUCEMENTS, SEVENS_TIER_TABLE, sevensTier, serializePackage, type RawDoc,
 } from "../spa/src/tournaments/creatorCore";
 
 // Blood Bowl Sevens core in config-web (spec-sevens-rules-2026-11-02): the schema, the shipped Matched Play package, Sevens
@@ -188,6 +188,35 @@ describe("Tournament Creator: the Format toggle", () => {
   });
 });
 
+describe("Tournament Creator: Format toggle edge cases (Sol 2c869b5e)", () => {
+  it("Sevens lists and then drops what would fight the defaults (team-rule budgets, other tiers, packs)", () => {
+    const naf = normalizePackage(JSON.parse(readFileSync(new URL("tournament-packages/naf-world-cup-2027.json", REPO), "utf8")));
+    const drops = sevensDrops(naf);
+    expect(drops.some((d) => /team rules? \(per-race budgets and skills\)/.test(d))).toBe(true);
+    applySevensDefaults(naf);
+    expect(naf.teamRules).toEqual([]);
+    expect(naf.matrix).toBeUndefined();
+    expect(naf.skillPackages).toEqual([]);
+    const resolved = loadPackage(naf as any).pkg;
+    for (const race of ["Ogre", "Orc", "Human"]) expect(resolveTeamConfig(resolved, race).gold).toBe(600000);
+    expect(sevensDrops(normalizePackage({ name: "Blank", skillAllotment: {} }))).toEqual([]);
+  });
+
+  it("Standard clears an extends to a Sevens base and every Sevens-only field", () => {
+    const pkg = normalizePackage({ name: "Club Sevens", extends: "Blood Bowl Sevens (Matched Play)", format: "sevens", skillAllotment: {}, special: { maxPlayers: 10 } });
+    applyStandardDefaults(pkg);
+    expect(pkg.extends).toBe("");
+    expect(pkg.format).toBeUndefined();
+    expect(pkg.staffPrices).toBeUndefined();
+    expect(pkg.special.maxPlayers).toBeUndefined();
+    expect(pkg.special.veteran).toBeUndefined();
+    expect(pkg.inducements.set).toBeUndefined();
+    expect(pkg.sideline.dedicatedFansStart).toBeUndefined();
+    const raw = { ...pkg, extends: undefined } as any;
+    expect(loadPackage(raw, { resolveExtends: () => SHIPPED as any }).pkg.format).toBeUndefined();
+  });
+});
+
 describe("fork create refuses Sevens; preview prices them the Sevens way", () => {
   const root = mkdtempSync(join(tmpdir(), "sevens-http-"));
   const previousEnv = new Map<string, string | undefined>();
@@ -220,6 +249,9 @@ describe("fork create refuses Sevens; preview prices them the Sevens way", () =>
     writeFileSync(join(root, "log", "default.log"), "", "utf8");
     writeFileSync(join(root, "rosters", "human.xml"), humanXml, "utf8");
     copyFileSync(new URL("tournament-packages/sevens-matched-play.json", REPO), join(root, "packages", "sevens-matched-play.json"));
+    // Two extends hops over the Sevens package, no format of their own (Sol 2c869b5e #1).
+    writeFileSync(join(root, "packages", "sevens-middle.json"), JSON.stringify({ name: "Sevens Middle", extends: "Blood Bowl Sevens (Matched Play)", skillAllotment: {} }), "utf8");
+    writeFileSync(join(root, "packages", "sevens-leaf.json"), JSON.stringify({ name: "Sevens Leaf", extends: "Sevens Middle", skillAllotment: {} }), "utf8");
     writeFileSync(join(root, "identities.json"), JSON.stringify({ version: 1, coaches: onboardedCoaches("Alice") }), "utf8");
     writeFileSync(join(root, "organizers.json"), JSON.stringify({ organizers: [] }), "utf8");
     ({ server } = await import("../src/server.js"));
@@ -240,7 +272,7 @@ describe("fork create refuses Sevens; preview prices them the Sevens way", () =>
   };
 
   it("POST /api/fork/team-builder/build answers 400 for a Sevens package and for Sevens Free Create; nothing is written", async () => {
-    for (const packageName of ["Blood Bowl Sevens (Matched Play)", SEVENS_FREE_CREATE_PACKAGE]) {
+    for (const packageName of ["Blood Bowl Sevens (Matched Play)", SEVENS_FREE_CREATE_PACKAGE, "Sevens Leaf"]) {
       const r = await post("/api/fork/team-builder/build", { rosterId: "human.bb2025", coach: "Alice", teamName: "Seven Up", picks, reRolls: 1, apothecary: false, dedicatedFans: 0, packageName });
       expect(r.status).toBe(400);
       expect(r.body.error).toBe(SEVENS_TABLETOP_ONLY);
@@ -264,6 +296,8 @@ describe("fork create refuses Sevens; preview prices them the Sevens way", () =>
     // No Veteran: the preview says so.
     const none = await post("/api/fork/team-builder/preview", { rosterId: "human.bb2025", coach: "Alice", teamName: "Seven Up", picks: picks.map((p) => ({ ...p, veteran: false })), reRolls: 1, apothecary: false, dedicatedFans: 0, packageName: SEVENS_FREE_CREATE_PACKAGE });
     expect(none.body.errors.map((e: any) => e.message)).toContain("Pick one Lineman as the Veteran.");
+    // Sevens Free Create starts every team on 1 Dedicated Fan (Sol 2c869b5e #7).
+    expect(none.body.errors.map((e: any) => e.message)).toContain("0 dedicated fans; this ruleset starts every team on 1 (free).");
     const inds = (await (await fetch(`${origin}/api/fork/team-builder/inducements?packageName=${encodeURIComponent("Blood Bowl Sevens (Matched Play)")}`)).json()) as any;
     expect(inds.inducements.map((i: any) => i.key)).toContain("desperate_measures");
   });

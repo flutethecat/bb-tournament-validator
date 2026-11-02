@@ -150,6 +150,10 @@ function checkFormatKnobs(pkg: TournamentPackage, out: TournamentPackage, proble
   if (set !== undefined && set !== "core" && set !== "sevens") {
     problems.push(`inducements.set must be "core" or "sevens" (got ${JSON.stringify(set)}; using ${sevens ? "sevens" : "core"}).`);
     out.inducements = { ...out.inducements, set: sevens ? "sevens" : "core" };
+  } else if (sevens && set === "core") {
+    // Owner Q4: Sevens never re-opens Star Players or Mercenaries, so a Sevens package can't pick the core list.
+    problems.push('inducements.set "core" isn\'t available in Sevens (it would allow Star Players and Mercenaries); using the Sevens list.');
+    out.inducements = { ...out.inducements, set: "sevens" };
   }
   if (sevens) {
     if (pkg.starPlayers?.allowed === true) {
@@ -159,6 +163,23 @@ function checkFormatKnobs(pkg: TournamentPackage, out: TournamentPackage, proble
     if ((pkg.tiers ?? []).some((t) => t.starPlayersAllowed === true))
       problems.push("Star Players aren't available in Sevens: a tier's starPlayersAllowed is ignored.");
   }
+}
+
+/** The nearest `format` along a package's extends chain (cycle-safe, at most 32 hops); undefined = none set. */
+export function chainFormat(
+  raw: DeepPartial<TournamentPackage>,
+  resolveExtends?: (name: string) => DeepPartial<TournamentPackage> | undefined,
+): unknown {
+  const seen = new Set<string>();
+  let cur: DeepPartial<TournamentPackage> | undefined = raw;
+  for (let hop = 0; cur && hop < 32; hop++) {
+    if (cur.format !== undefined) return cur.format;
+    const next: string | undefined = cur.extends;
+    if (!next || seen.has(next)) return undefined;
+    seen.add(next);
+    cur = resolveExtends?.(next);
+  }
+  return undefined;
 }
 
 /** Recursively-optional view of T (arrays keep their element type). */
@@ -294,9 +315,9 @@ export function loadPackage(
   const base = raw.extends ? opts?.resolveExtends?.(raw.extends) : undefined;
   if (raw.extends && !base) problems.push(`extends "${raw.extends}" could not be resolved; using defaults`);
   // Blood Bowl Sevens: the profile sits right above the built-in defaults, so the `extends` base and the package itself
-  // still override every field. The format comes from the package, else its base (an organiser layer over the shipped
-  // Sevens package is Sevens too).
-  if ((raw.format ?? base?.format) === "sevens") pkg = mergePackages(pkg, JSON.parse(JSON.stringify(SEVENS_PROFILE)) as DeepPartial<TournamentPackage>);
+  // still override every field. The format is the nearest one set along the WHOLE extends chain (a layer over a layer
+  // over the shipped Sevens package is Sevens too, and the fork guard sees it).
+  if (chainFormat(raw, opts?.resolveExtends) === "sevens") pkg = mergePackages(pkg, JSON.parse(JSON.stringify(SEVENS_PROFILE)) as DeepPartial<TournamentPackage>);
   if (base) pkg = mergePackages(pkg, base);
   pkg = mergePackages(pkg, raw);
   const knobs = checkExtraKnobs(pkg);

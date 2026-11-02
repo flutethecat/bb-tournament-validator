@@ -13,7 +13,8 @@ import { resolveTeamConfig } from "./package/resolveConfig";
 import { costSP } from "./cost/costSP";
 import { costGold, inducementsGold, skillsGold, staffGold } from "./cost/costGold";
 import { effectiveStaffPrices, priceStaff } from "./cost/staff";
-import { inducementCatalog, inducementIdInCatalog, inducementReducedFor } from "./dataset/inducements";
+import { inducementCatalog, inducementIdInCatalog, inducementReducedFor, usesSevensInducements } from "./dataset/inducements";
+import { SEVENS_VETERAN_MA_DELTA } from "./dataset/bb2025/sevens";
 import type { DatasetRoster } from "./dataset/types";
 import { starPackPicks, statIncreasesGold } from "./cost/extras";
 import { ALL_RULES, recomputeGold, starCosts } from "./rules/rules";
@@ -29,7 +30,7 @@ import { err } from "./rules/types";
  */
 export function priceRoster(roster: Roster, pkg: TournamentPackage, data: Dataset, datasetRoster?: DatasetRoster): Roster | undefined {
   const prices = effectiveStaffPrices(pkg);
-  const sevensList = pkg.inducements.set === "sevens";
+  const sevensList = usesSevensInducements(pkg);
   if (!prices && !sevensList) return undefined;
   const catalog = inducementCatalog(pkg, data);
   const rules = roster.specialRules;
@@ -90,7 +91,12 @@ export function validate(
 
   // Resolve each player once: position, added skills, and each added skill's access.
   const players: ResolvedPlayer[] = roster.players.map((player) => {
-    const position = datasetRoster ? findPosition(datasetRoster, player.positionName) : undefined;
+    const found = datasetRoster ? findPosition(datasetRoster, player.positionName) : undefined;
+    // Sevens Veteran: its printed base is the position's MA minus one, so stat increases are diffed (priced, capped)
+    // against that, and a +MA printed back up to the position's MA still counts as an increase.
+    const position = found && pkg.special.veteran === true && player.veteran === true
+      ? { ...found, MA: found.MA + SEVENS_VETERAN_MA_DELTA }
+      : found;
     const added = position ? addedSkills(position, player.skills) : [];
     return {
       player,
