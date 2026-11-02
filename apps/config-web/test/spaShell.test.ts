@@ -806,7 +806,7 @@ describe("page title: the shell header h1 and document.title (owner 10-30)", () 
   };
 
   it("the header carries the route's meta.title as the page's one h1", async () => {
-    for (const [path, title] of [["/tournaments", "Tournaments"], ["/leagues", "Leagues"], ["/help", "Help"], ["/nowhere", "Page not found"]] as const) {
+    for (const [path, title] of [["/tournaments", "Tournaments"], ["/leagues", "Browse leagues"], ["/help", "Help"], ["/nowhere", "Page not found"]] as const) {
       const spa = await boot(path);
       const html = await m.renderToString(spa.app);
       expect(html, path).toContain(`<h1 class="sf-page-title" aria-live="polite">${title}</h1>`);

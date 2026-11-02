@@ -116,3 +116,26 @@ stores the coach's Discord id (it is looked up at send time), and logs never car
 **Test.** With two accounts that share a server with the bot, propose a time from one to the other; the second gets a DM
 "<coach> proposed times for <fixture>. Accept or decline: <link>". Turn the setting off on the Account page and propose
 again: no DM.
+
+## Dev and demo data
+
+### Demo leagues (Browse leagues)
+
+`apps/config-web/scripts/seed-demo-leagues.ts` writes 12 made-up leagues (every one named "Demo ..." and flagged
+`test: true`) through the app's own store writers, so Browse leagues has something to show on a dev or demo server. The
+data is fake: invented names and places, `example.com` links, no real coaches. Artwork comes from art already in the repo
+(race crests and existing header art); nothing is downloaded. Both views show a small "Demo" chip on these leagues.
+
+```
+pnpm --filter config-web exec tsx scripts/seed-demo-leagues.ts <state dir>            # create or refresh
+pnpm --filter config-web exec tsx scripts/seed-demo-leagues.ts <state dir> --remove   # delete them again
+```
+
+- `<state dir>` is the server's `FORK_STATE_DIR` (leagues live under `<state dir>/leagues`). Point a test server at a
+  scratch dir, e.g. `FORK_STATE_DIR=<scratch> PORT=<free port> tsx src/server.ts`.
+- The script refuses the live data dir (the server's default `apps/config-web/data-store`, the shell's `FORK_STATE_DIR`,
+  or any folder named `data-store`) unless both `--live` and `--yes` are given. Don't seed the live site without the
+  owner's go-ahead.
+- The ids it created are recorded in `<state dir>/demo-leagues.seed.json`. `--remove` deletes only those, and only while
+  they are still test leagues named "Demo ..."; every other league is left alone. An existing league with a demo id that
+  is not the script's own is never overwritten.

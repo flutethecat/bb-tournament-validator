@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-02",
+    "title": "Browse leagues: bigger cards, a table and search",
+    "body": "The leagues list is now Browse leagues: large cards with each league’s header art, crest, status, current season, ruleset, teams, dates, region and where it is played, plus a Registration open button when you can join. Switch to a sortable table, filter by status, play mode or open registration, and search by league, team, coach, organiser, region, ruleset or season.",
+    "links": [
+      {
+        "label": "Browse leagues",
+        "href": "/app/leagues"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-02",
     "title": "Redraft mode in the Roster Builder, and the Redraft board in league management",
     "body": "Coaches now redraft in the Roster Builder: roll Rest & Relaxation first, then keep or release each player with their re-hire cost, add hires, staff and rerolls the normal way, and submit against the redraft budget shown on the value bar. Organisers run the Redraft board from League settings -> Redraft, with each team's budget earned against the league's set budget, statuses, a redraft window (no games while it is open) and Lift to budget for one team or all. The budget formula is editable per league, and each team's page shows its current redraft budget.",
     "links": [

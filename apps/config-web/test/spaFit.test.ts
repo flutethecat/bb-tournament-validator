@@ -101,7 +101,7 @@ describe("fit to 1920x1080: the pages that opted in", () => {
     ["views/TeamManageView.vue", ["tm-page sf-fit", "tm-content sf-fit sf-fill", "tm-sheet sf-shrink sf-scroll sf-col"]],
     ["views/StandingsView.vue", ["hm-page st-page sf-fit", "sf-pane sf-shrink", "lg-scroll sf-pane-body"]],
     ["views/TournamentListView.vue", ["hm-page tl-page sf-fit", "tl-cards sf-shrink sf-scroll sf-col"]],
-    ["views/LeagueListView.vue", ["hm-page lg-page sf-fit", "tl-cards lg-cards sf-shrink sf-scroll sf-col"]],
+    ["views/LeagueListView.vue", ["hm-page lg-page lgb-page sf-fit", "lgb-grid sf-fill sf-scroll sf-col", "lgb-table-pane sf-pane sf-fill", "lgb-table-wrap sf-pane-body"]],
     ["views/SeriesListView.vue", ["hm-page sr-page sf-fit", "tl-cards sf-shrink sf-scroll sf-col"]],
     ["views/SeriesDetailView.vue", ["hm-page sr-page sf-fit", "sr-grid sr-overview sf-shrink sf-scroll sf-col", "sr-schedule sf-shrink sf-scroll sf-col", "sh-manage sf-fill"]],
     ["views/AdminTournamentsView.vue", ["hm-page sf-fit", "ad-list sf-shrink sf-scroll sf-col"]],

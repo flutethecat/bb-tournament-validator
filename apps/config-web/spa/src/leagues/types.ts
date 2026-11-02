@@ -42,6 +42,21 @@ export interface LeagueSummary {
   houseRules?: HouseRules;
   rulesetPackage?: string;
   authorised?: boolean;
+  /** Browse leagues (list rows only; absent on older servers): status, place and the public search index. */
+  browse?: LeagueBrowseInfo;
+}
+
+export type LeagueBrowseStatus = "in-progress" | "registration" | "finished" | "off-season";
+
+/** GET /api/leagues row extras (server src/leagues/browse.ts). Public fields only. */
+export interface LeagueBrowseInfo {
+  status: LeagueBrowseStatus;
+  registrationOpen: boolean;
+  location?: string;
+  regions: string[];
+  test?: true;
+  seasons: string[];
+  teams: Array<{ name: string; coach: string }>;
 }
 
 export interface FixtureSide {

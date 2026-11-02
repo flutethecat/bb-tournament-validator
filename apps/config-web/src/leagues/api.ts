@@ -1,7 +1,7 @@
 /**
  * League routes. Reads are public; artwork writes need a session and an organiser of the league (or an admin).
  *
- *   GET    /api/leagues                          list (summaries)
+ *   GET    /api/leagues                          list (summaries + browse: status, place, public search index)
  *   GET    /api/leagues/:id                      league + season summaries (newest first)
  *   GET    /api/leagues/:id/seasons/:seasonId    one full season
  *   GET    /api/leagues/:id/stats?scope=         aggregates: bb2020 | bb2025 | all (default all)
@@ -77,6 +77,7 @@ import { leagueStats, isStatsScope, type LeagueStats, type StatsScope } from "./
 import { clearStandingsCache, podiumAwards, PODIUM_SLOTS, proposePodium, withStandings, type PodiumPlace } from "./standings.js";
 import { fixturePlayed } from "./tourplay.js";
 import { ORGANISER_LOG_KINDS } from "./teamValue.js";
+import { leagueBrowseInfo, type LeagueBrowseInfo } from "./browse.js";
 import { draftAwareNotify, isDraftLeague, leagueVisibleTo, seasonStage, storeWithoutLeague, visibleLeagues, type SeasonStage } from "./lifecycle.js";
 import { defaultSeasonRegistration, seasonRegistrationOf } from "./seasonRegistration.js";
 import { paymentLinksView } from "../payments/links.js";
@@ -240,6 +241,11 @@ export function leagueSummary(league: LeagueRecord, seasons: SeasonRecord[]): Le
   };
 }
 
+/** One row of the public list: the summary plus the Browse leagues facts (status, place, search index; browse.ts). */
+export function listRow(league: LeagueRecord, seasons: SeasonRecord[], now: Date): LeagueSummary & { browse: LeagueBrowseInfo } {
+  return { ...leagueSummary(league, seasons), browse: leagueBrowseInfo(league, seasons, now) };
+}
+
 /** Matches /api/leagues[/...]; undefined when the path is not a league route. */
 export function leaguePath(pathname: string): { id?: string; rest: string[] } | undefined {
   const m = /^\/api\/leagues(?:\/(.*))?$/.exec(pathname);
@@ -358,9 +364,11 @@ export async function leagueApi(
       return { status: 200, headers: { "cache-control": "private, no-store" }, body: { awards: myAwards(store, auth.coach) } };
     }
     // Drafts (lifecycle.ts) are listed only to their organisers and admins; such a list is never cached.
+    // Browse leagues (owner 11-02): each row also carries its public search index and status (browse.ts).
+    const now = deps.now?.() ?? new Date();
     const leagues = visibleLeagues(store.list(), auth);
     const privateList = leagues.some((l) => isDraftLeague(l));
-    return { status: 200, ...(privateList ? { headers: { "cache-control": "private, no-store" } } : {}), body: { leagues: leagues.map((l) => leagueSummary(l, store.seasons(l.id))) } };
+    return { status: 200, ...(privateList ? { headers: { "cache-control": "private, no-store" } } : {}), body: { leagues: leagues.map((l) => listRow(l, store.seasons(l.id), now)) } };
   }
   let found = store.league(route.id);
   // Lane L5 visibility gate: a draft league does not exist for anyone but its organisers and site admins, on every route

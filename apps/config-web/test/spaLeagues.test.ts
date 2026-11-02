@@ -295,15 +295,15 @@ describe("league routes (server-rendered against a mocked API)", () => {
     expect((await render("/leagues/<x>")).spa.router.currentRoute.value.name).toBe("not-found");
   });
 
-  it("list: a card per league with header bar, logo, current season chip and actions", async () => {
+  it("list: a postcard per league with header bar, crest, status chip, ruleset chip and actions", async () => {
     const { html } = await render("/leagues", async (inject, f) => {
       const l = mods.league.createLeagueList({ api: f });
       await l.load();
       inject(mods.league.LEAGUE_LIST_KEY, l);
     });
-    expect(html).toContain(`<h1 class="sf-page-title" aria-live="polite">Leagues</h1>`);
-    expect(html).toContain('src="/api/leagues/tabbl/banner?v=0123456789ab"');
-    expect(html).toContain('class="lg-card-logo" src="/api/leagues/tabbl/logo?v=abcdef123456" alt=""');
+    expect(html).toContain(`<h1 class="sf-page-title" aria-live="polite">Browse leagues</h1>`);
+    expect(html).toContain('class="lgb-banner-img" src="/api/leagues/tabbl/banner?v=0123456789ab"');
+    expect(html).toContain('<span class="lgb-crest"><img src="/api/leagues/tabbl/logo?v=abcdef123456" alt=""');
     expect(html).toContain("Tahoma Area Blood Bowl League");
     expect(html).toContain("In progress");
     expect(html).toContain('href="/app/leagues/tabbl"');
@@ -319,6 +319,94 @@ describe("league routes (server-rendered against a mocked API)", () => {
     });
     expect(empty.html).toContain("No leagues yet.");
     expect((await render("/leagues")).html).toContain("Loading leagues...");
+  });
+
+  // Browse leagues (owner 11-02): list rows with the server's browse block.
+  const browseLeague = (over: Partial<LeagueSummary> & { id: string; name: string }): LeagueSummary => ({
+    fullName: `${over.name} full`, slug: over.id, description: "", organisers: ["demo-organiser"], createdAt: "2026-10-01T00:00:00.000Z", seasonCount: 1,
+    browse: { status: "in-progress", registrationOpen: false, regions: [], seasons: ["Season 1"], teams: [] }, ...over,
+  });
+  const BROWSE: LeagueSummary[] = [
+    browseLeague({ id: "demo-harbour", name: "Demo Harbour", fullName: "Demo Harbour Blood Bowl League", playOnFork: false,
+      currentSeason: { ...s6sum, name: "Season 2", teamCount: 12 },
+      browse: { status: "in-progress", registrationOpen: false, location: "Port Example, WA", regions: [], test: true, seasons: ["Season 2", "Season 1"], teams: [{ name: "Grudge Rollers", coach: "Pat Example" }] } }),
+    browseLeague({ id: "demo-river", name: "Demo River Cup", playOnFork: true, rulesetPackage: "EuroBowl 2026",
+      currentSeason: { ...s6sum, id: "season-1", number: 1, name: "Season 1", teamCount: 5, startedAt: undefined, endedAt: undefined, stage: "registration" },
+      browse: { status: "registration", registrationOpen: true, regions: ["North bank"], seasons: ["Season 1"], teams: [{ name: "Mud Moles", coach: "Sam Sample" }] } }),
+    browseLeague({ id: "plain", name: "Plain League", currentSeason: { ...s1sum, stage: "completed" },
+      browse: { status: "finished", registrationOpen: false, regions: [], seasons: ["Season 1"], teams: [] } }),
+  ];
+  const bare = (html: string) => html.replace(/<!--[\s\S]*?-->/g, "");
+  const withList = (leagues: LeagueSummary[]) => async (inject: (k: symbol, v: unknown) => void) => {
+    const l = mods.league.createLeagueList({ api: mockFetcher({ "/api/leagues": { leagues } }) });
+    await l.load();
+    inject(mods.league.LEAGUE_LIST_KEY, l);
+  };
+
+  it("browse postcards: crest or initials, status, season + ruleset chips, teams, dates, region, played on, Demo chip, Registration open, Open and Statistics", async () => {
+    const html = bare((await render("/leagues", withList(BROWSE))).html);
+    expect(html.match(/class="lgb-card"/g)).toHaveLength(3);
+    expect(html).toContain("Find a league");
+    expect(html).toContain("3 leagues");
+    expect(html).toMatch(/class="sf-chip lgb-status" data-tone="soon"[^>]*>In progress</);
+    expect(html).toMatch(/class="sf-chip lgb-status" data-tone="ok"[^>]*>Registration open</);
+    expect(html).toMatch(/class="sf-chip lgb-status" data-tone="info"[^>]*>Finished</);
+    expect(html.match(/data-demo="true"[^>]*>Demo</g)).toHaveLength(1); // only the test league
+    expect(html).toContain("Demo Harbour Blood Bowl League");
+    expect(html).toContain('<span class="lgb-season-name">Season 2</span>');
+    expect(html).toContain("<dt>Teams</dt><dd>12</dd>");
+    expect(html).toContain("<dt>Dates</dt><dd>2026-05-29 to 2026-09-01</dd>");
+    expect(html).toContain("<dt>Region</dt><dd>Port Example, WA</dd>");
+    expect(html).toContain("<dt>Region</dt><dd>North bank</dd>");
+    expect(html).toContain("<dt>Played on</dt><dd>Tabletop</dd>");
+    expect(html).toContain("<dt>Played on</dt><dd>Super FUMBBL</dd>");
+    expect(html).toContain('class="lgb-package">EuroBowl 2026<');
+    expect(html.match(/data-action="register"/g)).toHaveLength(1);
+    expect(html).toContain('<a href="/app/leagues/demo-river" class="lgb-cta" data-action="register" aria-label="Registration open: join Demo River Cup">Registration open · Join</a>');
+    expect(html).toMatch(/class="lgb-crest-blank" aria-hidden="true">DR</); // no logo: initials
+    // the whole card opens the league through its title link; Open and Statistics stay
+    expect(html).toContain('<a href="/app/leagues/demo-harbour" class="lgb-open-link">Demo Harbour</a>');
+    expect(html).toContain('href="/app/leagues/demo-harbour/stats"');
+    expect(html).toContain('aria-label="Open: Demo Harbour"');
+    expect(html).toContain('aria-label="Statistics: Demo Harbour"');
+    expect(html).toMatch(/aria-pressed="true"[^>]*>Cards<\/button>/);
+    for (const f of ["status:in-progress", "status:registration", "status:finished", "status:off-season", "played:tabletop", "played:fork", "open"]) expect(html, f).toContain(`data-filter="${f}"`);
+  });
+
+  it("browse search (?q=): highlights in the name, a Matched line for any other field, and the no-match message", async () => {
+    const team = { html: bare((await render("/leagues?q=grudge", withList(BROWSE))).html) };
+    expect(team.html.match(/class="lgb-card"/g)).toHaveLength(1);
+    expect(team.html).toMatch(/Matched: team <q><mark>Grudge<\/mark>/);
+    expect(team.html).toContain("1 of 3 leagues");
+    const name = { html: bare((await render("/leagues?q=river", withList(BROWSE))).html) };
+    expect(name.html).toMatch(/Demo <mark>River<\/mark> Cup/);
+    expect(name.html).not.toContain("Matched:");
+    const coach = { html: bare((await render("/leagues?q=sam%20sample", withList(BROWSE))).html) };
+    expect(coach.html).toMatch(/Matched: coach <q><mark>Sam Sample<\/mark>/);
+    const none = await render("/leagues?q=zebra", withList(BROWSE));
+    expect(none.html).toContain("No leagues match &#39;zebra&#39;.");
+    expect(none.html).not.toContain('class="lgb-card"');
+  });
+
+  it("browse table (remembered per viewer): sortable column headers, a row per league, Demo chip and the Matched line", async () => {
+    const store = new Map<string, string>([["sf-league-browse-view", "table"]]);
+    const g = globalThis as { localStorage?: unknown };
+    g.localStorage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) };
+    try {
+      const html = bare((await render("/leagues?q=mud", withList(BROWSE))).html);
+      expect(html).toMatch(/aria-pressed="true"[^>]*>Table<\/button>/);
+      expect(html).not.toContain('class="lgb-card"');
+      for (const label of ["League", "Full name", "Status", "Current season", "Ruleset", "Teams", "Region", "Played on", "Dates"]) {
+        expect(html, label).toMatch(new RegExp(`<th scope="col" aria-sort="(none|ascending)"[^>]*><button type="button" class="lgb-sort">\\s*${label}`));
+      }
+      expect(html).toMatch(/aria-sort="ascending" data-col="name"/);
+      expect(html.match(/<tr data-league=/g)).toHaveLength(1);
+      expect(html).toContain("EuroBowl 2026 (BB2025)");
+      expect(html).toMatch(/Matched: team <q><mark>Mud<\/mark>/);
+      const all = await render("/leagues", withList(BROWSE));
+      expect(all.html.match(/<tr data-league=/g)).toHaveLength(3);
+      expect(all.html.match(/data-demo="true"/g)).toHaveLength(1);
+    } finally { delete g.localStorage; }
   });
 
   it("league page overview: header bar + logo front, season field oldest first with rules chips, tabs, latest results cards", async () => {
