@@ -34,6 +34,7 @@ import { fixturePlayed } from "./tourplay.js";
 import { leagueFixtureRef } from "./tabletopFixtures.js";
 import { isLeagueOrganiser, leagueOwner, type LeagueStore } from "./store.js";
 import type { FixtureForkState, FixtureForkStatus, ForkSide, LeagueFixture, LeagueRecord, SeasonRecord } from "./types.js";
+import { publicFixture } from "./fixturePublic.js";
 import { publishedLeagues } from "./lifecycle.js";
 import { fixtureRedraftBlock } from "./redraftWindow.js";
 
@@ -222,8 +223,7 @@ export function fixtureForkView(league: LeagueRecord, season: SeasonRecord, f: L
 
 /** The fork state a season read carries: status only (teams, ids and the log stay on the summary route). */
 export function publicForkState(f: LeagueFixture): LeagueFixture {
-  // resultEdit (who overrode a result) is organiser bookkeeping for the Weekly Digest, never in a read model.
-  const { fork, forkNotice: _n, resultEdit: _e, ...rest } = f;
+  const { fork, ...rest } = publicFixture(f) as LeagueFixture;
   return fork ? { ...rest, fork: { status: fork.status, teams: {}, log: [] } } : rest;
 }
 
@@ -744,7 +744,7 @@ export async function leagueForkRoutes(
     const at = locate(deps.store, leagueId, seasonId, fixtureId);
     if (isResult(at)) return at;
     const { league, season, fixture } = at;
-    const { fork: _f, forkNotice: _n, ...shown } = fixture;
+    const { fork: _f, ...shown } = publicFixture(fixture) as LeagueFixture;
     return res(200, {
       league: { id: league.id, name: league.name, playOnFork: league.playOnFork === true },
       season: { id: season.id, name: season.name, status: season.status, ruleset: season.ruleset },

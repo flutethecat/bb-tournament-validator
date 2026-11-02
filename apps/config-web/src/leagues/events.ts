@@ -31,6 +31,7 @@ import { fixturePlayed } from "./tourplay.js";
 import type {
   DiscordEventKey, FixtureSide, LeagueEventEntry, LeagueFixture, LeagueNewsPost, LeagueRecord, LeagueTeam, SeasonRecord,
 } from "./types.js";
+import { publicFixture } from "./fixturePublic.js";
 import { fixtureRedraftBlock } from "./redraftWindow.js";
 
 export const EVENTS_MAX_BYTES = 64 * 1024;
@@ -384,10 +385,7 @@ function deleteFixture(season: SeasonRecord, fixtureId: string, who: LeagueApiId
   return res(200, { ok: true, revision: season.revision });
 }
 
-const shown = (f: LeagueFixture): Omit<LeagueFixture, "forkNotice" | "resultEdit"> => {
-  const { forkNotice: _n, resultEdit: _e, ...rest } = f;
-  return rest;
-};
+const shown = publicFixture;
 
 /**
  * PATCH a fixture from the editor: { date?: "YYYY-MM-DD" | null, round?, result?: { home, away, homeCas?, awayCas? } | null }.
@@ -440,6 +438,8 @@ export async function editFixture(
     const placeholder = fixture.deadlineOutcome?.outcome === "both-lose";
     // Only a save that changes the scores or casualties counts: an unchanged save keeps (or never makes) the mark.
     const changed = !fixturePlayed(fixture) || placeholder || fixture.home.score !== result.home || fixture.away.score !== result.away || fixture.home.cas !== result.homeCas || fixture.away.cas !== result.awayCas;
+    // A real score typed over a concession replaces it: clear the conceded flags so standings and digest read the same outcome.
+    if (changed) fixture.home.conceded = fixture.away.conceded = false;
     if (changed) fixture.resultEdit = { ...(who.coach ? { by: who.coach } : {}), at: (deps.now?.() ?? new Date()).toISOString() };
     // A both-lose deadline placeholder is a double concession: the real result entered over it is not.
     if (fixture.deadlineOutcome?.outcome === "both-lose") fixture.home.conceded = fixture.away.conceded = false;

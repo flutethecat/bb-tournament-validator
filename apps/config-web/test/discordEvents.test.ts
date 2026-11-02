@@ -542,6 +542,46 @@ describe("Weekly Digest", () => {
     expect(leagues.season("lg", "season-1")!.fixtures.find((f) => f.id === "a")!.resultEdit).toBeUndefined();
   });
 
+  it("a score typed over a concession replaces it: standings and digest agree, and the marker never reaches a fixture read", async () => {
+    const conceded = fx("c", { home: { ...fx("x").home, score: 0, cas: null, conceded: true }, away: { ...fx("x").away, score: 0, cas: null }, finishedAt: at(-300) });
+    leagues.putSeason(season("season-1", [conceded, fx("d")]));
+    const lg = leagues.league("lg")!;
+    const { deriveStandings } = await import("../src/leagues/standings");
+    const { fixtureOutcome } = await import("../src/leagues/identity");
+    const { adminResult } = await import("../src/discord/weekly");
+    // before: the concession is administrative, and standings give the away side the win
+    expect(adminResult(leagues.season("lg", "season-1")!.fixtures[0]!)).toMatchObject({ kind: "win", winner: "away" });
+    const deps = { store: leagues, now: () => NOW } as never;
+    await editFixture(lg, "season-1", "c", { coach: "Org", admin: false } as never, { result: { home: 7, away: 0, homeCas: null, awayCas: null } }, deps);
+    const s = leagues.season("lg", "season-1")!;
+    const f = s.fixtures[0]!;
+    expect(f.home.conceded || f.away.conceded).toBe(false);
+    expect(fixtureOutcome(f)).toMatchObject({ home: "win", away: "loss" });
+    expect(adminResult(f)).toBeUndefined();
+    const row = (team: string) => deriveStandings(s).flatMap((p) => p.standings).find((r) => r.team === team)!;
+    expect(row("Orcs").points).toBeGreaterThan(row("Elves").points);
+    const c = weeklyContent(s, NOW.getTime() - 7 * 24 * 3_600_000, NOW.getTime(), "UTC", [])!;
+    expect(c.results).toEqual(["Orcs 7 - 0 Elves (edited)"]);
+    expect(c.highlights.find((h) => h.name === "Biggest win")!.value).toBe("Orcs 7 - 0 Elves (edited)");
+  });
+
+  it("no public fixture read carries resultEdit: the single fixture route, the editor response, the season read", async () => {
+    const edited = fx("e", { home: { ...fx("x").home, score: 2, cas: null }, away: { ...fx("x").away, score: 1, cas: null }, finishedAt: at(-10), resultEdit: { by: "Org", at: at(-5) }, fork: { status: "idle", teams: {}, log: [] } as never });
+    leagues.putSeason(season("season-1", [edited]));
+    const lg = leagues.league("lg")!;
+    const { leagueApi, seasonForViewer } = await import("../src/leagues/api");
+    const deps = { store: leagues, now: () => NOW, readBody: async () => Buffer.from("") } as never;
+    for (const who of [undefined, { coach: "Bob", admin: false }, { coach: "Org", admin: true }] as const) {
+      const one = await leagueApi("GET", "/api/leagues/lg/seasons/season-1/fixtures/e", new URLSearchParams(), who as never, deps);
+      expect(one?.status).toBe(200);
+      expect(JSON.stringify(one!.body)).not.toContain("resultEdit");
+      expect(JSON.stringify(one!.body)).not.toContain("\"Org\"");
+      expect(JSON.stringify(seasonForViewer(lg, leagues.season("lg", "season-1")!, who as never))).not.toContain("resultEdit");
+    }
+    const patched = await editFixture(lg, "season-1", "e", { coach: "Org", admin: true } as never, { result: { home: 5, away: 1, homeCas: null, awayCas: null } }, deps);
+    expect(JSON.stringify(patched.body)).not.toContain("resultEdit");
+  });
+
   it("the observer posts the digest at the slot once (the run survives a restart via the ledger), and never for a draft", async () => {
     leagues.setSecrets("lg", { discordWebhookUrl: HOOK });
     leagues.updateLeague("lg", (l) => { l.timeZone = "UTC"; l.weeklyDigest = { enabled: true, trigger: "schedule", day: 0, time: "10:00", everyWeeks: 1 }; });

@@ -107,8 +107,8 @@ export const recordedResult = (f: LeagueFixture): boolean => Boolean(f.fork?.res
 /**
  * What marks a result as administrative: an outcome an admin or organiser DECIDED instead of a score being recorded:
  *   - deadlineOutcome "both-lose": both sides lose (the deadline auto-forfeit, auto: true, or an organiser's decision);
- *   - a conceded side on a fixture with no recorded game (a forfeit or concession), unless an organiser has since typed a
- *     score over it (resultEdit): then the typed score is the result.
+ *   - a conceded side on a fixture with no recorded game (a forfeit or concession; an organiser typing a score over one
+ *     clears the concession, editFixture, so standings and digest agree).
  * A score typed or changed by an organiser is not administrative; it is "edited" (editedResult).
  */
 export type AdminResult = { kind: "win"; winner: "home" | "away" } | { kind: "loss-both" } | { kind: "draw" };
@@ -116,7 +116,7 @@ export function adminResult(f: LeagueFixture): AdminResult | undefined {
   if (f.deadlineOutcome?.outcome === "both-lose") return { kind: "loss-both" };
   const o = fixtureOutcome(f);
   if (!o) return undefined;
-  if (recordedResult(f) || f.resultEdit || !(f.home.conceded || f.away.conceded)) return undefined;
+  if (recordedResult(f) || !(f.home.conceded || f.away.conceded)) return undefined;
   if (o.home === "win") return { kind: "win", winner: "home" };
   if (o.away === "win") return { kind: "win", winner: "away" };
   return o.home === "draw" ? { kind: "draw" } : { kind: "loss-both" };
