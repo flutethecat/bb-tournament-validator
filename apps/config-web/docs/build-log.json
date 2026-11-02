@@ -1,11 +1,28 @@
 [
   {
     "date": "2026-11-02",
+    "title": "League pages: new fonts, a two-row header, and tidier overview, fixtures, standings and honours",
+    "body": "The site now uses one clean sans-serif everywhere, with SNES Italic for the panel headings, and Nuffle is retired. League headers show every tab on a second row. The league overview fits on one screen with compact result cards in their own scrolling box; fixture phases collapse (finished ones start collapsed); standings have a phase picker, bigger text, and coach and team names that open a coach summary or the team's roster; and Honours has a Player / Coach / Team switch with a pin icon for organisers.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-02",
     "title": "Discord for every league, season and tournament",
     "body": "Each season and tournament can now post to its own Discord channel (a blank one uses the league's), with a toggle for every event: registrations, pairings, results, standings, champions, awards and news. Games recorded on the tabletop recorder or played on Super FUMBBL post deaths and sent-offs live and finish with an end-of-game digest that includes each coach's comment from the end of the match. Leagues also get a Weekly Digest with standings, results and highlights. Rude words are always shown as *** on Discord, and on the site when you keep Filter profanity on in Account.",
     "links": [
-      { "label": "Leagues", "href": "/app/leagues" },
-      { "label": "Account", "href": "/app/account" }
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      },
+      {
+        "label": "Account",
+        "href": "/app/account"
+      }
     ]
   },
   {
