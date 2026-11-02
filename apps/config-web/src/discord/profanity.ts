@@ -67,7 +67,8 @@ const isWordChar = (c: string): boolean => /[\p{L}\p{M}\p{N}@$+]/u.test(c) || (c
 const isFormat = (c: string): boolean => /\p{Cf}/u.test(c);
 const isJoiner = (c: string): boolean => /[.\-_*'`~’·•]/.test(c);
 
-interface Span { start: number; end: number; word: string }
+/** A word: its original span, its folded letters, and (when separators joined it) the separator-split pieces. */
+interface Span { start: number; end: number; word: string; parts?: Span[] }
 
 /** Words in the text: [start, end) code-unit spans of the original and their folded letters. */
 function words(text: string): Span[] {
@@ -94,7 +95,19 @@ function words(text: string): Span[] {
     let end = last;
     while (end > i && chars[end] === "!") end -= 1;
     if (end < last) word = [...chars.slice(i, end + 1)].map((c) => (isWordChar(c) ? foldChar(c) : "")).join("");
-    spans.push({ start: offs[i]!, end: offs[end + 1]!, word });
+    // the pieces between separators ("word-game", "word.Next"): a listed word is matched joined OR as a piece
+    const parts: Span[] = [];
+    let ps = i;
+    let pw = "";
+    for (let k = i; k <= end + 1; k++) {
+      const c = k <= end ? chars[k]! : "";
+      if (k > end || isJoiner(c)) {
+        if (pw) parts.push({ start: offs[ps]!, end: offs[k]!, word: pw });
+        ps = k + 1;
+        pw = "";
+      } else if (isWordChar(c)) pw += foldChar(c);
+    }
+    spans.push({ start: offs[i]!, end: offs[end + 1]!, word, ...(parts.length > 1 ? { parts } : {}) });
     i = last + 1;
   }
   // "f u c k": three or more single-letter words split by single spaces read as one word
@@ -102,14 +115,14 @@ function words(text: string): Span[] {
   for (let k = 0; k < spans.length; k++) {
     let m = k;
     while (m + 1 < spans.length && spans[m]!.word.length === 1 && spans[m + 1]!.word.length === 1 && /^[\s]$/.test(text.slice(spans[m]!.end, spans[m + 1]!.start))) m += 1;
-    if (m - k >= 2) { out.push({ start: spans[k]!.start, end: spans[m]!.end, word: spans.slice(k, m + 1).map((s) => s.word).join("") }); k = m; } else out.push(spans[k]!);
+    if (m - k >= 2) { out.push({ start: spans[k]!.start, end: spans[m]!.end, word: spans.slice(k, m + 1).map((s) => s.word).join(""), parts: spans.slice(k, m + 1) }); k = m; } else out.push(spans[k]!);
   }
   return out;
 }
 
 /** True when the text contains a listed word. */
 export function containsProfanity(text: string): boolean {
-  return words(String(text)).some((s) => wordBlocked(s.word));
+  return words(String(text)).some((s) => wordBlocked(s.word) || (s.parts ?? []).some((p) => wordBlocked(p.word)));
 }
 
 /** The text with every listed word's original span replaced by the mask (everything else exactly as written). */
@@ -118,9 +131,12 @@ export function starProfanity(text: string, mask = PROFANITY_MASK): string {
   let out = "";
   let at = 0;
   for (const w of words(s)) {
-    if (!wordBlocked(w.word)) continue;
-    out += s.slice(at, w.start) + mask;
-    at = w.end;
+    // the whole joined word when it matches, else each matching piece (the separators stay)
+    const hits = wordBlocked(w.word) ? [w] : (w.parts ?? []).filter((p) => wordBlocked(p.word));
+    for (const h of hits) {
+      out += s.slice(at, h.start) + mask;
+      at = h.end;
+    }
   }
   return out + s.slice(at);
 }
