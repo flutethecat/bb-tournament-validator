@@ -12,7 +12,7 @@ import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
 import { blankWizardForm, createTournamentWizard, DRAFT_KEY, migrateStep, stepProblem, WIZARD_STEPS, wizardBody } from "../spa/src/tournaments/wizard";
 import {
-  BB2020_CARD, createLeagueWizard, emptyForm, RULES_STASH_KEY, selectedCardKey, stepPayload, summaryGroups, WIZARD_STEPS as LEAGUE_STEPS, type WizardDraft,
+  BB2020_CARD, createLeagueWizard, emptyForm, RULES_STASH_KEY, rulesErrors, selectedCardKey, stepPayload, summaryGroups, WIZARD_STEPS as LEAGUE_STEPS, type WizardDraft,
 } from "../spa/src/leagues/wizard";
 import { DEFAULT_RULESET_PACKAGE, FEATURED_RULESETS, filterCards, rulesetCards, rulesetLabel } from "../spa/src/shared/competition";
 
@@ -182,15 +182,27 @@ describe("league wizard v2", () => {
       const w = createLeagueWizard({ api: mockFetcher({ "/api/leagues/grill/draft": { draft: draft() } }) });
       await w.start("grill");
       w.state.step = "rules";
-      w.state.form.rules.maxRegistrations = "12";
+      // the number inputs (v-model.number) hand back numbers, not strings
+      (w.state.form.rules as unknown as Record<string, unknown>).maxRegistrations = 12;
+      (w.state.form.rules as unknown as Record<string, unknown>).maxPerRace = 2;
       w.state.form.rules.houseRules = { ...w.state.form.rules.houseRules, hireFire: "notEnforced", maxStatIncreasesPlayer: 2 };
       w.stashRules();
       expect([...store.keys()]).toEqual([`${RULES_STASH_KEY}:grill`]);
       const back = createLeagueWizard({ api: mockFetcher({ "/api/leagues/grill/draft": { draft: draft() } }) });
       await back.start("grill", { packageName: "Fresh Pack" });
       expect(back.state.step).toBe("rules");
-      expect(back.state.form.rules).toMatchObject({ maxRegistrations: "12", rulesetPackage: "Fresh Pack", houseRules: { hireFire: "notEnforced", maxStatIncreasesPlayer: 2, mvp: "random" } });
+      expect(back.state.form.rules).toMatchObject({ maxRegistrations: "12", maxPerRace: "2", rulesetPackage: "Fresh Pack", houseRules: { hireFire: "notEnforced", maxStatIncreasesPlayer: 2, mvp: "random" } });
       expect(store.size).toBe(0);
+      // "Cost change" with the cost cleared: that field comes back without a cost (the step flags it); nothing else is lost
+      const half = createLeagueWizard({ api: mockFetcher({ "/api/leagues/grill/draft": { draft: draft() } }) });
+      await half.start("grill");
+      half.state.form.rules.houseRules = { ...half.state.form.rules.houseRules, prayers: { mode: "cost", costK: "" as unknown as number }, maxStatIncreasesTeam: 5, mvp: "pick3" };
+      half.stashRules();
+      const again = createLeagueWizard({ api: mockFetcher({ "/api/leagues/grill/draft": { draft: draft() } }) });
+      await again.start("grill");
+      expect(again.state.form.rules.houseRules).toMatchObject({ prayers: { mode: "cost" }, maxStatIncreasesTeam: 5, mvp: "pick3", brawlingBrutes: "on", hireFire: "enforced" });
+      expect(again.state.form.rules.houseRules.prayers.costK).toBeUndefined();
+      expect(rulesErrors(again.state.form).houseRules).toContain("Enter the Prayers to Nuffle cost");
       // a broken stash is dropped and the saved draft stands
       store.set(`${RULES_STASH_KEY}:grill`, "{not json");
       const broken = createLeagueWizard({ api: mockFetcher({ "/api/leagues/grill/draft": { draft: draft() } }) });

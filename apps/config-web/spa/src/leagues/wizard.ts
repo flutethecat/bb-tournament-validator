@@ -363,13 +363,41 @@ function takeStash(draftId: string): WizardForm["rules"] | undefined {
     return {
       ruleset: v.ruleset === "BB2020" ? "BB2020" : "BB2025",
       official: v.official !== false, nafApproved: v.nafApproved !== false, unofficial: v.unofficial === true,
-      maxRegistrations: typeof v.maxRegistrations === "string" ? v.maxRegistrations : f.maxRegistrations,
-      maxPerRace: typeof v.maxPerRace === "string" ? v.maxPerRace : f.maxPerRace,
+      maxRegistrations: limitText(v.maxRegistrations, f.maxRegistrations),
+      maxPerRace: limitText(v.maxPerRace, f.maxPerRace),
       rosters: Array.isArray(v.rosters) ? v.rosters as TeamBuildingRosterRule[] : f.rosters,
       rulesetPackage: typeof v.rulesetPackage === "string" ? v.rulesetPackage : "",
-      houseRules: (() => { try { return parseHouseRules(v.houseRules, "league"); } catch { return f.houseRules; } })(),
+      houseRules: restoreHouseRules(v.houseRules),
     };
   } catch { return undefined; }
+}
+
+/** A stashed limit: the number inputs give numbers (or "" when blank); numeric strings are kept too. */
+function limitText(v: unknown, fallback: string): string {
+  if (typeof v === "number" && Number.isFinite(v)) return String(v);
+  if (typeof v === "string" && (v.trim() === "" || Number.isFinite(Number(v.trim())))) return v.trim();
+  return fallback;
+}
+
+/**
+ * Stashed house rules restored field by field: each valid field is kept, a bad one falls back to the ruleset's, and the
+ * rest are never wiped. "Cost change" with the cost cleared comes back as "Cost change" with no cost, so the step's own
+ * check (rulesErrors) flags it instead of the edit being lost.
+ */
+function restoreHouseRules(raw: unknown): HouseRules {
+  const out = defaultHouseRules("league");
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
+  const r = raw as Record<string, unknown>;
+  for (const key of ["prayers", "brawlingBrutes", "maxStatIncreasesTeam", "maxStatIncreasesPlayer", "mvp", "hireFire"] as const) {
+    if (r[key] === undefined) continue;
+    try {
+      Object.assign(out, { [key]: parseHouseRules({ [key]: r[key] }, "league")[key] });
+    } catch {
+      const p = r.prayers as { mode?: unknown } | undefined;
+      if (key === "prayers" && p && p.mode === "cost") out.prayers = { mode: "cost" };
+    }
+  }
+  return out;
 }
 
 /** The league's extra card: the BB2020 base ruleset (leagues only). */
