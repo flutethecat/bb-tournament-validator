@@ -162,10 +162,11 @@ export interface InducementTableView {
 
 /** GET .../inducements/usage (inducementUsage.ts): one inducement's use across the counted games. */
 export interface InducementUsageRow {
-  /** Standard dataset id, or `custom:<folded name>` (the league's own types add up by name across seasons). */
+  /** Standard dataset id, `star:<folded name>` (a star hire) or `custom:<folded name>` (the league's own types add up by
+   *  name across seasons). */
   key: string;
   name: string;
-  source: "standard" | "custom";
+  source: "standard" | "custom" | "star";
   category: InducementCategory;
   iconSrc: string;
   /** Total quantity taken (both teams, every counted game). */

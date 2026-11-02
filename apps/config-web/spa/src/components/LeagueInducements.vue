@@ -68,6 +68,7 @@ function openPrices(): void {
                   <img v-if="r.iconSrc" class="ind-icon" :src="r.iconSrc" alt="" width="24" height="24" />
                   <span>{{ r.name }}</span>
                   <span v-if="r.source === 'custom'" class="sf-chip" data-tone="info">League</span>
+                  <span v-else-if="r.source === 'star'" class="sf-chip" data-tone="muted">Star</span>
                 </span>
                 <span class="ind-use-bar" aria-hidden="true"><span :style="{ width: `${Math.round((r.taken / top) * 100)}%` }" /></span>
               </th>

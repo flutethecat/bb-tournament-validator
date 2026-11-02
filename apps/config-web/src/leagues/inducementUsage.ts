@@ -7,24 +7,33 @@
  *       exactly as an unknown one to everyone but its organisers (api.ts hides it before this route runs).
  *
  * What counts: every PLAYED fixture of the season (all seasons with scope=league). A played fixture has inducement data
- * only when its result came from the tabletop recorder: the published match whose fixture link (opId) wrote the
- * fixture's result. Its picks are each team's inducements in force (pregame.ts latestInducement: the latest record no
- * undo retracted, so an organiser's replacement counts once), or the fixture lobby's resolved picks when the match has
- * no record for that team. Results from Super FUMBBL games (forkResult.ts: only the gold spent, never what was bought),
+ * only when its CURRENT result is the one the tabletop recorder wrote: the published match whose fixture link (opId)
+ * matches the fixture's, with the fixture still carrying that publish's time (finishedAt = tabletop.reportedAt; a clear
+ * drops finishedAt and a hand entry never sets it) and that match's score and casualties (a hand edit over it changes
+ * them). Its picks are each team's inducements in force (pregame.ts latestInducement: the latest record no undo
+ * retracted, so an organiser's replacement counts once), or the fixture lobby's resolved picks when the match has no
+ * record for that team. Results from Super FUMBBL games (forkResult.ts: only the gold spent, never what was bought),
  * TourPlay imports (no per-game inducements) and an organiser's own score entry carry no inducement data and are counted
  * as games without data; nothing is guessed (law 15).
  *
- * Standard inducements are keyed by their dataset id; the league's own (custom) types by name (case and spacing folded),
- * so the same custom type in several seasons adds up. GET only reads.
+ * Keys: a standard inducement by its dataset id; a star hire (`star:<name>`, the fixture lobby) by `star:<folded name>`;
+ * the league's own (custom) types by `custom:<folded name>`, so the same type in several seasons adds up. A pick's name
+ * is the one recorded when it was bought (a later rename never rewrites history); only a pick without one takes the
+ * season's current name. GET only reads.
+ *
+ * Cost: a published match is frozen under its opId (an undo retracts the fixture's opId; a new publish makes a new one),
+ * so each opId's picks and recorded result are cached per source. The recorder's match list is scanned only when a
+ * played fixture carries an opId not yet seen (a new publish), never on every request.
  */
 import { bb2025 } from "@bb/validator/dataset";
 import type { TabletopEvent } from "../tabletop/events.js";
+import type { PostMatchSummary } from "../tabletop/postMatch.js";
 import { latestInducement } from "../tabletop/pregame.js";
 import type { MatchRecord } from "../tabletop/store.js";
 import { INDUCEMENT_ICONS, STANDARD_INDUCEMENT_CATEGORY, STANDARD_INDUCEMENT_ICON, type InducementUsageRow, type InducementUsageView } from "./inducementRules.js";
 import { leagueFixtureRef } from "./tabletopFixtures.js";
 import { fixturePlayed } from "./tourplay.js";
-import type { SeasonRecord } from "./types.js";
+import type { LeagueFixture, SeasonRecord } from "./types.js";
 
 export type { InducementUsageRow, InducementUsageView };
 
@@ -37,6 +46,8 @@ export interface InducementUsageSource {
 /** One pick as recorded (inducement events and lobby picks carry the name priced at the time). */
 export interface RecordedPick { id: string; name?: string; qty: number }
 
+/** The fixture lobby's star hire id prefix (fixtureLobby/core.ts STAR_PREFIX). */
+const STAR_PREFIX = "star:";
 const fold = (s: string): string => s.normalize("NFC").trim().replace(/\s+/g, " ").toLowerCase();
 const isStandard = (id: string): boolean => Object.prototype.hasOwnProperty.call(bb2025.inducements, id);
 
@@ -47,7 +58,7 @@ function picksOf(raw: unknown): RecordedPick[] {
     if (!p || typeof p !== "object") continue;
     const { id, name, qty } = p as Record<string, unknown>;
     if (typeof id !== "string" || !id || typeof qty !== "number" || !Number.isInteger(qty) || qty < 1) continue;
-    out.push({ id, qty, ...(typeof name === "string" && name ? { name } : {}) });
+    out.push({ id, qty, ...(typeof name === "string" && name.trim() ? { name } : {}) });
   }
   return out;
 }
@@ -69,6 +80,8 @@ export function effectiveMatchPicks(match: Pick<MatchRecord, "inducements">, eve
 /** A counted game: its season (names custom ids) and its teams' picks; undefined = a played game without data. */
 export interface UsageGame { season: Pick<SeasonRecord, "rules">; sides?: RecordedPick[][] }
 
+const STAR_ICON = INDUCEMENT_ICONS[STANDARD_INDUCEMENT_ICON.star_players ?? "star"]?.src ?? "";
+
 /** THE aggregation: per inducement, total quantity and games; plus the counted / no-data game totals. */
 export function aggregateInducementUsage(games: readonly UsageGame[]): Pick<InducementUsageView, "gamesCounted" | "gamesWithoutData" | "rows"> {
   const rows = new Map<string, InducementUsageRow>();
@@ -85,9 +98,12 @@ export function aggregateInducementUsage(games: readonly UsageGame[]): Pick<Indu
         if (isStandard(p.id)) {
           const icon = STANDARD_INDUCEMENT_ICON[p.id] ?? "star";
           row = { key: p.id, name: bb2025.inducements[p.id]!.name, source: "standard", category: STANDARD_INDUCEMENT_CATEGORY[p.id] ?? "special", iconSrc: INDUCEMENT_ICONS[icon]?.src ?? "" };
+        } else if (p.id.startsWith(STAR_PREFIX)) {
+          const name = p.name?.trim() || p.id.slice(STAR_PREFIX.length).trim() || "Star player";
+          row = { key: `star:${fold(name)}`, name, source: "star", category: "star", iconSrc: STAR_ICON };
         } else {
           const c = customs.get(p.id);
-          const name = c?.name ?? p.name ?? p.id;
+          const name = p.name?.trim() || c?.name || p.id;
           row = { key: `custom:${fold(name)}`, name, source: "custom", category: c?.category ?? "special", iconSrc: (c && INDUCEMENT_ICONS[c.icon]?.src) || "" };
         }
         const hit = rows.get(row.key) ?? { ...row, taken: 0, games: 0, share: 0 };
@@ -102,34 +118,55 @@ export function aggregateInducementUsage(games: readonly UsageGame[]): Pick<Indu
   return { gamesCounted: counted, gamesWithoutData: without, rows: list };
 }
 
-// Published matches are frozen (inducement edits need a recording or submitted match), so a match's picks are kept per
-// source until its state or update time changes.
-const pickCache = new WeakMap<InducementUsageSource, Map<string, { stamp: string; sides: RecordedPick[][] | undefined }>>();
+// ---- the recorder side ---------------------------------------------------------------------------------------------
+
+/** What a published match wrote into its fixture (tabletop/api.ts fixtureForPublish), in fixture home/away order. */
+interface RecordedResult { home: number; away: number; homeCas: number; awayCas: number }
+interface OpEntry { ref: string; result?: RecordedResult; sides?: RecordedPick[][] }
+
+function recordedResult(m: MatchRecord): RecordedResult | undefined {
+  const p = m.preview;
+  if (!p?.home || !p.away) return undefined;
+  const cas = (s: PostMatchSummary): number => (s.players ?? []).reduce((n, x) => n + (x.casualtiesCaused ?? 0), 0);
+  const [h, a] = m.fixtureLink?.swapped ? [p.away, p.home] : [p.home, p.away];
+  return { home: h.score.for, away: a.score.for, homeCas: cas(h), awayCas: cas(a) };
+}
+
+/** Is the fixture's current result still the one this publish wrote? */
+function resultFromRecorder(f: LeagueFixture, e: OpEntry): boolean {
+  if (!f.tabletop?.reportedAt || f.finishedAt !== f.tabletop.reportedAt) return false;
+  if (!e.result) return true; // an older match without its preview: the publish time link alone
+  return f.home.score === e.result.home && f.away.score === e.result.away && (f.home.cas ?? 0) === e.result.homeCas && (f.away.cas ?? 0) === e.result.awayCas;
+}
+
+// Per source: opId -> the frozen publish (picks + recorded result). An opId missing from a scan is remembered for a
+// short while only (its match may be mid-publish), so a stray fixture never forces a scan on every request.
+const opCache = new WeakMap<InducementUsageSource, { ops: Map<string, OpEntry>; missing: Map<string, number> }>();
+const MISSING_TTL_MS = 60_000;
 
 /** The counted games of these seasons: every played fixture, with the recorder's picks when its result came from there. */
-export async function usageGames(seasons: readonly SeasonRecord[], source: InducementUsageSource | undefined): Promise<UsageGame[]> {
+export async function usageGames(seasons: readonly SeasonRecord[], source: InducementUsageSource | undefined, now = Date.now()): Promise<UsageGame[]> {
   const played = seasons.flatMap((season) => season.fixtures.filter(fixturePlayed).map((f) => ({ season, f })));
-  const byRef = new Map<string, MatchRecord[]>();
-  if (source && played.some(({ f }) => f.tabletop?.opId)) {
-    for (const m of await source.listMatches()) {
-      if (m.state !== "published" || !m.fixtureRef || !m.fixtureLink?.opId) continue;
-      byRef.set(m.fixtureRef, [...(byRef.get(m.fixtureRef) ?? []), m]);
+  let cache = source ? opCache.get(source) : undefined;
+  if (source && !cache) { cache = { ops: new Map(), missing: new Map() }; opCache.set(source, cache); }
+  if (source && cache) {
+    const wanted = played.map(({ f }) => f.tabletop?.opId).filter((op): op is string => Boolean(op) && !cache!.ops.has(op!) && !((cache!.missing.get(op!) ?? 0) > now));
+    if (wanted.length) {
+      const want = new Set(wanted);
+      const found = (await source.listMatches()).filter((m) => m.state === "published" && m.fixtureRef && m.fixtureLink?.opId && want.has(m.fixtureLink.opId));
+      for (const m of found) {
+        const sides = effectiveMatchPicks(m, await source.readEvents(m.id));
+        const result = recordedResult(m);
+        cache.ops.set(m.fixtureLink!.opId, { ref: m.fixtureRef!, ...(result ? { result } : {}), ...(sides ? { sides } : {}) });
+        want.delete(m.fixtureLink!.opId);
+      }
+      for (const op of want) cache.missing.set(op, now + MISSING_TTL_MS);
     }
   }
-  let cache = source ? pickCache.get(source) : undefined;
-  if (source && !cache) { cache = new Map(); pickCache.set(source, cache); }
-  const out: UsageGame[] = [];
-  for (const { season, f } of played) {
-    const opId = f.tabletop?.opId;
-    const match = opId ? byRef.get(leagueFixtureRef(season.leagueId, season.id, f.id))?.find((m) => m.fixtureLink?.opId === opId) : undefined;
-    if (!match || !source || !cache) { out.push({ season }); continue; }
-    const stamp = `${match.state}|${match.updatedAt}|${match.publishedAt ?? ""}`;
-    let hit = cache.get(match.id);
-    if (!hit || hit.stamp !== stamp) {
-      hit = { stamp, sides: effectiveMatchPicks(match, await source.readEvents(match.id)) };
-      cache.set(match.id, hit);
-    }
-    out.push({ season, ...(hit.sides ? { sides: hit.sides } : {}) });
-  }
-  return out;
+  return played.map(({ season, f }): UsageGame => {
+    const op = f.tabletop?.opId;
+    const e = op ? cache?.ops.get(op) : undefined;
+    if (!e || e.ref !== leagueFixtureRef(season.leagueId, season.id, f.id) || !resultFromRecorder(f, e) || !e.sides) return { season };
+    return { season, sides: e.sides };
+  });
 }

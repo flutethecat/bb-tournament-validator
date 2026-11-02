@@ -27,8 +27,13 @@ const fixture = (id: string, played: boolean, opId?: string): LeagueFixture => (
   id, category: "Season", phase: "Regular", phaseId: "season-regular", group: "", round: 1, table: 1, suspended: false,
   home: { team: "Orcs", coach: "Bob", race: "Orc", score: played ? 2 : null, cas: played ? 1 : null, conceded: false },
   away: { team: "Elves", coach: "Dee", race: "Wood Elf", score: played ? 1 : null, cas: played ? 0 : null, conceded: false },
-  ...(opId ? { tabletop: { revision: 1, opId, reportedAt: AT } } : {}),
+  ...(opId ? { finishedAt: AT, tabletop: { revision: 1, opId, reportedAt: AT } } : {}),
 });
+/** A published match's preview (what fixtureForPublish wrote into the fixture): fixture() records 2-1, casualties 1-0. */
+const preview = (home = 2, away = 1, homeCas = 1, awayCas = 0) => {
+  const side = (forGoals: number, against: number, cas: number) => ({ score: { for: forGoals, against }, players: [{ casualtiesCaused: cas }] });
+  return { home: side(home, away, homeCas), away: side(away, home, awayCas) } as unknown as MatchRecord["preview"];
+};
 const match = (id: string, ref: string, opId: string, over: Partial<MatchRecord> = {}): MatchRecord => ({
   id, state: "published", fixtureRef: ref, home: { coach: "Bob", teamSaveId: "s1", teamName: "Orcs" }, away: { coach: "Dee", teamSaveId: "s2", teamName: "Elves" },
   postMatch: "full" as MatchRecord["postMatch"], createdBy: "Jay", createdAt: AT, updatedAt: AT, confirmations: {}, baseRevision: { home: 1, away: 1 },
@@ -81,6 +86,31 @@ describe("aggregation (pure)", () => {
     expect(out.rows.map((r) => [r.key, r.taken, r.games])).toEqual([["custom:lucky keg", 2, 2], ["custom:old brew", 1, 1]]);
     expect(aggregateInducementUsage([])).toEqual({ gamesCounted: 0, gamesWithoutData: 0, rows: [] });
   });
+
+  it("[review] a renamed custom type keeps the name recorded on its picks; only a pick without a name takes the current one", () => {
+    const renamed = season(2, { rules: { inducements: { standard: {}, custom: [{ ...KEG, name: "Golden Keg" }], revision: 2 } } });
+    const out = aggregateInducementUsage([
+      { season: s, sides: [[{ id: KEG.id, qty: 1, name: "Lucky Keg" }]] }, // season 1, bought as Lucky Keg
+      { season: renamed, sides: [[{ id: KEG.id, qty: 2, name: "Lucky Keg" }]] }, // season 2, bought before the rename
+      { season: renamed, sides: [[{ id: KEG.id, qty: 1, name: "Golden Keg" }]] }, // season 2, after the rename
+      { season: renamed, sides: [[{ id: KEG.id, qty: 1 }]] }, // no recorded name: the current one
+    ]);
+    expect(out.rows.map((r) => [r.key, r.name, r.taken, r.games])).toEqual([["custom:lucky keg", "Lucky Keg", 3, 2], ["custom:golden keg", "Golden Keg", 2, 2]]);
+  });
+
+  it("[review] star hires (star:<name>) are their own rows, never a League custom type, even when a custom type shares the name", () => {
+    const sameName = season(4, { rules: { inducements: { standard: {}, custom: [{ ...KEG, id: "c-0000f00d", name: "Morg" }], revision: 1 } } });
+    const out = aggregateInducementUsage([
+      { season: sameName, sides: [[{ id: "star:Morg", qty: 1, name: "Morg" }], [{ id: "star:Morg", qty: 1 }]] },
+      { season: sameName, sides: [[{ id: "c-0000f00d", qty: 1, name: "Morg" }], [{ id: "star:Griff Oberwald", qty: 1, name: "Griff Oberwald" }]] },
+    ]);
+    expect(out.rows.map((r) => [r.key, r.source, r.category, r.taken, r.games])).toEqual([
+      ["star:morg", "star", "star", 2, 1],
+      ["star:griff oberwald", "star", "star", 1, 1],
+      ["custom:morg", "custom", "special", 1, 1],
+    ]);
+    expect(out.rows[0]!.name).toBe("Morg");
+  });
 });
 
 describe("GET .../seasons/:seasonId/inducements/usage", () => {
@@ -89,7 +119,9 @@ describe("GET .../seasons/:seasonId/inducements/usage", () => {
   let matches: MatchRecord[];
   let events: Record<string, TabletopEvent[]>;
   let reads: number;
-  const source: InducementUsageSource = { listMatches: async () => matches, readEvents: async (id) => { reads += 1; return events[id] ?? []; } };
+  let scans: number;
+  // a fresh source per test: the opId cache is per source
+  let source: InducementUsageSource;
   const deps = (): LeagueApiDeps => ({ store, now: () => new Date(AT), tabletop: source });
   const call = async (method: string, path: string, auth?: { coach: string; admin?: boolean }, query = ""): Promise<LeagueApiResult> => {
     const r = await leagueApi(method, path, new URLSearchParams(query), auth ? { coach: auth.coach, admin: auth.admin ?? false } : undefined, deps());
@@ -102,6 +134,8 @@ describe("GET .../seasons/:seasonId/inducements/usage", () => {
     dir = mkdtempSync(join(tmpdir(), "league-ind-usage-"));
     store = new LeagueStore(dir);
     reads = 0;
+    scans = 0;
+    source = { listMatches: async () => { scans += 1; return matches; }, readEvents: async (id) => { reads += 1; return events[id] ?? []; } };
     store.upsertLeague({ id: "tabbl", name: "TABBL", fullName: "TABBL", slug: "tabbl", organisers: ["Jay"] });
     store.putSeason(season(1, { status: "completed", fixtures: [fixture("f1", true, "op-1")] }));
     store.putSeason(season(2, {
@@ -111,7 +145,7 @@ describe("GET .../seasons/:seasonId/inducements/usage", () => {
     const r = (s: number, f: string) => leagueFixtureRef("tabbl", `season-${s}`, f);
     matches = [
       match("m1", r(1, "f1"), "op-1"),
-      match("m2a", r(2, "f1"), "op-2a"),
+      match("m2a", r(2, "f1"), "op-2a", { preview: preview() }),
       match("m2b", r(2, "f2"), "op-2b"),
       match("m2b-old", r(2, "f2"), "op-old"), // an earlier, undone publish of the same fixture: not the result in force
       match("m2e", r(2, "f5"), "op-2e"), // pre-game skipped: no inducement record from either team
@@ -146,10 +180,43 @@ describe("GET .../seasons/:seasonId/inducements/usage", () => {
     expect(v.rows.find((r) => r.key === "bribes")).toMatchObject({ taken: 3, games: 3, share: 1 });
     expect((await call("GET", U, undefined, "scope=everything")).status).toBe(400);
     expect(JSON.stringify(store.seasons("tabbl"))).toBe(before);
-    // published matches are cached: a second read does not re-read their events
-    const n = reads;
+  });
+
+  it("[review] no full scan per request: the match list is read once per new publish, events once per match", async () => {
     await call("GET", U, undefined, "scope=league");
-    expect(reads).toBe(n);
+    expect(scans).toBe(1);
+    const r1 = reads;
+    for (let i = 0; i < 3; i++) await call("GET", U, undefined, i % 2 ? "scope=league" : "");
+    expect(scans).toBe(1); // cache hits, and the fixture without a match (f5's opId) does not force a rescan either
+    expect(reads).toBe(r1);
+    // a new publish (a fixture with an unseen opId) scans once, then is cached
+    const s2 = store.season("tabbl", "season-2")!;
+    const f4 = s2.fixtures.find((f) => f.id === "f4")!;
+    Object.assign(f4, fixture("f4", true, "op-2d"));
+    store.putSeason(s2);
+    matches.push(match("m2d", leagueFixtureRef("tabbl", "season-2", "f4"), "op-2d"));
+    events.m2d = [ind("home", [{ id: "bribes", qty: 1 }]), ind("away", [])];
+    const v = (await call("GET", U)).body as InducementUsageView;
+    expect(scans).toBe(2);
+    expect(v.gamesCounted).toBe(3);
+    await call("GET", U);
+    expect(scans).toBe(2);
+  });
+
+  it("[review] a recorder result cleared and replaced by hand (or edited by hand) no longer counts the old match", async () => {
+    const s2 = () => store.season("tabbl", "season-2")!;
+    const edit = (fid: string, apply: (f: LeagueFixture) => void) => { const s = s2(); apply(s.fixtures.find((f) => f.id === fid)!); store.putSeason(s); };
+    expect((await call("GET", U)).body).toMatchObject({ gamesCounted: 2, gamesWithoutData: 2 });
+    // f2: cleared (finishedAt dropped, opId kept by editFixture), then a hand result with the same score
+    edit("f2", (f) => { delete f.finishedAt; f.home.score = 2; f.away.score = 1; });
+    expect((await call("GET", U)).body).toMatchObject({ gamesCounted: 1, gamesWithoutData: 3 });
+    // f1: a hand edit over the recorder's result (its preview said 2-1, casualties 1-0)
+    edit("f1", (f) => { f.home.score = 3; });
+    const v = (await call("GET", U)).body as InducementUsageView;
+    expect(v).toMatchObject({ gamesCounted: 0, gamesWithoutData: 4, rows: [] });
+    // put f1 back as recorded: it counts again
+    edit("f1", (f) => { f.home.score = 2; });
+    expect((await call("GET", U)).body).toMatchObject({ gamesCounted: 1 });
   });
 
   it("no recorder wired: every played game is a game without data; 404s and 405", async () => {
