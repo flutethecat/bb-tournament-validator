@@ -314,4 +314,107 @@ describe("Team Captain appointment on tabletop teams", () => {
     // match 2 (under the appointment) cannot be undone until the appointment is revoked
     expect((await as("Org", "POST", `/api/tabletop/matches/${id2}/undo-revision`)).status).toBe(409);
   });
+
+  const newMatch = async () => {
+    const r = await as("Alice", "POST", "/api/tabletop/matches", { home: { coach: "Alice", team: "sv_a" }, away: { coach: "Bob", team: "sv_b" }, postMatch: "full", pregame: "skip" });
+    expect(r.status).toBe(201);
+    return (r.body as { match: { id: string } }).match.id;
+  };
+  const finish = async (id: string) => {
+    await as("Alice", "POST", `/api/tabletop/matches/${id}/events`, { events: [E("endOfMatch", "home")] });
+    for (const c of ["Alice", "Bob"]) expect((await as(c, "POST", `/api/tabletop/matches/${id}/confirm`)).status).toBe(200);
+  };
+  const revoke = (revision: number) => as("Alice", "POST", `${capPath}/revoke`, { coach: "Alice", team: "sv_a", revision });
+
+  it("M1 kills the captain, appoint, M2 confirmed then undone: revoke rebases the reopened M2 and M1 can be undone", async () => {
+    const m1 = await captainKilled();
+    expect((await appoint("Alice", "blitz2", 1)).status).toBe(200); // rev 2
+    const m2 = await newMatch();
+    expect((await repo.getMatch(m2))!.baseRevision.home).toBe(2);
+    await finish(m2); // rev 3
+    expect((await as("Org", "POST", `/api/tabletop/matches/${m2}/undo-revision`)).status).toBe(200);
+    expect((await repo.getMatch(m2))!).toMatchObject({ state: "recording", baseRevision: { home: 2 } });
+    expect((await as("Org", "POST", `/api/tabletop/matches/${m1}/undo-revision`)).status).toBe(409); // the appointment sits on top
+    // revoke: allowed although M2 is open, because M2 is recording and pinned to the appointment revision; M2 moves to rev 1
+    expect((await revoke(2)).body).toMatchObject({ revision: 1, vacant: true });
+    expect((await repo.getMatch(m2))!.baseRevision).toMatchObject({ home: 1 });
+    expect((await as("Org", "POST", `/api/tabletop/matches/${m1}/undo-revision`)).status).toBe(200);
+    expect((await repo.getChain("Alice", "sv_a"))!.head).toBe(0);
+  });
+
+  it("after the rebase the reopened match confirms on the pre-appointment revision; a SUBMITTED pinned match refuses the revoke", async () => {
+    await captainKilled();
+    await appoint("Alice", "blitz2", 1);
+    const m2 = await newMatch();
+    await finish(m2);
+    await as("Org", "POST", `/api/tabletop/matches/${m2}/undo-revision`);
+    // submitted: the coaches may have confirmed a preview built on the appointment revision
+    await as("Alice", "POST", `/api/tabletop/matches/${m2}/events`, { events: [E("endOfMatch", "home")] });
+    expect((await repo.getMatch(m2))!.state).toBe("submitted");
+    expect((await revoke(2)).body).toMatchObject({ error: expect.stringMatching(/submitted match/) });
+    expect((await as("Org", "POST", "/api/tabletop/organiser/bulk", { ids: [m2], action: "reopen" })).status).toBe(200);
+    expect((await revoke(2)).status).toBe(200);
+    // M2 confirms on rev 1 (still vacant there): it writes rev 4 with parent 1, without the appointment
+    await as("Alice", "POST", `/api/tabletop/matches/${m2}/submit`);
+    for (const c of ["Alice", "Bob"]) expect((await as(c, "POST", `/api/tabletop/matches/${m2}/confirm`)).status).toBe(200);
+    const head = headRevision((await repo.getChain("Alice", "sv_a"))!);
+    expect(head).toMatchObject({ parent: 1, matchId: m2 });
+    expect(head.teamFile.captainVacant).toBe(true);
+  });
+
+  it("appoint and match creation on the same team never interleave (one team lock domain)", async () => {
+    for (let round = 0; round < 6; round += 1) {
+      for (const k of Object.keys(files)) if (!k.startsWith("Alice/") && !k.startsWith("Bob/")) delete files[k];
+      rmSync(join(dir, "tt"), { recursive: true, force: true });
+      repo = new FileTabletopRepository(join(dir, "tt"));
+      await captainKilled();
+      const [made, appointed] = await Promise.all([
+        as("Alice", "POST", "/api/tabletop/matches", { home: { coach: "Alice", team: "sv_a" }, away: { coach: "Bob", team: "sv_b" }, postMatch: "full", pregame: "skip" }),
+        appoint("Alice", "blitz2", 1),
+      ]);
+      const head = (await repo.getChain("Alice", "sv_a"))!.head;
+      expect(made.status).toBe(201);
+      const base = (made.body as { match: MatchRecord }).match.baseRevision.home;
+      // either the appointment came first (the match is pinned to it) or the match did (the appointment is refused)
+      if (appointed.status === 200) expect(base).toBe(head);
+      else { expect(appointed.status).toBe(409); expect(base).toBe(1); expect(head).toBe(1); }
+    }
+  });
+});
+
+describe("inducement edits: review fixes", () => {
+  it("petty-cash adjustment ids come from the whole edit id: two edit ids sharing 60 characters never collide", async () => {
+    const id = await lobbyMatch();
+    const stem = "x".repeat(60);
+    const a = await editInd("Org", id, { team: "away", id: `${stem}aaa1`, ...ETT(2) });
+    const b = await editInd("Org", id, { team: "away", id: `${stem}aaa2`, ...ETT(1) });
+    expect(a.status).toBe(200);
+    expect(b.status).toBe(200);
+    const [ra, rb] = [(a.body as { recorded: string[] }).recorded, (b.body as { recorded: string[] }).recorded];
+    expect(ra).toHaveLength(2);
+    expect(rb).toHaveLength(2);
+    expect(ra[1]).not.toBe(rb[1]);
+    const events = (await view(id)).events as TabletopEvent[];
+    expect(new Set(events.map((e) => e.id)).size).toBe(events.length);
+    expect(events.find((e) => e.id === rb[1])!.payload.followsFrom).toBe(`${stem}aaa2`);
+  });
+
+  it("scoped managers undo inducement edits on either side, even outside the match or on their own team; nothing else", async () => {
+    const id = await lobbyMatch();
+    managers = (c) => c === "Lea" || c === "Bob";
+    // Lea: neither a seat nor a site organiser
+    const e1 = (await editInd("Lea", id, { team: "away", ...ETT(2) })).body as { recorded: string[] };
+    expect((await as("Lea", "POST", `/api/tabletop/matches/${id}/events`, { events: [E("undo", "away", undefined, { target: e1.recorded[0] })] })).status).toBe(200);
+    expect((await as("Lea", "POST", `/api/tabletop/matches/${id}/events`, { events: [E("touchdown", "home", "al1")] })).status).toBe(403);
+    expect((await as("Lea", "POST", `/api/tabletop/matches/${id}/turn/start`, {})).status).toBe(403);
+    // Bob: plays away and manages the competition: he may undo an edit of the OTHER team's inducements
+    const e2 = (await editInd("Bob", id, { team: "home", ...ETT(2) })).body as { recorded: string[] };
+    const u = await as("Bob", "POST", `/api/tabletop/matches/${id}/events`, { events: [E("undo", "home", undefined, { target: e2.recorded[0] })] });
+    expect(u.status).toBe(200);
+    const undo = ((await view(id)).events as TabletopEvent[]).find((e) => e.id === (u.body as { accepted: string[] }).accepted[0])!;
+    expect(undo).toMatchObject({ by: "Bob", admin: true, team: "home" });
+    // a site organiser who does not manage this competition cannot undo
+    const e3 = (await editInd("Lea", id, { team: "away", ...ETT(2) })).body as { recorded: string[] };
+    expect((await as("Org", "POST", `/api/tabletop/matches/${id}/events`, { events: [E("undo", "away", undefined, { target: e3.recorded[0] })] })).status).toBe(403);
+  });
 });

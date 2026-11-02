@@ -17,9 +17,15 @@
  *   - undoing a LATER match (built on top of the appointment) moves the head back to the appointment revision: kept;
  *   - undoing the match that left the captaincy vacant needs the head to be that match's revision, so the appointment
  *     blocks it (409 naming the appointment) until someone revokes it explicitly here. Nothing drops it silently;
- *   - appoint and revoke run only while no recorded match is open on the team (an open match pinned the head when it was
- *     created; its confirm would be refused) and no commit journal on the team is unfinished.
- * Revoke moves the head back to the appointment's parent (the revision is kept, as every undone revision is).
+ *   - appoint runs only while no recorded match is open on the team (an open match pinned the head when it was created;
+ *     its confirm would be refused) and no commit journal on the team is unfinished;
+ *   - revoke moves the head back to the appointment's parent (the revision is kept, as every undone revision is). An open
+ *     match pinned to the appointment revision (e.g. M1 kills the captain, appoint, M2 confirmed, M2 undone: M2 reopens
+ *     on the appointment revision) is REBASED onto the parent in the same locked write while it is still recording: its
+ *     events name players by id, which the parent has too, and its confirm then checks against the parent. A SUBMITTED
+ *     match (a preview the coaches may have confirmed) or one pinned to another revision refuses the revoke: reopen it first.
+ * Every appoint / revoke runs under the team lock shared with match creation and every match write and commit journal
+ * (teamLock.ts), so none of them interleave.
  */
 import { findPosition, isStarName, rosterHasTeamCaptain } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
@@ -29,6 +35,7 @@ import { teamFileCaptainVacant, type TabletopPlayer, type TabletopTeamFile } fro
 import { rosterFor } from "./pregame.js";
 import { headRevision, type TabletopRepository, type TeamChain } from "./store.js";
 import { parseTeamRef } from "./teamFile.js";
+import { teamLockKey, withTeamLocks } from "./teamLock.js";
 
 const err = (status: number, error: string, extra: Record<string, unknown> = {}): TabletopResult => ({ status, body: { error, ...extra } });
 const same = (a: string, b: string): boolean => a.trim().toLowerCase() === b.trim().toLowerCase();
@@ -86,16 +93,6 @@ function candidateRows(file: TabletopTeamFile) {
   }));
 }
 
-// One writer per team chain (appoint / revoke), like api.ts serialises each match.
-const queues = new Map<string, Promise<unknown>>();
-function serialTeam<T>(key: string, fn: () => Promise<T>): Promise<T> {
-  const run = (queues.get(key) ?? Promise.resolve()).then(fn, fn);
-  const tail = run.catch(() => undefined);
-  queues.set(key, tail);
-  void tail.then(() => { if (queues.get(key) === tail) queues.delete(key); });
-  return run;
-}
-
 /** Another commit (confirm / undo / publish) still being completed on this team: its chain write must land first. */
 async function journalPending(repo: TabletopRepository, coach: string, saveId: string): Promise<boolean> {
   for (const id of await repo.listJournalMatchIds()) {
@@ -136,13 +133,24 @@ export async function tabletopCaptainApi(
     };
   }
 
-  return serialTeam(`${coach}\0${ref.ref}`, async () => {
+  // the same per-team lock as match creation and every match write / commit journal (teamLock.ts): no interleaving
+  return withTeamLocks([teamLockKey({ coach, teamSaveId: ref.ref })], async (): Promise<TabletopResult> => {
     const chain = await repo.getChain(coach, ref.ref);
     if (!chain) return err(404, "This team has no recorded matches yet.");
     if (!Number.isInteger(b.revision)) return err(428, "Send the team revision you loaded (revision).", { revision: chain.head });
     if (b.revision !== chain.head) return err(409, "This team changed since you opened it. Reload to see the latest.", { revision: chain.head });
-    if (await repo.findOpenMatchForSave(chain.coach, chain.saveId)) return err(409, "This team is in an unfinished recorded match: finish it (or have it removed) first.", { revision: chain.head });
     if (await journalPending(repo, chain.coach, chain.saveId)) return err(409, "A result on this team is still being saved. Try again in a moment.", { revision: chain.head });
+    const open = (await repo.listMatches()).filter((m) => (m.state === "recording" || m.state === "submitted")
+      && [m.home, m.away].some((sd) => sd.coach === chain.coach && sd.teamSaveId === chain.saveId));
+    const head0 = headRevision(chain);
+    // Revoke may rebase open matches (see the header): only RECORDING ones pinned to this appointment revision (or, on a
+    // retry after a partial write, already to its parent). Anything else (a submitted match, or one pinned elsewhere) waits.
+    const rebase = revoke && head0.appointment && head0.parent !== null
+      ? open.map((m) => ({ m, side: (m.home.coach === chain.coach && m.home.teamSaveId === chain.saveId ? "home" : "away") as "home" | "away" }))
+      : [];
+    if (rebase.some(({ m, side }) => m.state !== "recording" || (m.baseRevision[side] !== chain.head && m.baseRevision[side] !== head0.parent)))
+      return err(409, "This team is in a submitted match (or one started on another revision): reopen or finish it first.", { revision: chain.head });
+    if (!revoke && open.length) return err(409, "This team is in an unfinished recorded match: finish it (or have it removed) first.", { revision: chain.head });
     const at = (deps.now?.() ?? new Date()).toISOString();
     const head = headRevision(chain);
     let next: TeamChain;
@@ -151,6 +159,12 @@ export async function tabletopCaptainApi(
       if (!head.appointment || head.parent === null) return err(409, "The team's latest revision is not a Team Captain appointment.", { revision: chain.head });
       next = { ...chain, head: head.parent };
       playerId = head.appointment.playerId;
+      // rebase the open recording matches onto the pre-appointment revision FIRST (idempotent), then move the head: a crash
+      // in between leaves a retry-able revoke (the match base already equals the parent, which the check above accepts)
+      for (const { m, side } of rebase) {
+        if (m.baseRevision[side] === head.parent) continue;
+        await repo.updateMatch({ ...m, baseRevision: { ...m.baseRevision, [side]: head.parent }, updatedAt: at });
+      }
     } else {
       if (typeof b.playerId !== "string" || !b.playerId.trim() || b.playerId.length > 64) return err(400, "playerId is required.");
       const done = appointTabletopCaptain(head.teamFile, b.playerId);

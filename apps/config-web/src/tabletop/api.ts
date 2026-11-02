@@ -15,7 +15,7 @@
  * does too when the match is not a test match. Every write from a spectator is refused with 403.
  */
 
-import { randomBytes, randomInt } from "node:crypto";
+import { createHash, randomBytes, randomInt } from "node:crypto";
 import { nafTimestamp } from "../tournaments/nafExport.js";
 import { BANNED_ACCOUNT_MESSAGE } from "../auth/access.js";
 import type { StoredTournamentResult } from "../tournamentResults.js";
@@ -43,6 +43,7 @@ import { applyPostMatch, sppCredits, sppForEvent, tallyMatch, type PostMatchOpti
 import { headRevision, type ChainChange, type CommitJournal, type LobbyInducements, type MatchRecord, type TabletopRepository, type TeamChain } from "./store.js";
 import { duplicatePlayerId, parseTeamRef } from "./teamFile.js";
 import { tabletopCaptainApi, teamCaptainVacancy } from "./captain.js";
+import { matchTeamKeys, teamLockKey, withTeamLocks } from "./teamLock.js";
 import type { NotificationInput } from "../notifications.js";
 
 export interface TabletopAuth { coach: string; method: string; /** A test sign-in session: matches it creates are flagged test. */ test?: boolean }
@@ -236,9 +237,10 @@ const resultGameId = (matchId: string): string => `tabletop-${matchId}`;
 
 // Per-match serialisation: a repository that is not synchronous (Postgres) still sees one writer per match.
 const chains = new Map<string, Promise<unknown>>();
-function serial<T>(key: string, fn: () => Promise<T>): Promise<T> {
-  // every serialised write drops the cached match snapshot, before and after it runs
-  const write = async (): Promise<T> => { dropSnapshot(key); try { return await fn(); } finally { dropSnapshot(key); } };
+function serial<T>(key: string, fn: () => Promise<T>, teams: readonly string[] = []): Promise<T> {
+  // every serialised write drops the cached match snapshot, before and after it runs; it also holds the match's TEAM locks
+  // (teamLock.ts: one lock domain with match creation and the Team Captain writes)
+  const write = async (): Promise<T> => { dropSnapshot(key); try { return await withTeamLocks(teams, fn); } finally { dropSnapshot(key); } };
   const run = (chains.get(key) ?? Promise.resolve()).then(write, write);
   const tail = run.catch(() => undefined);
   chains.set(key, tail);
@@ -316,16 +318,18 @@ export async function tabletopApi(
   const match = await repo.getMatch(id);
   if (!match) return err(404, "Match not found.");
   const role = viewerRole(match, me, organiser);
+  /** An organiser of this match's league / tournament, or an admin: inducement edits after the start and their undo. */
+  const manage = deps.managesMatch ? deps.managesMatch(me, match) : organiser;
 
   // Organiser edits of inducements after the start (owner 10-29): only an organiser of this league / tournament or an admin.
   if (action === "inducements") {
-    if (!(deps.managesMatch ? deps.managesMatch(me, match) : organiser)) return err(403, "Only an organiser of this league or tournament (or an admin) can edit inducements after the start.");
+    if (!manage) return err(403, "Only an organiser of this league or tournament (or an admin) can edit inducements after the start.");
     if (method === "GET") return inducementEditMenu(match, deps);
     if (method !== "POST") return err(405, "Method not allowed.");
     return serial(id, async () => {
       try { await recoverMatch(id, deps); } catch (e) { return recoveryFailure(e); }
       return editInducements((await repo.getMatch(id))!, me, body, deps, now);
-    });
+    }, matchTeamKeys(match));
   }
   if (!action) {
     if (method !== "GET") return err(405, "Method not allowed.");
@@ -333,7 +337,8 @@ export async function tabletopApi(
   }
   if (method !== "POST") return err(405, "Method not allowed.");
   // a spectator reads; every write (events, turns, pre-game, seats, submit, confirm, organiser tools) is refused here
-  if (role === "spectator") return err(403, "You are watching this match: only its coaches and organisers can change it.");
+  // (a scoped manager outside the match may post events: postEvents lets them undo inducement edits only)
+  if (role === "spectator" && !(manage && action === "events")) return err(403, "You are watching this match: only its coaches and organisers can change it.");
 
   return serial(id, async () => {
     if (action === "resolve-conflict") {
@@ -351,7 +356,7 @@ export async function tabletopApi(
       return recoveryFailure(e);
     }
     const fresh = (await repo.getMatch(id))!;
-    if (action === "events") return postEvents(fresh, me, organiser, body, deps, now);
+    if (action === "events") return postEvents(fresh, me, organiser, body, deps, now, manage);
     if (action === "turn/set") return turnSet(fresh, me, organiser, body, deps, now);
     if (action === "turn/start" || action === "turn/end") return turnAction(fresh, me, organiser, action, body, deps, now);
     if (action === "pregame/advance") return pregameAdvance(fresh, me, organiser, body, deps, now);
@@ -362,7 +367,7 @@ export async function tabletopApi(
     if (!organiser) return err(403, "Organizer access required.");
     if (action === "publish") return publish(fresh, me, deps, now);
     return undoRevision(fresh, deps, now, undefined, me);
-  });
+  }, matchTeamKeys(match));
 }
 
 /** Who is looking at a match: a seat (home / away) first, then an organiser, else a spectator (read-only). */
@@ -714,6 +719,11 @@ export async function createMatch(
     if (!straight && !fixtureSwap) return err(409, "The fixture's coaches do not match this match's home and away coaches.");
     league ??= fixture.packageName;
   }
+  // From here the two team chains are read, pinned and checked for open matches: under both TEAM locks (teamLock.ts), so a
+  // Team Captain appoint / revoke or a commit on either team cannot interleave.
+  const homeSeat = home, awaySeat = away;
+  return withTeamLocks([teamLockKey(homeSeat), teamLockKey(awaySeat)], async (): Promise<TabletopResult> => {
+  const home = homeSeat, away = awaySeat;
   // One unfinished match per fixture.
   if (b.fixtureRef && (await deps.repo.listMatches()).some((m) => m.fixtureRef === b.fixtureRef && (m.state === "recording" || m.state === "submitted")))
     return err(409, "This fixture already has a match in progress.");
@@ -759,6 +769,7 @@ export async function createMatch(
   try { void Promise.resolve(deps.naf?.refreshFor?.([home.coach, away.coach])).catch((e) => console.warn(`[naf] refresh failed: ${(e as Error).message}`)); }
   catch (e) { console.warn(`[naf] refresh failed: ${(e as Error).message}`); }
   return { status: 201, body: { match } };
+  });
 }
 
 /** The lobby's resolved inducements as the pre-game submissions of both seats (ids pg-inducement-<side>: idempotent). */
@@ -804,7 +815,7 @@ export async function adoptLobbyMatch(deps: TabletopApiDeps, input: {
         await deps.repo.appendEvents(m.id, missing);
         dropSnapshot(m.id);
       }
-    });
+    }, matchTeamKeys(m));
   }
   return { matchId: m.id };
 }
@@ -849,7 +860,9 @@ async function swapSeats(match: MatchRecord, me: string, organiser: boolean, dep
 /** Events that belong to the match rather than a team: every other event credits or names a player of `team`, so a participant may record it for their own team only. */
 const BOTH_TEAM_EVENTS: ReadonlySet<string> = new Set(["weather", "endOfMatch"]);
 
-async function postEvents(match: MatchRecord, me: string, organiser: boolean, body: unknown, deps: TabletopApiDeps, now: () => Date): Promise<TabletopResult> {
+/** `manage`: an organiser of this match's league / tournament or an admin (deps.managesMatch): may undo an inducement edit on
+ *  either side, even without being a recorder organiser or a seat. */
+async function postEvents(match: MatchRecord, me: string, organiser: boolean, body: unknown, deps: TabletopApiDeps, now: () => Date, manage = organiser): Promise<TabletopResult> {
   // Recording: anyone in the match records; participants may undo their own side's events. Once submitted, only an
   // organiser may undo events (the preview is recomputed); confirmed / published matches need a revert first.
   const reopenForUndo = match.state === "submitted";
@@ -873,6 +886,12 @@ async function postEvents(match: MatchRecord, me: string, organiser: boolean, bo
     const parsed = parseEvent(r, match.id, me, at);
     if (!parsed.ok) return err(400, parsed.error);
     if (known.has(parsed.event.id)) { duplicates.push(parsed.event.id); continue; }
+    // an organiser's after-start inducement edit is undone only by a manager (managesMatch), on either side, recording or submitted
+    const undoTarget = parsed.event.type === "undo" ? running.find((e) => e.id === parsed.event.payload.target) : undefined;
+    const adminEditUndo = undoTarget?.type === "inducement" && undoTarget.payload.adminEdit === true;
+    if (adminEditUndo && !manage) return err(403, "Only an organiser of this league or tournament (or an admin) can undo an inducement edit.");
+    // a manager who is neither a seat nor a recorder organiser reaches here only for that undo
+    if (!adminEditUndo && !organiser && mySides.length === 0) return err(403, "You are watching this match: only its coaches and organisers can change it.");
     // after submit only an organiser edits the report (undo, and adding or correcting events for either side); the preview is recomputed below
     // (one exception: a coach may still add their OWN team's MVP after submit, until the match is confirmed)
     if (reopenForUndo && parsed.event.type !== "undo" && !organiser && !(parsed.event.type === "mvp" && mySides.includes(parsed.event.team))) return err(409, `This match is ${match.state}; only an organiser can edit events now.`);
@@ -884,11 +903,8 @@ async function postEvents(match: MatchRecord, me: string, organiser: boolean, bo
         return err(403, "A casualty's victim must be on the opposing team.");
     }
     if (parsed.event.type === "undo") {
-      if (reopenForUndo && !organiser) return err(403, "Once the match is submitted only an organiser can undo events.");
-      const target = running.find((e) => e.id === parsed.event.payload.target);
-      if (target?.type === "inducement" && target.payload.adminEdit === true && !(deps.managesMatch ? deps.managesMatch(me, match) : organiser))
-        return err(403, "Only an organiser of this league or tournament (or an admin) can undo an inducement edit.");
-      if (!organiser) {
+      if (reopenForUndo && !organiser && !adminEditUndo) return err(403, "Once the match is submitted only an organiser can undo events.");
+      if (!organiser && !adminEditUndo) {
         const target = running.find((e) => e.id === parsed.event.payload.target);
         // a participant may also retract a casualty / injury THEY recorded, on either roster, while the match is recording
         const mineToRetract = target !== undefined && (target.type === "casualty" || target.type === "injury") && target.by === me && match.state === "recording";
@@ -906,7 +922,7 @@ async function postEvents(match: MatchRecord, me: string, organiser: boolean, bo
     if ("error" in v) return err(v.status ?? 400, v.error);
     // an organiser acting for a team they do not coach (an undo carries its target's team) is stamped admin: persisted, replayed, shown in the log
     // (a both-team event - weather, end of match - defaults to team "home", so it counts as admin only when the organiser plays in neither team)
-    if (organiser && (BOTH_TEAM_EVENTS.has(v.event.type) ? mySides.length === 0 : !mySides.includes(v.event.team))) v.event = { ...v.event, admin: true };
+    if (adminEditUndo || (organiser && (BOTH_TEAM_EVENTS.has(v.event.type) ? mySides.length === 0 : !mySides.includes(v.event.team)))) v.event = { ...v.event, admin: true };
     known.add(v.event.id);
     running.push(v.event);
     accepted.push(v.event);
@@ -1299,7 +1315,7 @@ export async function recoverTabletop(deps: TabletopApiDeps): Promise<string[]> 
   journals.sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
   const done: string[] = [];
   for (const j of journals) {
-    try { if (await recoverMatch(j.matchId, deps)) done.push(j.matchId); } catch { /* conflict is marked; others retry later */ }
+    try { if (await withTeamLocks(matchTeamKeys(j.match), () => recoverMatch(j.matchId, deps))) done.push(j.matchId); } catch { /* conflict is marked; others retry later */ }
   }
   return done;
 }
@@ -1376,6 +1392,7 @@ async function organiserApi(
     const action = b.action;
     const results: Array<{ id: string; ok: boolean; status: number; error?: string; state?: string }> = [];
     for (const id of new Set(ids as string[])) {
+      const pre = await deps.repo.getMatch(id);
       const r = await serial(id, async (): Promise<TabletopResult> => {
         const match = await deps.repo.getMatch(id);
         if (!match) return err(404, "Match not found.");
@@ -1387,7 +1404,7 @@ async function organiserApi(
         }
         const fresh = (await deps.repo.getMatch(id))!;
         return action === "reopen" ? reopen(fresh, note, deps, now, me) : confirmAndPublish(fresh, me, deps, now);
-      });
+      }, pre ? matchTeamKeys(pre) : []);
       const out = r.body as { error?: string; match?: { state: string } };
       results.push({ id, ok: r.status === 200, status: r.status, ...(out.error ? { error: out.error } : {}), ...(out.match ? { state: out.match.state } : {}) });
     }
@@ -1816,8 +1833,12 @@ async function editInducements(match: MatchRecord, me: string, body: unknown, de
     const theirPicks = ((otherPrev.payload.picks as Array<{ id: string; qty: number }> | undefined) ?? []).map((p) => ({ id: p.id, qty: p.qty }));
     const again = planInducements({ offers, file: teams[other]!, picks: theirPicks, role: "underdog", tvDifference: gap, favouriteSpent: plan.treasury });
     if ("error" in again) return err(409, `That leaves ${match[other].teamName} over its budget (${again.error}) Edit their inducements first.`);
-    if (again.treasury !== spentOf(otherPrev) || again.pettyCash !== Number(otherPrev.payload.pettyCash ?? 0))
-      out.push(record(`${id.slice(0, 60)}-pc`, other, again, { followsFrom: id, replaces: otherPrev.id, treasuryBefore: spentOf(otherPrev) }));
+    if (again.treasury !== spentOf(otherPrev) || again.pettyCash !== Number(otherPrev.payload.pettyCash ?? 0)) {
+      // its own id, derived from the WHOLE edit id (never a truncation, which two long ids could share) and linked by followsFrom
+      const pcId = `pc-${createHash("sha256").update(id, "utf8").digest("hex").slice(0, 40)}`;
+      if (stored.some((e) => e.id === pcId)) return err(409, "That edit id is already in use; send a fresh one.");
+      out.push(record(pcId, other, again, { followsFrom: id, replaces: otherPrev.id, treasuryBefore: spentOf(otherPrev) }));
+    }
   }
   await deps.repo.appendEvents(match.id, out);
   const events = [...stored, ...out];
