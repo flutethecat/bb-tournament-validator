@@ -75,22 +75,29 @@ describe("typography: Nuffle is retired", () => {
 // ---- UI scale (owner 11-02: "this should be roughly default sizes")
 describe("UI scale", () => {
   const home = read("spa/src/home/home.css");
-  it("one token scales the whole UI by CSS zoom: 1.25 desktop, 1.15 small desktop, 1.1 tablet, 1 phone", () => {
-    expect(home).toMatch(/html \{ --sf-zoom: 1; \}/);
-    expect(home).toMatch(/@media screen and \(min-width: 768px\) \{ html \{ --sf-zoom: 1\.1; \} \}/);
+  it("one token scales the whole UI by CSS zoom: 1.25 desktop, 1.15 small desktop, 1.1 tablet, 1 phone; only where CSS zoom exists", () => {
+    expect(home).toMatch(/html \{ --sf-zoom: 1; \}\s*@supports \(zoom: 1\.25\) \{\s*@media screen and \(min-width: 768px\) \{ html \{ --sf-zoom: 1\.1; \} \}/);
     expect(home).toMatch(/@media screen and \(min-width: 1600px\) and \(min-height: 860px\) \{ html:not\(\[data-sf-zoom-off\]\) \{ --sf-zoom: 1\.25; \} \}/);
-    expect(home).toMatch(/@media screen and \(min-width: 1367px\) and \(min-height: 700px\) \{\s*html \{ --sf-zoom: 1\.15; \}/);
+    expect(home).toMatch(/@media screen and \(min-width: 1367px\) and \(min-height: 700px\) \{\s*@supports \(zoom: 1\.25\) \{ html \{ --sf-zoom: 1\.15; \} \}/);
     expect(home).toMatch(/body \{ zoom: var\(--sf-zoom\); \}/);
+    // (Sol 11-02) every value above 1 is behind @supports, so a browser without CSS zoom keeps 1 and normal heights
+    const outside = stripComments(home).replace(/@supports \(zoom: 1\.25\) \{[\s\S]*?\r?\n\}|@supports \(zoom: 1\.25\) \{ html \{ --sf-zoom: 1\.15; \} \}/g, "");
+    expect([...outside.matchAll(/--sf-zoom: ([\d.]+)/g)].map((m) => m[1])).toEqual(["1"]);
   });
   it("every viewport height in the SPA divides by the zoom (viewport units are zoomed with the page); the recorder undoes the zoom", () => {
     // (vw inside a font-size clamp may stay: it only grows the type with the rest of the page)
     const offenders: string[] = [];
     for (const file of files("spa/src", /\.(css|vue)$/)) {
-      if (file.endsWith("tabletop/tabletop.css")) continue; // the recorder runs at zoom 1 (below)
+      if (/tabletop\/tabletop\.css$|games\/games\.css$/.test(file)) continue; // recorder surfaces (.tt-rec) run at zoom 1 (below)
       const css = stripComments(styleOf(file));
       for (const m of css.matchAll(/\d+d?vh\b[^;]*/g)) if (!/\/ var\(--sf-zoom, 1\)/.test(m[0])) offenders.push(`${file}: ${m[0].slice(0, 60)}`);
     }
     expect(offenders).toEqual([]);
-    expect(read("spa/src/tabletop/tabletop.css")).toContain(".tt-rec:not(.tt-rec--final):not(.cp-host) { zoom: calc(1 / var(--sf-zoom, 1)); }");
+    expect(read("spa/src/tabletop/tabletop.css")).toContain(".tt-rec { zoom: calc(1 / var(--sf-zoom, 1)); }");
+    // (Sol 11-02 audit) every viewport-sized rule in the recorder sheets sits under a .tt-rec root, so it is drawn at zoom 1:
+    // the captain picker host and the game report carry .tt-rec, and no recorder overlay is teleported out of one
+    for (const vue of files("spa/src/components", /^(Tabletop|CaptainVacant|GameReporter).*\.vue$/)) expect(read(vue), vue).not.toContain("<Teleport");
+    expect(read("spa/src/components/CaptainVacantDialog.vue")).toContain('class="tt-rec cp-host"');
+    expect(read("spa/src/components/GameReporterView.vue")).toContain('class="tt-rec tt-rec--final"');
   });
 });

@@ -1763,6 +1763,8 @@
 .gm-comment { margin: 4px 0 0; overflow-wrap: anywhere; }
 .gm-comment-who { font-weight: 700; }
 
-/* UI scale (home.css --sf-zoom): the full-screen match recorder undoes the page zoom; it keeps its own sizing. The game
-   report (.tt-rec--final) and the captain dialog host sit inside pages and scale with them. */
-.tt-rec:not(.tt-rec--final):not(.cp-host) { zoom: calc(1 / var(--sf-zoom, 1)); }
+/* UI scale (home.css --sf-zoom): every recorder surface undoes the page zoom and keeps its own sizing: the full-screen
+   match recorder, the game report (.tt-rec--final) and the captain picker host (.cp-host). This sheet sizes its overlays,
+   sheets and pickers from the viewport (vw / dvh), which is only right at zoom 1 (Sol 11-02: the captain picker
+   overflowed at 1.15). Its tooltips and cards stay inside a .tt-rec root (no teleport), so they inherit it. */
+.tt-rec { zoom: calc(1 / var(--sf-zoom, 1)); }

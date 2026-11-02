@@ -113,12 +113,16 @@
    scaled from one token with CSS zoom, so every page moves together: 1.25 on a full desktop, 1.15 on a small desktop,
    1.1 on a tablet, 1 on a phone (whose type is already 16 px and whose width cannot spare it). Viewport units inside a
    zoomed page are zoomed too, so every 100vh / 100dvh / 100vw in the SPA divides by --sf-zoom; layout read from script
-   (rects are in screen px, scroll offsets in CSS px) divides by the element's currentCSSZoom (shell/fit.ts cssZoom).
-   The match recorder (.tt-rec) undoes the zoom: it is its own full-screen app with its own sizing. */
+   (rects are in screen px, scroll offsets in CSS px) divides by the element's currentCSSZoom.
+   The match recorder (.tt-rec) undoes the zoom: it is its own full-screen app with its own sizing.
+   A browser without CSS zoom (Firefox before 126) keeps --sf-zoom at 1: every value above 1 sits inside
+   @supports (zoom: 1.25), so it gets no zoom and no compensation (normal heights). */
 html { --sf-zoom: 1; }
-@media screen and (min-width: 768px) { html { --sf-zoom: 1.1; } }
-/* (1.15 on a small desktop: in the fit block below, which shares its media query) */
-@media screen and (min-width: 1600px) and (min-height: 860px) { html:not([data-sf-zoom-off]) { --sf-zoom: 1.25; } } /* the higher specificity outranks the 1.15 below */
+@supports (zoom: 1.25) {
+  @media screen and (min-width: 768px) { html { --sf-zoom: 1.1; } }
+  /* (1.15 on a small desktop: in the fit block below, which shares its media query) */
+  @media screen and (min-width: 1600px) and (min-height: 860px) { html:not([data-sf-zoom-off]) { --sf-zoom: 1.25; } } /* the higher specificity outranks the 1.15 below */
+}
 body { zoom: var(--sf-zoom); }
 
 /* ---- body: nav + content */
@@ -159,7 +163,7 @@ body { zoom: var(--sf-zoom); }
    so phones get no nested scroll traps. Screen only: print lays pages out at their natural height. FIT_QUERY in
    shell/fit.ts mirrors this media query. */
 @media screen and (min-width: 1367px) and (min-height: 700px) {
-  html { --sf-zoom: 1.15; }
+  @supports (zoom: 1.25) { html { --sf-zoom: 1.15; } }
   body > #app { position: relative; display: grid; grid-template-rows: auto minmax(0, 1fr); height: calc(100dvh / var(--sf-zoom, 1)); overflow: hidden; }
   .sf-body { min-height: 0; }
   .sf-aside { position: relative; top: auto; align-self: stretch; height: auto; min-height: 0; }
