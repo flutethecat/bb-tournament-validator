@@ -185,6 +185,7 @@ export async function seed(root: string, opts: SeedOptions = {}): Promise<void> 
     fixtures: [{
       id: "f1", home: { team: "Green Orcs", teamId: "green-orcs", coach: "AliceNaf", coachId: "Alice", race: "Orc", score: 2 }, away: { team: "Blue Elves", coach: "BobNaf", coachId: "Bob", race: "Elf", score: 1 },
       fork: { status: "finished", teams: { home: { teamId: "ft1", coach: "Alice" }, away: { teamId: "ft2", coach: "Bob" } }, generatedBy: "Alice", log: [{ at: "", by: "Alice", text: "Alice generated the game for Bob" }] },
+      resultEdit: { by: "Alice", at: "2026-10-30T00:00:00.000Z" },
     }],
     redraft: {
       startedAt: "", byCoach: "Bob", capEnabled: false, cap: 0, revision: 1, log: [{ at: "", by: "Alice", text: "Alice submitted a draft" }],

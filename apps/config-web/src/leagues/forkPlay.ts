@@ -222,7 +222,8 @@ export function fixtureForkView(league: LeagueRecord, season: SeasonRecord, f: L
 
 /** The fork state a season read carries: status only (teams, ids and the log stay on the summary route). */
 export function publicForkState(f: LeagueFixture): LeagueFixture {
-  const { fork, forkNotice: _n, ...rest } = f;
+  // resultEdit (who overrode a result) is organiser bookkeeping for the Weekly Digest, never in a read model.
+  const { fork, forkNotice: _n, resultEdit: _e, ...rest } = f;
   return fork ? { ...rest, fork: { status: fork.status, teams: {}, log: [] } } : rest;
 }
 

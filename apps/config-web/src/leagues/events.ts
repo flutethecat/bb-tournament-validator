@@ -384,8 +384,8 @@ function deleteFixture(season: SeasonRecord, fixtureId: string, who: LeagueApiId
   return res(200, { ok: true, revision: season.revision });
 }
 
-const shown = (f: LeagueFixture): Omit<LeagueFixture, "forkNotice"> => {
-  const { forkNotice: _n, ...rest } = f;
+const shown = (f: LeagueFixture): Omit<LeagueFixture, "forkNotice" | "resultEdit"> => {
+  const { forkNotice: _n, resultEdit: _e, ...rest } = f;
   return rest;
 };
 
@@ -436,7 +436,10 @@ export async function editFixture(
     // Typing over a result that was already there is an administrative override (the Weekly Digest labels it); a both-lose
     // placeholder is not a result, so the first real score entered over it is a normal one.
     const overrides = fixturePlayed(fixture) && fixture.deadlineOutcome?.outcome !== "both-lose";
-    if (overrides) fixture.resultEdit = { ...(who.coach ? { by: who.coach } : {}), at: (deps.now?.() ?? new Date()).toISOString() };
+    // Only a save that changes the scores or casualties is an override: an unchanged save keeps (or never makes) the mark.
+    const changed = fixture.home.score !== result.home || fixture.away.score !== result.away || fixture.home.cas !== result.homeCas || fixture.away.cas !== result.awayCas;
+    if (overrides && !changed) { /* no-op save: leave resultEdit as it is */ }
+    else if (overrides) fixture.resultEdit = { ...(who.coach ? { by: who.coach } : {}), at: (deps.now?.() ?? new Date()).toISOString() };
     else delete fixture.resultEdit;
     // A both-lose deadline placeholder is a double concession: the real result entered over it is not.
     if (fixture.deadlineOutcome?.outcome === "both-lose") fixture.home.conceded = fixture.away.conceded = false;

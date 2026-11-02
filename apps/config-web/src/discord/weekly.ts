@@ -147,8 +147,9 @@ const resultLine = (f: LeagueFixture): string => {
   const a = safe(f.away.team, 60);
   const adm = adminResult(f);
   if (!adm) return `${h} ${f.home.score ?? 0} - ${f.away.score ?? 0} ${a}`;
-  // A forfeit without a score shows none; an override of a played score keeps it.
-  const score = f.home.score || f.away.score ? ` (${f.home.score ?? 0} - ${f.away.score ?? 0})` : "";
+  // A forfeit or concession with no score shows none; an override keeps its score, even 0 - 0.
+  const forfeit = f.deadlineOutcome?.outcome === "both-lose" || (!recordedResult(f) && (f.home.conceded || f.away.conceded));
+  const score = !forfeit || f.home.score || f.away.score ? ` (${f.home.score ?? 0} - ${f.away.score ?? 0})` : "";
   if (adm.kind === "loss-both") return `Admin loss: ${h} and ${a} (both teams)${score}`;
   if (adm.kind === "draw") return `Admin draw: ${h} and ${a}${score}`;
   return adm.winner === "home" ? `Admin win: ${h} over ${a}${score}` : `Admin win: ${a} over ${h}${score}`;

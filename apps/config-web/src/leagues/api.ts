@@ -1039,7 +1039,7 @@ async function patchFixture(league: LeagueRecord, seasonId: string, fixtureId: s
 export function seasonForViewer(league: LeagueRecord, full: SeasonRecord, auth: LeagueApiIdentity | undefined): SeasonRecord {
   // Redraft state (budgets, R&R, draft rosters) is served only by the authorised redraft routes, never in a season read.
   const { redraft: _r, ...season } = withCaptainCandidates(withStandings(full));
-  const fixtures = season.fixtures.map((f) => (f.forkNotice || f.fork ? publicForkState(f) : f));
+  const fixtures = season.fixtures.map((f) => (f.forkNotice || f.fork || f.resultEdit ? publicForkState(f) : f));
   // Organiser-only log entries (team value diff / not recomputed) stay with organisers and admins.
   const manager = Boolean(auth && (auth.admin || isLeagueOrganiser(league, auth.coach)));
   const payment = seasonPayment(league, full, auth, manager);

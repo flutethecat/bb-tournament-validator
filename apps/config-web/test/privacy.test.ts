@@ -379,6 +379,9 @@ describe("export", () => {
     const leagues = JSON.parse(text("league-teams.json"));
     expect(leagues[0].role).toBe("organiser");
     expect(leagues[0].seasons[0].teams.map((x: { id: string }) => x.id)).toEqual(["green-orcs"]);
+    // the result-override marker is the actor's own export only, never part of the fixture rows
+    expect(leagues[0].seasons[0].fixtures[0].resultEdit).toBeUndefined();
+    expect(leagues[0].seasons[0].resultEdits).toEqual([{ fixture: "f1", home: "Green Orcs", away: "Blue Elves", at: "2026-10-30T00:00:00.000Z" }]);
     // awards to Alice's account and by her, and the Hall of Fame entries she pinned; never the others'
     expect(leagues[0].awards.map((x: { id: string }) => x.id)).toEqual(["a-1", "a-2"]);
     expect(leagues[0].hallOfFame.map((x: { id: string }) => x.id)).toEqual(["p-1"]);
@@ -516,6 +519,7 @@ describe("delete", () => {
     expect(season.teams[0].nafUser).toBeUndefined();
     expect(season.teams[1]).toMatchObject({ coach: "BobNaf", nafUser: "BobNaf" });
     expect(season.fixtures[0].home.coach).toBe(P);
+    expect(season.fixtures[0].resultEdit.by).toBe(P);
     expect(season.participants[0].coach).toBe(P); // linked through the coach's team
     expect(season.phases[0].standings[0].coach).toBe(P); // unlinked row: display name learned from the linked team row
     expect(season.honours[0].rows[0]).toMatchObject({ name: "Grub", coach: P });

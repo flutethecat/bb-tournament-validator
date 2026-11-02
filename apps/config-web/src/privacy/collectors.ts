@@ -463,7 +463,11 @@ export const STORE_COLLECTORS: StoreCollector[] = [
           return {
             season: s.name, number: s.number,
             teams: objs(s.teams).filter(linked),
-            fixtures: objs(s.fixtures).filter((f) => linked(f.home) || linked(f.away)),
+            // resultEdit names the organiser who overrode a result: never given to the fixture's participants (see resultEdits).
+            fixtures: objs(s.fixtures).filter((f) => linked(f.home) || linked(f.away)).map(({ resultEdit: _e, ...f }) => f),
+            // Result overrides this coach made as an organiser (the actor only).
+            resultEdits: objs(s.fixtures).filter((f) => isObj(f.resultEdit) && isMine(ctx.keys, (f.resultEdit as Obj).by))
+              .map((f) => ({ fixture: f.id, home: (f.home as Obj | undefined)?.team, away: (f.away as Obj | undefined)?.team, at: (f.resultEdit as Obj).at })),
             participants: objs(s.participants).filter(linked),
             standings: objs(s.phases).flatMap((p) => objs(p.standings).filter(linked)),
             awards: objs(s.awards).filter(linked),
@@ -472,7 +476,7 @@ export const STORE_COLLECTORS: StoreCollector[] = [
             paidActions: objs(s.participants).filter((p) => isObj(p.paidUpdated) && isMine(ctx.keys, (p.paidUpdated as Obj).by))
               .map((p) => ({ ...(typeof p.teamId === "string" ? { teamId: p.teamId } : {}), team: p.team, paid: p.paid === true, at: (p.paidUpdated as Obj).at })),
           };
-        }).filter((r) => r.teams.length + r.fixtures.length + r.participants.length + r.standings.length + r.awards.length + r.registrations.length + r.paidActions.length > 0);
+        }).filter((r) => r.teams.length + r.fixtures.length + r.resultEdits.length + r.participants.length + r.standings.length + r.awards.length + r.registrations.length + r.paidActions.length > 0);
         const role = isMine(ctx.keys, league.owner) ? "owner" : (league.organisers ?? []).some((o) => isMine(ctx.keys, o)) ? "organiser" : undefined;
         if (rows.length || role || awards.length || pins.length)
           leagues.push({ league: league.name ?? league.id, id: league.id, ...(role ? { role } : {}), seasons: rows, ...(awards.length ? { awards } : {}), ...(pins.length ? { hallOfFame: pins } : {}) });
