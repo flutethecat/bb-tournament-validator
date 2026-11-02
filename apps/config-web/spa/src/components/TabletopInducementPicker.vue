@@ -7,7 +7,8 @@ import { createCartSync, picksKey } from "../tabletop/inducementCart";
 import type { Side } from "../tabletop/recorder";
 
 /** `icon` / `effectText` / `custom`: a league season's own inducement type (League settings, Inducements). */
-export interface InducementOption { id: string; name: string; price?: number; cost?: number; max?: number | null; icon?: string; effectText?: string; custom?: boolean }
+/** `prefilled`: how many the team already has, paid in the Builder (a fixture-summary match): never charged, never removed. */
+export interface InducementOption { id: string; name: string; price?: number; cost?: number; max?: number | null; icon?: string; effectText?: string; custom?: boolean; prefilled?: number }
 export interface InducementBudget { role: "favourite" | "underdog" | "equal"; pettyCash: number; treasury: number; topUpLimit: number; spent: number; submitted: boolean; lobby?: true }
 
 const props = defineProps<{
@@ -42,9 +43,10 @@ const iconOf = (o: InducementOption): string | undefined => (o.icon && o.icon.st
 const k = (n: number): string => `${Math.round(n / 1000)}k`;
 const bump = (o: InducementOption, d: number): void => {
   const cap = o.max ?? 9;
-  sync.state.picks[o.id] = Math.max(0, Math.min(cap, (sync.state.picks[o.id] ?? 0) + d));
+  sync.state.picks[o.id] = Math.max(o.prefilled ?? 0, Math.min(cap, (sync.state.picks[o.id] ?? 0) + d));
 };
-const cart = computed(() => props.options.filter((o) => (picks.value[o.id] ?? 0) > 0).map((o) => ({ ...o, qty: picks.value[o.id]!, line: priceOf(o) * picks.value[o.id]! })));
+// the server's pricing: a Builder-paid line (option.prefilled) costs nothing here
+const cart = computed(() => props.options.filter((o) => (picks.value[o.id] ?? 0) > 0).map((o) => ({ ...o, qty: picks.value[o.id]!, line: priceOf(o) * Math.max(0, picks.value[o.id]! - (o.prefilled ?? 0)) })));
 const total = computed(() => cart.value.reduce((n, l) => n + l.line, 0));
 /** What can be spent: the favourite pays from its treasury; the underdog has petty cash plus a capped treasury top-up. */
 const available = computed(() => {
@@ -80,10 +82,10 @@ const submit = (): void => emit("submit", props.side, cart.value.map((l) => ({ i
         <div v-for="o in options" :key="o.id" class="tt-ipk-row" role="listitem" :data-picked="(picks[o.id] ?? 0) > 0">
           <img v-if="iconOf(o)" class="tt-ipk-icon" :src="iconOf(o)" alt="" />
           <span v-else class="tt-ipk-icon tt-ipk-ph" aria-hidden="true">&#9733;</span>
-          <span class="tt-ipk-name">{{ o.name }}<small v-if="o.custom && o.effectText" class="tt-ipk-effect">{{ o.effectText }}</small></span>
+          <span class="tt-ipk-name">{{ o.name }}<small v-if="o.custom && o.effectText" class="tt-ipk-effect">{{ o.effectText }}</small><small v-if="o.prefilled" class="tt-ipk-effect" data-paid>{{ o.prefilled }} paid in the Builder</small></span>
           <span class="tt-ipk-cost">{{ priceOf(o) ? k(priceOf(o)) : "-" }}</span>
           <span class="tt-ipk-stepper">
-            <button type="button" class="tt-ipk-btn" :disabled="locked || (picks[o.id] ?? 0) <= 0" :aria-label="`Fewer ${o.name}`" @click="bump(o, -1)">&#8722;</button>
+            <button type="button" class="tt-ipk-btn" :disabled="locked || (picks[o.id] ?? 0) <= (o.prefilled ?? 0)" :aria-label="`Fewer ${o.name}`" @click="bump(o, -1)">&#8722;</button>
             <span class="tt-ipk-count">{{ picks[o.id] ?? 0 }}<small v-if="o.max">/{{ o.max }}</small></span>
             <button type="button" class="tt-ipk-btn" :disabled="locked || (o.max != null && (picks[o.id] ?? 0) >= o.max)" :aria-label="`More ${o.name}`" @click="bump(o, 1)">+</button>
           </span>

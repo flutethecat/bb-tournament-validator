@@ -487,8 +487,12 @@ describe("the recorder confirm uses the lobby's own rules (stars, Builder-paid l
   let dir = "";
   let store: LeagueStore;
   const tplayers = (n: number, prefix: string): TabletopPlayer[] => Array.from({ length: n }, (_, i) => ({ id: `${prefix}${i + 1}`, name: `${prefix} ${i + 1}`, spp: 0, skills: [], mng: false, niggles: 0, statLoss: {}, dead: false }));
-  const tfile = (race: string, prefix: string): TabletopTeamFile => ({ schema: 1, name: `${prefix} XI`, race, treasury: 100_000, dedicatedFans: 2, teamValue: 1_000_000, players: tplayers(11, prefix) });
   const STAR = "star:Akhorne the Squirrel";
+  // the recorder's team files: Ann's Orcs 1.0M (underdog), Bob's Humans 1.1M; Bob may carry a rostered star
+  const tfile = (race: string, prefix: string, tv: number, opts: { players?: number; star?: boolean } = {}): TabletopTeamFile => ({
+    schema: 1, name: `${prefix} XI`, race, treasury: 100_000, dedicatedFans: 2, teamValue: tv,
+    players: [...tplayers(opts.players ?? 11, prefix), ...(opts.star ? [{ id: `${prefix}s`, name: "Akhorne the Squirrel", positionName: "Akhorne the Squirrel", kind: "star", spp: 0, skills: [], mng: false, niggles: 0, statLoss: {}, dead: false } as TabletopPlayer] : [])],
+  });
   // Ann (home, underdog: 1.0M v 1.1M, 100K treasury) with a Builder-paid bribe; Bob the favourite
   function lobbyFx(opts: { kegsOff?: boolean } = {}): LobbyFixture {
     const { offers, ids } = seasonInducementOffers(undefined);
@@ -515,11 +519,12 @@ describe("the recorder confirm uses the lobby's own rules (stars, Builder-paid l
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-  async function seeded(fixture: LobbyFixture | undefined) {
+  type View = { phase: string; pregame: { tv: Record<string, number>; inducementOptions: Record<string, Array<{ id: string; max: number; price: number; prefilled?: number }>>; budget: Record<string, { role: string; pettyCash: number; topUpLimit: number; submitted: boolean }> } };
+  async function seeded(fixture: LobbyFixture | undefined, teamOpts: { annPlayers?: number; bobStar?: boolean } = {}) {
     const deps: TabletopApiDeps = {
       repo: new FileTabletopRepository(join(dir, "tt")), results: new TournamentResultStore(join(dir, "res")),
-      loadTeamFile: (coach) => (coach === "Ann" ? tfile("Orc", "a") : tfile("Human", "b")),
-      isBanned: () => false, isOrganizer: () => false, drawSeats: () => false, rollDie: () => 3,
+      loadTeamFile: (coach) => (coach === "Ann" ? tfile("Orc", "a", 1_000_000, { players: teamOpts.annPlayers }) : tfile("Human", "b", 1_100_000, { star: teamOpts.bobStar })),
+      isBanned: () => false, isOrganizer: (c) => c === "Org", drawSeats: () => false, rollDie: () => 3,
       leagueInducements: () => ({ config: undefined, active: true, coaches: ["Ann", "Bob"] }),
       fixtures: { get: (id) => leagueFixtureView(store, id), record: () => undefined, retract: () => undefined },
       lobbyRules: () => (fixture ? lobbyConfirmRules(fixture) : undefined),
@@ -532,43 +537,94 @@ describe("the recorder confirm uses the lobby's own rules (stars, Builder-paid l
     const made = await createMatch("Ann", false, body, deps, () => new Date("2026-11-02T12:00:00.000Z"), { inducementsByCoach: lists, fromLobby: true });
     const id = (made.body as { match: { id: string } }).match.id;
     const adv = async (coach: string, b: Record<string, unknown> = { mode: "site" }) => (await tabletopApi("POST", `/api/tabletop/matches/${id}/pregame/advance`, { coach, method: "discord" }, b, deps))!;
+    const edit = async (b: Record<string, unknown>) => (await tabletopApi("POST", `/api/tabletop/matches/${id}/inducements`, { coach: "Org", method: "discord" }, b, deps))!;
     let r = await adv("Ann");
     for (let i = 0; i < 2; i += 1) r = await adv("Ann");
-    return { deps, id, adv, view: r.body as { phase: string; pregame: { inducementOptions: Record<string, Array<{ id: string; max: number }>>; budget: Record<string, { role: string; pettyCash: number; topUpLimit: number }> } } };
+    return { deps, id, adv, edit, view: r.body as View };
   }
   const cart = [{ id: STAR, qty: 1 }, { id: "bribes", qty: 1 }];
+  const err = (r: { body: unknown }): string => (r.body as { error?: string }).error ?? "";
 
   it("confirming keeps a star hire and never charges a Builder-paid line again; the picker shows the lobby's catalogue", async () => {
     const { deps, id, adv, view } = await seeded(lobbyFx());
     expect(view.phase).toBe("pregame:inducements");
     expect(view.pregame.inducementOptions.home!.map((o) => o.id)).toContain(STAR);
-    expect(view.pregame.inducementOptions.home!.find((o) => o.id === "bribes")!.max).toBe(3);
+    expect(view.pregame.inducementOptions.home!.find((o) => o.id === "bribes")).toMatchObject({ max: 3, prefilled: 1 });
     expect(view.pregame.budget.home).toMatchObject({ role: "underdog", pettyCash: 100_000, topUpLimit: 50_000 });
     expect((await adv("Bob", { team: "away", skip: true })).status).toBe(200);
+    // still in the inducement step: removing the Builder-paid bribe is refused with the reason
+    const removed = await adv("Ann", { team: "home", picks: [{ id: STAR, qty: 1 }] });
+    expect(removed.status).toBe(400);
+    expect(err(removed)).toMatch(/already paid and cannot be removed/);
     const r = await adv("Ann", { team: "home", picks: cart });
     expect(r.status).toBe(200);
     expect((r.body as { phase: string }).phase).toBe("pregame:coin");
     const last = (await deps.repo.readEvents(id)).filter((e) => e.type === "inducement" && e.team === "home").at(-1)!;
     expect(last.payload).toMatchObject({ total: 80_000, treasury: 0 });
     expect((last.payload.picks as Array<{ id: string; qty: number; cost: number }>).map((p) => [p.id, p.qty, p.cost])).toEqual([[STAR, 1, 80_000], ["bribes", 1, 0]]);
-    // removing the Builder-paid bribe is refused
-    expect((await adv("Ann", { team: "home", picks: [{ id: STAR, qty: 1 }] })).status).not.toBe(200);
   });
 
-  it("changes follow the lobby's rules: a forbidden item, over budget and a star the other team has are refused", async () => {
+  it("changes follow the lobby's rules: a forbidden item, over budget and a star already in the match are refused", async () => {
     const { adv } = await seeded(lobbyFx({ kegsOff: true }));
     expect((await adv("Bob", { team: "away", skip: true })).status).toBe(200);
     expect((await adv("Ann", { team: "home", picks: [...cart, { id: "bloodweiser_kegs", qty: 1 }] })).status).toBe(400);
     expect((await adv("Ann", { team: "home", picks: [{ id: STAR, qty: 1 }, { id: "bribes", qty: 3 }] })).status).toBe(400); // 2 more bribes: 280K > 150K
-    // a star the other team already has cannot be added (the lobby's star rule)
-    expect(lobbyConfirmRules(lobbyFx()).plan("home", cart, 0, [STAR])).toMatchObject({ error: expect.stringMatching(/already plays for the other team/) });
-    // a valid change: drop the star, keep the paid bribe
-    const ok = await adv("Ann", { team: "home", picks: [{ id: "bribes", qty: 1 }] });
-    expect(ok.status).toBe(200);
-    expect((ok.body as { phase: string }).phase).toBe("pregame:coin");
+    expect(lobbyConfirmRules(lobbyFx()).plan("home", cart, 0, [STAR])).toMatchObject({ error: expect.stringMatching(/already plays in this match/) });
+    // "No inducements" keeps the paid bribe
+    const skip = await adv("Ann", { team: "home", skip: true });
+    expect(skip.status).toBe(200);
+    expect((skip.body as { phase: string }).phase).toBe("pregame:coin");
+  });
+
+  it("a star already on a roster (a Builder star) cannot be confirmed for the other team", async () => {
+    const { adv } = await seeded(lobbyFx(), { bobStar: true });
+    expect((await adv("Bob", { team: "away", skip: true })).status).toBe(200);
+    const r = await adv("Ann", { team: "home", picks: cart });
+    expect(r.status).toBe(400);
+    expect(err(r)).toMatch(/Akhorne the Squirrel already plays in this match/);
+  });
+
+  it("the petty-cash gap uses the team values after journeymen", async () => {
+    // Ann has 10 players: one journeyman joins, so her team value rises and the gap shrinks
+    const { view } = await seeded(lobbyFx(), { annPlayers: 10 });
+    expect(view.pregame.tv.home).toBeGreaterThan(1_000_000);
+    expect(view.pregame.budget.home!.pettyCash).toBe(view.pregame.tv.away! - view.pregame.tv.home!);
+    expect(view.pregame.budget.home!.pettyCash).toBeLessThan(100_000);
+  });
+
+  it("rules unreadable: the seeded star and paid line are in the catalogue and the list confirms unchanged", async () => {
+    const { adv, view } = await seeded(undefined);
+    expect(view.pregame.inducementOptions.home!.find((o) => o.id === STAR)).toMatchObject({ price: 80_000, max: 1 });
+    expect(view.pregame.inducementOptions.home!.find((o) => o.id === "bribes")).toMatchObject({ prefilled: 1 });
+    expect((await adv("Bob", { team: "away", skip: true })).status).toBe(200); // Bob's empty list: "No inducements" confirms it
+    expect((await adv("Ann", { team: "home", picks: [{ id: STAR, qty: 1 }] })).status).toBe(409); // a change cannot be judged
+    const r = await adv("Ann", { team: "home", picks: cart });
+    expect(r.status).toBe(200);
+    expect((r.body as { phase: string }).phase).toBe("pregame:coin");
+  });
+
+  it("an organiser's edit after the step uses the lobby's rules (skip keeps paid lines); override is explicit and marked", async () => {
+    const { deps, id, adv, edit } = await seeded(lobbyFx({ kegsOff: true }));
+    expect((await adv("Bob", { team: "away", skip: true })).status).toBe(200);
+    expect((await adv("Ann", { team: "home", picks: cart })).status).toBe(200);
+    // skip keeps the Builder-paid bribe and charges nothing
+    const skip = await edit({ team: "home", skip: true });
+    expect(skip.status).toBe(200);
+    let last = (await deps.repo.readEvents(id)).filter((e) => e.type === "inducement" && e.team === "home").at(-1)!;
+    expect(last.payload).toMatchObject({ total: 0, treasury: 0, adminEdit: true });
+    expect((last.payload.picks as Array<{ id: string }>).map((p) => p.id)).toEqual(["bribes"]);
+    // a forbidden item is refused by the lobby's rules; the paid bribe is not charged again
+    expect((await edit({ team: "home", picks: [...cart, { id: "bloodweiser_kegs", qty: 1 }] })).status).toBe(400);
+    expect((await edit({ team: "home", picks: cart })).status).toBe(200);
+    last = (await deps.repo.readEvents(id)).filter((e) => e.type === "inducement" && e.team === "home").at(-1)!;
+    expect(last.payload).toMatchObject({ total: 80_000 });
+    // override: the recorder's own pricing, marked on the record
+    const over = await edit({ team: "home", picks: [{ id: "bloodweiser_kegs", qty: 1 }], override: true });
+    expect(over.status).toBe(200);
+    last = (await deps.repo.readEvents(id)).filter((e) => e.type === "inducement" && e.team === "home").at(-1)!;
+    expect(last.payload).toMatchObject({ override: true, adminEdit: true });
   });
 });
-
 
 describe("privacy: who asked an organiser", () => {
   it("the export names the asker's lobby; deletion anonymises askedOrganiser.by", async () => {

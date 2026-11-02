@@ -1637,7 +1637,7 @@ async function pregameAdvance(
     if (!Array.isArray(picks)) return err(400, "picks must be an array (or send skip: true).");
     if (match.inducements) {
       // started from a fixture lobby: the lobby's own rules (one validator with the lobby picker)
-      const out2 = lobbyConfirm(match, deps, all(), side, b.skip === true ? [] : picks);
+      const out2 = lobbyPlanSeat(match, deps, all(), { home: baseTeams.home, away: baseTeams.away }, side, picks, { skip: b.skip === true, order: true });
       if ("error" in out2) return err(out2.status, out2.error);
       mk(earlier === 0 ? `pg-inducement-${side}` : `pg-inducement-${side}-${earlier + 1}`, "inducement", side, {
         ...out2.payload, submittedBy: me, ...(earlier > 0 ? { replaces: earlier } : {}),
@@ -1813,22 +1813,7 @@ function pregameViewOf(match: MatchRecord, events: readonly TabletopEvent[], bas
   if (phase === "pregame:inducements" && baseTeams.home && baseTeams.away) {
     Object.assign(view, inducementMenu({ teams: { home: baseTeams.home, away: baseTeams.away }, events, ...inducementSourceFor(match, deps) }));
     // a lobby match: the lobby's menu and budget (stars, package caps, Builder-paid lines), by the drawn seats
-    const lr = match.inducements ? lobbyRulesOf(match, deps) : undefined;
-    if (lr) {
-      const options: Record<string, unknown> = {}, budget: Record<string, unknown> = {};
-      for (const s of ["home", "away"] as const) {
-        const ls = lr.sideOf(match[s].coach);
-        if (!ls) continue;
-        const own = latestInducement(events, s);
-        const b = lr.budget(ls, lobbyOverdogSpend(lr, ls, match, events));
-        options[s] = lr.options(ls);
-        budget[s] = {
-          role: b.role === "overdog" ? "favourite" : b.role, pettyCash: b.pettyCash, treasury: b.treasury, topUpLimit: b.topUpLimit,
-          spent: Number(own?.payload.total ?? 0), submitted: inducementConfirmed(events, s), ...(own?.payload.lobby === true ? { lobby: true } : {}),
-        };
-      }
-      Object.assign(view, { inducementOptions: { ...(view.inducementOptions as object), ...options }, budget: { ...(view.budget as object), ...budget } });
-    }
+    if (match.inducements) Object.assign(view, lobbyPickerView(match, deps, events, baseTeams, view));
   }
   return view;
 }
@@ -1837,46 +1822,108 @@ function lobbyRulesOf(match: MatchRecord, deps: TabletopApiDeps): LobbyConfirmRu
   try { return deps.lobbyRules?.(match); } catch { return undefined; }
 }
 
-/** The favourite's treasury spend as confirmed here (what feeds the underdog's petty cash); 0 for the favourite itself. */
-function lobbyOverdogSpend(lr: LobbyConfirmRules, ls: "home" | "away", match: MatchRecord, events: readonly TabletopEvent[]): number {
-  if (ls !== lr.underdog || !lr.overdog) return 0;
-  const seat = (["home", "away"] as const).find((s) => lr.sideOf(match[s].coach) === lr.overdog);
-  if (!seat || !inducementConfirmed(events, seat)) return 0;
-  return Number(latestInducement(events, seat)?.payload.treasury ?? 0);
+type LobbySideId = "home" | "away";
+/** A lobby match's rules with the drawn seats mapped to the lobby's sides and the recorder's team values (journeymen in). */
+interface LobbyCtx { lr: LobbyConfirmRules; side: Record<Side, LobbySideId | undefined>; tv: Partial<Record<LobbySideId, number | null>> }
+function lobbyCtxOf(match: MatchRecord, deps: TabletopApiDeps, events: readonly TabletopEvent[], teams: Record<Side, TabletopTeamFile | undefined>): LobbyCtx | undefined {
+  const lr = lobbyRulesOf(match, deps);
+  if (!lr) return undefined;
+  const side = { home: lr.sideOf(match.home.coach), away: lr.sideOf(match.away.coach) };
+  const tv: LobbyCtx["tv"] = {};
+  for (const s of ["home", "away"] as const) {
+    const ls = side[s], f = teams[s];
+    if (!ls || !f) continue;
+    // the petty-cash gap uses the team values after journeymen, as the recorder's own pricing does
+    const v = teamValueWithJourneymen(f, events.filter((e) => e.type === "journeyman" && e.team === s).map((e) => e.payload.player as TabletopPlayer));
+    if (typeof v === "number") tv[ls] = v;
+  }
+  return { lr, side, tv };
+}
+const seatOf = (ctx: LobbyCtx, ls: LobbySideId | undefined): Side | undefined => (ls ? (["home", "away"] as const).find((s) => ctx.side[s] === ls) : undefined);
+
+/** The favourite's treasury spend in force (what feeds the underdog's petty cash); 0 for anyone else. */
+function ctxOverdogSpend(ctx: LobbyCtx, events: readonly TabletopEvent[], seat: Side, confirmedOnly = true): number {
+  const r = ctx.lr.roles(ctx.tv);
+  if (!r.overdog || ctx.side[seat] !== r.underdog) return 0;
+  const over = seatOf(ctx, r.overdog);
+  if (!over || (confirmedOnly && !inducementConfirmed(events, over))) return 0;
+  return Number(latestInducement(events, over)?.payload.treasury ?? 0);
+}
+
+/** Star ids no team may hire here: the other team's picks and every star already on either roster (Builder stars). */
+function takenStars(teams: Record<Side, TabletopTeamFile | undefined>, events: readonly TabletopEvent[], seat: Side): string[] {
+  const other: Side = seat === "home" ? "away" : "home";
+  const picked = ((latestInducement(events, other)?.payload.picks as Array<{ id: string }> | undefined) ?? []).map((p) => p.id).filter((id) => id.startsWith("star:"));
+  const rostered = (["home", "away"] as const).flatMap((s) => (teams[s]?.players ?? []).filter((p) => p.kind === "star" && !p.dead).flatMap((p) => [`star:${p.positionName ?? p.name}`, `star:${p.name}`]));
+  return [...new Set([...picked, ...rostered])];
+}
+
+/** The seeded (lobby) list of a seat and its Builder-paid lines. */
+const seededOf = (events: readonly TabletopEvent[], seat: Side) => events.find((e) => e.id === `pg-inducement-${seat}`)?.payload;
+const paidLinesOf = (seeded: Record<string, unknown> | undefined): Array<{ id: string; qty: number }> =>
+  ((seeded?.picks as Array<{ id: string; prefilled?: number }> | undefined) ?? []).filter((p) => Number(p.prefilled) > 0).map((p) => ({ id: p.id, qty: Number(p.prefilled) }));
+
+/** The picker for a lobby match: the lobby's catalogue and budget; without the lobby's rules, the seeded lines are added. */
+function lobbyPickerView(match: MatchRecord, deps: TabletopApiDeps, events: readonly TabletopEvent[], teams: Record<Side, TabletopTeamFile | undefined>, view: Record<string, unknown>): Record<string, unknown> {
+  const ctx = lobbyCtxOf(match, deps, events, teams);
+  const options: Record<string, unknown> = {}, budget: Record<string, unknown> = {};
+  const base = (view.inducementOptions ?? {}) as Record<string, Array<{ id: string }>>;
+  const baseBudget = (view.budget ?? {}) as Record<string, Record<string, unknown>>;
+  for (const s of ["home", "away"] as const) {
+    const own = latestInducement(events, s);
+    const flags = { spent: Number(own?.payload.total ?? 0), submitted: inducementConfirmed(events, s), ...(own?.payload.lobby === true ? { lobby: true } : {}) };
+    const ls = ctx?.side[s];
+    if (ctx && ls) {
+      const b = ctx.lr.budget(ls, ctxOverdogSpend(ctx, events, s), ctx.tv);
+      options[s] = ctx.lr.options(ls, ctx.tv);
+      budget[s] = { role: b.role === "overdog" ? "favourite" : b.role, pettyCash: b.pettyCash, treasury: b.treasury, topUpLimit: b.topUpLimit, ...flags };
+      continue;
+    }
+    // rules unreadable: the seeded lines join the catalogue (stars and Builder-paid lines included) so "confirm unchanged" works
+    const seeded = (seededOf(events, s)?.picks as Array<{ id: string; name?: string; qty: number; cost: number; prefilled?: number }> | undefined) ?? [];
+    const extra = seeded.filter((p) => !(base[s] ?? []).some((o) => o.id === p.id)).map((p) => {
+      const paid = Number(p.prefilled ?? 0), bought = Math.max(0, p.qty - paid);
+      return { id: p.id, name: p.name ?? p.id, price: bought ? Math.round(p.cost / bought) : 0, max: p.qty, ...(paid ? { prefilled: paid } : {}) };
+    });
+    options[s] = [...(base[s] ?? []).map((o) => { const p = seeded.find((x) => x.id === o.id); return p?.prefilled ? { ...o, prefilled: p.prefilled } : o; }), ...extra];
+    budget[s] = { ...(baseBudget[s] ?? {}), ...flags };
+  }
+  return { inducementOptions: { ...base, ...options }, budget: { ...baseBudget, ...budget } };
 }
 
 /**
- * The recorder's confirm of a lobby match's inducements for one drawn seat: the lobby's validator with the favourite's
- * spend as confirmed here. Without the lobby's rules (fixture unreadable) only the pre-filled list itself can be confirmed.
+ * One seat's list judged by the lobby's rules (the confirm at the pre-game step, and an organiser's edit): the resolved
+ * payload, or why not. `skip` keeps the Builder-paid lines. Without the lobby's rules only the seeded list itself passes.
  */
-function lobbyConfirm(match: MatchRecord, deps: TabletopApiDeps, events: readonly TabletopEvent[], side: Side, picks: unknown[]):
-  { payload: Record<string, unknown> } | { status: number; error: string } {
-  const other: Side = side === "home" ? "away" : "home";
-  const lr = lobbyRulesOf(match, deps);
-  const seeded = events.find((e) => e.id === `pg-inducement-${side}`)?.payload;
-  if (!lr) {
+function lobbyPlanSeat(match: MatchRecord, deps: TabletopApiDeps, events: readonly TabletopEvent[], teams: Record<Side, TabletopTeamFile | undefined>,
+  seat: Side, rawPicks: unknown, opts: { skip: boolean; order: boolean; spend?: number }): { payload: Record<string, unknown> } | { status: number; error: string } {
+  const other: Side = seat === "home" ? "away" : "home";
+  const seeded = seededOf(events, seat);
+  const picks = opts.skip ? paidLinesOf(seeded) : rawPicks;
+  const ctx = lobbyCtxOf(match, deps, events, teams);
+  if (!ctx) {
     // the underdog (petty cash in its lobby list) still goes second
-    const otherSeed = events.find((e) => e.id === `pg-inducement-${other}`)?.payload;
-    if (Number(seeded?.pettyCash ?? 0) > 0 && Number(otherSeed?.pettyCash ?? 0) === 0 && !inducementConfirmed(events, other))
+    const otherSeed = seededOf(events, other);
+    if (opts.order && Number(seeded?.pettyCash ?? 0) > 0 && Number(otherSeed?.pettyCash ?? 0) === 0 && !inducementConfirmed(events, other))
       return { status: 409, error: `The higher-value team (${other}) goes first: its treasury spending feeds the petty cash.` };
     const key = (list: unknown) => JSON.stringify((Array.isArray(list) ? list : []).map((p) => [String((p as { id?: unknown }).id), Number((p as { qty?: unknown }).qty)]).sort());
     if (!seeded || key(picks) !== key(seeded.picks)) return { status: 409, error: "The fixture's inducement rules cannot be read right now: confirm the list as picked, or try again later." };
     return { payload: { picks: seeded.picks, total: seeded.total, treasury: seeded.treasury, pettyCash: seeded.pettyCash, skipped: (seeded.picks as unknown[]).length === 0, confirmedAsPicked: true } };
   }
-  const ls = lr.sideOf(match[side].coach);
+  const ls = ctx.side[seat];
   if (!ls) return { status: 409, error: "This match's coaches no longer match its fixture." };
-  if (ls === lr.underdog && lr.overdog) {
-    const seat = (["home", "away"] as const).find((s) => lr.sideOf(match[s].coach) === lr.overdog);
-    if (seat && !inducementConfirmed(events, seat)) return { status: 409, error: `The higher-value team (${seat}) goes first: its treasury spending feeds the petty cash.` };
+  const r = ctx.lr.roles(ctx.tv);
+  if (opts.order && ls === r.underdog && r.overdog) {
+    const over = seatOf(ctx, r.overdog);
+    if (over && !inducementConfirmed(events, over)) return { status: 409, error: `The higher-value team (${over}) goes first: its treasury spending feeds the petty cash.` };
   }
-  const spend = lobbyOverdogSpend(lr, ls, match, events);
-  const otherPicks = ((latestInducement(events, other)?.payload.picks as Array<{ id: string }> | undefined) ?? []).map((p) => p.id);
-  const plan = lr.plan(ls, picks, spend, otherPicks);
+  const spend = opts.spend ?? ctxOverdogSpend(ctx, events, seat, opts.order);
+  const plan = ctx.lr.plan(ls, picks, spend, takenStars(teams, events, seat), ctx.tv);
   if ("error" in plan) return { status: 400, error: plan.error };
   return {
     payload: {
       picks: plan.picks, total: plan.total, treasury: plan.treasury, pettyCash: plan.pettyCash, skipped: plan.picks.length === 0,
-      ...(ls === lr.underdog && lr.overdog ? { overdogSpend: spend } : {}),
+      ...(ls === r.underdog && r.overdog ? { overdogSpend: spend } : {}),
     },
   };
 }
@@ -1936,6 +1983,8 @@ async function inducementEditMenu(match: MatchRecord, deps: TabletopApiDeps): Pr
   const teams = await currentTeams(deps.repo, match);
   if (!teams.home || !teams.away) return err(409, "Team files are missing.");
   const menu = inducementMenu({ teams: { home: teams.home, away: teams.away }, events, ...inducementSourceFor(match, deps) });
+  // a lobby match: the lobby's catalogue and budget (stars, package caps, Builder-paid lines)
+  if (match.inducements) Object.assign(menu, lobbyPickerView(match, deps, events, teams, menu as unknown as Record<string, unknown>));
   const picksOf = (s: Side) => ((latestInducement(events, s)?.payload.picks as Array<{ id: string; qty: number }> | undefined) ?? []).map((p) => ({ id: p.id, qty: p.qty }));
   const block = inducementEditBlock(match);
   return {
@@ -1970,8 +2019,22 @@ async function editInducements(match: MatchRecord, me: string, body: unknown, de
   const prev = latestInducement(stored, side);
   const otherPrev = latestInducement(stored, other);
   const spentOf = (e: TabletopEvent | undefined): number => Number((e?.payload as { treasury?: number } | undefined)?.treasury ?? 0);
-  const plan = planInducements({ offers, file: teams[side]!, picks, role: roleOf(side), tvDifference: gap, favouriteSpent: roleOf(side) === "underdog" ? spentOf(otherPrev) : 0 });
-  if ("error" in plan) return err(400, plan.error);
+  // A match started from a fixture lobby: the edit is judged by that lobby's rules (Builder-paid lines kept, "skip" keeps
+  // them too), unless the organiser sends override: true (the recorder's own pricing; marked on the record and logged).
+  const fromLobby = Boolean(match.inducements && match.fixtureRef && deps.lobbyRules);
+  const lobbyRules = fromLobby && b.override !== true;
+  const override = fromLobby && b.override === true;
+  if (override) console.warn(`[tabletop] organiser inducement edit with override on match ${match.id} (${side})`);
+  let plan: { picks: unknown[]; total: number; treasury: number; pettyCash: number };
+  if (lobbyRules) {
+    const res = lobbyPlanSeat(match, deps, stored, teams, side, picks, { skip: b.skip === true, order: false });
+    if ("error" in res) return err(res.status, res.status === 409 ? `${res.error} An organiser can send override: true to edit by the recorder's own pricing.` : res.error);
+    plan = res.payload as typeof plan;
+  } else {
+    const legacy = planInducements({ offers, file: teams[side]!, picks, role: roleOf(side), tvDifference: gap, favouriteSpent: roleOf(side) === "underdog" ? spentOf(otherPrev) : 0 });
+    if ("error" in legacy) return err(400, legacy.error);
+    plan = legacy;
+  }
   const prayers = (list: unknown): number => ((list as Array<{ id: string; qty: number }> | undefined) ?? []).find((p) => p.id === "prayers_to_nuffle")?.qty ?? 0;
   const prayersChanged = prayers(prev?.payload.picks) !== prayers(plan.picks);
   if (prayersChanged && PRAYER_LOCKED_PHASES.has(match.phase ?? "playing")) return err(409, "Prayers to Nuffle are rolled before the kick-off: their number cannot change now.");
@@ -1985,12 +2048,18 @@ async function editInducements(match: MatchRecord, me: string, body: unknown, de
     ts: at, by: me, admin: true,
   } as TabletopEvent);
   const out: TabletopEvent[] = [record(id, side, plan, {
-    treasuryBefore: spentOf(prev), ...(prev ? { replaces: prev.id } : {}), ...(prayersChanged ? { prayersChanged: true } : {}),
+    treasuryBefore: spentOf(prev), ...(prev ? { replaces: prev.id } : {}), ...(prayersChanged ? { prayersChanged: true } : {}), ...(override ? { override: true } : {}),
   })];
   // The favourite's treasury spend feeds the underdog's petty cash: re-price the underdog's picks in force.
-  if (roleOf(side) === "favourite" && otherPrev && spentOf(prev) !== plan.treasury) {
+  const ctx = lobbyRules ? lobbyCtxOf(match, deps, stored, teams) : undefined;
+  const favourite = ctx ? ctx.side[side] !== undefined && ctx.side[side] === ctx.lr.roles(ctx.tv).overdog : roleOf(side) === "favourite";
+  if (favourite && otherPrev && spentOf(prev) !== plan.treasury) {
     const theirPicks = ((otherPrev.payload.picks as Array<{ id: string; qty: number }> | undefined) ?? []).map((p) => ({ id: p.id, qty: p.qty }));
-    const again = planInducements({ offers, file: teams[other]!, picks: theirPicks, role: "underdog", tvDifference: gap, favouriteSpent: plan.treasury });
+    let again: { picks: unknown[]; total: number; treasury: number; pettyCash: number } | { error: string };
+    if (ctx) {
+      const res = lobbyPlanSeat(match, deps, [...stored, ...out], teams, other, theirPicks, { skip: false, order: false, spend: plan.treasury });
+      again = "error" in res ? { error: res.error } : (res.payload as { picks: unknown[]; total: number; treasury: number; pettyCash: number });
+    } else again = planInducements({ offers, file: teams[other]!, picks: theirPicks, role: "underdog", tvDifference: gap, favouriteSpent: plan.treasury });
     if ("error" in again) return err(409, `That leaves ${match[other].teamName} over its budget (${again.error}) Edit their inducements first.`);
     if (again.treasury !== spentOf(otherPrev) || again.pettyCash !== Number(otherPrev.payload.pettyCash ?? 0)) {
       // its own id, derived from the WHOLE edit id (never a truncation, which two long ids could share) and linked by followsFrom

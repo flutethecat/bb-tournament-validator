@@ -395,50 +395,65 @@ export function applyStarRule(fx: LobbyFixture, rec: Pick<LobbyRecord, "sides">,
 // ---- the recorder's confirm of a lobby-seeded list (fixture summary, UX pass 11-02) ---------------------------------
 
 /**
- * The rules the recorder's inducement step uses for a match started from this lobby: the SAME menu, budget and validator
- * as the lobby picker (stars, package allowances and caps, roster restrictions, treasury top-up, Builder-paid lines), so
- * confirming or changing a pre-filled list never drops a valid hire or charges a paid line twice. Sides here are the
- * lobby's own; the recorder maps its drawn seats by coach (sideOf).
+ * The rules the recorder's inducement step (and an organiser's inducement edit) uses for a match started from this lobby:
+ * the SAME menu, budget and validator as the lobby picker (stars, package allowances and caps, roster restrictions,
+ * treasury top-up, Builder-paid lines), so confirming or changing a pre-filled list never drops a valid hire or charges a
+ * paid line twice. Sides here are the lobby's own; the recorder maps its drawn seats by coach (sideOf). `tv` = the team
+ * values the recorder judges by (after journeymen); absent = the lobby's. `taken` = star ids that cannot be hired (the
+ * other team's picks and both teams' rostered stars).
  */
 export interface LobbyConfirmRules {
   sideOf(coach: string): LobbySide | undefined;
-  overdog?: LobbySide;
-  underdog?: LobbySide;
-  /** The picker's catalogue: `max` counts the Builder-paid lines too (the cart starts with them). */
-  options(side: LobbySide): Array<{ id: string; name: string; price: number; max: number; prefilled?: number }>;
-  budget(side: LobbySide, overdogSpend: number): SideBudget;
+  roles(tv?: TvOverride): TvRoles;
+  /** The picker's catalogue: `max` counts the Builder-paid lines too (the cart starts with them); `prefilled` = paid. */
+  options(side: LobbySide, tv?: TvOverride): Array<{ id: string; name: string; price: number; max: number; prefilled?: number }>;
+  budget(side: LobbySide, overdogSpend: number, tv?: TvOverride): SideBudget;
+  /** The Builder-paid lines (they stay whatever is picked, "No inducements" included). */
+  paid(side: LobbySide): LobbyPick[];
   /** A full list as the recorder's cart holds it (Builder-paid lines included): the resolved side, or why not. */
-  plan(side: LobbySide, picks: unknown, overdogSpend: number, otherPicks: readonly string[]): ResolvedSide | { error: string };
+  plan(side: LobbySide, picks: unknown, overdogSpend: number, taken: readonly string[], tv?: TvOverride): ResolvedSide | { error: string };
 }
+export type TvOverride = Partial<Record<LobbySide, number | null>>;
 
 const holdOf = (fx: LobbyFixture, overdogSpend: number): Pick<LobbyRecord, "hold"> => {
   const r = tvRoles(fx);
   return r.underdog && overdogSpend > 0 ? { hold: { at: "", underdog: r.underdog, overdogSpend, pettyCash: r.gap + overdogSpend, was: r.gap } } : {};
 };
+/** The fixture with the recorder's team values (after journeymen) in place of the lobby's. */
+function withTv(fx: LobbyFixture, tv: TvOverride | undefined): LobbyFixture {
+  if (!tv) return fx;
+  const side = (s: LobbySide) => (typeof tv[s] === "number" ? { ...fx.sides[s], team: { ...fx.sides[s].team, tv: tv[s] as number } } : fx.sides[s]);
+  return { ...fx, sides: { home: side("home"), away: side("away") } };
+}
 
-export function lobbyConfirmRules(fx: LobbyFixture): LobbyConfirmRules {
-  const r = tvRoles(fx);
+export function lobbyConfirmRules(base: LobbyFixture): LobbyConfirmRules {
   const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
   return {
-    sideOf: (coach) => LOBBY_SIDES.find((s) => fx.sides[s].coachId && same(fx.sides[s].coachId, coach)),
-    ...(r.overdog ? { overdog: r.overdog } : {}),
-    ...(r.underdog ? { underdog: r.underdog } : {}),
-    options: (side) => (inducementStep(fx) ? [] : menuFor(fx, side).flatMap((c) => c.items.map((i) => ({
-      id: i.id, name: i.name, price: i.price, max: i.max + (i.prefilled ?? 0), ...(i.prefilled ? { prefilled: i.prefilled } : {}),
-    })))),
-    budget: (side, overdogSpend) => budgetFor(fx, holdOf(fx, overdogSpend), side),
-    plan: (side, raw, overdogSpend, otherPicks) => {
+    sideOf: (coach) => LOBBY_SIDES.find((s) => base.sides[s].coachId && same(base.sides[s].coachId, coach)),
+    roles: (tv) => tvRoles(withTv(base, tv)),
+    options: (side, tv) => {
+      const fx = withTv(base, tv);
+      const paidOnly = prefilledLines(fx, side).map((l) => ({ id: l.id, name: l.name, price: 0, max: l.qty, prefilled: l.qty }));
+      if (inducementStep(fx) || !sideHasStep(fx, side)) return paidOnly;
+      return menuFor(fx, side).flatMap((c) => c.items.map((i) => ({ id: i.id, name: i.name, price: i.price, max: i.max + (i.prefilled ?? 0), ...(i.prefilled ? { prefilled: i.prefilled } : {}) })));
+    },
+    budget: (side, overdogSpend, tv) => { const fx = withTv(base, tv); return budgetFor(fx, holdOf(fx, overdogSpend), side); },
+    paid: (side) => (base.prefilled?.[side] ?? []).filter((p) => p.qty > 0).map((p) => ({ id: p.id, qty: p.qty })),
+    plan: (side, raw, overdogSpend, taken, tv) => {
+      const fx = withTv(base, tv);
       const parsed = parsePicks(raw);
       if ("error" in parsed) return parsed;
-      // the cart carries the Builder-paid lines: they are not charged again (the allowance is kept)
+      // the cart carries the Builder-paid lines: they are not charged again (the allowance is kept) and stay
       const own = parsed.map((p) => ({ id: p.id, qty: p.qty - prefilledQty(fx, side, p.id) }));
-      if (own.some((p) => p.qty < 0)) return { error: "A line bought in the Builder cannot be removed." };
+      if (own.some((p) => p.qty < 0) || (fx.prefilled?.[side] ?? []).some((p) => p.qty > 0 && !parsed.some((x) => x.id === p.id)))
+        return { error: "A line bought in the Builder is already paid and cannot be removed." };
       const picks = own.filter((p) => p.qty > 0);
       if (picks.length && inducementStep(fx)) return { error: inducementStep(fx) };
       if (picks.length && !sideHasStep(fx, side)) return { error: `${fx.sides[side].team.name} buys no inducements in this fixture.` };
-      const clash = picks.find((p) => p.id.startsWith(STAR_PREFIX) && otherPicks.includes(p.id));
-      if (clash) return { error: `${clash.id.slice(STAR_PREFIX.length)} already plays for the other team.` };
-      const plan = picks.length ? planSide(fx, holdOf(fx, overdogSpend), side, picks) : { picks: [], total: 0, treasury: 0, pettyCash: budgetFor(fx, holdOf(fx, overdogSpend), side).pettyCash };
+      const clash = picks.find((p) => p.id.startsWith(STAR_PREFIX) && taken.includes(p.id));
+      if (clash) return { error: `${clash.id.slice(STAR_PREFIX.length)} already plays in this match.` };
+      const hold = holdOf(fx, overdogSpend);
+      const plan = picks.length ? planSide(fx, hold, side, picks) : { picks: [], total: 0, treasury: 0, pettyCash: budgetFor(fx, hold, side).pettyCash };
       if ("error" in plan) return plan;
       return fx.mode === "tabletop" ? withPrefilled(fx, side, plan) : plan;
     },

@@ -147,6 +147,19 @@ describe("inducement picker", () => {
     expect(html).toContain("Waiting for Bob Elves (higher team value)");
   });
 
+  it("a Builder-paid line costs nothing in the cart (the server's allowance): the paid bribe and an 80K star fit a 150K budget", async () => {
+    const opts = [{ id: "bribes", name: "Bribes", price: 100_000, max: 3, prefilled: 1 }, { id: "star:Akhorne the Squirrel", name: "Akhorne the Squirrel", price: 80_000, max: 1 }];
+    const html = await mount(mods.pickerC, {
+      ...base, options: opts, initial: [{ id: "bribes", qty: 1 }, { id: "star:Akhorne the Squirrel", qty: 1 }],
+      budget: { role: "underdog", pettyCash: 100_000, treasury: 100_000, topUpLimit: 50_000, spent: 0, submitted: false },
+    });
+    expect(html).toContain("1 paid in the Builder");
+    expect(html).toMatch(/Spent <b>80k<\/b>/);
+    expect(html).toMatch(/Left <b>70k<\/b>/);
+    expect(html).not.toContain("Over budget");
+    expect(html).toMatch(/<button[^>]*disabled[^>]*aria-label="Fewer Bribes"/);
+  });
+
   it("lists pre-filled from the fixture summary show in the cart, unconfirmed: Confirm (not Resubmit), and the underdog waits", async () => {
     const match = { id: "m", state: "recording", home: { coach: "Alice", teamName: "Alice Orcs", teamSaveId: "a" }, away: { coach: "Bob", teamName: "Bob Elves", teamSaveId: "b" }, postMatch: "full", createdBy: "Alice", confirmations: {} };
     const html = await mount(mods.pregameC, {
