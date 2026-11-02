@@ -144,7 +144,10 @@ watch(picker, async (p, was) => {
   if (p && !was) {
     window.addEventListener("keydown", onKey, true);
     await nextTick();
-    (dialog.value?.querySelector<HTMLElement>(".tn-modal-x") ?? dialog.value)?.focus({ preventScroll: true });
+    // the ref can be a non-element (a test stub or a server render): only a real element takes focus
+    const box = dialog.value;
+    if (typeof box?.querySelector !== "function") return;
+    (box.querySelector<HTMLElement>(".tn-modal-x") ?? box).focus?.({ preventScroll: true });
   } else if (!p && was) window.removeEventListener("keydown", onKey, true);
 });
 onUnmounted(() => { if (typeof window !== "undefined") window.removeEventListener("keydown", onKey, true); });
