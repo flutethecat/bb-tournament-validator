@@ -14,17 +14,28 @@ import { oneLine } from "./templates.js";
 export interface ActionMessageInput {
   record: Pick<NotificationRecord, "type" | "from" | "title" | "link">;
   subject?: string;
+  /** NotificationInput.action: the row needs the recipient to act (gates the ACTION_DM_WHEN_FLAGGED types). */
+  action?: boolean;
   url: string;
 }
 
-export type ActionMessageBuilder = (m: { from: string; subject: string; url: string }) => string;
+/** `title` is the notification's own title (Discord-escaped like the names). */
+export type ActionMessageBuilder = (m: { from: string; subject: string; url: string; title: string }) => string;
 
-/** Notification type -> DM text. Only the game-time proposal types are on. */
+/** Notification type -> DM text. The game-time proposal types, and the registration rows of registration spec Q18. */
 export const ACTION_DM: Partial<Record<NotificationType, ActionMessageBuilder>> = {
   "proposal-received": ({ from, subject, url }) => `${from} proposed times for ${subject}. Accept or decline: ${url}`,
   "proposal-countered": ({ from, subject, url }) => `${from} suggested other times for ${subject}. Accept or decline: ${url}`,
   "proposal-accepted": ({ from, subject, url }) => `${from} accepted a time for ${subject}. See it on your schedule: ${url}`,
+  // Registration core (src/registration/notify.ts): the coach's accepted / declined / promoted outcome, and the
+  // organisers' registrations that wait for their decision (approval mode, or a place freed with a waitlist).
+  "registration-outcome": ({ title, url }) => `${title}. See your entry: ${url}`,
+  registration: ({ title, url }) => `${title}. Review registrations: ${url}`,
 };
+
+/** Types that DM only when the emitter marks the row actionable (NotificationInput.action). Every other emitter of these
+ *  types (today's tournament registration notices) stays bell-only. */
+export const ACTION_DM_WHEN_FLAGGED: ReadonlySet<NotificationType> = new Set<NotificationType>(["registration-outcome", "registration"]);
 
 export const isActionDmType = (type: NotificationType): boolean => Object.hasOwn(ACTION_DM, type);
 
@@ -44,7 +55,12 @@ export function escapeDiscordName(name: string): string {
 export function actionDmText(m: ActionMessageInput): { text: string; plain: string } | undefined {
   const build = ACTION_DM[m.record.type];
   if (!build) return undefined;
+  if (ACTION_DM_WHEN_FLAGGED.has(m.record.type) && m.action !== true) return undefined;
   const from = oneLine(m.record.from) || "Someone";
   const subject = oneLine(m.subject ?? "") || "your fixture";
-  return { text: build({ from: escapeDiscordName(from), subject: escapeDiscordName(subject), url: m.url }), plain: build({ from, subject, url: m.url }) };
+  const title = oneLine(m.record.title);
+  return {
+    text: build({ from: escapeDiscordName(from), subject: escapeDiscordName(subject), url: m.url, title: escapeDiscordName(title) }),
+    plain: build({ from, subject, url: m.url, title }),
+  };
 }

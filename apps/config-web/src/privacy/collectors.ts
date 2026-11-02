@@ -24,6 +24,7 @@ import { avatarStoreFor } from "../teamAvatars.js";
 import { notificationCoachKey, notificationFileName } from "../notifications.js";
 import { socialFileName } from "../social/store.js";
 import { ProposalStore } from "../schedule/store.js";
+import { anonymiseLeagueRegistration, anonymiseRegistrationTrail, ownLeagueRegistrations } from "../registration/privacy.js";
 import { createAnonymiser, createTextReplacer, nameKey, textAliases, type Anonymiser, type TextReplacer } from "./anonymise.js";
 import { coachKeyHash, isReservedCoachName } from "./fence.js";
 import { addToBlocklist, mapHash, markRecentDeletion, recordDeletedCoach, type StepStatus } from "./state.js";
@@ -457,8 +458,9 @@ export const STORE_COLLECTORS: StoreCollector[] = [
             participants: objs(s.participants).filter(linked),
             standings: objs(s.phases).flatMap((p) => objs(p.standings).filter(linked)),
             awards: objs(s.awards).filter(linked),
+            registrations: ownLeagueRegistrations(s, (v) => isMine(ctx.keys, v)),
           };
-        }).filter((r) => r.teams.length + r.fixtures.length + r.participants.length + r.standings.length + r.awards.length > 0);
+        }).filter((r) => r.teams.length + r.fixtures.length + r.participants.length + r.standings.length + r.awards.length + r.registrations.length > 0);
         const role = isMine(ctx.keys, league.owner) ? "owner" : (league.organisers ?? []).some((o) => isMine(ctx.keys, o)) ? "organiser" : undefined;
         if (rows.length || role || awards.length || pins.length)
           leagues.push({ league: league.name ?? league.id, id: league.id, ...(role ? { role } : {}), seasons: rows, ...(awards.length ? { awards } : {}), ...(pins.length ? { hallOfFame: pins } : {}) });
@@ -791,6 +793,8 @@ function anonymiseTournaments(an: Anonymiser, tx: TextReplacer, data: Obj): bool
       for (const k of ["nafNumber", "notNafMember", "nafPending", "nafSnapshot"]) if (k in e) { delete e[k]; changed = true; }
     }
     mark(an.fields(e.coach, identity, ["discordUserId"]));
+    // Registration core (src/registration): the organiser decision and the audited transitions.
+    mark(anonymiseRegistrationTrail(an, tx, e));
   }
   for (const m of vals(data.scheduledMatches)) {
     for (const s of [m.home, m.away]) if (isObj(s)) mark(an.fields(s.coach, identity, ["discordUserId"]));
@@ -863,6 +867,8 @@ function anonymiseSeason(an: Anonymiser, tx: TextReplacer, displays: ReadonlySet
     // Participants tab: the organiser who last changed the row's flags.
     if (isObj(p.flagsUpdated)) mark(an.fields(p.flagsUpdated, ["by"], []));
   }
+  // League registrations (src/registration): the coach's own rows, and every decision / transition they made.
+  for (const r of objs(s.registrations)) mark(anonymiseLeagueRegistration(an, tx, r));
   for (const ph of objs(s.phases)) for (const r of objs(ph.standings)) if (linked(r)) mark(LINKED_ROW(an, r));
   for (const h of objs(s.honours)) {
     for (const r of objs(h.rows)) {

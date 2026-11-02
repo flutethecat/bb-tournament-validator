@@ -218,10 +218,10 @@ export function createMailService(stateDir: string, env: Record<string, string |
    * An actionable notification was stored (NotificationStore onAdded): queue the bot DM when its type DMs
    * (src/mail/actionMessages.ts), DMs are set up, and the coach has Discord linked and has not opted out.
    */
-  function notifyAction(coach: string, record: NotificationRecord, input?: Pick<NotificationInput, "subject">): boolean {
+  function notifyAction(coach: string, record: NotificationRecord, input?: Pick<NotificationInput, "subject" | "action">): boolean {
     if (!discordEnabled() || !discordDmEligible(coach).ok) return false;
     const url = absolute(record.link.startsWith("/") ? record.link : "/app/");
-    const dm = actionDmText({ record, ...(input?.subject ? { subject: input.subject } : {}), url });
+    const dm = actionDmText({ record, ...(input?.subject ? { subject: input.subject } : {}), ...(input?.action ? { action: true } : {}), url });
     if (!dm) return false;
     const r = enqueue([{
       key: `action:dm:${mailCoachKey(coach)}:${record.id}:${record.at}`,

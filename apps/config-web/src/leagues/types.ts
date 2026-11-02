@@ -36,6 +36,8 @@ export interface LeagueRecord {
   discordEvents?: DiscordEvents;
   /** Play on Super FUMBBL (default off): fixtures an admin allows can then be generated on the fork (later lane). */
   playOnFork?: boolean;
+  /** A test competition (registration spec Q13): the only kind a test sign-in may write in (src/registration/testSession.ts). */
+  test?: true;
   /** Redraft budget cap the board starts from (default on, 1,300,000); remembered from the last confirmed redraft. */
   redraftCap?: { enabled: boolean; cap: number };
   /** Settings revision: every settings write bumps it; a PATCH naming an older revision is refused (409). */

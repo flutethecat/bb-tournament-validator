@@ -9,7 +9,7 @@ export type NotificationType =
   | "organiser-message" | "entrant-flag" | "roster-problems" | "withdrawal" | "award"
   | "fixture-created" | "fixture-rescheduled" | "proposal-received" | "proposal-accepted" | "proposal-countered"
   | "result-confirmed" | "result-edited" | "tournament-news" | "league-broadcast" | "registration" | "share-request" | "naf-request"
-  | "private-message" | "friend-request";
+  | "private-message" | "friend-request" | "registration-outcome" | "check-in" | "organiser-request";
 
 export interface NotificationRow {
   id: string;
@@ -49,6 +49,9 @@ export const NOTIFICATION_ICONS: Record<NotificationType, string> = {
   "naf-request": "/icons/ui/football-helmet.png",
   "private-message": "/icons/panel/messages.png",
   "friend-request": "/icons/panel/friends.png",
+  "registration-outcome": "/icons/ui/football-helmet.png",
+  "check-in": "/icons/ui/status-catch.png",
+  "organiser-request": "/icons/skills/leader.png",
 };
 export const notificationIcon = (type: string): string => NOTIFICATION_ICONS[type as NotificationType] ?? "/icons/ui/football-helmet.png";
 

@@ -42,6 +42,8 @@ export interface TournamentRecord {
   id: string;
   name: string;
   status: TournamentStatus;
+  /** A test competition (registration spec Q13): the only kind a test sign-in may write in (src/registration/testSession.ts). */
+  test?: true;
   format: "swiss" | "roundRobin" | "knockout";
   packageName: string;
   /** Zero is accepted only for migrated legacy data and means uncapped. */

@@ -30,6 +30,10 @@ export const NOTIFICATION_TYPES = [
   "naf-request",
   "private-message",
   "friend-request",
+  // Registration core (src/registration, registration spec §8.3).
+  "registration-outcome",
+  "check-in",
+  "organiser-request",
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
@@ -55,6 +59,9 @@ export interface NotificationInput {
   /** Short name of the thing the row is about (a fixture label), for the Discord DM text
    *  (src/mail/actionMessages.ts). Not stored. */
   subject?: string;
+  /** The row needs the recipient to act. Types in ACTION_DM_WHEN_FLAGGED (src/mail/actionMessages.ts) DM only when
+   *  this is true (registration outcomes, registrations waiting for approval). Not stored. */
+  action?: boolean;
 }
 
 export const NOTIFICATION_CAP = 500;
