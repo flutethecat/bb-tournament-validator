@@ -128,14 +128,16 @@ function measureList(): void {
   const el = rowsEl.value;
   if (!el || typeof window === "undefined" || !wideLayout()) { listMax.value = undefined; return; }
   const main = document.querySelector("main");
-  const topAtRest = el.getBoundingClientRect().top + (window.scrollY || 0) + (main?.scrollTop ?? 0);
+  // Rects and the window are in screen px; CSS lengths and scroll offsets in CSS px (the UI zoom, home.css --sf-zoom).
+  const z = (el as HTMLElement & { currentCSSZoom?: number }).currentCSSZoom || 1;
+  const topAtRest = el.getBoundingClientRect().top / z + (window.scrollY || 0) / z + (main?.scrollTop ?? 0);
   const px = (v: string | undefined): number => Number.parseFloat(v ?? "") || 0;
   // Everything under the list that still has to fit (design.md §6, 1920x1080 with no page scroll): the foot with its top margin,
   // the panel's bottom padding and border, and the scrolling main's bottom padding.
   const panel = el.closest(".tb-panel");
-  const below = (footEl.value ? footEl.value.getBoundingClientRect().height + px(getComputedStyle(footEl.value).marginTop) : 0)
+  const below = (footEl.value ? footEl.value.getBoundingClientRect().height / z + px(getComputedStyle(footEl.value).marginTop) : 0)
     + (panel ? px(getComputedStyle(panel).paddingBottom) + px(getComputedStyle(panel).borderBottomWidth) : 0) + (main ? px(getComputedStyle(main).paddingBottom) : 0);
-  listMax.value = `${rosterHeight(window.innerHeight, topAtRest, below)}px`;
+  listMax.value = `${rosterHeight(window.innerHeight / z, topAtRest, below)}px`;
 }
 onMounted(() => {
   measureList();

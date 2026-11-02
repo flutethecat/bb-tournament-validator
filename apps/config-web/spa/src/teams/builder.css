@@ -392,7 +392,7 @@
   .tb-rsflow .tb-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .tb-race-loading { opacity: .5; pointer-events: none; transition: opacity 120ms linear; } /* a re-pick waiting on the new ruleset: the old table stays, dimmed, until the response lands */
-.tb-race-scroll { max-height: max(320px, calc(100vh - 280px)); overflow: auto; padding-right: 0; }
+.tb-race-scroll { max-height: max(320px, calc(100vh / var(--sf-zoom, 1) - 280px)); overflow: auto; padding-right: 0; }
 .tb-race-scroll thead th { position: sticky; top: 0; z-index: 2; box-shadow: 0 2px 0 var(--sf-panel-line); } /* header row stays at the top of the scroll region */
 .tb-scroll-list { max-height: 520px; overflow-y: auto; padding-right: 2px; }
 /* The left accordion's lists show five rows at a time (max-height measured in the component, teams/hireWindow.ts) */
@@ -628,7 +628,7 @@
 .tb-league-ind .tb-who small { font-size: 13px; line-height: 1.35; color: var(--ui-muted); }
 @media (min-width: 1180px) { .tb-rsflow.tb-league { grid-template-rows: auto; grid-template-areas: "race summary"; } }
 /* 1920x1080 with no page scroll (design.md §6): the league race grid and the league inducement list scroll inside their panes. */
-@media screen and (min-width: 1180px) { .tb-league-races { max-height: max(280px, calc(100vh - 340px)); overflow-y: auto; overscroll-behavior: contain; padding-right: 2px; } }
+@media screen and (min-width: 1180px) { .tb-league-races { max-height: max(280px, calc(100vh / var(--sf-zoom, 1) - 340px)); overflow-y: auto; overscroll-behavior: contain; padding-right: 2px; } }
 .tb-league-ind { max-height: 300px; overflow-y: auto; overscroll-behavior: contain; }
 
 /* ---- Fit to 1920x1080 (owner 11-02, home.css "Fit to 1920x1080"): the summary bar stays; the Ruleset and Sheet steps scroll

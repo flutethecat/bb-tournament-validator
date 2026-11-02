@@ -284,7 +284,7 @@ button.lg-cog { margin: 0; padding: 0; font: inherit; color: inherit; cursor: po
   background: color-mix(in srgb, var(--ui-secondary) 78%, transparent);
 }
 .ls-dialog {
-  display: flex; flex-direction: column; width: min(520px, 100%); max-height: calc(100dvh - 32px); min-width: 0; overflow: hidden; color: var(--ui-text);
+  display: flex; flex-direction: column; width: min(520px, 100%); max-height: calc(100dvh / var(--sf-zoom, 1) - 32px); min-width: 0; overflow: hidden; color: var(--ui-text);
   background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface); border: 2px solid var(--sf-panel-line); border-radius: 2px;
   box-shadow: 0 4px 0 var(--sf-panel-drop), inset 0 1px 0 var(--sf-panel-hi);
 }
@@ -310,7 +310,7 @@ button.lg-cog { margin: 0; padding: 0; font: inherit; color: inherit; cursor: po
 .ls-dialog-foot .ls-foot-note + .primary { margin-left: 0; }
 @media (max-width: 640px) {
   .ls-dialog-backdrop { padding: 0; place-items: stretch; }
-  .ls-dialog, .ls-dialog.wide { width: 100%; max-height: none; height: 100dvh; border-width: 0; border-radius: 0; }
+  .ls-dialog, .ls-dialog.wide { width: 100%; max-height: none; height: calc(100dvh / var(--sf-zoom, 1)); border-width: 0; border-radius: 0; }
   .ls-dialog-foot .sf-btn { flex: 1 1 auto; }
 }
 /* ==== end of the league organiser primitives ==== */
@@ -784,6 +784,6 @@ button.lg-cog { margin: 0; padding: 0; font: inherit; color: inherit; cursor: po
 .rpop-table { font-size: 15px; }
 .rpop-table .lg-skills { min-width: 180px; }
 @media screen and (min-width: 1367px) and (min-height: 700px) {
-  .rpop-scroll { max-height: 60vh; overflow: auto; }
+  .rpop-scroll { max-height: calc(60vh / var(--sf-zoom, 1)); overflow: auto; }
   .rpop-scroll thead th { position: sticky; top: 0; z-index: 1; background: var(--ui-surface); }
 }

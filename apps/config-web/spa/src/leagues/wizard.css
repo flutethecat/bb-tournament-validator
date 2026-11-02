@@ -101,7 +101,7 @@
 /* the team building table scrolls inside its own pane */
 .lw-col-table { gap: 8px; }
 .lw-cap-inline { margin-left: 8px; text-transform: none; letter-spacing: 0; font: 12px/1.4 var(--font-body, sans-serif); color: var(--ui-muted); }
-.lw-scroll { overflow: auto; max-height: 60vh; border: 2px solid var(--sf-panel-line); border-radius: 2px; }
+.lw-scroll { overflow: auto; max-height: calc(60vh / var(--sf-zoom, 1)); border: 2px solid var(--sf-panel-line); border-radius: 2px; }
 .lw-table { font-size: 14px; }
 .lw-table thead th { position: sticky; top: 0; z-index: 1; background: var(--ui-surface); }
 .lw-table thead tr:nth-child(2) th { top: 26px; }

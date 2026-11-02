@@ -402,17 +402,20 @@ export function leagueFounded(seasons: ReadonlyArray<Pick<SeasonSummary, "starte
 /** Where the Season row (oldest first, scrolling sideways) should sit: the right end when the latest season is picked,
  *  otherwise just enough to bring the picked card fully into view (scrollLeft unchanged when it already is). */
 export function seasonRowScroll(
-  row: { scrollLeft: number; scrollWidth: number; clientWidth: number; getBoundingClientRect(): { left: number } },
+  row: { scrollLeft: number; scrollWidth: number; clientWidth: number; getBoundingClientRect(): { left: number }; currentCSSZoom?: number },
   card: { getBoundingClientRect(): { left: number; width: number } } | null,
   latestPicked: boolean,
 ): number {
   const end = Math.max(0, row.scrollWidth - row.clientWidth);
   if (latestPicked || !card) return end;
-  // Row-relative geometry from real rects (offsetLeft is relative to the offset parent, which is not the row).
+  // Row-relative geometry from real rects (offsetLeft is relative to the offset parent, which is not the row). Rects are in
+  // screen px and scroll offsets in CSS px: under the UI zoom (home.css --sf-zoom) the rect deltas divide by the zoom.
+  const z = row.currentCSSZoom && row.currentCSSZoom > 0 ? row.currentCSSZoom : 1;
   const r = card.getBoundingClientRect();
-  const left = r.left - row.getBoundingClientRect().left + row.scrollLeft;
+  const width = r.width / z;
+  const left = (r.left - row.getBoundingClientRect().left) / z + row.scrollLeft;
   if (left < row.scrollLeft) return Math.max(0, left);
-  if (left + r.width > row.scrollLeft + row.clientWidth) return Math.min(end, left + r.width - row.clientWidth);
+  if (left + width > row.scrollLeft + row.clientWidth) return Math.min(end, left + width - row.clientWidth);
   return row.scrollLeft;
 }
 

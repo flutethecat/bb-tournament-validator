@@ -67,7 +67,7 @@ a.so-name:hover { text-decoration: underline; }
   .so-side { align-content: start; }
   .so-convo { min-height: 0; }
 }
-.so-bubbles { display: flex; flex-direction: column; gap: 8px; flex: 1 1 auto; max-height: min(62vh, 640px); overflow-y: auto; margin-top: 0; margin-bottom: 0; padding: 4px 2px 8px; list-style: none; scrollbar-width: thin; }
+.so-bubbles { display: flex; flex-direction: column; gap: 8px; flex: 1 1 auto; max-height: min(calc(62vh / var(--sf-zoom, 1)), 640px); overflow-y: auto; margin-top: 0; margin-bottom: 0; padding: 4px 2px 8px; list-style: none; scrollbar-width: thin; }
 .so-bubble { max-width: min(78%, 560px); align-self: flex-start; padding: 8px 10px; color: var(--ui-text); background: color-mix(in srgb, var(--sf-seat-away) 16%, var(--ui-surface-2)); border: 1px solid color-mix(in srgb, var(--sf-seat-away) 55%, var(--sf-panel-line)); border-left: 4px solid var(--sf-seat-away); border-radius: 2px; box-shadow: 0 2px 0 var(--sf-panel-drop); }
 .so-bubble[data-mine="true"] { align-self: flex-end; background: color-mix(in srgb, var(--sf-seat-home) 16%, var(--ui-surface-2)); border-color: color-mix(in srgb, var(--sf-seat-home) 55%, var(--sf-panel-line)); border-left-width: 1px; border-right: 4px solid var(--sf-seat-home); }
 .so-bubble[data-organiser="true"] { border-left-color: var(--ui-admin); background: color-mix(in srgb, var(--ui-admin) 14%, var(--ui-surface-2)); }

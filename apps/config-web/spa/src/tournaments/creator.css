@@ -108,7 +108,7 @@
 .cr-tier-block[data-over="true"], .cr-star-col[data-over="true"] { outline: 2px dashed var(--ui-focus); outline-offset: -4px; }
 .cr-tier-teams .cr-chip { padding-right: 4px; cursor: grab; }
 .cr-pool { position: sticky; top: calc(var(--sf-top-h, 56px) + 12px); }
-.cr-pool-list { max-height: 60vh; overflow: auto; }
+.cr-pool-list { max-height: calc(60vh / var(--sf-zoom, 1)); overflow: auto; }
 .cr-pack-row { align-items: center; }
 
 /* matrix */

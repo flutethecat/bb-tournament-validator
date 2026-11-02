@@ -35,7 +35,8 @@ describe("fit to 1920x1080: the shell", () => {
   });
 
   it("makes #app one viewport tall with the content area and the sidebar scrolling inside", () => {
-    expect(block).toMatch(/body > #app \{[^}]*grid-template-rows: auto minmax\(0, 1fr\);[^}]*height: 100dvh;[^}]*overflow: hidden;/);
+    // one viewport tall: viewport units are zoomed with the page (home.css --sf-zoom), so the height divides by the zoom
+    expect(block).toMatch(/body > #app \{[^}]*grid-template-rows: auto minmax\(0, 1fr\);[^}]*height: calc\(100dvh \/ var\(--sf-zoom, 1\)\);[^}]*overflow: hidden;/);
     expect(block).toMatch(/\.sf-body > \.shell-main \{[^}]*position: relative;[^}]*min-height: 0;[^}]*overflow-y: auto;/);
     expect(block).toMatch(/\.sf-aside \{[^}]*height: auto;[^}]*min-height: 0;/);
   });

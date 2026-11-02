@@ -102,7 +102,7 @@
 .ac-sched-body { display: grid; gap: 10px; min-width: 0; overflow-x: auto; }
 @media (max-width: 760px) {
   .tn-modal-backdrop:has(.ac-sched-modal) { padding: 16px; place-items: center; }
-  .ac-sched-modal { width: 100%; max-height: calc(100dvh - 32px); }
+  .ac-sched-modal { width: 100%; max-height: calc(100dvh / var(--sf-zoom, 1) - 32px); }
 }
 .ac-privacy-link { margin: 0; font: 11px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; text-align: right; }
 .ac-privacy-link a { color: var(--ui-muted); text-decoration: underline; text-underline-offset: 3px; }

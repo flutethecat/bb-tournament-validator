@@ -1519,7 +1519,7 @@
   .tt-cine-coin[data-result="tails"] { transform: rotateX(180deg); }
 }
 
-/* ======================================================================================================================================
+/* ===============================================================================================================================
    PHONE (below 760 px): the 390 px "Modern Retro" frame. One scale block (--tt-* steps), one column, 16 px side gutter, no horizontal page scroll.
    Order top to bottom: context line, compact hero (LED / weather row, crests + names + broadcast-bug score, stats strip, End Turn), strip (turn + timeline +
    Rosters + Settings), the single-column log, then TD / CAS / INJURY as three 64 px squares with an OTHER row under them. Popups are full-width bottom sheets.
@@ -1762,3 +1762,7 @@
 /* game page: the coach's comments (src/discord/comments.ts) */
 .gm-comment { margin: 4px 0 0; overflow-wrap: anywhere; }
 .gm-comment-who { font-weight: 700; }
+
+/* UI scale (home.css --sf-zoom): the full-screen match recorder undoes the page zoom; it keeps its own sizing. The game
+   report (.tt-rec--final) and the captain dialog host sit inside pages and scale with them. */
+.tt-rec:not(.tt-rec--final):not(.cp-host) { zoom: calc(1 / var(--sf-zoom, 1)); }
