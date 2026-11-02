@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-02",
+    "title": "League inducement statistics",
+    "body": "The league overview's Inducements panel now shows how often each inducement has been taken: times taken and the share of games, for this season or all seasons. It counts games recorded on the site; the season's price list is one click away under Price list.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-02",
     "title": "One header for every league, tournament and series page",
     "body": "Inside a league, tournament or series every page now shares one slim header: the logo, name and status (a season picker on leagues), the tabs in TourPlay's order (Overview, Fixtures, Standings, Board coming soon, Calendar, Honours, Statistics, Participants, Draws, Awards; tabs with nothing in them yet stay hidden), and your role. Organisers manage from the cog. Team pages, fixture lobbies and tournament games keep the header with a breadcrumb back. Participants is open to everyone with public details only, and organisers can open each coach to see what they shared. Series get Overview, a Schedule of event cards and Standings.",
     "links": [

@@ -8,14 +8,14 @@ import type { Fetcher } from "../session";
 import {
   capProblem, customProblem, INDUCEMENT_CAP_MAX, INDUCEMENT_CATEGORIES, INDUCEMENT_CATEGORY_LABEL, INDUCEMENT_EFFECT_MAX, INDUCEMENT_ICONS,
   INDUCEMENT_NAME_MAX, INDUCEMENT_PRICE_MAX, INDUCEMENT_PRICE_STEP, priceProblem, shortGold,
-  type EffectiveInducement, type InducementCategory, type InducementTableView,
+  type EffectiveInducement, type InducementCategory, type InducementTableView, type InducementUsageRow, type InducementUsageScope, type InducementUsageView,
 } from "../../../src/leagues/inducementRules";
 
 export {
   INDUCEMENT_CAP_MAX, INDUCEMENT_CATEGORIES, INDUCEMENT_CATEGORY_LABEL, INDUCEMENT_EFFECT_MAX, INDUCEMENT_ICONS, INDUCEMENT_NAME_MAX,
   INDUCEMENT_PRICE_MAX, INDUCEMENT_PRICE_STEP, shortGold,
 };
-export type { EffectiveInducement, InducementCategory, InducementTableView };
+export type { EffectiveInducement, InducementCategory, InducementTableView, InducementUsageRow, InducementUsageScope, InducementUsageView };
 
 /** One standard row in the editor (the dataset defaults ride along for Reset and the "changed" mark). */
 export interface StandardDraft { id: string; name: string; category: InducementCategory; iconSrc: string; note: string; enabled: boolean; cap: number; price: number | null; priceFixed: boolean; default: { enabled: boolean; cap: number; price: number | null } }
@@ -140,3 +140,43 @@ export function createInducementTable(deps: { api: Fetcher }) {
 export type InducementTable = ReturnType<typeof createInducementTable>;
 /** A pre-loaded table (tests and server rendering); the components make their own otherwise. */
 export const INDUCEMENT_TABLE_KEY: InjectionKey<InducementTable> = Symbol("inducement-table");
+
+// ---- usage (the league page's "Inducements taken" panel) ------------------------------------------------------------
+
+/** "40%" for a 0..1 share (whole percent; "<1%" for a share that rounds to 0 but is above it). */
+export const sharePercent = (share: number): string => (share > 0 && share < 0.005 ? "<1%" : `${Math.round(share * 100)}%`);
+
+/** The panel footnote: "Counted from N recorded games" (+ the games without data); "" when nothing was played. */
+export function usageFootnote(v: Pick<InducementUsageView, "gamesCounted" | "gamesWithoutData">): string {
+  const games = (n: number): string => `${n} ${n === 1 ? "game" : "games"}`;
+  const parts: string[] = [];
+  if (v.gamesCounted || v.gamesWithoutData) parts.push(`Counted from ${v.gamesCounted} recorded ${v.gamesCounted === 1 ? "game" : "games"}.`);
+  if (v.gamesWithoutData) parts.push(`${games(v.gamesWithoutData)} had no inducement data.`);
+  return parts.join(" ");
+}
+
+/** GET .../seasons/:seasonId/inducements/usage[?scope=league]; the last asked-for load wins (season and scope switches). */
+export function createInducementUsage(deps: { api: Fetcher }) {
+  const state = reactive({ view: null as InducementUsageView | null, scope: "season" as InducementUsageScope, loading: false, error: "" });
+  let latest = 0;
+  async function load(leagueId: string, seasonId: string, scope: InducementUsageScope = state.scope): Promise<void> {
+    const ticket = ++latest;
+    state.scope = scope;
+    state.loading = true;
+    state.error = "";
+    try {
+      const view = await deps.api<InducementUsageView>(`/api/leagues/${encodeURIComponent(leagueId)}/seasons/${encodeURIComponent(seasonId)}/inducements/usage${scope === "league" ? "?scope=league" : ""}`);
+      if (ticket === latest) state.view = view;
+    } catch (err) {
+      if (ticket !== latest) return;
+      state.view = null;
+      state.error = statusOf(err) === 404 ? "Season not found." : err instanceof Error && err.message ? err.message : "Can't load the inducement statistics.";
+    } finally {
+      if (ticket === latest) state.loading = false;
+    }
+  }
+  return { state, load };
+}
+export type InducementUsage = ReturnType<typeof createInducementUsage>;
+/** A pre-loaded usage controller (tests and server rendering); the panel makes its own otherwise. */
+export const INDUCEMENT_USAGE_KEY: InjectionKey<InducementUsage> = Symbol("inducement-usage");

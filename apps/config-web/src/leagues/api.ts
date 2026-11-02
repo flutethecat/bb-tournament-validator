@@ -39,6 +39,7 @@
  *
  * Inducement table per season (public read; organisers + admins write): see inducements.ts.
  *   GET|PUT /api/leagues/:id/seasons/:seasonId/inducements
+ *   GET /api/leagues/:id/seasons/:seasonId/inducements/usage[?scope=league]  (public: inducements taken)
  *
  * Awards and the Hall of Fame (public read; organisers + admins write): see awards.ts.
  *   GET /api/leagues/:id/honours, POST /api/leagues/:id/awards, DELETE /api/leagues/:id/awards/:awardId,
@@ -162,6 +163,8 @@ export interface LeagueApiDeps {
   now?: () => Date;
   /** Fixture lobby (src/fixtureLobby): store, presence, chat limiter, the recorder's createMatch; unset = 503 on lobby routes. */
   lobby?: LeagueLobbyDeps;
+  /** The tabletop recorder's matches, read only (inducement usage, inducementUsage.ts); unset = no recorder data. */
+  tabletop?: import("./inducementUsage.js").InducementUsageSource;
 }
 
 export interface LeagueApiResult {
@@ -372,7 +375,7 @@ export async function leagueApi(
   if (captain) return captain;
   const lobby = await leagueLobbyRoutes(method, route.rest, league, auth, deps);
   if (lobby) return lobby;
-  const inducements = await leagueInducementRoutes(method, route.rest, league, auth, deps);
+  const inducements = await leagueInducementRoutes(method, route.rest, league, auth, deps, query);
   if (inducements) return inducements;
   // Roster Builder league mode (lane L7): GET .../seasons/:seasonId/team-building, the builder's league context.
   const builder = leagueBuilderRoute(method, route.rest, league, store);

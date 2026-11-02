@@ -3,11 +3,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ViteDevServer } from "vite";
 import { createSSRApp } from "vue";
 import { effectiveInducements } from "../src/leagues/inducements";
-import type { InducementTableView, SeasonInducements } from "../src/leagues/inducementRules";
+import type { InducementTableView, InducementUsageView, SeasonInducements } from "../src/leagues/inducementRules";
 import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
 import {
-  changeSummary, createInducementTable, draftFromTable, draftProblem, offeredByCategory, payloadFromDraft, resetStandard,
+  changeSummary, createInducementTable, createInducementUsage, draftFromTable, draftProblem, offeredByCategory, payloadFromDraft, resetStandard, sharePercent,
+  usageFootnote,
 } from "../spa/src/leagues/inducements";
 import type { LeagueSettingsView, LeagueSummary, SeasonRecord, SeasonSummary } from "../spa/src/leagues/types";
 
@@ -36,6 +37,15 @@ const tableView = (over: Partial<InducementTableView> = {}): InducementTableView
   leagueId: "tabbl", seasonId: "season-6", seasonName: "Season 6", ruleset: "BB2025", revision: 4, table: effectiveInducements(config()), canEdit: true, ...over,
 });
 const P = "/api/leagues/tabbl/seasons/season-6/inducements";
+const U = `${P}/usage`;
+const usageView = (over: Partial<InducementUsageView> = {}): InducementUsageView => ({
+  leagueId: "tabbl", seasonId: "season-6", scope: "season", gamesCounted: 4, gamesWithoutData: 2, canEdit: false,
+  rows: [
+    { key: "bribes", name: "Bribes", source: "standard", category: "special", iconSrc: "/icons/inducements/bribe.png", taken: 5, games: 3, share: 0.75 },
+    { key: "custom:lucky keg", name: "Lucky Keg", source: "custom", category: "special", iconSrc: "/icons/inducements/bloodweiser_keg.png", taken: 2, games: 1, share: 0.25 },
+  ],
+  ...over,
+});
 
 describe("editor helpers and controller", () => {
   it("draft round trip: only changed rows and the custom types are sent; reset puts the standard rows back", () => {
@@ -103,6 +113,26 @@ describe("editor helpers and controller", () => {
     await missing.load("tabbl", "season-6");
     expect(missing.state.error).toBe("Season not found.");
   });
+
+  it("usage controller: season by default, the toggle asks for ?scope=league; footnote and percent helpers", async () => {
+    const f = mockFetcher({ [U]: usageView(), [`${U}?scope=league`]: usageView({ scope: "league", gamesCounted: 9, gamesWithoutData: 0 }) });
+    const c = createInducementUsage({ api: f });
+    await c.load("tabbl", "season-6");
+    expect(c.state).toMatchObject({ scope: "season", view: { scope: "season", gamesCounted: 4 } });
+    await c.load("tabbl", "season-6", "league");
+    expect(f.calls.map((x) => x.path)).toEqual([U, `${U}?scope=league`]);
+    expect(c.state).toMatchObject({ scope: "league", view: { scope: "league", gamesCounted: 9 } });
+    await c.load("tabbl", "season-6"); // a season switch keeps the chosen scope
+    expect(f.calls.at(-1)?.path).toBe(`${U}?scope=league`);
+    expect(usageFootnote({ gamesCounted: 4, gamesWithoutData: 2 })).toBe("Counted from 4 recorded games. 2 games had no inducement data.");
+    expect(usageFootnote({ gamesCounted: 1, gamesWithoutData: 0 })).toBe("Counted from 1 recorded game.");
+    expect(usageFootnote({ gamesCounted: 0, gamesWithoutData: 1 })).toBe("Counted from 0 recorded games. 1 game had no inducement data.");
+    expect(usageFootnote({ gamesCounted: 0, gamesWithoutData: 0 })).toBe("");
+    expect([sharePercent(0.75), sharePercent(0.004), sharePercent(0), sharePercent(1)]).toEqual(["75%", "<1%", "0%", "100%"]);
+    const missing = createInducementUsage({ api: mockFetcher({}) });
+    await missing.load("tabbl", "season-6");
+    expect(missing.state.error).toBe("Season not found.");
+  });
 });
 
 const s6: SeasonSummary = { id: "season-6", number: 6, name: "Season 6", ruleset: "BB2025", status: "active", teamCount: 0, fixtureCount: 0, playedCount: 0 };
@@ -153,12 +183,15 @@ describe("Inducements tab and the coaches' panel (server-rendered)", () => {
     "/crests/manifest.json": { crests: {} },
     [P]: tableView(),
   };
-  async function render(path: string, coach: string, view: InducementTableView, prep: "settings" | "detail") {
-    const f = mockFetcher({ ...API, ...SESSION(coach), [P]: view });
+  async function render(path: string, coach: string, view: InducementTableView, prep: "settings" | "detail", usage: InducementUsageView = usageView(), scope: "season" | "league" = "season") {
+    const f = mockFetcher({ ...API, ...SESSION(coach), [P]: view, [U]: usage, [`${U}?scope=league`]: usage });
     const spa = mods.createSpa({ history: mods.createMemoryHistory("/app/"), ssr: true, fetcher: f });
     const table = mods.inducements.createInducementTable({ api: f });
     await table.load("tabbl", "season-6");
     spa.app.provide(mods.inducements.INDUCEMENT_TABLE_KEY, table);
+    const used = mods.inducements.createInducementUsage({ api: f });
+    await used.load("tabbl", "season-6", scope);
+    spa.app.provide(mods.inducements.INDUCEMENT_USAGE_KEY, used);
     if (prep === "settings") {
       const s = mods.settings.createLeagueSettings({ api: f });
       await s.load("tabbl");
@@ -191,16 +224,55 @@ describe("Inducements tab and the coaches' panel (server-rendered)", () => {
     expect(html).toContain('src="/icons/inducements/bloodweiser_keg.png"');
   });
 
-  it("league page Overview: the coaches' panel lists offered inducements with the league's own types", async () => {
+  it("league page Overview: Inducements taken lists usage most taken first, with the scope toggle, footnote and Price list", async () => {
     const coach = await render("/leagues/tabbl", "Mallory", tableView({ canEdit: false }), "detail");
-    expect(coach).toContain('id="lg-ind-h"');
+    expect(coach).toMatch(/id="lg-ind-h">Inducements taken</);
+    expect(coach).toMatch(/aria-pressed="true"[^>]*>Season</);
+    expect(coach).toMatch(/aria-pressed="false"[^>]*>All seasons</);
+    for (const th of ["Inducement", "Taken", "% of games"]) expect(coach).toContain(`>${th}</th>`);
+    const bribes = coach.indexOf('data-key="bribes"');
+    const kegRow = coach.indexOf('data-key="custom:lucky keg"');
+    expect(bribes).toBeGreaterThan(0);
+    expect(kegRow).toBeGreaterThan(bribes); // sorted as the server sent them
+    expect(coach).toMatch(/data-key="bribes"[\s\S]*?>5<\/td>[\s\S]*?>75%<\/td>/);
+    expect(coach).toMatch(/data-key="custom:lucky keg"[\s\S]*?League[\s\S]*?>2<\/td>[\s\S]*?>25%<\/td>/);
+    expect(coach).toContain("Counted from 4 recorded games. 2 games had no inducement data.");
+    expect(coach).toContain(">Price list</button>");
+    expect(coach).not.toContain("tab=inducements"); // no editor link for a coach
+    expect(coach).not.toContain("Not offered this season"); // the price list is in its dialog, closed
+    const organiser = await render("/leagues/tabbl", "Jay", tableView(), "detail", usageView({ canEdit: true }));
+    expect(organiser).toContain('href="/app/leagues/tabbl/settings?tab=inducements"');
+    // the All seasons toggle state, and the empty state
+    const all = await render("/leagues/tabbl", "Mallory", tableView({ canEdit: false }), "detail", usageView({ scope: "league", rows: [], gamesCounted: 0, gamesWithoutData: 3 }), "league");
+    expect(all).toMatch(/aria-pressed="true"[^>]*>All seasons</);
+    expect(all).toContain("No inducements recorded yet");
+    expect(all).toContain("Counted from 0 recorded games. 3 games had no inducement data.");
+  });
+
+  it("Price list dialog: the season's offered inducements with the league's own types; organisers get the editor link", async () => {
+    const [panel, renderer] = await Promise.all([vite.ssrLoadModule("/src/components/LeagueInducements.vue"), vite.ssrLoadModule("vue/server-renderer")]);
+    const dialog = async (coach: string, view: InducementTableView) => {
+      const f = mockFetcher({ ...API, ...SESSION(coach), [P]: view, [U]: usageView() });
+      const spa = mods.createSpa({ history: mods.createMemoryHistory("/app/"), ssr: true, fetcher: f });
+      const app = createSSRApp((panel as { default: object }).default, { leagueId: "tabbl", seasonId: "season-6", showPrices: true });
+      app.use(spa.router as never);
+      const table = mods.inducements.createInducementTable({ api: f });
+      await table.load("tabbl", "season-6");
+      const used = mods.inducements.createInducementUsage({ api: f });
+      await used.load("tabbl", "season-6");
+      app.provide(mods.inducements.INDUCEMENT_TABLE_KEY, table);
+      app.provide(mods.inducements.INDUCEMENT_USAGE_KEY, used);
+      await spa.router.push("/leagues/tabbl");
+      return (renderer as typeof import("vue/server-renderer")).renderToString(app);
+    };
+    const coach = await dialog("Mallory", tableView({ canEdit: false }));
+    expect(coach).toMatch(/id="lg-ind-prices-h">Price list</);
     expect(coach).toContain("2 changed · 1 custom");
-    expect(coach).toContain("Lucky Keg");
     expect(coach).toContain(keg.effectText);
     expect(coach).toContain("Not offered this season: Weather Mage.");
-    expect(coach).not.toContain("tab=inducements");
-    const organiser = await render("/leagues/tabbl", "Jay", tableView(), "detail");
-    expect(organiser).toContain('href="/app/leagues/tabbl/settings?tab=inducements"');
+    expect(coach).not.toContain("Edit inducements");
+    const organiser = await dialog("Jay", tableView());
+    expect(organiser).toMatch(/href="\/app\/leagues\/tabbl\/settings\?tab=inducements"[^>]*>Edit inducements</);
   });
 
   it("recorder picker: a league season's custom type shows its own icon and effect text next to the standard rows", async () => {

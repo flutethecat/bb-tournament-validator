@@ -13,6 +13,7 @@
  * file. A new season copies the previous season's table (api.ts createSeason), like the Team building rules.
  *
  *   GET /api/leagues/:id/seasons/:seasonId/inducements   public (game rules): the effective table + revision
+ *   GET /api/leagues/:id/seasons/:seasonId/inducements/usage[?scope=league]   public: how often each was taken (inducementUsage.ts)
  *   PUT /api/leagues/:id/seasons/:seasonId/inducements   { revision, standard: { [id]: { enabled?, cap?, price? } }, custom: [...] }
  *       organisers of the league + site admins; the whole table is replaced. A custom type without an id is new (the
  *       server gives it one); an id names an existing custom type, which keeps it. 428 no revision, 409 stale.
@@ -33,6 +34,7 @@ import {
 import { isLeagueOrganiser } from "./store.js";
 import type { LeagueRecord, SeasonRecord } from "./types.js";
 import { inducementOffersFor, type InducementOffers } from "../tabletop/pregame.js";
+import { aggregateInducementUsage, usageGames, type InducementUsageView } from "./inducementUsage.js";
 
 export const INDUCEMENTS_MAX_BYTES = 32 * 1024;
 const NO_STORE = { "cache-control": "no-store" };
@@ -207,9 +209,12 @@ const fail = (status: number, error: string, extra: Record<string, unknown> = {}
 
 export async function leagueInducementRoutes(
   method: string, rest: string[], league: LeagueRecord | undefined, auth: LeagueApiIdentity | undefined, deps: LeagueApiDeps,
+  query: URLSearchParams = new URLSearchParams(),
 ): Promise<LeagueApiResult | undefined> {
   const [first, seasonId, third, ...more] = rest;
-  if (first !== "seasons" || !seasonId || third !== "inducements" || more.length) return undefined;
+  if (first !== "seasons" || !seasonId || third !== "inducements") return undefined;
+  if (more.length === 1 && more[0] === "usage") return usageRoute(method, seasonId, query, league, auth, deps);
+  if (more.length) return undefined;
   if (method === "GET" || method === "HEAD") {
     if (!league) return fail(404, "League not found.");
     const season = deps.store.season(league.id, seasonId);
@@ -249,6 +254,33 @@ export async function leagueInducementRoutes(
     return fail(500, "Could not save the inducement table right now.");
   }
   return { status: 200, headers: NO_STORE, body: { ok: true, ...inducementTableView(lg, season, who) } };
+}
+
+/**
+ * GET .../seasons/:seasonId/inducements/usage[?scope=league]: how often each inducement was taken (inducementUsage.ts).
+ * Public read; a draft league never reaches here for a non-organiser (api.ts hides it, so it answers as unknown).
+ */
+async function usageRoute(
+  method: string, seasonId: string, query: URLSearchParams, league: LeagueRecord | undefined, auth: LeagueApiIdentity | undefined, deps: LeagueApiDeps,
+): Promise<LeagueApiResult> {
+  if (method !== "GET" && method !== "HEAD") return fail(405, "Use GET.");
+  if (!league) return fail(404, "League not found.");
+  const season = deps.store.season(league.id, seasonId);
+  if (!season) return fail(404, "Season not found.");
+  const raw = query.get("scope") ?? "season";
+  if (raw !== "season" && raw !== "league") return fail(400, "scope must be season or league.");
+  const seasons = raw === "league" ? deps.store.seasons(league.id) : [season];
+  let games;
+  try {
+    games = await usageGames(seasons, deps.tabletop);
+  } catch {
+    return fail(503, "Inducement usage can't be read right now.");
+  }
+  const view: InducementUsageView = {
+    leagueId: league.id, seasonId: season.id, scope: raw, ...aggregateInducementUsage(games),
+    canEdit: Boolean(auth && (auth.admin || isLeagueOrganiser(league, auth.coach))),
+  };
+  return { status: 200, headers: NO_STORE, body: view };
 }
 
 function gate(league: LeagueRecord | undefined, auth: LeagueApiIdentity | undefined): LeagueApiResult | undefined {

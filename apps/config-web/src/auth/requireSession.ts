@@ -110,7 +110,8 @@ function isPublicRequest(method: string, pathname: string): boolean {
       // Tabletop match view: a read-only spectator view for anyone (owner ruling 10-30); the handler decides the role and
       // refuses an anonymous visitor on a test match. Every other tabletop route stays session-gated.
       /^\/api\/tabletop\/matches\/[\w-]{1,64}$/.test(pathname) ||
-      // Leagues: every read is public (list, league, seasons, stats, logo / header bar); writes stay session-gated.
+      // Leagues: every read is public (list, league, seasons, stats, logo / header bar, the inducement table and
+      // .../seasons/:seasonId/inducements/usage); writes stay session-gated. Drafts answer as unknown in-handler.
       pathname === "/api/leagues" ||
       pathname.startsWith("/api/leagues/") ||
       // Tournament Series: list and series pages are public reads; writes stay session-gated in-handler.

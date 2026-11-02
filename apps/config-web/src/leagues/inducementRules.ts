@@ -160,6 +160,38 @@ export interface InducementTableView {
   canEdit: boolean;
 }
 
+/** GET .../inducements/usage (inducementUsage.ts): one inducement's use across the counted games. */
+export interface InducementUsageRow {
+  /** Standard dataset id, or `custom:<folded name>` (the league's own types add up by name across seasons). */
+  key: string;
+  name: string;
+  source: "standard" | "custom";
+  category: InducementCategory;
+  iconSrc: string;
+  /** Total quantity taken (both teams, every counted game). */
+  taken: number;
+  /** Games in which at least one team took it. */
+  games: number;
+  /** games / gamesCounted, 0..1 (rounded to 4 places). */
+  share: number;
+}
+
+export type InducementUsageScope = "season" | "league";
+
+export interface InducementUsageView {
+  leagueId: string;
+  seasonId: string;
+  scope: InducementUsageScope;
+  /** Played games with inducement data (the share's denominator). */
+  gamesCounted: number;
+  /** Played games without inducement data (imports, Super FUMBBL games, organiser-entered results). */
+  gamesWithoutData: number;
+  /** Most taken first, then most games, then name. */
+  rows: InducementUsageRow[];
+  /** The viewer may edit the season's price table (the panel's editor link). */
+  canEdit: boolean;
+}
+
 // ---- validation helpers (shared) --------------------------------------------------------------------------------
 
 /** "" when the cap is a whole number 0..INDUCEMENT_CAP_MAX. */

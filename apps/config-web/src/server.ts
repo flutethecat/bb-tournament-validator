@@ -878,6 +878,11 @@ function teamRegistrations(coach: string): Array<TeamRegistration & { teamId: st
   return out;
 }
 const advancementItemsCached = createAdvancementCache();
+/** League inducement usage reads the recorder's matches (src/leagues/inducementUsage.ts); one object, so its pick cache lasts. */
+const tabletopUsageSource = {
+  listMatches: async () => (await tabletopDeps()).repo.listMatches(),
+  readEvents: async (matchId: string) => (await tabletopDeps()).repo.readEvents(matchId),
+};
 
 async function tabletopDeps(): Promise<TabletopApiDeps> {
   const first = !tabletopRepo;
@@ -1581,7 +1586,8 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
     pathname.startsWith("/api/tournaments/") ||
     pathname.startsWith("/api/fork/tournaments/")
   ) return true;
-  // Leagues: public reads; artwork writes are session + organiser/admin gated in-handler (src/leagues/api.ts).
+  // Leagues: public reads (incl. .../seasons/:seasonId/inducements/usage); artwork writes are session + organiser/admin
+  // gated in-handler (src/leagues/api.ts).
   if (leaguePath(pathname) !== undefined) return true;
   if (seriesPath(pathname) !== undefined) return true; // Tournament Series: public reads, writes gated in-handler
   // Dynamic coach-scoped route: bypass legacy Basic auth, then enforce the proven session in-handler.
@@ -2187,6 +2193,7 @@ async function handleApi(
       fork: leagueFork,
       ifMatch: typeof req.headers["if-match"] === "string" ? req.headers["if-match"] : undefined,
       lobby: fixtureLobbyDeps(),
+      tabletop: tabletopUsageSource,
     });
     if (league) {
       for (const [name, value] of Object.entries(league.headers ?? {})) res.setHeader(name, value);

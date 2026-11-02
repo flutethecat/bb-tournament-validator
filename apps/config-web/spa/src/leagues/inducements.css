@@ -1,5 +1,6 @@
 /* League inducement table: League settings, Inducements tab (LeagueSettingsInducements.vue), the custom type dialog
-   (LeagueInducementDialog.vue) and the league page's Inducements panel (LeagueInducements.vue). Tokens only (design.md §3). */
+   (LeagueInducementDialog.vue) and the league page's "Inducements taken" panel with its Price list dialog (LeagueInducements.vue).
+   Tokens only (design.md §3). */
 
 .ind-section { display: grid; gap: 8px; }
 .ind-section + .ind-section { margin-top: 8px; }
@@ -90,3 +91,27 @@
   .ind-custom-actions { grid-column: 1 / -1; justify-content: flex-start; }
 }
 .ind-coach-scroll + .ind-help { margin-top: 8px; }
+
+/* "Inducements taken" panel (league page, Overview): scope toggle, sorted table with a share bar, footnote */
+.ind-band-links { display: inline-flex; align-items: baseline; gap: 12px; min-width: 0; }
+.ind-cap-btn { margin: 0; padding: 0; border: 0; background: none; cursor: pointer; color: var(--ui-muted); }
+.ind-cap-btn:hover { color: var(--ui-text); }
+.ind-cap-btn:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.ind-use-scope { margin-bottom: 8px; }
+.ind-use-scroll { max-height: 420px; overflow-y: auto; overscroll-behavior: contain; }
+.ind-use-table { table-layout: fixed; }
+.ind-use-table thead th { position: sticky; top: 0; z-index: 1; background: var(--ui-surface); }
+.ind-use-table th.ind-use-num, .ind-use-table td.ind-use-num { width: 50px; text-align: right; white-space: nowrap; }
+.ind-use-table thead th.ind-use-num:last-child, .ind-use-table td.ind-use-num:last-child { width: 86px; }
+.ind-use-table thead th.ind-use-num { padding-left: 2px; padding-right: 4px; letter-spacing: .04em; }
+.ind-use-name { font-weight: 400; min-width: 0; color: var(--ui-text); white-space: normal; }
+.ind-use-label { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 15px; overflow-wrap: anywhere; }
+.ind-use-label .ind-icon { width: 24px; height: 24px; }
+.ind-use-label .sf-chip { flex: none; }
+.ind-use-label > span:not(.sf-chip) { min-width: 0; }
+.ind-use-bar { display: block; height: 4px; margin-top: 4px; background: var(--ui-surface-2); border-radius: 1px; overflow: hidden; }
+.ind-use-bar > span { display: block; height: 100%; background: var(--ui-heading); }
+.ind-use-taken { font: 13px/1.3 var(--sf-band-font); color: var(--sf-gold); }
+.ind-use-foot { margin-top: 8px; margin-bottom: 4px; }
+/* the Price list dialog: its body scrolls, so the list does not need its own scroll box */
+.ls-dialog-body .ind-coach-scroll { max-height: none; overflow: visible; padding-right: 0; }
