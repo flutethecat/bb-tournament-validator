@@ -80,17 +80,26 @@ export class DiscordStateStore {
     const e = this.ledger().competitions[key];
     return e ? structuredClone(e) : undefined;
   }
-  /** Marks keys posted (or baselined). Returns the keys that were NEW (a key marked before is never returned twice). */
-  mark(key: string, markers: readonly string[], at: string, baseline = false): string[] {
+  /**
+   * Marks keys posted (or baselined). Returns the keys that were NEW (a key marked before is never returned twice).
+   * `live` (the observer passes every marker the competition still has) makes the call a full pass: markers no longer
+   * live may then be dropped, oldest first, once there are more than LEDGER_CAP. A live marker is never dropped, so
+   * history can never be replayed; calls without `live` only add.
+   */
+  mark(key: string, markers: readonly string[], at: string, baseline = false, live?: ReadonlySet<string>): string[] {
     const l = this.ledger();
     const e = l.competitions[key] ?? { seen: {} };
     const fresh: string[] = [];
     for (const m of markers) if (!(m in e.seen)) { e.seen[m] = at; fresh.push(m); }
-    if (baseline && !e.baselineAt) e.baselineAt = at;
+    let changed = fresh.length > 0;
+    if (baseline && !e.baselineAt) { e.baselineAt = at; changed = true; }
     const keys = Object.keys(e.seen);
-    if (keys.length > LEDGER_CAP) for (const k of keys.sort((a, b) => e.seen[a]!.localeCompare(e.seen[b]!)).slice(0, keys.length - LEDGER_CAP)) delete e.seen[k];
+    if (live && keys.length > LEDGER_CAP) {
+      const stale = keys.filter((k) => !live.has(k)).sort((a, b) => e.seen[a]!.localeCompare(e.seen[b]!));
+      for (const k of stale.slice(0, keys.length - LEDGER_CAP)) { delete e.seen[k]; changed = true; }
+    }
     l.competitions[key] = e;
-    if (fresh.length || baseline) this.write("ledger.json", l);
+    if (changed) this.write("ledger.json", l);
     return fresh;
   }
   /** Has this marker been posted for the competition? */

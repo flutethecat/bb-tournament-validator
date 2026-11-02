@@ -26,7 +26,7 @@ import {
   appliesTo, eventKeysFor, eventMeta, IN_GAME_KEYS, typeOfKind, type CompetitionDiscordConfig, type CompetitionKind, type CompetitionType, type EffectiveDiscordConfig, type LiveMap,
 } from "./catalogue.js";
 import type { DiscordObserver } from "./observer.js";
-import { post, samplePost } from "./posts.js";
+import { cleanPayload, post, safe, samplePost } from "./posts.js";
 import type { DiscordStateStore } from "./store.js";
 import { leagueTarget, seasonCompetitionKey, seasonTarget, tournamentTarget, type DiscordTarget } from "./targets.js";
 import { parseWeekly, weeklyOf, WEEKDAYS, type WeeklyDigestSettings } from "./weekly.js";
@@ -39,7 +39,7 @@ export interface DiscordApiDeps {
   leagues: LeagueStore;
   tournaments: Pick<TournamentStore, "tournament">;
   state: DiscordStateStore;
-  observer?: Pick<DiscordObserver, "digestFor" | "previewPeriod">;
+  observer?: Pick<DiscordObserver, "digestFor" | "previewPeriod" | "markPosted">;
   poster?: WebhookPoster;
   /** DISCORD_CLIENT_ID: the bot invite link (hidden when unset). */
   clientId?: string;
@@ -339,7 +339,10 @@ export async function discordApi(method: string, path: string, auth: DiscordApiI
     const wait = limited(`digest:${r.target.key}`, DIGEST_POST_WINDOW_MS, now);
     if (wait) return { ...fail(429, "The digest was just posted. Try again in a minute."), headers: { ...NO_STORE, "retry-after": String(wait) } };
     const out = await sendOne(poster, r.target.url, d.payload);
-    return out.ok ? res(200, { ok: true }) : fail(502, out.status ? `Discord did not accept the post (status ${out.status}).` : "Could not reach Discord.");
+    if (!out.ok) return fail(502, out.status ? `Discord did not accept the post (status ${out.status}).` : "Could not reach Discord.");
+    // The next digest (scheduled or previewed) starts after this one: no game is posted twice.
+    deps.observer.markPosted(r.league, d.to);
+    return res(200, { ok: true });
   }
 
   // test + samples: never for drafts, need a webhook (own or inherited).
@@ -348,7 +351,7 @@ export async function discordApi(method: string, path: string, auth: DiscordApiI
   if (action === "test") {
     const wait = limited(`test:${r.target.key}`, TEST_WINDOW_MS, now);
     if (wait) return { ...fail(429, "Too many test posts. Try again in a minute."), headers: { ...NO_STORE, "retry-after": String(wait) } };
-    const out = await sendOne(poster, r.target.url, post(`[TEST] ${r.target.name}: Discord connected`, `${who.coach || "An organiser"} connected this channel. Posts for the events ticked in its Discord settings will appear here.`, 0xe8b02c, { footer: "Test post" }));
+    const out = await sendOne(poster, r.target.url, post(`[TEST] ${safe(r.target.name, 100)}: Discord connected`, `${who.coach ? safe(who.coach, 60) : "An organiser"} connected this channel. Posts for the events ticked in its Discord settings will appear here.`, 0xe8b02c, { footer: "Test post" }));
     return out.ok ? res(200, { ok: true }) : fail(502, out.status ? `Discord did not accept the test post (status ${out.status}).` : "Could not reach Discord.");
   }
   // samples
@@ -371,5 +374,5 @@ export async function discordApi(method: string, path: string, auth: DiscordApiI
 }
 
 async function sendOne(poster: WebhookPoster, url: string, payload: DiscordPayload): Promise<{ ok: boolean; status: number }> {
-  try { return await poster(url, payload); } catch { return { ok: false, status: 0 }; }
+  try { return await poster(url, cleanPayload(payload)); } catch { return { ok: false, status: 0 }; }
 }

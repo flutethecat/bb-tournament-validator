@@ -40,16 +40,25 @@ export function localParts(at: Date, tz: string): LocalParts {
   return { y: Number(get("year")), m: Number(get("month")), d: Number(get("day")), hh: Number(get("hour")) % 24, mm: Number(get("minute")), wd: WD[get("weekday")] ?? 0 };
 }
 
-/** The instant of a local wall-clock time in `tz` (DST: the first matching instant). */
+/** UTC offset of `tz` at instant t (local wall clock read as UTC, minus t), in ms. */
+function offsetAt(t: number, tz: string): number {
+  const p = localParts(new Date(t), tz);
+  return Date.UTC(p.y, p.m - 1, p.d, p.hh, p.mm) - Math.floor(t / 60_000) * 60_000;
+}
+
+/**
+ * The instant of a local wall-clock time in `tz`. A time that happens twice (autumn) takes the first; a time that does
+ * not exist (spring, e.g. 02:30 in New York) moves FORWARD by the gap (03:30), never earlier.
+ */
 export function zonedInstant(y: number, m: number, d: number, hh: number, mm: number, tz: string): Date {
-  const guess = Date.UTC(y, m - 1, d, hh, mm);
-  let t = guess;
-  for (let i = 0; i < 2; i++) {
-    const p = localParts(new Date(t), tz);
-    const asUtc = Date.UTC(p.y, p.m - 1, p.d, p.hh, p.mm);
-    t = t - (asUtc - guess);
-  }
-  return new Date(t);
+  const wall = Date.UTC(y, m - 1, d, hh, mm);
+  const before = offsetAt(wall - DAY_MS, tz);
+  const after = offsetAt(wall + DAY_MS, tz);
+  const candidates = [...new Set([wall - before, wall - after])];
+  const exact = candidates.filter((c) => c + offsetAt(c, tz) === wall).sort((a, b) => a - b);
+  if (exact.length) return new Date(exact[0]!);
+  // In the gap: read the wall time with the offset from BEFORE the change, which lands after it (later).
+  return new Date(Math.max(...candidates));
 }
 
 const DAY_MS = 86_400_000;
@@ -68,6 +77,11 @@ export function lastSlot(s: WeeklyDigestSettings, now: Date, tz: string): Date {
   if (instantOf(idx).getTime() > now.getTime()) idx -= 7;
   while (Math.floor(idx / 7) % s.everyWeeks !== 0) idx -= 7;
   return instantOf(idx);
+}
+
+/** The scheduled slot before `slot` (wall-clock weeks in the league zone, so DST weeks are 167 or 169 hours). */
+export function previousSlot(s: WeeklyDigestSettings, slot: Date, tz: string): Date {
+  return lastSlot(s, new Date(slot.getTime() - 60_000), tz);
 }
 
 /** A slot is due when it is newer than the last run and not older than a day (a long outage skips, never floods). */

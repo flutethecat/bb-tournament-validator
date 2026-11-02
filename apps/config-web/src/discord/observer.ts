@@ -34,7 +34,7 @@ import {
 } from "./posts.js";
 import type { DiscordStateStore } from "./store.js";
 import { leagueTarget, postRaw, postTo, seasonTarget, tournamentTarget, type DiscordTarget } from "./targets.js";
-import { completedRounds, slotDue, weeklyContent, weeklyOf } from "./weekly.js";
+import { completedRounds, lastSlot, periodFixtures, previousSlot, slotDue, weeklyContent, weeklyOf } from "./weekly.js";
 
 export const OBSERVER_TICK_MS = 30_000;
 const HOUR = 3_600_000;
@@ -52,8 +52,9 @@ export interface ObserverDeps {
   log?: (line: string) => void;
 }
 
-/** key null = marked, never posted (an organiser's result edit). */
-interface Pending { marker: string; key: DiscordEventKey | null; payload: () => DiscordPayload }
+/** key null = marked, never posted (an organiser's result entry or edit). notBefore: post only from then on (a result
+ *  waits for the recorder's own digest); a baselining pass marks it at once all the same. */
+interface Pending { marker: string; key: DiscordEventKey | null; payload: () => DiscordPayload; notBefore?: number }
 
 export class DiscordObserver {
   private running = false;
@@ -68,16 +69,23 @@ export class DiscordObserver {
     this.running = true;
     let posted = 0;
     try {
-      for (const t of this.deps.tournaments.tournaments(["draft", "active", "completed"])) {
+      // An unreadable store (tournaments.json, a league file) is logged and the rest of the pass goes on; tick() never rejects.
+      let list: ReturnType<ObserverDeps["tournaments"]["tournaments"]> = [];
+      try { list = this.deps.tournaments.tournaments(["draft", "active", "completed"]); } catch (e) { this.deps.log?.(`[discord] tournaments unreadable: ${(e as Error).message}`); }
+      for (const t of list) {
         try { posted += await this.flush(tournamentTarget(this.deps.state, t), this.tournamentEvents(t)); } catch (e) { this.deps.log?.(`[discord] tournament pass failed: ${(e as Error).message}`); }
       }
-      for (const league of this.deps.leagues.list()) {
+      let leagues: LeagueRecord[] = [];
+      try { leagues = this.deps.leagues.list(); } catch (e) { this.deps.log?.(`[discord] leagues unreadable: ${(e as Error).message}`); }
+      for (const league of leagues) {
         try {
           posted += await this.flush(leagueTarget(this.deps.leagues, league), this.leagueEvents(league));
           for (const season of this.deps.leagues.seasons(league.id)) posted += await this.flush(seasonTarget(this.deps.leagues, league, season.id), this.seasonEvents(league, season));
           posted += await this.weekly(league);
         } catch (e) { this.deps.log?.(`[discord] league pass failed: ${(e as Error).message}`); }
       }
+    } catch (e) {
+      this.deps.log?.(`[discord] observer pass failed: ${(e as Error).message}`);
     } finally {
       this.running = false;
     }
@@ -89,7 +97,11 @@ export class DiscordObserver {
     const at = this.now().toISOString();
     const known = this.deps.state.entry(target.key);
     const quiet = !known?.baselineAt || target.draft || !target.url;
-    const fresh = new Set(this.deps.state.mark(target.key, events.map((e) => e.marker), at, true));
+    const nowMs = this.now().getTime();
+    // A baselining pass (first sight, draft, no webhook) marks EVERYTHING that exists, settled or not; a posting pass leaves
+    // a not-yet-due marker for a later tick.
+    const due = quiet ? events : events.filter((e) => e.notBefore === undefined || e.notBefore <= nowMs);
+    const fresh = new Set(this.deps.state.mark(target.key, due.map((e) => e.marker), at, true, new Set(events.map((e) => e.marker))));
     if (quiet) return 0;
     let n = 0;
     for (const e of events) {
@@ -138,11 +150,11 @@ export class DiscordObserver {
       if (Number.isFinite(st) && st <= now && now - st < 2 * HOUR && !m.result)
         out.push({ marker: `start:${m.id}:${m.scheduledTime!.start}`, key: "fixtureStart", payload: () => simplePost(name, "fixtureStart", `${safe(vs)} starts now (Round ${m.roundNumber}).`, { test }) });
       const res = m.result;
-      if (res && now - Date.parse(res.reportedAt) >= RESULT_SETTLE_MS) {
-        // An organiser's result edit is an admin-entered result: marked, never announced.
-        const edited = m.edited?.kind === "result";
+      if (res) {
+        // An organiser's score entry or result edit is an admin-entered result: marked, never announced.
+        const manual = res.manual === true || m.edited?.kind === "result";
         out.push({
-          marker: `result:${m.id}`, key: edited ? null : "matchResult",
+          marker: `result:${m.id}`, key: manual ? null : "matchResult", notBefore: Date.parse(res.reportedAt) + RESULT_SETTLE_MS,
           payload: () => resultPost(name, { home: { team: label(m.home.entrantId), score: res.homeScore, cas: res.homeCasualties ?? null }, away: { team: label(m.away!.entrantId), score: res.awayScore, cas: res.awayCasualties ?? null }, round: `Round ${m.roundNumber}`, test }),
         });
       }
@@ -252,7 +264,8 @@ export class DiscordObserver {
     const season = DiscordObserver.digestSeason(this.deps.leagues.seasons(league.id));
     if (!season) return { reason: "The league has no season yet.", from, to };
     const tz = leagueTimeZone(league);
-    const fixtures = season.fixtures.filter((f) => fixturePlayed(f) && !f.test);
+    // Highlights read only the games of the period, like its results.
+    const fixtures = periodFixtures(season, from, to);
     const content = weeklyContent(season, from, to, tz, await this.games(league, season, fixtures));
     if (!content) return { reason: "No games were played in this period, so the digest is skipped.", from, to };
     return { payload: weeklyDigestPost(league.name, content, league.test === true), from, to };
@@ -261,39 +274,53 @@ export class DiscordObserver {
   private async weekly(league: LeagueRecord): Promise<number> {
     const target = leagueTarget(this.deps.leagues, league);
     const settings = weeklyOf(league.weeklyDigest);
-    if (target.draft || !target.url || !settings.enabled) return 0;
     const now = this.now();
     const tz = leagueTimeZone(league);
     const last = this.deps.state.weekly(league.id);
+    const postable = !target.draft && Boolean(target.url) && settings.enabled;
+    // Completed rounds are marked on every pass, posting or not: turning after-round digests (or a webhook) back on
+    // never replays rounds finished meanwhile.
+    const season = DiscordObserver.digestSeason(this.deps.leagues.seasons(league.id));
+    const key = `weekly:${league.id}`;
+    const seen = this.deps.state.entry(key);
+    const done = season ? completedRounds(season).map((k) => `wround:${season.id}:${k}`) : [];
+    const fresh = this.deps.state.mark(key, done, now.toISOString(), true, new Set(done));
     if (settings.trigger === "schedule") {
+      if (!postable) {
+        // Disabled or nowhere to post: the schedule still moves on, so switching it on later never posts an old week.
+        const slot = lastSlot(settings, now, tz);
+        if (!last.lastRun || Date.parse(last.lastRun) < slot.getTime()) this.deps.state.setWeekly(league.id, { lastRun: slot.toISOString() });
+        return 0;
+      }
       const slot = slotDue(settings, now, tz, last.lastRun);
       if (!slot) return 0;
-      const span = settings.everyWeeks * 7 * 24 * HOUR;
-      const from = Math.max(slot.getTime() - span, last.lastRun ? Date.parse(last.lastRun) : 0);
+      // The period starts at the previous run (or the previous wall-clock slot in the league zone) and ends at this slot.
+      const from = last.lastRun ? Date.parse(last.lastRun) : previousSlot(settings, slot, tz).getTime();
       // The run is stamped first (a crash mid-post never posts the same week twice).
       this.deps.state.setWeekly(league.id, { lastRun: slot.toISOString() });
       const d = await this.digestFor(league, from, slot.getTime());
       return d.payload && (await postRaw(target, d.payload, this.poster)) ? 1 : 0;
     }
-    const season = DiscordObserver.digestSeason(this.deps.leagues.seasons(league.id));
-    if (!season) return 0;
-    const key = `weekly:${league.id}`;
-    const seen = this.deps.state.entry(key);
-    const done = completedRounds(season).map((k) => `wround:${season.id}:${k}`);
-    const fresh = this.deps.state.mark(key, done, now.toISOString(), true);
-    if (!seen?.baselineAt || !fresh.length) return 0;
+    if (!postable || !season || !seen?.baselineAt || !fresh.length) return 0;
     const from = last.lastRun ? Date.parse(last.lastRun) : now.getTime() - 7 * 24 * HOUR;
     this.deps.state.setWeekly(league.id, { lastRun: now.toISOString(), lastRound: fresh.at(-1)! });
     const d = await this.digestFor(league, from, now.getTime());
     return d.payload && (await postRaw(target, d.payload, this.poster)) ? 1 : 0;
   }
 
-  /** The period a preview / "Post now" covers: since the last digest (at most the configured span back), up to now. */
+  /** The period a preview / "Post now" covers: since the last digest (else the previous wall-clock slot), up to now. */
   previewPeriod(league: LeagueRecord): { from: number; to: number } {
-    const now = this.now().getTime();
+    const now = this.now();
     const settings = weeklyOf(league.weeklyDigest);
-    const span = (settings.trigger === "schedule" ? settings.everyWeeks : 1) * 7 * 24 * HOUR;
     const last = this.deps.state.weekly(league.id).lastRun;
-    return { from: Math.max(now - span, last ? Date.parse(last) : 0), to: now };
+    if (last) return { from: Date.parse(last), to: now.getTime() };
+    const tz = leagueTimeZone(league);
+    const slot = lastSlot({ ...settings, everyWeeks: settings.trigger === "schedule" ? settings.everyWeeks : 1 }, now, tz);
+    return { from: previousSlot({ ...settings, everyWeeks: settings.trigger === "schedule" ? settings.everyWeeks : 1 }, slot, tz).getTime(), to: now.getTime() };
+  }
+
+  /** "Post now" went out: the next digest starts from here (no game is posted twice). */
+  markPosted(league: LeagueRecord, at: number): void {
+    this.deps.state.setWeekly(league.id, { lastRun: new Date(at).toISOString() });
   }
 }

@@ -362,7 +362,7 @@ import { DiscordObserver, OBSERVER_TICK_MS } from "./discord/observer.js";
 import { createDiscordReach } from "./discord/reach.js";
 import { DISPLAY_SETTINGS_PATH, displaySettingsRoute } from "./discord/displaySettings.js";
 import { DiscordStateStore } from "./discord/store.js";
-import { forkGame, tabletopGame, type GameRecord } from "./discord/games.js";
+import { forkGame, setPublicPlayerNames, tabletopGame, type GameRecord } from "./discord/games.js";
 import { playerLabel, visibleComments } from "./discord/hub.js";
 import { leagueFixtureRef } from "./leagues/tabletopFixtures.js";
 import type { TournamentSubmission } from "./tournaments/types.js";
@@ -939,8 +939,11 @@ const discordObserver = new DiscordObserver({
   gamesFor: (league, season, fixtures) => leagueFixtureGames(league.id, season.id, fixtures),
   log: (line) => console.error(line),
 });
-setTimeout(() => { void discordObserver.tick(); }, 20_000).unref();
-setInterval(() => { void discordObserver.tick(); }, OBSERVER_TICK_MS).unref();
+const discordTick = (): void => { discordObserver.tick().catch((e) => console.error(`[discord] observer tick failed: ${(e as Error).message}`)); };
+setTimeout(discordTick, 20_000).unref();
+setInterval(discordTick, OBSERVER_TICK_MS).unref();
+// Discord posts name players only when the game pages do (GAME_PAGES_PUBLIC_PLAYER_LINES), fork digests included.
+setPublicPlayerNames(DISCORD_PUBLIC_NAMES);
 const discordReach = createDiscordReach({
   token: process.env.DISCORD_BOT_TOKEN?.trim() || undefined,
   inviteUrl: process.env.DISCORD_INVITE_URL,
