@@ -6,6 +6,7 @@ import { createSSRApp } from "vue";
 import { phaseComplete, phaseFoldId, phaseFoldKey, phaseOpen, readPhaseFolds, writePhaseFold } from "../spa/src/leagues/fixtureNav";
 import { currentStandingsPhase, pickStandingsPhase, standingsPhaseOptions } from "../spa/src/leagues/standingsView";
 import { coachTitles, honoursView, playerLeaderBoards } from "../spa/src/leagues/hallViews";
+import { rankCoachRecords } from "../src/leagues/coachRanking";
 import { AWARDS_VIEW_KEY, awardWhen, groupAwardsBySeason, readAwardsLayout, sortAwards, writeAwardsLayout } from "../spa/src/leagues/awardsView";
 import type { AwardView } from "../spa/src/leagues/honours";
 import { coachAvatarSrc, coachSummaryOf, findCoachRecord, teamForRow, wdlLine } from "../spa/src/leagues/popups";
@@ -58,6 +59,9 @@ describe("fixtures: collapsible phases", () => {
     vi.stubGlobal("localStorage", { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); } });
     expect(readPhaseFolds("harbour")).toEqual({});
     expect(writePhaseFold("harbour", "x", true)).toEqual({ x: true }); // no throw; the session keeps the toggle
+    // storage blocked: an earlier in-memory toggle survives the next one (Sol 11-02)
+    const first = writePhaseFold("harbour", "s6:pre", true, {});
+    expect(writePhaseFold("harbour", "s6:regular", false, first)).toEqual({ "s6:pre": true, "s6:regular": false });
   });
 
   it("the phase band is a button with aria-expanded; the table view is unchanged", () => {
@@ -387,3 +391,15 @@ describe("awards: cards by season, sortable table, remembered layout", () => {
   });
 });
 
+// ---- Honours Coach view: "Best records" uses the Statistics best-coach ranking (Sol 11-02)
+describe("honours: best coach records", () => {
+  it("rank by win % among coaches with at least half the busiest coach's games, then games, points, name (shared with the Statistics card)", () => {
+    const c = (coach: string, games: number, winPct: number, points: number) => ({ coach, games, winPct, points });
+    const { min, ranked } = rankCoachRecords([c("Veteran", 40, 0.55, 70), c("Lucky", 2, 1, 6), c("Steady", 22, 0.8, 50), c("Busy", 30, 0.8, 60), c("Grinder", 40, 0.4, 90)]);
+    expect(min).toBe(20);
+    expect(ranked.map((x) => x.coach)).toEqual(["Busy", "Steady", "Veteran", "Grinder"]); // Lucky (2 games) is out; lifetime points no longer lead
+    expect(rankCoachRecords([]).ranked).toEqual([]);
+    expect(src("components/LeagueHallOfFame.vue")).toContain("const bestRanking = computed(() => rankCoachRecords(all.value?.coaches ?? []));");
+    expect(readFileSync(new URL("../src/leagues/stats.ts", import.meta.url), "utf8")).toContain("const { min, ranked } = rankCoachRecords(coaches);");
+  });
+});

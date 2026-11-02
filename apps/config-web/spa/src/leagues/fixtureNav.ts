@@ -120,9 +120,10 @@ export function readPhaseFolds(leagueId: string): PhaseFolds {
   } catch { return {}; }
 }
 
-/** Remembers one toggle (best effort). */
-export function writePhaseFold(leagueId: string, id: string, open: boolean): PhaseFolds {
-  const next = { ...readPhaseFolds(leagueId), [id]: open };
+/** Remembers one toggle (best effort): merged over the stored toggles and the page's in-memory ones (`current`), so a
+ *  toggle made while storage is blocked is not lost by the next one. Returns the new in-memory state. */
+export function writePhaseFold(leagueId: string, id: string, open: boolean, current: PhaseFolds = {}): PhaseFolds {
+  const next = { ...readPhaseFolds(leagueId), ...current, [id]: open };
   try { if (typeof localStorage !== "undefined") localStorage.setItem(phaseFoldKey(leagueId), JSON.stringify(next)); } catch { /* no storage */ }
   return next;
 }

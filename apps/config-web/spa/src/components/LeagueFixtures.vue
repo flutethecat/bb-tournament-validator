@@ -74,7 +74,7 @@ watch(() => props.league.id, (id) => { folds.value = readPhaseFolds(id); });
 const wholePhase = (id: string) => groups.value.find((x) => x.phase.id === id) ?? { rounds: [] };
 const complete = (id: string): boolean => phaseComplete(wholePhase(id));
 const isOpen = (id: string): boolean => phaseOpen(folds.value, phaseFoldId(props.season.id, id), wholePhase(id));
-const toggle = (id: string): void => { folds.value = writePhaseFold(props.league.id, phaseFoldId(props.season.id, id), !isOpen(id)); };
+const toggle = (id: string): void => { folds.value = writePhaseFold(props.league.id, phaseFoldId(props.season.id, id), !isOpen(id), folds.value); };
 const tally = computed(() => {
   const all = shown.value.flatMap((g) => g.rounds);
   return { played: all.reduce((n, r) => n + r.played, 0), total: all.reduce((n, r) => n + r.fixtures.length, 0) };
