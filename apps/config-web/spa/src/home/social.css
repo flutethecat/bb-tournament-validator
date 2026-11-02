@@ -89,8 +89,8 @@ a.so-name:hover { text-decoration: underline; }
 #so-blocked-h::before { content: ""; background-image: url(/icons/panel/account.png); }
 /* Fit to 1920x1080 (owner 11-02, home.css "Fit to 1920x1080"): the Messages page fills the content area; the conversation
    list scrolls on the left and the open conversation's bubbles scroll above the composer. */
-@media (min-width: 1367px) and (min-height: 700px) {
+@media screen and (min-width: 1367px) and (min-height: 700px) {
   .shell-main .so-page.sf-fit { display: grid; grid-template-rows: minmax(0, 1fr); align-items: stretch; }
-  .so-convo { min-height: 0; }
-  .so-bubbles { max-height: none; min-height: 0; }
+  .so-convo { min-height: 0; overflow-y: auto; } /* a short window: the bubbles keep 160 px and the whole conversation scrolls */
+  .so-bubbles { max-height: none; min-height: 160px; }
 }

@@ -138,8 +138,9 @@
      .sf-cols        a .hm-grid / .sf-split whose columns each scroll (.hm-col children become .sf-scroll).
    A page that has not opted in scrolls inside the content area (never the document). Below the desktop size (≤ 1366
    wide, or shorter than 700 px) none of this applies: panes stack at their natural height and the page scrolls normally,
-   so phones get no nested scroll traps. FIT_QUERY in shell/fit.ts mirrors this media query. */
-@media (min-width: 1367px) and (min-height: 700px) {
+   so phones get no nested scroll traps. Screen only: print lays pages out at their natural height. FIT_QUERY in
+   shell/fit.ts mirrors this media query. */
+@media screen and (min-width: 1367px) and (min-height: 700px) {
   body > #app { position: relative; display: grid; grid-template-rows: auto minmax(0, 1fr); height: 100dvh; overflow: hidden; }
   .sf-body { min-height: 0; }
   .sf-aside { position: relative; top: auto; align-self: stretch; height: auto; min-height: 0; }

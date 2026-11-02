@@ -4,7 +4,7 @@
 import { createRouter, type RouteLocationNormalized, type RouteRecordRaw, type RouterHistory } from "vue-router";
 import { LOBBY_ID_PATTERN } from "./shared/format";
 import type { SessionStore } from "./session";
-import { contentArea, fitMode, revealInPane } from "./shell/fit";
+import { contentArea, createPaneScrollMemory, fitMode, revealInPane, type ScrollNode } from "./shell/fit";
 import { hashId } from "./tournaments/scroll";
 import AccountView from "./views/AccountView.vue";
 import AdminOrganiserRequestsView from "./views/AdminOrganiserRequestsView.vue";
@@ -203,28 +203,54 @@ export function gateFor(route: Pick<RouteLocationNormalized, "meta">, session: S
   return session.signedIn() ? "allow" : "signin";
 }
 
+/** Fitted shell: reveal a hash target in its pane now, and again shortly while the page is still filling in (panels above
+ *  it grow as their data arrives) unless it already sits in view. */
+function revealHashSoon(id: string): void {
+  if (!id) return;
+  const reveal = (force: boolean) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const top = el.getBoundingClientRect().top;
+    if (force || top < 48 || top > window.innerHeight - 120) revealInPane(el);
+  };
+  reveal(true);
+  for (const ms of [250, 800]) setTimeout(() => reveal(false), ms);
+}
+
 export function createAppRouter(history: RouterHistory, session: SessionStore) {
+  // Fitted desktop shell: pane scroll offsets per history entry, put back on Back / Forward (shell/fit.ts). Browser only.
+  const panes = typeof window !== "undefined" && typeof document !== "undefined"
+    ? createPaneScrollMemory({
+      root: () => contentArea() as ScrollNode | null,
+      entry: () => (window.history.state as { position?: number } | null)?.position,
+      wait: (ms) => new Promise((r) => setTimeout(r, ms)),
+    })
+    : null;
+  if (panes) document.addEventListener("scroll", (e) => panes.record(e.target), { capture: true, passive: true });
   const router = createRouter({
     history,
     routes,
     // Coach-page rows link to panels by hash (/home#deadlines): scroll that panel into view, clear of the top bar.
     // Fitted desktop shell (shell/fit.ts): the window never scrolls, so a new page resets the content area and a hash
-    // target is revealed inside its pane.
+    // target is revealed inside its pane; Back / Forward (saved is set) puts the entry's pane offsets back instead.
     scrollBehavior: (to, from, saved) => {
-      if (!fitMode()) return to.hash ? { el: to.hash, top: 72 } : saved ?? undefined;
+      if (!fitMode()) { panes?.resume(); return to.hash ? { el: to.hash, top: 72 } : saved ?? undefined; }
+      if (saved && panes) { void panes.restore(); return false; }
+      panes?.resume();
       const main = contentArea();
       if (main && to.path !== from.path) main.scrollTop = 0;
-      const target = to.hash ? document.getElementById(hashId(to.hash)) : null;
-      if (target) revealInPane(target);
+      if (to.hash) revealHashSoon(hashId(to.hash));
       return false;
     },
   });
   // Every navigation waits for the first session read, so a page never renders against an unknown identity. A
   // failed read does not block navigation: the shell shows the error with a retry.
   router.beforeEach(async () => {
+    panes?.pause();
     await session.load();
     return true;
   });
+  router.afterEach((_to, _from, failure) => { if (failure) panes?.resume(); });
   // document.title is set in ONE place: useShellTitle's watcher (shell/pageTitle.ts), which follows the page-title store.
   return router;
 }

@@ -636,7 +636,7 @@
 /* ---- Fit to 1920x1080 (owner 11-02, home.css "Fit to 1920x1080"): the summary bar stays; the Ruleset and Sheet steps scroll
    in the pane, and on the Roster step each of the three columns scrolls on its own (the roster list keeps its measured
    height, TournamentBuilderRoster measureList). */
-@media (min-width: 1367px) and (min-height: 700px) {
+@media screen and (min-width: 1367px) and (min-height: 700px) {
   .shell-main .tb-page.sf-fit { align-items: center; }
   .tb-pane.sf-fill { position: relative; overflow-y: auto; overscroll-behavior: contain; padding: 2px 6px 8px 2px; margin: -2px -6px 0 -2px; }
   .tb-pane.sf-fill:has(> .tb-work) { display: flex; flex-direction: column; overflow: hidden; }

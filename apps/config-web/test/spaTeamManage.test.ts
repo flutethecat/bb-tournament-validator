@@ -402,7 +402,9 @@ describe("team management + My teams pages (server-rendered)", () => {
     expect(html).toMatch(/<button type="button" class="sf-btn primary" disabled[^>]*>Upload<\/button>/);
     expect(html).not.toContain(">Remove<");
     expect(html).toMatch(/>Close<\/button>/);
-    expect(html.indexOf('role="dialog"')).toBeGreaterThan(html.lastIndexOf('class="team-view tm-sheet"'));
+    const sheetAt = html.lastIndexOf('class="team-view tm-sheet sf-shrink sf-scroll sf-col"');
+    expect(sheetAt).toBeGreaterThanOrEqual(0);
+    expect(html.indexOf('role="dialog"')).toBeGreaterThan(sheetAt);
 
     const base = libraryModel();
     const withAvatar = { ...base, team: { ...base.team, avatarUrl: "/api/fork/teams/library%3A77/avatar?v=5" } };
@@ -441,7 +443,9 @@ describe("team management + My teams pages (server-rendered)", () => {
     expect(html).toMatch(/<div class="tm-content sf-fit sf-fill" inert aria-hidden="true">/);
     expect(html).toMatch(/<div class="ls-dialog tm-modal" role="dialog" aria-modal="true" aria-labelledby="tm-adv-h" tabindex="-1" data-step="choose">/);
     // the dialog sits outside the inert content
-    expect(html.indexOf('role="dialog"')).toBeGreaterThan(html.lastIndexOf('class="team-view tm-sheet"'));
+    const sheetAt = html.lastIndexOf('class="team-view tm-sheet sf-shrink sf-scroll sf-col"');
+    expect(sheetAt).toBeGreaterThanOrEqual(0);
+    expect(html.indexOf('role="dialog"')).toBeGreaterThan(sheetAt);
     const closed = await render("/teams/library%3A77", { "/api/me/teams/library%3A77": libraryModel() });
     expect(closed).toContain('<div class="tm-content sf-fit sf-fill">');
     expect(closed).not.toContain('role="dialog"');
@@ -468,7 +472,9 @@ describe("team management + My teams pages (server-rendered)", () => {
     const html = (await mods.renderer.renderToString(spa.app)) as string;
     expect(html).toMatch(/<div class="tm-content sf-fit sf-fill" inert aria-hidden="true">/);
     expect(html).toContain('role="dialog" aria-modal="true" aria-labelledby="tm-ps-h" tabindex="-1"');
-    expect(html.indexOf('aria-labelledby="tm-ps-h"')).toBeGreaterThan(html.lastIndexOf('class="team-view tm-sheet"'));
+    const sheetAt = html.lastIndexOf('class="team-view tm-sheet sf-shrink sf-scroll sf-col"');
+    expect(sheetAt).toBeGreaterThanOrEqual(0);
+    expect(html.indexOf('aria-labelledby="tm-ps-h"')).toBeGreaterThan(sheetAt);
     expect(html).toContain('<p class="tm-ps-name">Big &lt;Bob&gt;</p>');
     expect(html).toMatch(/<span class="tm-ps-num">#1<\/span> Orc Blitzer/);
     // SPP current / next cost, the bar and the rank under it

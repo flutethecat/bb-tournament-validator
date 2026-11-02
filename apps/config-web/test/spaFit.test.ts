@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
-import { FIT_QUERY } from "../spa/src/shell/fit";
+import { createPaneScrollMemory, FIT_QUERY, nodeAt, nodePath, type ScrollNode } from "../spa/src/shell/fit";
 import { scrollToHashAfter, type HashScrollDeps } from "../spa/src/tournaments/scroll";
 
 // Fit to 1920x1080 (owner 11-02, laws 18a): on a desktop screen the shell is one viewport tall and pages scroll inside
@@ -28,8 +28,9 @@ function cssFiles(dir: string): string[] {
 describe("fit to 1920x1080: the shell", () => {
   const block = fitBlock(home);
 
-  it("home.css holds the shell block under FIT_QUERY (desktop only: at least 1367 wide and 700 tall)", () => {
-    expect(FIT_QUERY).toBe("(min-width: 1367px) and (min-height: 700px)");
+  it("home.css holds the shell block under FIT_QUERY (desktop screens only: at least 1367 wide and 700 tall, never print)", () => {
+    expect(FIT_QUERY).toBe("screen and (min-width: 1367px) and (min-height: 700px)");
+    expect(FIT_QUERY.startsWith("screen and ")).toBe(true); // A3 landscape print matches the sizes; print keeps the natural height
     expect(block).not.toBe("");
   });
 
@@ -54,6 +55,8 @@ describe("fit to 1920x1080: the shell", () => {
     for (const file of cssFiles(".")) {
       const css = src(file.replace(/^\.\//, ""));
       for (const m of css.matchAll(/@media ([^{]*1367px[^{]*)\{/g)) expect(m[1]!.trim(), file).toBe(FIT_QUERY);
+      // no fit block hides behind another query form (e.g. "all and" or a bare min-height) either
+      for (const m of css.matchAll(/@media ([^{]*min-height: 700px[^{]*)\{/g)) expect(m[1]!.trim(), file).toBe(FIT_QUERY);
     }
   });
 });
@@ -114,5 +117,63 @@ describe("fit to 1920x1080: hash scroll", () => {
     expect(await scrollToHashAfter(Promise.resolve(), "#tn-entry-h", deps)).toBe(true);
     expect(revealed).toEqual([target]);
     expect(scrolled).toEqual([]);
+  });
+});
+
+describe("fit to 1920x1080: Back / Forward restores pane scroll", () => {
+  interface Fake extends ScrollNode { children: Fake[]; parentElement: Fake | null; scrollHeight: number }
+  const node = (scrollHeight = 1000, kids: Fake[] = []): Fake => {
+    const n: Fake = { scrollTop: 0, scrollHeight, clientHeight: 500, parentElement: null, children: kids };
+    for (const k of kids) k.parentElement = n;
+    return n;
+  };
+  function shell() {
+    const pane = node(3000);
+    const main = node(2000, [node(100), node(500, [node(10), pane])]);
+    return { main, pane };
+  }
+
+  it("addresses a pane by its child-index path under the content area", () => {
+    const { main, pane } = shell();
+    expect(nodePath(pane, main)).toEqual([1, 1]);
+    expect(nodePath(main, main)).toEqual([]);
+    expect(nodePath(node(), main)).toBeNull();
+    expect(nodeAt(main, [1, 1])).toBe(pane);
+    expect(nodeAt(main, [4])).toBeNull();
+  });
+
+  it("remembers each entry's offsets and puts them back on the new page once it is tall enough; navigation pauses recording", async () => {
+    let entry = 1;
+    let page = shell();
+    const memory = createPaneScrollMemory({ root: () => page.main, entry: () => entry, wait: async () => {} });
+    page.main.scrollTop = 300; memory.record(page.main);
+    page.pane.scrollTop = 1200; memory.record(page.pane);
+    // navigate away: the outgoing page's teardown (main clamped to 0) must not overwrite entry 1
+    memory.pause();
+    page.main.scrollTop = 0; memory.record(page.main);
+    entry = 2; memory.resume();
+    page = shell(); memory.record(page.main); // the new page at the top
+    // Back: entry 1 renders again, its pane still filling in (too short for 1200 on the first try)
+    entry = 1;
+    page = shell();
+    page.pane.scrollHeight = 900;
+    const done = memory.restore({ tries: 5, delay: 0 });
+    page.pane.scrollHeight = 3000;
+    expect(await done).toBe(true);
+    expect(page.main.scrollTop).toBe(300);
+    expect(page.pane.scrollTop).toBe(1200);
+    // an entry with nothing recorded restores nothing
+    entry = 9;
+    expect(await memory.restore({ tries: 2, delay: 0 })).toBe(false);
+  });
+
+  it("a newer navigation cancels a pending restore", async () => {
+    let page = shell();
+    const memory = createPaneScrollMemory({ root: () => page.main, entry: () => 1, wait: async () => { memory.pause(); } });
+    page.pane.scrollTop = 1200; memory.record(page.pane);
+    page = shell();
+    page.pane.scrollHeight = 600; // never tall enough before the next navigation starts
+    expect(await memory.restore({ tries: 5, delay: 0 })).toBe(false);
+    expect(page.pane.scrollTop).toBe(0);
   });
 });

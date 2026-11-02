@@ -371,13 +371,14 @@ td.tn-shared > span + span { margin-top: 2px; }
    tab body scrolls. Two-column tabs (Overview, Manage) scroll each column; a one-table tab (Entrants, Standings) fills
    the pane and its table scrolls under a sticky header. */
 .tn-tab-body { display: grid; gap: 16px; align-content: start; min-width: 0; }
-@media (min-width: 1367px) and (min-height: 700px) {
+@media screen and (min-width: 1367px) and (min-height: 700px) {
   .tn-tab-body { position: relative; overflow-y: auto; overscroll-behavior: contain; padding: 2px 6px 8px 2px; margin: -2px -6px 0 -2px; }
-  .tn-tab-body:has(> .hm-grid), .tn-tab-body:has(> .hm-panel:only-child > .tn-table-wrap) { display: flex; flex-direction: column; overflow: hidden; }
+  .tn-tab-body:has(> .hm-grid), .tn-tab-body:has(> .hm-panel:only-child > .tn-table-wrap) { display: flex; flex-direction: column; }
+  .tn-tab-body:has(> .hm-grid) { overflow: hidden; }
   .tn-tab-body > .hm-grid { flex: 1 1 0; min-height: 0; align-items: stretch; }
   .tn-tab-body > .hm-grid > .hm-col { position: relative; min-height: 0; overflow-y: auto; overscroll-behavior: contain; align-content: start; padding: 2px 6px 8px 2px; margin: -2px -6px 0 -2px; }
-  .tn-tab-body > .hm-panel:only-child:has(> .tn-table-wrap) { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  .tn-tab-body > .hm-panel:only-child:has(> .tn-table-wrap) { flex: 0 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
   .tn-tab-body > .hm-panel:only-child > * { flex: none; }
-  .tn-tab-body > .hm-panel:only-child > .tn-table-wrap { position: relative; flex: 1 1 auto; min-height: 0; overflow: auto; }
+  .tn-tab-body > .hm-panel:only-child > .tn-table-wrap { position: relative; flex: 1 1 auto; min-height: 160px; overflow: auto; } /* below 160 px the panel scrolls as a whole */
   .tn-tab-body > .hm-panel:only-child > .tn-table-wrap thead th { position: sticky; top: 0; z-index: 1; background: var(--ui-surface); }
 }
