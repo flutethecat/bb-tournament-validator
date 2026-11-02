@@ -657,13 +657,21 @@ button.lg-cog { margin: 0; padding: 0; font: inherit; color: inherit; cursor: po
 .lg-tab-body > .lg-front { min-height: max-content; }
 @media screen and (min-width: 1367px) and (min-height: 700px) {
   /* Overview (owner 11-02): three columns fill the tab pane, each scrolling on its own */
-  .lg-tab-body:has(> .lg-ov) { display: flex; flex-direction: column; overflow: hidden; }
+  .lg-tab-body:has(> .lg-ov) { display: flex; flex-direction: column; overflow: hidden; container: lg-ov / inline-size; }
   .lg-tab-body > .lg-ov { flex: 1 1 auto; min-height: 0; align-items: stretch;
-    grid-template-columns: minmax(400px, 30%) minmax(0, 1fr) 360px; grid-template-rows: minmax(0, 1fr); grid-template-areas: "results main side"; }
+    grid-template-columns: minmax(280px, 30%) minmax(360px, 1fr) minmax(260px, 340px); grid-template-rows: minmax(0, 1fr); grid-template-areas: "results main side"; }
   .lg-ov > .lg-ov-main, .lg-ov > .lg-ov-side { position: relative; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 2px 6px 8px 2px; margin: -2px -6px 0 -2px; }
   .lg-ov > .lg-ov-results { display: flex; flex-direction: column; min-height: 0; padding-bottom: 0; }
   .lg-ov-results > * { flex: none; }
   .lg-ov-results > .lg-ov-scroll { position: relative; flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; margin-right: 4px; padding: 2px 6px 10px 2px; }
+  /* a narrow tab pane (a small desktop with the sidebar open, Sol 11-02): two columns, the results box held in view on
+     the left while the front, season, news and side panels scroll as one column on the right */
+  @container lg-ov (max-width: 1100px) {
+    .lg-tab-body > .lg-ov { grid-template-columns: minmax(260px, 38%) minmax(0, 1fr); grid-template-rows: auto auto; grid-template-areas: "results main" "results side";
+      align-items: start; overflow-y: auto; overscroll-behavior: contain; padding: 2px 6px 8px 2px; margin: -2px -6px 0 -2px; }
+    .lg-ov > .lg-ov-main, .lg-ov > .lg-ov-side { min-height: auto; overflow: visible; padding: 0; margin: 0; }
+    .lg-ov > .lg-ov-results { position: sticky; top: 0; max-height: calc(100dvh / var(--sf-zoom, 1) - 240px); }
+  }
   .lg-tab-body:has(> .lg-stack > .hm-panel:only-child > .lg-scroll), .lg-tab-body:has(> .lg-part) { display: flex; flex-direction: column; overflow-y: auto; }
   .lg-tab-body > .lg-stack:has(> .hm-panel:only-child > .lg-scroll) { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; }
   .lg-tab-body > .lg-stack > .hm-panel:only-child:has(> .lg-scroll), .lg-tab-body > .lg-part { flex: 0 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
@@ -726,10 +734,18 @@ button.lg-cog { margin: 0; padding: 0; font: inherit; color: inherit; cursor: po
    season row and news in the middle, the season facts and side panels on the right. DOM order (main, results, side) is
    the phone order. At 1920x1080 the three columns fill the tab pane and each scrolls on its own (fit block below). */
 .lg-ov { display: grid; gap: 16px; align-items: start; min-width: 0; grid-template-columns: minmax(0, 1fr); grid-template-areas: "main" "results" "side"; }
-.lg-ov-main { grid-area: main; display: grid; gap: 16px; align-content: start; min-width: 0; }
+.lg-ov-main { grid-area: main; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.lg-ov-main > *, .lg-ov-side > * { flex: none; } /* a flex column: a fixed-height scrolling column never squeezes the hero under the next panel */
 .lg-ov-results { grid-area: results; }
-.lg-ov-side { grid-area: side; display: grid; gap: 16px; align-content: start; min-width: 0; }
+.lg-ov-side { grid-area: side; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .lg-ov-main > .lg-front { min-height: max-content; }
+/* the front in its column: a smaller logo and name, wrapping, so a narrow column never clips the league name */
+.lg-ov-main .lg-front:not([data-banner="image"]) { min-height: max-content; } /* its content, not the 200 px hero (overflow: hidden needs an explicit floor in a scrolling grid column) */
+.lg-ov-main .lg-front-body { flex-wrap: wrap; padding-top: 20px; }
+.lg-ov-main .lg-front-logo { width: 72px; height: 72px; }
+.lg-ov-main .lg-front[data-banner="image"] .lg-front-logo { width: 64px; height: 64px; }
+.lg-ov-main .lg-front-text { flex: 1 1 200px; }
+.lg-ov-main .lg-front-title { font-size: 1.5rem; }
 .lg-results-sm { grid-template-columns: minmax(0, 1fr); gap: 8px; }
 .lg-ov-scroll { min-width: 0; }
 @media (min-width: 1100px) {
