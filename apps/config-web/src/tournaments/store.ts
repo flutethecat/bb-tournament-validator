@@ -1389,7 +1389,7 @@ export class TournamentStore {
 
   recordResult(
     matchId: string,
-    input: { expectedRevision: number; homeScore: number; awayScore: number; homeCasualties?: number; awayCasualties?: number; opId?: string },
+    input: { expectedRevision: number; homeScore: number; awayScore: number; homeCasualties?: number; awayCasualties?: number; opId?: string; manual?: boolean },
     now = new Date(),
   ): ScheduledMatchRecord {
     return this.mutate((data) => {
@@ -1403,7 +1403,7 @@ export class TournamentStore {
       // A recorded result is changed only through the organiser edit path (editResult: manager check, guards, audit).
       if (match.result || match.status === "completed")
         throw new TournamentStoreError(409, "This fixture already has a result. Organisers change it with Edit result (Manage, Rounds).");
-      for (const [field, value] of Object.entries(input).filter(([field]) => field !== "expectedRevision" && field !== "opId")) {
+      for (const [field, value] of Object.entries(input).filter(([field]) => field !== "expectedRevision" && field !== "opId" && field !== "manual")) {
         if (!Number.isSafeInteger(value) || (value as number) < 0)
           throw new TournamentStoreError(400, `${field} must be a non-negative integer.`);
       }
@@ -1419,6 +1419,7 @@ export class TournamentStore {
           ...(input.awayCasualties === undefined ? {} : { awayCasualties: input.awayCasualties }),
           reportedAt: timestamp,
           ...(input.opId ? { opId: input.opId } : {}),
+          ...(input.manual ? { manual: true as const } : {}),
         },
         // A result reported again after an organiser cleared it: the clear stays in the audit stamp, no longer "cleared".
         ...(match.edited?.kind === "result" && match.edited.cleared ? { edited: reportedAgain(match.edited, timestamp) } : {}),

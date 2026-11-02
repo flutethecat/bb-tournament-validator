@@ -1854,6 +1854,8 @@ export async function tournamentApi(
         awayScore: integer(input.awayScore, "awayScore"),
         ...(input.homeCasualties === undefined ? {} : { homeCasualties: integer(input.homeCasualties, "homeCasualties") }),
         ...(input.awayCasualties === undefined ? {} : { awayCasualties: integer(input.awayCasualties, "awayCasualties") }),
+        // an organiser's typed-in score: marked manual so Discord never announces it (owner round 3)
+        manual: true,
       }, now);
       notifyResult(deps, match, identity.coach);
       return { status: 200, body: { match: clientMatch(deps.store, match, identity, now, deps.teamBuild) } };

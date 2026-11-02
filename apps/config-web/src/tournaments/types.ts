@@ -289,6 +289,8 @@ export interface ScheduledMatchResult {
   reportedAt: string;
   /** Tabletop publications stamp the commit op id here so a replay can recognise its own write. */
   opId?: string;
+  /** Typed in by an organiser or admin (PATCH /api/scheduled-matches/:id/result), not recorded: never announced on Discord. */
+  manual?: true;
 }
 
 /** The result values an organiser edit replaces (kept for audit). */
