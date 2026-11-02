@@ -24,6 +24,24 @@ export const safe = (s: string, n = 200): string => clip(starProfanity(String(s)
 
 export interface PostField { name: string; value: string; inline?: boolean }
 
+/**
+ * Every outbound payload passes through here before it is posted (targets.ts, the samples and test routes, the league
+ * posts): listed words left in any text (a title, a description, a field, a footer) are starred, escaped so the stars
+ * show as stars. Builders still run each user string through safe(); this is the net under them.
+ */
+export function cleanPayload(p: DiscordPayload): DiscordPayload {
+  const star = (s: string): string => starProfanity(s, "\\*\\*\\*");
+  return {
+    ...p,
+    ...(p.content ? { content: star(p.content) } : {}),
+    embeds: p.embeds.map((e) => ({
+      ...e, title: star(e.title), description: star(e.description),
+      ...(e.footer ? { footer: { text: star(e.footer.text) } } : {}),
+      ...(e.fields ? { fields: e.fields.map((f) => ({ ...f, name: star(f.name), value: star(f.value) })) } : {}),
+    })),
+  };
+}
+
 export function post(title: string, description: string, color = GOLD, opts: { fields?: PostField[]; footer?: string; url?: string } = {}): DiscordPayload {
   const fields = (opts.fields ?? []).filter((f) => f.value.trim()).slice(0, 25).map((f) => ({ name: clip(f.name, 256), value: clip(f.value, 1024), ...(f.inline ? { inline: true } : {}) }));
   return {
@@ -72,7 +90,7 @@ export function gameDigestPost(competition: string, g: GameRecord, show: Partial
   if (opts.comments !== false && g.comments.length)
     fields.push({ name: "Coach's comments", value: g.comments.map((c) => `${safe(c.coach, 40)} (${teamOf(g, c.side)}): "${safe(c.text, 140)}"`).join("\n") });
   const coaches = `${safe(g.home.coach, 40)} v ${safe(g.away.coach, 40)}`;
-  return post(`${tag(g.test)}${safe(competition, 100)}: ${scoreLine(g)}`, [coaches, conceded, opts.round ?? ""].filter(Boolean).join("\n"), GOLD, {
+  return post(`${tag(g.test)}${safe(competition, 100)}: ${scoreLine(g)}`, [coaches, conceded, opts.round ? safe(opts.round, 100) : ""].filter(Boolean).join("\n"), GOLD, {
     fields, footer: g.source === "tabletop" ? "Recorded on the tabletop recorder" : "Played on Super FUMBBL", ...(opts.url ? { url: opts.url } : {}),
   });
 }
@@ -99,7 +117,7 @@ export function liveEventPost(competition: string, key: InGameKey, g: { home: { 
 export function resultPost(competition: string, r: { home: { team: string; score: number; cas?: number | null; conceded?: boolean }; away: { team: string; score: number; cas?: number | null; conceded?: boolean }; round?: string; test?: boolean }): DiscordPayload {
   const cas = r.home.cas != null || r.away.cas != null ? `\nCasualties ${r.home.cas ?? 0} - ${r.away.cas ?? 0}` : "";
   const conceded = r.home.conceded ? `\n${safe(r.home.team, 60)} conceded.` : r.away.conceded ? `\n${safe(r.away.team, 60)} conceded.` : "";
-  return post(`${tag(r.test)}${safe(competition, 100)}: result`, `${safe(r.home.team)} ${r.home.score} - ${r.away.score} ${safe(r.away.team)}${cas}${conceded}${r.round ? `\n${r.round}` : ""}`, GOLD);
+  return post(`${tag(r.test)}${safe(competition, 100)}: result`, `${safe(r.home.team)} ${r.home.score} - ${r.away.score} ${safe(r.away.team)}${cas}${conceded}${r.round ? `\n${safe(r.round, 100)}` : ""}`, GOLD);
 }
 
 // ---- competition events ----------------------------------------------------------------------------------------------
@@ -114,7 +132,7 @@ export interface PairingLine { home: string; away?: string; table?: number }
 export function pairingsPost(competition: string, roundLabel: string, pairings: PairingLine[], test = false): DiscordPayload {
   const lines = pairings.slice(0, 40).map((p) => `${p.table ? `${p.table}. ` : ""}${safe(p.home, 60)} v ${p.away ? safe(p.away, 60) : "bye"}`);
   const more = pairings.length > 40 ? `\n…and ${pairings.length - 40} more` : "";
-  return post(`${tag(test)}${safe(competition, 100)}: ${roundLabel} pairings`, `${lines.join("\n")}${more}`, BLUE);
+  return post(`${tag(test)}${safe(competition, 100)}: ${safe(roundLabel, 100)} pairings`, `${lines.join("\n")}${more}`, BLUE);
 }
 
 export interface StandingLine { rank: number; name: string; points: number; detail?: string }
@@ -122,7 +140,7 @@ export interface StandingLine { rank: number; name: string; points: number; deta
 const standingText = (rows: StandingLine[]): string => rows.map((r) => `${r.rank}. ${safe(r.name, 60)} - ${r.points} pts${r.detail ? ` (${r.detail})` : ""}`).join("\n");
 
 export function standingsPost(competition: string, title: string, rows: StandingLine[], test = false): DiscordPayload {
-  return post(`${tag(test)}${safe(competition, 100)}: ${title}`, standingText(rows.slice(0, 10)) || "No standings yet.", GOLD);
+  return post(`${tag(test)}${safe(competition, 100)}: ${safe(title, 120)}`, standingText(rows.slice(0, 10)) || "No standings yet.", GOLD);
 }
 
 export function finalStandingsPost(competition: string, champion: string | undefined, rows: StandingLine[], test = false): DiscordPayload {
@@ -145,7 +163,7 @@ export function roundSummaryPost(competition: string, roundLabel: string, result
     const [winRank, loseRank] = r.homeScore > r.awayScore ? [r.homeRank, r.awayRank] : [r.awayRank, r.homeRank];
     return winRank - loseRank >= 3;
   }).map((r) => (r.homeScore > r.awayScore ? `${safe(r.home, 60)} beat ${safe(r.away, 60)}` : `${safe(r.away, 60)} beat ${safe(r.home, 60)}`));
-  return post(`${tag(test)}${safe(competition, 100)}: ${roundLabel} summary`, lines.join("\n") || "No results this round.", GOLD, {
+  return post(`${tag(test)}${safe(competition, 100)}: ${safe(roundLabel, 100)} summary`, lines.join("\n") || "No results this round.", GOLD, {
     fields: [
       { name: "Upsets", value: upsets.join("\n") },
       { name: "Top 3 so far", value: standingText(top.slice(0, 3)) },

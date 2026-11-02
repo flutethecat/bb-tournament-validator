@@ -17,6 +17,7 @@ import type { TournamentRecord } from "../tournaments/types.js";
 import type { DiscordPayload, WebhookPoster } from "../leagues/discord.js";
 import { isDraftLeague } from "../leagues/lifecycle.js";
 import { effectiveConfig, type CompetitionKind, type EffectiveDiscordConfig } from "./catalogue.js";
+import { cleanPayload } from "./posts.js";
 import type { DiscordStateStore } from "./store.js";
 
 export interface DiscordTarget {
@@ -86,11 +87,11 @@ export const wouldPost = (t: DiscordTarget, key: DiscordEventKey): boolean => !t
 /** Posts when the target is published, has a webhook and the event is on. Best effort; never logs the URL. */
 export async function postTo(t: DiscordTarget, key: DiscordEventKey, payload: DiscordPayload, poster: WebhookPoster): Promise<boolean> {
   if (!wouldPost(t, key)) return false;
-  try { return (await poster(t.url!, payload)).ok; } catch { return false; }
+  try { return (await poster(t.url!, cleanPayload(payload))).ok; } catch { return false; }
 }
 
 /** The same without the event toggle (end-of-game digest, Weekly Digest, samples: they have their own switch). */
 export async function postRaw(t: DiscordTarget, payload: DiscordPayload, poster: WebhookPoster): Promise<boolean> {
   if (t.draft || !t.url) return false;
-  try { return (await poster(t.url, payload)).ok; } catch { return false; }
+  try { return (await poster(t.url, cleanPayload(payload))).ok; } catch { return false; }
 }

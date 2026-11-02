@@ -124,8 +124,13 @@ export function tabletopGame(input: TabletopGameInput): GameRecord {
 
 const DEAD = /\b(dead|rip|killed)\b/i;
 
+/** GAME_PAGES_PUBLIC_PLAYER_LINES for every Discord post (server.ts sets it at start): false = players by number only. */
+let publicPlayerNames = true;
+export function setPublicPlayerNames(on: boolean): void { publicPlayerNames = on; }
+export const publicNamesDefault = (): boolean => publicPlayerNames;
+
 /** The game record of a Super FUMBBL result banked on a league fixture, or undefined when the fixture has none. */
-export function forkGame(fixture: Pick<LeagueFixture, "home" | "away" | "test"> & { fork?: { result?: FixtureForkResult } }, publicNames = true): GameRecord | undefined {
+export function forkGame(fixture: Pick<LeagueFixture, "home" | "away" | "test"> & { fork?: { result?: FixtureForkResult } }, publicNames = publicPlayerNames): GameRecord | undefined {
   const r = fixture.fork?.result;
   if (!r) return undefined;
   const lines = emptyLines();

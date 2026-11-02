@@ -84,7 +84,8 @@ export const JOIN_NOTICE = "Join the Super FUMBBL Discord to get messages";
 
 /** What the registration notice shows: the DM line (DMs on), and the invite line when the coach shares no server with the bot. */
 export function reachLines(r: DiscordReach | null): { dm: boolean; invite: string | null } {
-  if (!r || r.dm === "off" || r.dm === "unlinked") return { dm: false, invite: null };
+  // "inactive" = no bot token yet: never promise DMs that cannot be sent.
+  if (!r || r.dm === "off" || r.dm === "unlinked" || r.dm === "inactive") return { dm: false, invite: null };
   return { dm: true, invite: r.sharesServer === false && r.inviteUrl ? r.inviteUrl : null };
 }
 
