@@ -11,7 +11,7 @@ import {
   type StatKey,
   type TournamentPackage,
 } from "@bb/validator";
-import { cleanStatIncreaseRules, type StatIncreaseRules } from "@bb/validator";
+import { canonicalizeStatRuleRaces, cleanStatIncreaseRules, findRoster, type StatIncreaseRules } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 import type { PackageFiles } from "./data.js";
 import { isFreeCreatePackage } from "./freeCreate.js";
@@ -27,6 +27,8 @@ export const FREE_CREATE_BUILD_PACKAGE: TournamentPackage = loadPackage({
   goldBudget: null,
   eligibleRosters: ["*"],
   skillAllotment: { skillPointBudget: Number.MAX_SAFE_INTEGER, maxPerPlayer: null, maxSameSkillTeamwide: null, maxStackedPlayers: null },
+  // Explicit unlimited knob: Free Create bounds stat increases in the builder, not the validator (no standard defaults here).
+  statIncreases: { allowed: ["MA", "ST", "AG", "PA", "AV"], costGold: {}, maxPerPlayer: null },
   special: { insignificantTraitConstraint: false, statIncreasesAllowed: true },
 }).pkg;
 
@@ -112,6 +114,7 @@ export interface BuilderRaceRules {
   statIncreasesAllowed: boolean;
   /** special.statIncreaseRules cleaned (who may not, blocked stats, per-team cap); null when none are set or the switch is off. */
   statIncreaseRules: StatIncreaseRules | null;
+  statRulesRace: string;
   /** Only the packs open to the race ([] when stars are not allowed or no packs are configured). */
   starPacks: BuilderStarPack[];
   /** Overall star cap (counts picks when packs are configured); 0 when stars are not allowed. */
@@ -141,7 +144,10 @@ export function builderRaceRules(pkg: TournamentPackage, race: string): BuilderR
     maxStackedPlayers: cfg.maxStackedPlayers,
     stackedPlayer: { ...cfg.stackedPlayer },
     statIncreasesAllowed: pkg.special.statIncreasesAllowed === true,
-    statIncreaseRules: pkg.special.statIncreasesAllowed === true ? cleanStatIncreaseRules(pkg.special.statIncreaseRules) : null,
+    statIncreaseRules: pkg.special.statIncreasesAllowed === true
+      ? canonicalizeStatRuleRaces(cleanStatIncreaseRules(pkg.special.statIncreaseRules), (n) => findRoster(bb2025, n)?.name ?? n) : null,
+    /** The dataset's name for this race: the rules' race fields are canonical, so the dialog compares against this. */
+    statRulesRace: findRoster(bb2025, race)?.name ?? race,
     statIncreases: pkg.special.statIncreasesAllowed === true && si && si.allowed.length ? { allowed: [...si.allowed], costGold: { ...si.costGold } } : null,
     starPacks,
     maxStars: cfg.starPlayersAllowed ? pkg.starPlayers.maxCount : 0,

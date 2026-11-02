@@ -277,7 +277,7 @@
               },
               "description": "A stat nobody (no positions or keywords listed) or only the listed positions / keywords may take."
             },
-            "maxPerTeam": { "type": ["number", "null"], "description": "Most stat increases the whole team may carry." }
+            "maxPerTeam": { "type": ["integer", "null"], "minimum": 0, "description": "Most stat increases the whole team may carry." }
           }
         },
         "bannedSkills": { "type": "array", "items": { "type": "string" }, "default": [] },

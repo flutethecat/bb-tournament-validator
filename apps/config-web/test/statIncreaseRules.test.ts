@@ -49,7 +49,8 @@ describe("stat-increase rules: the shared evaluator", () => {
   it("cleans raw JSON: bad entries dropped, empty rules are null", () => {
     expect(cleanStatIncreaseRules(null)).toBeNull();
     expect(cleanStatIncreaseRules({ blockedStats: [{ stat: "XX" }], excludeKeywords: [""], maxPerTeam: -1 })).toBeNull();
-    expect(cleanStatIncreaseRules({ excludePositions: [{ position: "Ogre" }], blockedStats: [{ stat: "st", keywords: ["Big Guy"] }], maxPerTeam: 2.9 })).toEqual({
+    expect(cleanStatIncreaseRules({ maxPerTeam: 2.9 })).toBeNull(); // not an integer: ignored (and a load problem, below)
+    expect(cleanStatIncreaseRules({ excludePositions: [{ position: "Ogre" }], blockedStats: [{ stat: "st", keywords: ["Big Guy"] }], maxPerTeam: 2 })).toEqual({
       excludePositions: [{ race: "*", position: "Ogre" }], blockedStats: [{ stat: "ST", keywords: ["Big Guy"] }], maxPerTeam: 2,
     });
   });
@@ -102,6 +103,34 @@ describe("stat-increase rules: the server validator", () => {
   it("rules are ignored while Allow stat increases is off, and the switch error wins", () => {
     const off = loadPackage({ name: "Off", eligibleRosters: ["*"], statIncreases: { allowed: ["MA"], costGold: { MA: 1 } }, special: { statIncreaseRules: { maxPerTeam: 5 } } } as never).pkg;
     expect(messages(off, team(["MA"]))[0]).toContain("this ruleset doesn't allow stat increases.");
+  });
+  it("race-scoped rules use the dataset's race name, like the roster lookup (Dwarfs = Dwarf)", () => {
+    const m = messages(pkgWith({ excludePositions: [{ race: "Dwarfs", position: "Dwarf Blocker Lineman" }] }), team(["MA"]));
+    expect(m).toHaveLength(1);
+    expect(m[0]).toContain("no stat increases for Dwarf Blocker Lineman players.");
+    expect(messages(pkgWith({ excludePositions: [{ race: "Elf", position: "Dwarf Blocker Lineman" }] }), team(["MA"]))).toEqual([]);
+    expect(builderRaceRules(pkgWith({ excludePositions: [{ race: "Dwarfs", position: "X" }] }), "dwarf")).toMatchObject({
+      statRulesRace: "Dwarf", statIncreaseRules: { excludePositions: [{ race: "Dwarf", position: "X" }] },
+    });
+  });
+  it("maxPerTeam must be a non-negative integer: a bad value is a load problem and is ignored", () => {
+    for (const bad of [2.5, -1, "3"]) {
+      const { problems, pkg } = loadPackage({ name: "Bad", eligibleRosters: ["*"], special: { statIncreasesAllowed: true, statIncreaseRules: { maxPerTeam: bad } } } as never);
+      expect(problems).toContain("special.statIncreaseRules.maxPerTeam must be a non-negative integer or null (ignored).");
+      expect(builderRaceRules(pkg, "Dwarf").statIncreaseRules).toBeNull();
+    }
+    expect(loadPackage({ name: "Ok", eligibleRosters: ["*"], special: { statIncreasesAllowed: true, statIncreaseRules: { maxPerTeam: 0 } } } as never).problems).toEqual([]);
+  });
+  it("Allow stat increases with no stat knobs uses the standard BB2025 increases (every stat, standard costs, one per player)", () => {
+    const std = loadPackage({ name: "Std", eligibleRosters: ["*"], special: { statIncreasesAllowed: true } } as never).pkg;
+    expect(builderRaceRules(std, "Dwarf").statIncreases).toEqual({ allowed: ["MA", "ST", "AG", "PA", "AV"], costGold: { AV: 10000, MA: 20000, PA: 20000, AG: 30000, ST: 60000 } });
+    expect(messages(std, team(["ST"]))).toEqual([]);
+    expect(messages(std, team(["ST", "MA"]))[0]).toContain("the limit is 1 per player.");
+    const composed = composeTeam({ forkRosterXml: forkXml("Dwarf"), coach: "C", teamName: "T", picks: team(["ST"]), reRolls: 0, apothecary: false }, bb2025, 7);
+    expect(validate(composed.roster, std, bb2025).recomputedSummary).toMatchObject({ statIncreasesCost: 60000 });
+    // a knob anywhere still wins over the defaults
+    const own = loadPackage({ name: "Own", eligibleRosters: ["*"], statIncreases: { allowed: ["MA"], costGold: { MA: 5 } }, special: { statIncreasesAllowed: true } } as never).pkg;
+    expect(builderRaceRules(own, "Dwarf").statIncreases).toEqual({ allowed: ["MA"], costGold: { MA: 5 } });
   });
   it("the builder's race rules carry the cleaned rules (or null while the switch is off)", () => {
     const on = pkgWith({ excludeKeywords: ["Big Guy"], maxPerTeam: 3 });

@@ -57,6 +57,8 @@ export function checkExtraKnobs(pkg: TournamentPackage): { pkg: TournamentPackag
   for (const [id, rosters] of Object.entries(pkg.inducements?.rosterOnly ?? {}))
     if (!Array.isArray(rosters) || rosters.some((r) => typeof r !== "string"))
       problems.push(`inducements.rosterOnly.${id} must be an array of roster names.`);
+  const teamCap = (pkg.special?.statIncreaseRules as { maxPerTeam?: unknown } | undefined)?.maxPerTeam;
+  if (!isCap(teamCap)) problems.push("special.statIncreaseRules.maxPerTeam must be a non-negative integer or null (ignored).");
   const out: TournamentPackage = { ...pkg };
   if (pkg.statIncreases !== undefined) out.statIncreases = cleanStat("package", pkg.statIncreases);
   if (pkg.tiers)

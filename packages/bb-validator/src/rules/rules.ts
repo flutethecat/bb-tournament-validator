@@ -4,7 +4,7 @@
  */
 
 import { costSP, isElite } from "../cost/costSP";
-import { cleanStatIncreaseRules, playerStatRuleBlock, statRuleBlock, teamCapBlock } from "../cost/statRules";
+import { canonicalizeStatRuleRaces, cleanStatIncreaseRules, playerStatRuleBlock, statRuleBlock, teamCapBlock } from "../cost/statRules";
 import { MAX_STAT_STEPS, starPackPicks, statIncreasesGold, statIncreasesOf, statIncreasesOverLimit } from "../cost/extras";
 import { skillsGold } from "../cost/costGold";
 import { inducementIdForName, inducementReducedFor } from "../dataset/inducements";
@@ -550,7 +550,8 @@ export const statIncreasesRule: Rule = {
     // regardless of package, so this must fail closed). With it on and no knob anywhere, increases stay unchecked.
     const allowed = pkg.special.statIncreasesAllowed === true;
     const si = allowed ? cfg.statIncreases : undefined;
-    const granular = allowed ? cleanStatIncreaseRules(pkg.special.statIncreaseRules) : null;
+    const canonRace = (name: string): string => findRoster(data, name)?.name ?? name;
+    const granular = allowed ? canonicalizeStatRuleRaces(cleanStatIncreaseRules(pkg.special.statIncreaseRules), canonRace) : null;
     if (!si && allowed && !granular) return [];
     let teamTotal = 0;
     const where = sourceLabel(cfg);
@@ -573,7 +574,7 @@ export const statIncreasesRule: Rule = {
       if (incs.length === 0) continue;
       const label = `#${rp.player.number} ${rp.position.name}`;
       const shown = incs.map((k) => `+${k}`).join(", ");
-      const who = { race: roster.rosterName, position: rp.position.name, aliases: rp.position.aliases, keywords: rp.position.keywords, type: rp.position.type };
+      const who = { race: canonRace(roster.rosterName), position: rp.position.name, aliases: rp.position.aliases, keywords: rp.position.keywords, type: rp.position.type };
       const whole = allowed ? playerStatRuleBlock(granular, who) : "";
       if (whole) {
         findings.push(err("stat-increases", `${label} has a characteristic increase (${shown}). ${whole}`, { playerRef: rp.player.number, suggestion: `Remove the increase from ${label}.` }));

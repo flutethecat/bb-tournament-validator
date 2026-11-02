@@ -50,8 +50,19 @@ export function cleanStatIncreaseRules(raw: unknown): StatIncreaseRules | null {
   });
   if (bs.length) out.blockedStats = bs;
   const cap = r.maxPerTeam;
-  if (typeof cap === "number" && Number.isFinite(cap) && cap >= 0) out.maxPerTeam = Math.floor(cap);
+  if (typeof cap === "number" && Number.isSafeInteger(cap) && cap >= 0) out.maxPerTeam = cap; // anything else is a load problem and ignored
   return Object.keys(out).length ? out : null;
+}
+
+/** Rewrite every race in the rules through `canon` (the dataset roster's name), so "Chaos Renegades" and "Chaos Renegade" are one race.
+ *  The validator and the server's builder block both use findRoster for `canon`; the dialog compares the canonical names. */
+export function canonicalizeStatRuleRaces(rules: StatIncreaseRules | null, canon: (race: string) => string): StatIncreaseRules | null {
+  if (!rules) return rules;
+  const fix = (list?: RulePosition[]): RulePosition[] | undefined => list?.map((p) => ({ ...p, race: p.race === "*" || p.race.trim() === "" ? "*" : canon(p.race) }));
+  const out: StatIncreaseRules = { ...rules };
+  if (rules.excludePositions) out.excludePositions = fix(rules.excludePositions);
+  if (rules.blockedStats) out.blockedStats = rules.blockedStats.map((b) => (b.positions ? { ...b, positions: fix(b.positions) } : b));
+  return out;
 }
 
 const raceMatches = (want: string, race: string): boolean => want === "*" || norm(want) === "" || norm(want) === norm(race);

@@ -233,6 +233,37 @@ describe("tournament builder controller", () => {
     expect(reason(0, "MA")).toBe("");
   });
 
+  it("a saved roster whose package now refuses increases keeps them: shown, removable, kept on save; the + stays open to Reset at the skill cap", async () => {
+    const off = { ...TIER_ROW, statIncreasesAllowed: false };
+    const f = mockFetcher(routes({ "/api/fork/team-builder/tiers?packageName=Test%20Cup": { races: [off] } }));
+    const { b } = await ready(f);
+    b.setTeamName("Reavers");
+    b.addPosition("hlin");
+    b.state.slots = b.state.slots.map((s, i) => (i === 0 ? { ...s, chosenStatIncreases: ["ST"] } : s)); // as restored from a save
+    const st = b.statSteps(0).find((o) => o.stat === "ST")!;
+    expect(st).toMatchObject({ has: true, value: "4", removeReason: "" }); // still shown, removable
+    expect(b.slotLocks(0).liveStats).toEqual(["ST"]);
+    expect(b.requestBody({ forSave: true }).picks[0]).toMatchObject({ chosenStatIncreases: ["ST"] }); // never stripped on save
+    expect(b.requestBody().picks[0]).toMatchObject({ chosenStatIncreases: ["ST"] }); // the validator reports it, not the client
+    expect(b.advanceLock(0).reason).toBe(""); // something is added: the dialog stays openable for Reset
+    b.removeStat(0, "ST");
+    expect(b.requestBody().picks[0]!.chosenStatIncreases ?? []).toEqual([]);
+    expect(b.resetSummary(0)).toEqual({ skills: 0, stats: 0 });
+  });
+
+  it("the + stays open at the skill cap when the player has something added (Reset, removals)", async () => {
+    const { b } = await ready(mockFetcher(routes()));
+    b.setTeamName("Reavers");
+    b.addPosition("hlin");
+    await b.openSkills(0);
+    expect(b.addSkill(0, "Tackle")).toBe("");
+    expect(b.addSkill(0, "Wrestle")).toBe(""); // Test Cup: two added skills reach the cap
+    expect(b.moreSkills(b.state.slots[0]!)).toBe(false);
+    expect(b.advanceLock(0)).toMatchObject({ offered: true, reason: "" });
+    b.resetPlayer(0);
+    expect(b.moreSkills(b.state.slots[0]!)).toBe(true); // Reset frees the cap
+  });
+
   it("Team Captain: no direct reassignment; clearing the captain (or firing them) frees the toggle (owner 10-31)", async () => {
     const { b } = await ready(mockFetcher(routes()));
     b.setTeamName("Reavers");

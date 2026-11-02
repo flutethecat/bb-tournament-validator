@@ -216,8 +216,18 @@ export function resolveTeamConfig(pkg: TournamentPackage, race: string): Resolve
     cfg.starPlayersAllowed = cfg.skillPackages.some((p) => p.starPlayersAllowed !== false);
   }
 
+  // "Allow stat increases" on with no stat knob at any level: the standard BB2025 increases (every characteristic, standard
+  // costs, one per player), in the validator and the builder alike, instead of an unchecked or empty rule.
+  if (pkg.special.statIncreasesAllowed === true && !cfg.statIncreases) cfg.statIncreases = defaultStatIncreases();
+
   return cfg;
 }
+
+/** BB2025 standard characteristic improvements: MA/ST/AG/PA/AV, the standard values as costs, one per player. */
+export const STANDARD_STAT_COST_GOLD: Readonly<Record<StatKey, number>> = { AV: 10_000, MA: 20_000, PA: 20_000, AG: 30_000, ST: 60_000 };
+export const defaultStatIncreases = (): ResolvedStatIncreases => ({
+  allowed: ["MA", "ST", "AG", "PA", "AV"], costGold: { ...STANDARD_STAT_COST_GOLD }, maxPerPlayer: 1, exclusiveWithSkills: false,
+});
 
 /** Does the package use COUNT-mode skill limits for this race? */
 export function usesCountMode(cfg: ResolvedTeamConfig): boolean {

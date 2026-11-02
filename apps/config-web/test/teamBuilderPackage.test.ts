@@ -84,6 +84,7 @@ describe("packageResponseInfo", () => {
         statIncreases: null,
         statIncreasesAllowed: false,
         statIncreaseRules: null,
+        statRulesRace: "Amazon",
         starPacks: [],
         maxStars: null,
       },

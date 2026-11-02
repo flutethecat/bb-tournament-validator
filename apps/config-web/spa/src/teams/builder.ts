@@ -451,7 +451,15 @@ export function createTournamentBuilder(deps: BuilderDeps) {
       ?? (ownTierRow()?.raw as { statIncreaseRules?: unknown } | undefined)?.statIncreaseRules;
     return cleanStatIncreaseRules(raw);
   };
-  const teamStatIncreases = (): number => state.slots.reduce((n, sl) => n + sl.chosenStatIncreases.filter((k) => allowedStats().includes(k)).length, 0);
+  /** The stat increases a player carries: all of them, whatever the rules now say. A saved roster whose package has since
+   *  turned them off keeps showing them (removable) and keeps them on save; the validator reports them as rule violations. */
+  const heldStats = (slot: Slot): string[] => slot.chosenStatIncreases.filter((k) => (STAT_KEYS as readonly string[]).includes(k));
+  /** The dataset's name for this race, from the server (race-scoped rules are canonical, like the validator's findRoster). */
+  const statRulesRace = (): string => {
+    const raw = (state.preview?.package?.rules as { statRulesRace?: unknown } | undefined)?.statRulesRace ?? (ownTierRow()?.raw as { statRulesRace?: unknown } | undefined)?.statRulesRace;
+    return typeof raw === "string" && raw ? raw : state.roster?.raceName ?? "";
+  };
+  const teamStatIncreases = (): number => state.slots.filter((sl) => !isStarSlot(sl)).reduce((n, sl) => n + heldStats(sl).length, 0);
   const statsRuleAllowed = (): boolean => {
     if (free()) return true;
     const flag = (state.preview?.package?.rules as { statIncreasesAllowed?: unknown } | undefined)?.statIncreasesAllowed
@@ -523,7 +531,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     const rules = statRules();
     const allowed = allowedStats();
     return state.slots.filter((s) => !isStarSlot(s))
-      .reduce((n, s) => n + s.chosenStatIncreases.filter((k) => allowed.includes(k)).reduce((m, k) => m + (core.statIncreaseCost(rules, k) ?? 0), 0), 0);
+      .reduce((n, s) => n + heldStats(s).filter((k) => allowed.includes(k)).reduce((m, k) => m + (core.statIncreaseCost(rules, k) ?? 0), 0), 0);
   };
   const budget = (): number => packSummary()?.gold ?? state.preview?.package?.budget ?? state.packageRules?.budget ?? 1_000_000;
   /** Whether the ruleset has a TV cap at all (Free Create has none). */
@@ -924,10 +932,9 @@ export function createTournamentBuilder(deps: BuilderDeps) {
   // ── preview ───────────────────────────────────────────────────────────────────────────────────────────────────────
   /** `forSave`: a draft keeps its stat increases while the tier rules are unknown, so a save never drops them. */
   function requestBody(opts: { forSave?: boolean } = {}): BuilderBody {
-    const rulesUnknown = !tierRules();
-    const keepAll = Boolean(opts.forSave) && rulesUnknown;
+    void opts;
     const picks = core.buildPicks(state.slots.map((s) => ({ ...s, isStar: isStarSlot(s), captain: s.captain === true && slotCanCaptain(s) })), {
-      skills: true, captain: captainAvailable(), stats: keepAll || Boolean(statRules()), allowedStats: keepAll ? null : allowedStats(),
+      skills: true, captain: captainAvailable(), stats: true, allowedStats: null, // never strip a stored increase: the validator reports it
     });
     const specialRule = selectedSpecialRule();
     const inducements = inducementPicks();
@@ -1189,7 +1196,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     const slot = state.slots[index];
     const block = statBlock(slot ?? null, slot ? positionById(slot.positionId) : null, stat);
     if (block || !slot) return block || "This player can't take a stat increase.";
-    const live = slot.chosenStatIncreases.filter((k) => allowedStats().includes(k));
+    const live = heldStats(slot);
     state.slots = state.slots.map((s, i) => (i === index ? { ...s, chosenStatIncreases: [...live, stat] } : s));
     changed();
     return "";
@@ -1320,12 +1327,12 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     const slot = state.slots[index];
     const position = slot ? positionById(slot.positionId) : null;
     if (!slot || !position) return [];
-    const chosen = slot.chosenStatIncreases.filter((k) => allowedStats().includes(k));
+    const chosen = heldStats(slot);
     const now = core.improvedStats(position, chosen);
     const ruleOff = !statsRuleAllowed();
     const rules = statRuleSet();
     const taken = teamStatIncreases();
-    const who = { race: state.roster?.raceName ?? "", position: position.name, keywords: position.keywords, type: position.type };
+    const who = { race: statRulesRace(), position: position.name, keywords: position.keywords, type: position.type };
     // Always the five tiles. A ruleset that disallows increases (or a race with none set up) shows them greyed out, each
     // "+" carrying the reason; "−" still works on increases the player already has, so a stale one can be removed.
     return STAT_KEYS.map((stat) => {
@@ -1347,7 +1354,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
   function slotLocks(index: number) {
     const slot = state.slots[index]!;
     const exclusive = statRules()?.exclusiveWithSkills !== false;
-    const liveStats = slot.chosenStatIncreases.filter((k) => allowedStats().includes(k));
+    const liveStats = heldStats(slot);
     const maxStats = Number(statRules()?.maxPerPlayer ?? 1) || 1;
     return {
       liveStats,
@@ -1366,7 +1373,8 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     if (!slot || isStarSlot(slot)) return { offered: false, stats: false, reason: "Stars never take added skills or stat increases." };
     const l = slotLocks(index);
     const skillOpen = !l.skillLocked && l.canMoreSkills;
-    const reason = skillOpen || l.statOffered ? "" : l.skillLocked ? "A player with a stat increase can't also have an added skill." : "This player can't take another skill.";
+    const hasAdded = slot.chosenSkills.length > 0 || heldStats(slot).length > 0; // Reset and the removals need the dialog open
+    const reason = skillOpen || l.statOffered || hasAdded ? "" : l.skillLocked ? "A player with a stat increase can't also have an added skill." : "This player can't take another skill.";
     return { offered: true, stats: l.statOffered, reason };
   }
 
@@ -1564,7 +1572,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
           position: positionById(s.positionId),
           name: star ? "" : s.name ?? "",
           chosenSkills: star ? [] : s.chosenSkills,
-          chosenStatIncreases: statRules() && !star ? s.chosenStatIncreases.filter((k) => allowedStats().includes(k)) : [],
+          chosenStatIncreases: star ? [] : heldStats(s),
           chosenStats: null,
           captain: s.captain === true && slotCanCaptain(s),
           accessOf: (k: string) => (accessOf(s.positionId, k) === "secondary" ? "secondary" : "primary"),

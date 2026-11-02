@@ -303,6 +303,7 @@ describe("Small Gods package", () => {
       stackedPlayer: { maxSkills: 3, maxSecondary: 2, maxElite: 2 },
       statIncreasesAllowed: true,
       statIncreaseRules: null,
+      statRulesRace: "Dwarf",
       statIncreases: { allowed: ["AV", "PA"], costGold: { MA: 20000, PA: 20000, AV: 10000 } },
       starPacks: [{ id: "free", label: "Free", fee: 0, feeMode: "each", max: 2, stars: pkg.starPacks![0]!.stars }],
       maxStars: 2,
