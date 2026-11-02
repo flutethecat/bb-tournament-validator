@@ -2,7 +2,8 @@
 // League page, Teams tab: a tile per team; ?team=<name> opens that team's end-of-season roster (players, skills,
 // SPP and season stats) and the players who left the roster during the season. Organisers and admins (manage) get
 // Assign coach account in the roster header (LeagueTeamCoach) and what the team's coach shares with the organisers
-// (LeagueMemberContact). The Super FUMBBL result counters (blocks, rushing, ...)
+// (LeagueMemberContact). Under the roster: the team's current redraft budget (LeagueTeamRedraftBudget, owner 11-02). The
+// Super FUMBBL result counters (blocks, rushing, ...)
 // get a column each only when a player in that table has a non-zero value.
 import { computed, inject, ref, watch } from "vue";
 import { RouterLink, useRoute } from "vue-router";
@@ -15,6 +16,7 @@ import type { LeaguePlayer, PlayerSeasonStats, SeasonRecord } from "../leagues/t
 import LeagueTeamCoach from "./LeagueTeamCoach.vue";
 import LeagueMemberContact from "./LeagueMemberContact.vue";
 import LeagueTeamAwards from "./LeagueTeamAwards.vue";
+import LeagueTeamRedraftBudget from "./LeagueTeamRedraftBudget.vue";
 
 const props = defineProps<{ season: SeasonRecord; team: string; player?: string; leagueId: string; crests: Record<string, string>; manage?: boolean }>();
 const route = useRoute();
@@ -151,6 +153,7 @@ const appointCaptain = (playerId: string): Promise<string> => detail!.appointCap
             </table>
           </div>
         </section>
+        <LeagueTeamRedraftBudget :league-id="leagueId" :season-id="season.id" :team-id="picked.id" />
       </template>
     </template>
     <section v-else class="hm-panel" aria-labelledby="lg-teams-h">

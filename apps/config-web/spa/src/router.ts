@@ -16,7 +16,7 @@ import HomeView from "./views/HomeView.vue";
 import LeaderboardsView from "./views/LeaderboardsView.vue";
 import FixtureLobbyView from "./views/FixtureLobbyView.vue";
 import LeagueDetailView from "./views/LeagueDetailView.vue";
-import LeagueRedraftView from "./views/LeagueRedraftView.vue";
+import RosterBuilderRedraftView from "./views/RosterBuilderRedraftView.vue";
 import LeagueListView from "./views/LeagueListView.vue";
 import LeagueSettingsView from "./views/LeagueSettingsView.vue";
 import LeagueStatsView from "./views/LeagueStatsView.vue";
@@ -164,8 +164,15 @@ export const routes: RouteRecordRaw[] = [
   { path: "/leagues/:id([a-z0-9-]{1,64})/settings", name: "league-settings", component: LeagueSettingsView, props: true, meta: { requiresAuth: true, title: "League settings" } },
   // The management sub-panel keeps the League settings address; /manage (the tournament and series spelling) lands there.
   { path: "/leagues/:id([a-z0-9-]{1,64})/manage", redirect: (to) => ({ name: "league-settings", params: { id: String(to.params.id) }, query: to.query, hash: to.hash }) },
-  // Redraft: the organisers' board; a coach's own redraft (?team= opens the dialog from the notification link).
-  { path: "/leagues/:id([a-z0-9-]{1,64})/redraft", name: "league-redraft", component: LeagueRedraftView, props: true, meta: { requiresAuth: true, title: "League redraft" } },
+  // The old redraft page (owner 11-02): ?team= (the coach's notification link) opens that team's Redraft mode in the Roster
+  // Builder; without it, the organiser board in League settings -> Redraft (a coach there sees their own redraft tasks).
+  {
+    path: "/leagues/:id([a-z0-9-]{1,64})/redraft",
+    name: "league-redraft",
+    redirect: (to) => (typeof to.query.team === "string" && to.query.team
+      ? { name: "roster-builder-redraft", params: { leagueId: String(to.params.id) }, query: { team: to.query.team } }
+      : { name: "league-settings", params: { id: String(to.params.id) }, query: { tab: "redraft" } }),
+  },
   { path: "/admin/tournaments", name: "admin-tournaments", component: AdminTournamentsView, meta: { requiresAuth: true, title: "Tournaments admin" } },
   // Organiser requests (registration spec 2026-11-02 §3): coaches ask here; site admins answer in the queue.
   { path: "/organiser/request", name: "organiser-request", component: OrganiserRequestView, meta: { requiresAuth: true, title: "Become an organiser" } },
@@ -176,6 +183,15 @@ export const routes: RouteRecordRaw[] = [
     component: LinkOutView,
     props: { title: "Team Builder", href: "/team-builder.html", blurb: "Build and save a team sheet." },
     meta: { title: "Team Builder" },
+  },
+  // Redraft mode (owner 11-02): the coach's league redraft in the Roster Builder layout (?team=<teamId>; the id rides in the
+  // query since league team ids may hold a dot). Two segments, so it never meets the saved-team address below.
+  {
+    path: "/tournament-team-builder/redraft/:leagueId([a-z0-9-]{1,64})",
+    name: "roster-builder-redraft",
+    component: RosterBuilderRedraftView,
+    props: (route) => ({ leagueId: String(route.params.leagueId), teamId: typeof route.query.team === "string" ? route.query.team : "" }),
+    meta: { requiresAuth: true, title: "Roster Builder" },
   },
   // Tournament Builder (owner 10-30): public like the vanilla page (browsing and the guest preview need no sign-in; saving,
   // sharing and Create on Fork ask for the Discord session in place). /tournament-team-builder/<saveId> opens a saved team

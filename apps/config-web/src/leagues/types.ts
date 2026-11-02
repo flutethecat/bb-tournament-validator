@@ -34,7 +34,7 @@ export interface LeagueRecord {
   address?: LeagueAddress;
   registrations?: LeagueRegistrations;
   /** Discord webhook event toggles; the URL itself lives in secrets.json, never here. */
-  discordEvents?: DiscordEvents;
+  discordEvents?: Partial<DiscordEvents>;
   /** Play on Super FUMBBL (default off): fixtures an admin allows can then be generated on the fork (later lane). */
   playOnFork?: boolean;
   /** A test competition (registration spec Q13): the only kind a test sign-in may write in (src/registration/testSession.ts). */
@@ -58,6 +58,9 @@ export interface LeagueRecord {
   authorised?: boolean;
   /** Redraft budget cap the board starts from (default on, 1,300,000); remembered from the last confirmed redraft. */
   redraftCap?: { enabled: boolean; cap: number };
+  /** Redraft budget formula and options (League settings -> Redraft; redraftRules.ts). Unset keys take the defaults; unset
+   *  liftToBudget = off (leagues made before 11-02 keep the old behaviour; the wizard sets it on for new leagues). */
+  redraftRules?: Partial<RedraftRules>;
   /** Settings revision: every settings write bumps it; a PATCH naming an older revision is refused (409). */
   revision?: number;
   /** Awards an organiser or admin gave (awards.ts); the podium and imported awards stay on their seasons. */
@@ -126,7 +129,7 @@ export interface LeagueRegistrations {
   venmo?: string;
 }
 
-export const DISCORD_EVENT_KEYS = ["news", "fixtureCreated", "matchStarted", "matchResult", "milestones"] as const;
+export const DISCORD_EVENT_KEYS = ["news", "fixtureCreated", "matchStarted", "matchResult", "milestones", "redraftRolls"] as const;
 export type DiscordEventKey = (typeof DISCORD_EVENT_KEYS)[number];
 export type DiscordEvents = Record<DiscordEventKey, boolean>;
 
@@ -752,11 +755,40 @@ export interface RedraftBudget {
   played: number;
   wins: number;
   draws: number;
-  /** played x 20k + wins x 20k + draws x 10k. */
+  /** played x per game + wins x per win + draws x per draw (+ losses x per loss); 20k / 20k / 10k / 0 by default. */
   bonus: number;
   raw: number;
   capped: number;
+  /** Losses (counted when the formula pays for them). Absent on budgets made before 11-02. */
+  losses?: number;
+  /** The amounts this budget used (redraftRules.ts). Absent on budgets made before 11-02 (= the defaults). */
+  amounts?: RedraftAmounts;
 }
+
+/** The per-result amounts of the redraft formula, in gold. */
+export interface RedraftAmounts { perGame: number; perWin: number; perDraw: number; perLoss: number }
+
+/**
+ * Redraft budget formula and options (owner 11-02): a league default in League settings; a ladder may override it later
+ * (redraftRules.ts effectiveRedraftRules takes the override as its last layer).
+ */
+export interface RedraftRules extends RedraftAmounts {
+  /** Starting amount in gold; null = the roster's initial treasury (the receiving season's Team building table, else 1,000,000). */
+  base: number | null;
+  /** Agent fee per season a re-hired player has taken part in. */
+  agentFee: number;
+  capEnabled: boolean;
+  cap: number;
+  /** The set budget: a team that earned less may be lifted to it (budget = max(earned, set)). */
+  setBudget: number;
+  /** Lift every team below the set budget automatically when a redraft opens. */
+  liftToBudget: boolean;
+  /** Redraft window length in days (no play while it is open). */
+  windowDays: number;
+}
+
+/** A lift of a team's redraft budget to the set budget (organiser's Lift to budget, or automatic when the redraft opened). */
+export interface RedraftLift { to: number; by: string; at: string; auto: boolean }
 
 /** One Rest & Relaxation roll: a niggling injury rolls off on target+ (4+, or 3+ with an Apothecary). */
 export interface RestRoll {
@@ -805,9 +837,33 @@ export interface RedraftTeamTask {
   appliedTo?: string;
   /** Why the task expired (status "expired"). */
   expiredReason?: string;
+  /** Lifted to the set budget (spendable = max(earned, lift.to) unless an override is set). */
+  lift?: RedraftLift;
+  /** The window closed before a valid draft list: the team may not play until the coach submits one. */
+  needsRedraft?: { at: string; reason: string };
+  /** Rebuilt from the current roster when the window closed (no list submitted in time). */
+  auto?: true;
 }
 
-export interface RedraftLogEntry { at: string; by: string; text: string }
+export interface RedraftLogEntry {
+  at: string;
+  by: string;
+  text: string;
+  /** The team the entry is about (lifts, overrides, window outcomes): the team summary's redraft history. */
+  teamId?: string;
+}
+
+/** The redraft window (owner 11-02, the gate stub): no play from opensAt to closesAt; the job notes what it has done. */
+export interface RedraftWindow {
+  opensAt: string;
+  closesAt: string;
+  /** Coaches told the window is open. */
+  openNotifiedAt?: string;
+  /** Coaches still drafting reminded 24 h before the close. */
+  reminderAt?: string;
+  /** The close was processed (teams rebuilt or marked needs redraft). */
+  processedAt?: string;
+}
 
 export interface RedraftState {
   startedAt: string;
@@ -823,4 +879,8 @@ export interface RedraftState {
   log: RedraftLogEntry[];
   /** The season the organiser picked to receive the draft lists (unset = the default target, see redraft.ts). */
   targetSeasonId?: string;
+  /** The formula and options the redraft opened with (redraftRules.ts); absent on redrafts confirmed before 11-02. */
+  rules?: RedraftRules;
+  /** Absent on redrafts confirmed before 11-02 (no window, no play block). */
+  window?: RedraftWindow;
 }

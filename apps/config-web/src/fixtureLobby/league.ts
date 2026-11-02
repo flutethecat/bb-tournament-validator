@@ -31,6 +31,7 @@ import { deriveTeamResult, type StoredTournamentResult } from "../tournamentResu
 import { lobbyRoute, type LobbyDeps } from "./api.js";
 import { LOBBY_SIDES, type LobbyCoachStats, type LobbyFixture, type LobbyFixtureSide, type LobbyHeadToHead, type LobbyMeeting, type LobbySide, type LobbyTeam } from "./types.js";
 import { publishedLeagues } from "../leagues/lifecycle.js";
+import { fixtureRedraftBlock } from "../leagues/redraftWindow.js";
 
 export const LOBBY_BODY_MAX = 16 * 1024;
 
@@ -65,7 +66,7 @@ export async function leagueLobbyRoutes(
   if (!lg || !season) return fail(404, "Season not found.");
   const fixture = season.fixtures.find((f) => f.id === fixtureId);
   if (!fixture) return fail(404, "Fixture not found.");
-  const fx = leagueLobbyFixture(lg, season, fixture, auth, deps.store, lobby);
+  const fx = leagueLobbyFixture(lg, season, fixture, auth, deps.store, lobby, lobby.now?.() ?? deps.now?.() ?? new Date());
   return lobbyRoute(method, action, fx, auth, input, lobby);
 }
 
@@ -78,7 +79,7 @@ function seasonQuery(store: LeagueStore, league: LeagueRecord, season: SeasonRec
 }
 
 export function leagueLobbyFixture(
-  league: LeagueRecord, season: SeasonRecord, f: LeagueFixture, auth: LeagueApiIdentity | undefined, store: LeagueStore, deps: LeagueLobbyDeps,
+  league: LeagueRecord, season: SeasonRecord, f: LeagueFixture, auth: LeagueApiIdentity | undefined, store: LeagueStore, deps: LeagueLobbyDeps, now: Date = new Date(),
 ): LobbyFixture {
   const config = inducementConfigOf(season);
   const { offers, ids } = seasonInducementOffers(config);
@@ -109,7 +110,8 @@ export function leagueLobbyFixture(
     : f.suspended ? "This fixture is not being played."
       : season.status !== "active" ? "This season is finished."
         : !fixtureOpenForDeadline(f) ? "This fixture was decided at its deadline."
-          : !(coachIds.home && coachIds.away) ? "Both teams need a coach account before the lobby opens." : "";
+          : !(coachIds.home && coachIds.away) ? "Both teams need a coach account before the lobby opens."
+            : fixtureRedraftBlock(store.seasons(league.id), f, now);
   const deadline = effectiveDeadline(season, f);
   return {
     key: leagueFixtureRef(league.id, season.id, f.id),

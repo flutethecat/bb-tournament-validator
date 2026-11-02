@@ -1,0 +1,42 @@
+/* Roster Builder, Redraft mode (RosterBuilderRedraftView.vue, owner 11-02): the Roster Builder's own panels, rows and
+   cards (builder.css) plus the few redraft-only pieces: the Keep / Release toggle in the roster row's corner, a released
+   row dimmed with its cost struck, the hire stepper on the position cards and the done / valid lines. Tokens only. */
+.rd-mode .rd-locked { flex-wrap: wrap; }
+.rd-mode .rd-locked .rd-phase { margin-left: auto; }
+.rd-mode .tm-note, .rd-mode > .sf-error { margin: 0; }
+
+/* position cards: not a button here; the stepper sits on its own line at the card's foot */
+.rd-mode .tb-position.rd-position { cursor: default; grid-template-areas: "sprite head cost" "stats stats stats" "skills skills skills" "step step step"; }
+.rd-mode .tb-position.rd-position:hover { border-color: var(--sf-panel-line); }
+.rd-position > .rd-hire-step { grid-area: step; justify-self: end; }
+.rd-mode .tb-col-left .rd-positions { grid-template-columns: minmax(0, 1fr); }
+
+/* roster rows: no drag here (the grip area stays as the card's edge) */
+.rd-mode .rd-grip { align-self: stretch; cursor: default; }
+.rd-mode .tb-row > .rd-keep, .rd-mode .tb-row > .tb-fire-x { grid-area: x; align-self: start; justify-self: end; }
+.rd-keep {
+  min-width: 82px; min-height: 30px; margin: 4px 0 0; padding: 0 10px; font: 10px/1 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; cursor: pointer;
+  color: var(--ui-text); background: color-mix(in srgb, var(--ui-success) 26%, var(--ui-surface-2)); border: 2px solid var(--ui-success); border-radius: 2px; box-shadow: var(--sf-bevel);
+}
+.rd-keep[aria-pressed="false"] { color: var(--ui-scarlet-contrast); background: var(--ui-scarlet); border-color: var(--ui-scarlet); }
+.rd-keep:disabled { opacity: .55; cursor: not-allowed; }
+.rd-keep:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.rd-row[data-released="true"] { opacity: .7; }
+.rd-row[data-released="true"] .tb-cost { text-decoration: line-through; color: var(--ui-muted); }
+.rd-row.rd-hire-row { border-style: dashed; }
+.rd-retires { margin-left: auto; font: 10px/1.6 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-danger); }
+.rd-mode .tb-row-skills { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+
+/* rest step and the right column */
+.rd-rest-row { grid-template-columns: 40px minmax(0, 1fr) auto; grid-template-areas: "icon who step"; }
+.rd-rest-row > .rd-dice, .rd-rest-row > .rd-rolls { grid-area: step; }
+.rd-mode .rd-apo { min-height: 36px; }
+.rd-valid { margin: 6px 0; color: var(--ui-success); font-weight: 600; }
+.rd-done { display: grid; gap: 6px; margin: 8px 0; }
+.rd-done > p, .rd-done > h3 { margin: 0; }
+.rd-mode .tb-validator .rd-bar { margin: 4px 0 6px; }
+.rd-mode .tb-validator .sf-btn-row { margin: 8px 0; }
+.rd-mode .tb-validator .sf-btn.big { flex: 1 1 auto; }
+.rd-phone-step { text-align: center; }
+.rd-rest { display: grid; gap: 16px; min-width: 0; }
+@media (min-width: 1180px) { .rd-rest { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); align-items: start; } }

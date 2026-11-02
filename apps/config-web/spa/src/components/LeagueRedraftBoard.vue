@@ -1,12 +1,13 @@
 <script setup lang="ts">
-// Redraft board (organisers): every team of the finished season (Active) and teams from earlier seasons that sat it out
-// (Inactive), with games played, W-D-L, treasury and the computed budget (cap noted). Before confirmation: a checkbox per
-// team ("selected for redraft", the row is shaded), Check all on the Active tab, the budget cap and per-team overrides with
-// a reason; Confirm redraft creates the coaches' tasks. After: a progress column (Drafting / Submitted / Skipped), budget
-// overrides on teams still drafting, the redraft log and Close redraft.
+// Redraft board (organisers; League settings -> Redraft since 11-02): every team of the finished season (Active) and teams
+// from earlier seasons that sat it out (Inactive), with games played, W-D-L, treasury, the budget earned vs the league's
+// set budget (cap noted) and what the coach may spend. Before confirmation: a checkbox per team (the row is shaded), Check
+// all on the Active tab, the cap, the window (Opens at + days) and per-team overrides with a reason; Confirm redraft
+// creates the coaches' tasks. After: a status column (Not started / In progress / Submitted / Needs redraft), overrides,
+// Lift to budget per team and for all, Skip, the window, the redraft log and Close redraft.
 import { computed, inject, ref } from "vue";
-import { budgetNote, goldK, REDRAFT_BOARD_KEY, redraftPickers, seasonsTitle, STATUS_LABEL, type BoardTab } from "../leagues/redraft";
-import type { RedraftBoardRow } from "../leagues/types";
+import { budgetNote, formulaText, goldK, PHASE_LABEL, PHASE_TONE, REDRAFT_BOARD_KEY, redraftPickers, seasonsTitle, type BoardTab } from "../leagues/redraft";
+import type { RedraftBoardRow, RedraftPhase } from "../leagues/types";
 
 const board = inject(REDRAFT_BOARD_KEY)!;
 const { state } = board;
@@ -20,6 +21,9 @@ const busy = computed(() => Boolean(state.busy));
 // The source stays pickable unless a redraft is running (a closed one must not block other seasons); the target is
 // locked once the redraft is confirmed.
 const pickers = computed(() => redraftPickers(view.value));
+const rules = computed(() => view.value.rules);
+const setBudget = computed(() => rules.value?.setBudget ?? 0);
+const liftable = computed(() => started.value && !closed.value && [...view.value.active, ...view.value.inactive].some((r) => r.selected && r.status === "pending" && r.liftApplies));
 
 // Budget override editor (one row at a time).
 const editing = ref("");
@@ -43,12 +47,27 @@ async function clearOverride(r: RedraftBoardRow): Promise<void> {
   if (await board.clearOverride(r.teamId)) editing.value = "";
 }
 const shownBudget = (r: RedraftBoardRow): number => (!started.value && state.overrides[r.teamId]?.budget != null ? state.overrides[r.teamId]!.budget! : r.spendable);
-const shownNote = (r: RedraftBoardRow): string => (!started.value && state.overrides[r.teamId] ? `Override: ${state.overrides[r.teamId]!.reason}` : budgetNote(r));
+const shownNote = (r: RedraftBoardRow): string => {
+  if (!started.value && state.overrides[r.teamId]) return `Override: ${state.overrides[r.teamId]!.reason}`;
+  if (r.lift && !r.override) return `Lifted${r.lift.auto ? " on open" : ` by ${r.lift.by}`}`;
+  if (!started.value && r.liftApplies && rules.value?.liftToBudget) return "Lifts on open";
+  return budgetNote(r);
+};
+const phaseOf = (r: RedraftBoardRow): RedraftPhase => r.phase ?? (!r.selected ? "not-selected" : r.status === "pending" ? "not-started" : (r.status as RedraftPhase) ?? "not-started");
 
 const confirmClose = ref(false);
 async function close(): Promise<void> { if (await board.close()) confirmClose.value = false; }
 const capK = computed({ get: () => Math.round(state.cap / 1000), set: (v: number) => { state.cap = Math.max(0, Math.round(Number(v) || 0)) * 1000; } });
 const fmtDate = (iso: string): string => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+const fmtWhen = (iso: string): string => new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+const windowLine = computed(() => {
+  const w = view.value.window;
+  if (!w) return "";
+  if (w.before) return `Opens ${fmtWhen(w.opensAt)}, closes ${fmtWhen(w.closesAt)}.`;
+  if (w.open) return `Open until ${fmtWhen(w.closesAt)}. Teams in the redraft cannot play until then.`;
+  return `The window closed ${fmtWhen(w.closesAt)}. Teams that need a redraft cannot play until they submit.`;
+});
+const COLS = computed(() => (started.value ? 11 : 10));
 </script>
 
 <template>
@@ -61,8 +80,9 @@ const fmtDate = (iso: string): string => new Date(iso).toLocaleDateString("en-US
       <p v-if="!view.source" class="hm-empty">{{ view.note }}</p>
       <template v-else>
         <p class="hm-small">
-          Budget = initial treasury + treasury left + 20k per league game played + 20k per win + 10k per draw.
-          Re-hiring a player costs their value + a 20k agent fee per season played. {{ view.note }}
+          <template v-if="rules">{{ formulaText(rules) }} Re-hiring a player costs their value + a {{ goldK(rules.agentFee) }} agent fee per season played. Set budget {{ goldK(rules.setBudget) }}.</template>
+          <template v-else>Budget = initial treasury + treasury left + 20k per league game played + 20k per win + 10k per draw. Re-hiring a player costs their value + a 20k agent fee per season played.</template>
+          {{ view.note }}
         </p>
         <div v-if="pickers.source || pickers.target" class="lg-toolbar rd-picks">
           <label v-if="pickers.source" class="lg-select">
@@ -84,11 +104,19 @@ const fmtDate = (iso: string): string => new Date(iso).toLocaleDateString("en-US
           <label class="ls-field rd-cap-amount"><span class="tn-sr">Cap in thousands</span><input v-model.number="capK" type="number" min="0" max="5000" step="10" :disabled="!state.capEnabled" inputmode="numeric" aria-label="Budget cap in thousands" /></label>
           <span>k (the excess is lost)</span>
         </div>
-        <p v-else class="hm-small" role="status">
-          Confirmed by {{ view.state!.byCoach }} on {{ fmtDate(view.state!.startedAt) }}.
-          {{ view.state!.capEnabled ? `Budgets capped at ${goldK(view.state!.cap)}.` : "No budget cap." }}
-          <template v-if="closed"> Closed by {{ view.state!.closedBy }} on {{ fmtDate(view.state!.closedAt!) }}.</template>
-        </p>
+        <div v-if="!started" class="ls-actions rd-window">
+          <label class="ls-field"><span>Opens at</span><input v-model="state.opensAt" type="datetime-local" aria-describedby="rd-window-help" /></label>
+          <label class="ls-field rd-cap-amount"><span>Window (days)</span><input v-model.number="state.windowDays" type="number" min="1" max="60" inputmode="numeric" /></label>
+          <p id="rd-window-help" class="hm-small">Empty = now, in your timezone. Teams in the redraft cannot play while the window is open.</p>
+        </div>
+        <template v-else>
+          <p class="hm-small" role="status">
+            Confirmed by {{ view.state!.byCoach }} on {{ fmtDate(view.state!.startedAt) }}.
+            {{ view.state!.capEnabled ? `Budgets capped at ${goldK(view.state!.cap)}.` : "No budget cap." }}
+            <template v-if="closed"> Closed by {{ view.state!.closedBy }} on {{ fmtDate(view.state!.closedAt!) }}.</template>
+          </p>
+          <p v-if="windowLine && !closed" class="hm-small rd-window-line" :data-open="view.window?.open ? 'true' : undefined">{{ windowLine }}</p>
+        </template>
 
         <div class="lg-toolbar">
           <div class="lg-tabs ls-tabs rd-tabs" role="tablist" aria-label="Teams">
@@ -98,6 +126,7 @@ const fmtDate = (iso: string): string => new Date(iso).toLocaleDateString("en-US
           <label v-if="!started && tab === 'active'" class="ls-check">
             <input type="checkbox" :checked="allChecked" @change="board.checkAll(view.active, ($event.target as HTMLInputElement).checked)" /> Check all
           </label>
+          <button v-if="started && !closed" type="button" class="sf-btn small" :disabled="busy || !liftable" :title="liftable ? undefined : 'No team still drafting is below the set budget'" @click="board.liftAll()">Lift all to {{ goldK(setBudget) }}</button>
         </div>
         <p v-if="tab === 'inactive'" class="hm-small hm-empty">Teams from earlier seasons that did not play {{ view.source.name }}.</p>
 
@@ -112,9 +141,10 @@ const fmtDate = (iso: string): string => new Date(iso).toLocaleDateString("en-US
                 <th scope="col" class="lg-num">GP</th>
                 <th scope="col" class="lg-num">W-D-L</th>
                 <th scope="col" class="lg-num">Treasury</th>
+                <th scope="col" class="lg-num" title="What the team earned (capped), against the set budget">Earned</th>
                 <th scope="col" class="lg-num">Budget</th>
-                <th v-if="started" scope="col">Progress</th>
-                <th scope="col"><span class="tn-sr">Budget override</span></th>
+                <th v-if="started" scope="col">Status</th>
+                <th scope="col"><span class="tn-sr">Actions</span></th>
               </tr>
             </thead>
             <tbody>
@@ -127,17 +157,19 @@ const fmtDate = (iso: string): string => new Date(iso).toLocaleDateString("en-US
                   <td class="lg-num">{{ r.played }}</td>
                   <td class="lg-num">{{ r.wins }}-{{ r.draws }}-{{ r.losses }}</td>
                   <td class="lg-num">{{ goldK(r.treasury) }}</td>
+                  <td class="lg-num" :data-below="r.earned !== undefined && r.earned < setBudget ? 'true' : undefined">{{ goldK(r.earned ?? r.budget.capped) }}<small v-if="r.earned !== undefined && setBudget && r.earned < setBudget" class="rd-sub rd-nowrap">below {{ goldK(setBudget) }}</small></td>
                   <td class="lg-num"><b>{{ goldK(shownBudget(r)) }}</b><small v-if="shownNote(r)" class="rd-sub">{{ shownNote(r) }}</small></td>
-                  <td v-if="started"><span class="sf-chip rd-status" :data-status="r.status ?? 'skipped'" :data-tone="!r.selected ? 'muted' : r.status === 'submitted' ? 'ok' : r.status === 'pending' ? 'soon' : 'muted'">{{ r.selected ? STATUS_LABEL[r.status ?? "pending"] : "Not selected" }}</span></td>
-                  <td>
+                  <td v-if="started"><span class="sf-chip rd-status" :data-status="phaseOf(r)" :data-tone="PHASE_TONE[phaseOf(r)]" :title="r.needsRedraft?.reason">{{ PHASE_LABEL[phaseOf(r)] }}</span></td>
+                  <td class="rd-acts">
                     <template v-if="!closed && (started ? r.selected && r.status === 'pending' : state.picked[r.teamId])">
                       <button type="button" class="sf-btn small" :aria-expanded="editing === r.teamId ? 'true' : 'false'" @click="edit(r)">Override</button>
+                      <button v-if="started && r.liftApplies" type="button" class="sf-btn small" :disabled="busy" :aria-label="`Lift ${r.name} to the set budget`" @click="board.lift(r.teamId)">Lift to budget</button>
                       <button v-if="started" type="button" class="sf-btn small" :disabled="busy" @click="board.skip(r.teamId)">Skip</button>
                     </template>
                   </td>
                 </tr>
                 <tr v-if="editing === r.teamId" class="rd-edit-row">
-                  <td colspan="9">
+                  <td :colspan="COLS">
                     <form class="ls-inline" @submit.prevent="saveOverride(r)">
                       <label class="ls-field rd-cap-amount"><span>Budget (k)</span><input v-model.number="draft.budgetK" type="number" min="0" max="5000" step="10" inputmode="numeric" /></label>
                       <label class="ls-field"><span>Reason</span><input v-model="draft.reason" type="text" maxlength="200" placeholder="Shown to the coach" /></label>
@@ -148,7 +180,7 @@ const fmtDate = (iso: string): string => new Date(iso).toLocaleDateString("en-US
                   </td>
                 </tr>
               </template>
-              <tr v-if="!rows.length"><td colspan="9" class="hm-empty">No teams.</td></tr>
+              <tr v-if="!rows.length"><td :colspan="COLS" class="hm-empty">No teams.</td></tr>
             </tbody>
           </table>
         </div>
@@ -156,7 +188,7 @@ const fmtDate = (iso: string): string => new Date(iso).toLocaleDateString("en-US
         <div class="ls-actions ls-savebar">
           <template v-if="!started">
             <button class="sf-btn primary" type="button" :disabled="busy || board.selectedCount() === 0" @click="board.confirm()">Confirm redraft ({{ board.selectedCount() }})</button>
-            <span class="hm-small">Each selected coach gets a redraft task on their team page.</span>
+            <span class="hm-small">Each selected coach gets a redraft task and builds next season's roster in the Roster Builder.</span>
           </template>
           <template v-else-if="!closed">
             <button v-if="!confirmClose" class="sf-btn" type="button" :disabled="busy" @click="confirmClose = true">Close redraft</button>

@@ -435,8 +435,9 @@ export interface LeagueRegistrations {
   venmo?: string;
 }
 
-export type DiscordEventKey = "news" | "fixtureCreated" | "matchStarted" | "matchResult" | "milestones";
-export type DiscordEvents = Record<DiscordEventKey, boolean>;
+export type DiscordEventKey = "news" | "fixtureCreated" | "matchStarted" | "matchResult" | "milestones" | "redraftRolls";
+/** redraftRolls (11-02) is optional so older read models and fixtures still fit; the server always sends every key. */
+export type DiscordEvents = Record<Exclude<DiscordEventKey, "redraftRolls">, boolean> & { redraftRolls?: boolean };
 
 /** One roster row of a season's team building rules (the Tournament Team Builder reads these for a league team). */
 export interface TeamBuildingRosterRule {
@@ -471,6 +472,8 @@ export interface LeagueSettingsView {
     naf: { available: false; note: string };
   };
   teamBuilding: { seasonId: string; seasonName: string; ruleset: LeagueRuleset; rules: TeamBuildingRules } | null;
+  /** Redraft budget formula and options (absent on older servers). */
+  redraft?: { rules: RedraftRules; defaults: RedraftRules; set: Array<keyof RedraftRules> };
   regions: Record<LeagueCountry, Array<{ code: string; name: string }>>;
   rulesets: LeagueRuleset[];
   eliteSkills: string[];
@@ -479,9 +482,22 @@ export interface LeagueSettingsView {
 // ---- Redraft (server: src/leagues/redraft.ts + redraftApi.ts) ----
 
 export type RedraftTaskStatus = "pending" | "submitted" | "skipped" | "expired";
-export interface RedraftBudget { base: number; treasury: number; played: number; wins: number; draws: number; bonus: number; raw: number; capped: number }
+export interface RedraftAmounts { perGame: number; perWin: number; perDraw: number; perLoss: number }
+export interface RedraftBudget {
+  base: number; treasury: number; played: number; wins: number; draws: number; bonus: number; raw: number; capped: number;
+  /** Since 11-02: losses and the amounts used (absent on older budgets = the defaults). */
+  losses?: number; amounts?: RedraftAmounts;
+}
 export interface RedraftOverride { budget: number; reason: string; by: string; at: string }
-export interface RedraftLogEntry { at: string; by: string; text: string }
+export interface RedraftLogEntry { at: string; by: string; text: string; teamId?: string }
+/** The league's redraft formula and options (League settings -> Redraft; server redraftRules.ts). */
+export interface RedraftRules extends RedraftAmounts {
+  base: number | null; agentFee: number; capEnabled: boolean; cap: number; setBudget: number; liftToBudget: boolean; windowDays: number;
+}
+export interface RedraftLift { to: number; by: string; at: string; auto: boolean }
+export interface RedraftWindow { opensAt: string; closesAt: string; openNotifiedAt?: string; reminderAt?: string; processedAt?: string }
+/** The board's status column (server redraftPhase). */
+export type RedraftPhase = "not-selected" | "not-started" | "in-progress" | "submitted" | "needs-redraft" | "skipped" | "expired";
 
 export interface RedraftBoardRow {
   teamId: string;
@@ -502,6 +518,13 @@ export interface RedraftBoardRow {
   status?: RedraftTaskStatus;
   override?: RedraftOverride;
   spendable: number;
+  /** Since 11-02 (absent on older servers): earned vs the set budget, the lift and the status column. */
+  earned?: number;
+  setBudget?: number;
+  liftApplies?: boolean;
+  lift?: RedraftLift;
+  phase?: RedraftPhase;
+  needsRedraft?: { at: string; reason: string };
 }
 
 export interface RedraftBoardView {
@@ -516,6 +539,9 @@ export interface RedraftBoardView {
   state: { startedAt: string; byCoach: string; capEnabled: boolean; cap: number; revision: number; closedAt?: string; closedBy?: string; log: RedraftLogEntry[] } | null;
   capEnabled: boolean;
   cap: number;
+  /** Since 11-02: the formula (the confirmed snapshot, else the league's settings) and the window. */
+  rules?: RedraftRules;
+  window?: (RedraftWindow & { open: boolean; before: boolean }) | null;
   active: RedraftBoardRow[];
   inactive: RedraftBoardRow[];
   note: string;
@@ -536,7 +562,14 @@ export interface RedraftPlayerQuote {
   nigglingAfter: number;
   missNextGame: boolean;
   bigGuy: boolean;
+  /** Redraft mode (11-02): the sheet line. */
+  stats?: StatLine;
+  skills?: string[];
+  level?: string;
 }
+
+/** MA / ST / AG / PA / AV as printed ("3+"; "-" unknown). */
+export interface StatLine { MA: string; ST: string; AG: string; PA: string; AV: string }
 
 export interface RedraftStaffQuote {
   rerollCost: number;
@@ -566,14 +599,45 @@ export interface CoachRedraftView {
   cap: number;
   override: RedraftOverride | null;
   spendable: number;
+  /** Redraft mode (11-02; absent on older servers). */
+  earned?: number;
+  setBudget?: number;
+  lift?: RedraftLift | null;
+  agentFee?: number;
+  amounts?: RedraftAmounts;
+  window?: { opensAt: string; closesAt: string; open: boolean; before: boolean } | null;
+  needsRedraft?: { at: string; reason: string } | null;
+  auto?: boolean;
+  phase?: RedraftPhase;
+  skillCategories?: Record<string, string>;
   apothecaryNow: boolean;
   rest: { target: number; done: boolean; rolls: RestRoll[]; needed: Array<{ playerId: string; name: string; position: string; niggling: number }> };
   players: RedraftPlayerQuote[];
   staff: RedraftStaffQuote;
-  positions: Array<{ name: string; cost: number; max: number; bigGuy: boolean }>;
+  positions: Array<{ name: string; cost: number; max: number; bigGuy: boolean; stats?: StatLine; skills?: string[] }>;
   limits: { minPlayers: number; maxPlayers: number; assistantCoaches: number; cheerleaders: number; maxBigGuys: number };
   draft: { spent: number; treasury: number; keep: Array<{ playerId: string; cost: number }>; hires: Array<{ position: string; count: number; cost: number }> } | null;
   knownRoster: boolean;
 }
 
-export interface MyRedraftTask { leagueId: string; leagueName: string; teamId: string; teamName: string; race: string; status: RedraftTaskStatus; spendable: number; link: string }
+export interface MyRedraftTask {
+  leagueId: string; leagueName: string; teamId: string; teamName: string; race: string; status: RedraftTaskStatus; spendable: number; link: string;
+  phase?: RedraftPhase; closesAt?: string;
+}
+
+/** The team summary's redraft budget (GET .../seasons/:seasonId/teams/:teamId/redraft-budget). */
+export interface TeamRedraftBudget {
+  teamId: string;
+  teamName: string;
+  seasonId: string;
+  seasonName: string;
+  record: { played: number; wins: number; draws: number; losses: number };
+  rules: Pick<RedraftRules, "base" | "perGame" | "perWin" | "perDraw" | "perLoss" | "capEnabled" | "cap" | "setBudget" | "liftToBudget">;
+  budget: RedraftBudget;
+  earned: number;
+  setBudget: number;
+  liftWouldApply: boolean;
+  expected: number;
+  /** Only for the team's coach and the league's organisers. */
+  redraft: null | { phase: RedraftPhase; spendable: number; override: RedraftOverride | null; lift: RedraftLift | null; window: RedraftWindow | null; history: RedraftLogEntry[]; link: string };
+}

@@ -7,6 +7,8 @@
  *   registrations   { allowedRosters, allowRegistration, maxRegistrations, maxPerRace }
  *   teamBuilding    { seasonId, rosters: [{ roster, tier, treasury, startingSkills }] }   saved on the season's rules
  *   connections     { playOnFork?, discord?: { url?: string | null, events? } }
+ *   redraft         { base?, perGame?, perWin?, perDraw?, perLoss?, agentFee?, capEnabled?, cap?, setBudget?, liftToBudget?, windowDays? }
+ *                   the redraft budget formula and options (redraftRules.ts)
  *
  * The Discord URL never appears in the read model (maskWebhookUrl) and never in an error message.
  */
@@ -15,6 +17,7 @@ import { parsePayField } from "../payments/links.js";
 import { FormatError, parseRegions } from "../competition/format.js";
 import { HouseRulesError, houseRulesOf, parseHouseRules, type HouseRules } from "../competition/houseRules.js";
 import { discordEvents, isDiscordWebhookUrl, maskWebhookUrl } from "./discord.js";
+import { redraftRulesView, type RedraftRulesView } from "./redraftRules.js";
 import { leagueOwner } from "./store.js";
 import {
   DISCORD_EVENT_KEYS, LEAGUE_RULESETS, type DiscordEvents, type LeagueAddress, type LeagueCountry, type LeagueRecord, type LeagueRegistrations,
@@ -327,6 +330,8 @@ export interface LeagueSettingsView {
     naf: { available: false; note: string };
   };
   teamBuilding: { seasonId: string; seasonName: string; ruleset: LeagueRuleset; rules: TeamBuildingRules } | null;
+  /** Redraft budget formula and options (League settings -> Redraft). */
+  redraft: RedraftRulesView;
   regions: Record<LeagueCountry, Array<{ code: string; name: string }>>;
   rulesets: readonly LeagueRuleset[];
   eliteSkills: readonly string[];
@@ -370,6 +375,7 @@ export function settingsView(
       naf: { available: false, note: NAF_LEAGUE_NOTE },
     },
     teamBuilding: season ? { seasonId: season.id, seasonName: season.name, ruleset: season.ruleset, rules: teamBuildingTable(season) } : null,
+    redraft: redraftRulesView(league),
     regions: { US: US_STATES.map(([code, name]) => ({ code, name })), CA: CA_PROVINCES.map(([code, name]) => ({ code, name })) },
     rulesets: LEAGUE_RULESETS,
     eliteSkills: ELITE_SKILLS,

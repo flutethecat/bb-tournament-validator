@@ -1,29 +1,42 @@
 /**
  * Redraft routes (session-gated; anonymous 401; organiser writes revision-checked like the settings PATCH: no revision
- * 428, an older one 409). Rules and maths: redraft.ts.
+ * 428, an older one 409). Rules and maths: redraft.ts; budget rules: redraftRules.ts; the window and play block:
+ * redraftWindow.ts. The organiser board lives in League settings -> Redraft, the coach side in the Roster Builder's
+ * Redraft mode (owner 11-02); the old /app/leagues/:id/redraft page redirects to them.
  *
- *   GET  /api/leagues/:id/redraft[?source=&target=]            organiser board (active + inactive teams, budgets, tasks);
- *                                                              source = the finished season to redraft from, target = the
- *                                                              season that receives the draft lists (seasons may overlap)
- *   POST /api/leagues/:id/redraft                              { revision, action: "confirm", sourceSeasonId?, targetSeasonId?, capEnabled, cap, teams: [{ teamId, selected, override? }] }
+ *   GET  /api/leagues/:id/redraft[?source=&target=]            organiser board (active + inactive teams, budgets earned vs
+ *                                                              set, statuses, window); source = the finished season to
+ *                                                              redraft from, target = the season that receives the lists
+ *   POST /api/leagues/:id/redraft                              { revision, action: "confirm", sourceSeasonId?, targetSeasonId?, capEnabled, cap,
+ *                                                                opensAt?: ISO, windowDays?, teams: [{ teamId, selected, override? }] }
  *                                                              { revision, action: "team", teamId, override: { budget, reason } | null } | { ..., skip: true }
+ *                                                              { revision, action: "lift", teamId } | { revision, action: "lift", all: true }
  *                                                              { revision, action: "close" }
  *   GET  /api/leagues/:id/redraft/teams/:teamId                the team's coach or an organiser: the coach's redraft view
  *   POST /api/leagues/:id/redraft/teams/:teamId/rest           { revision, mode: "site" | "entered", rolls?: { [playerId]: number[] } }
  *   POST /api/leagues/:id/redraft/teams/:teamId/submit         { revision, keep: playerId[], hires: [{ position, count }], staff }
+ *   GET  /api/leagues/:id/seasons/:seasonId/teams/:teamId/redraft-budget
+ *                                                              the team summary's current redraft budget (public where the
+ *                                                              season is: every term is already in the season read); the
+ *                                                              redraft task (override, lift, history) only for the team's
+ *                                                              coach and the organisers
  *   GET  /api/leagues?redraft=mine                             the signed-in coach's open redraft tasks (team management page)
  */
 import type { NotificationInput } from "../notifications.js";
 import type { LeagueApiDeps, LeagueApiIdentity, LeagueApiResult } from "./api.js";
 import { buildRedraftPost, discordEvents, postWebhook as defaultPoster, type DiscordPayload } from "./discord.js";
+import { postLeagueEvent } from "./events.js";
 import { readJsonObject, requestRevision } from "./http.js";
-import { assignSeasonsPlayed, teamPlayedIn } from "./playerIds.js";
+import { assignSeasonsPlayed } from "./playerIds.js";
 import {
-  applyDraftTeam, buildDraftTeam, coachOwnsTeam, coachView, leagueAliases, targetConflict, DEFAULT_CAP, datasetRoster, draftList, gold, leaguePlayerIds, OVERRIDE_MAX, parseDraftInput,
-  finishedSeasons, redraftBoard, RedraftError, redraftSource, redraftTarget, redraftTargets, restAndRelaxation, sameCoach, spendable, validateDraft, type BoardRow, type DraftContext,
+  budgetBase, coachOwnsTeam, coachView, draftContext, leagueAliases, gold, liftApplies, OVERRIDE_MAX, parseDraftInput, redraftBudget, redraftPhase,
+  finishedSeasons, redraftBoard, RedraftError, redraftSource, redraftTarget, redraftTargets, restAndRelaxation, sameCoach, spendable, stateRules, teamRecord,
+  windowView, type BoardRow, type CoachRedraftView,
 } from "./redraft.js";
+import { amountsOf, effectiveRedraftRules, WINDOW_DAYS_MAX } from "./redraftRules.js";
+import { commitDraft, newWindow, redraftBoardLink, redraftModeLink, whenText, windowBefore } from "./redraftWindow.js";
 import { isLeagueOrganiser, leagueOwner, type LeagueStore } from "./store.js";
-import type { LeagueRecord, RedraftState, RedraftTeamTask, SeasonRecord } from "./types.js";
+import type { LeagueRecord, RedraftBudget, RedraftLogEntry, RedraftRules, RedraftState, RedraftTeamTask, RedraftWindow, SeasonRecord } from "./types.js";
 import { isDraftLeague, publishedLeagues } from "./lifecycle.js";
 
 export const REDRAFT_MAX_BYTES = 64 * 1024;
@@ -32,8 +45,8 @@ const NO_STORE = { "cache-control": "no-store" };
 const res = (status: number, body: unknown, headers: Record<string, string> = {}): LeagueApiResult => ({ status, body, headers: { ...NO_STORE, ...headers } });
 const fail = (status: number, error: string, extra: Record<string, unknown> = {}): LeagueApiResult => res(status, { error, ...extra });
 
-export const redraftLink = (leagueId: string, teamId?: string): string =>
-  `/app/leagues/${encodeURIComponent(leagueId)}/redraft${teamId ? `?team=${encodeURIComponent(teamId)}` : ""}`;
+/** The coach's Redraft mode (with a team) or the organiser's board (without): server links, /app/... */
+export const redraftLink = (leagueId: string, teamId?: string): string => (teamId ? redraftModeLink(leagueId, teamId) : redraftBoardLink(leagueId));
 
 /** The league's seasons, newest first, with seasonsPlayed derived when a stored season predates the field. */
 function loadSeasons(store: LeagueStore, leagueId: string): SeasonRecord[] {
@@ -43,7 +56,6 @@ function loadSeasons(store: LeagueStore, leagueId: string): SeasonRecord[] {
 }
 
 const isManager = (league: LeagueRecord, auth: LeagueApiIdentity): boolean => auth.admin || isLeagueOrganiser(league, auth.coach);
-const capOf = (league: LeagueRecord): { enabled: boolean; cap: number } => league.redraftCap ?? { enabled: true, cap: DEFAULT_CAP };
 
 export interface RedraftBoardView {
   leagueId: string;
@@ -57,6 +69,10 @@ export interface RedraftBoardView {
   state: Omit<RedraftState, "teams"> | null;
   capEnabled: boolean;
   cap: number;
+  /** The formula the board shows (the confirmed redraft's snapshot, else the league's settings). */
+  rules: RedraftRules;
+  /** The window (confirmed redrafts since 11-02) with open / before flags at read time. */
+  window: (RedraftWindow & { open: boolean; before: boolean }) | null;
   active: BoardRow[];
   inactive: BoardRow[];
   note: string;
@@ -64,30 +80,33 @@ export interface RedraftBoardView {
 
 export interface RedraftPicks { source?: string; target?: string }
 
-function boardView(league: LeagueRecord, seasons: SeasonRecord[], picks: RedraftPicks = {}): RedraftBoardView {
+function boardView(league: LeagueRecord, seasons: SeasonRecord[], picks: RedraftPicks = {}, now: Date = new Date()): RedraftBoardView {
   // An unknown source pick falls back to the default (a stale link must not blank the board).
   const source = redraftSource(seasons, picks.source) ?? redraftSource(seasons);
-  const cap = capOf(league);
+  const rules = effectiveRedraftRules(league);
   const sources = finishedSeasons(seasons).map((s) => ({ id: s.id, name: s.name }));
   if (!source) {
     return {
-      leagueId: league.id, leagueName: league.name, revision: 0, source: null, target: null, sources, targets: [], state: null, capEnabled: cap.enabled, cap: cap.cap,
-      active: [], inactive: [], note: "Finish a season first: a redraft runs between seasons.",
+      leagueId: league.id, leagueName: league.name, revision: 0, source: null, target: null, sources, targets: [], state: null, capEnabled: rules.capEnabled, cap: rules.cap,
+      rules, window: null, active: [], inactive: [], note: "Finish a season first: a redraft runs between seasons.",
     };
   }
   // Once confirmed, the target is the one the redraft stored (or the default); a pick only steers an unconfirmed board.
   const target = (source.redraft ? undefined : picks.target ? redraftTarget(seasons, source, picks.target) : undefined) ?? redraftTarget(seasons, source);
   const targets = redraftTargets(seasons, source).map((s) => ({ id: s.id, name: s.name, status: s.status }));
   const state = source.redraft;
-  const { active, inactive } = redraftBoard(seasons, source, state, cap, target ?? null);
+  const { active, inactive } = redraftBoard(seasons, source, state, rules, target ?? null);
   const { teams: _t, ...meta } = state ?? ({} as RedraftState);
+  const w = state ? windowView(state, now) : null;
   return {
     leagueId: league.id, leagueName: league.name, revision: state?.revision ?? 0,
     source: { id: source.id, name: source.name, number: source.number, ruleset: source.ruleset },
     target: target ? { id: target.id, name: target.name } : null,
     sources, targets,
     state: state ? meta : null,
-    capEnabled: state?.capEnabled ?? cap.enabled, cap: state?.cap ?? cap.cap,
+    capEnabled: state?.capEnabled ?? rules.capEnabled, cap: state?.cap ?? rules.cap,
+    rules: state ? stateRules(state) : rules,
+    window: state?.window && w ? { ...state.window, open: w.open, before: w.before } : null,
     active, inactive,
     note: target ? `Draft lists go into ${target.name}.` : "Draft lists are kept until the next season is started, then go into it.",
   };
@@ -130,14 +149,28 @@ function parseOverride(raw: unknown): { budget: number; reason: string } {
   return { budget, reason: why };
 }
 
-/** The open task, its team and roster for the coach routes. */
-function draftContext(seasons: SeasonRecord[], source: SeasonRecord, teamId: string): DraftContext | undefined {
-  const task = source.redraft?.teams.find((t) => t.teamId === teamId && t.selected);
-  if (!task) return undefined;
-  const from = seasons.find((s) => s.id === task.sourceSeasonId);
-  const team = from?.teams.find((t) => t.id === teamId);
-  if (!from || !team) return undefined;
-  return { task, source: from, team, roster: datasetRoster(team.race), teamPlayed: teamPlayedIn(from, team) };
+/** An ISO instant with an explicit zone (Z or ±hh:mm), years 2000-2199, as UTC ISO; undefined when it is not one. */
+export function parseInstant(v: unknown): string | undefined {
+  if (typeof v !== "string" || v.length > 40) return undefined;
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/.test(v.trim())) return undefined;
+  const ms = Date.parse(v.trim());
+  if (!Number.isFinite(ms)) return undefined;
+  const iso = new Date(ms).toISOString();
+  const year = Number(iso.slice(0, 4));
+  return year >= 2000 && year < 2200 ? iso : undefined;
+}
+
+/** Lifts one task to the set budget (when it applies) and logs it with the actor and time. True when it lifted. */
+function liftTask(state: RedraftState, task: RedraftTeamTask, setBudget: number, by: string, at: string, auto: boolean): boolean {
+  if (!liftApplies(task, setBudget)) return false;
+  const from = spendable(task);
+  task.lift = { to: setBudget, by, at, auto };
+  state.log.unshift({
+    at, by, teamId: task.teamId,
+    text: auto ? `${task.name} was lifted from ${gold(from)} to the set budget of ${gold(setBudget)} (Lift teams to the budget, opened by ${by}).`
+      : `${by} lifted ${task.name} from ${gold(from)} to the set budget of ${gold(setBudget)}.`,
+  });
+  return true;
 }
 
 export async function redraftRoutes(
@@ -169,11 +202,12 @@ export async function redraftRoutes(
   // Judged against the league as it is now (after the body arrived); synchronous from here to the writes.
   const lg = deps.store.league(league.id);
   if (!lg) return fail(404, "League not found.");
+  const nowDate = deps.now?.() ?? new Date();
   try {
     if (board) {
       if (!isManager(lg, auth)) return fail(403, "This league is not one of yours: only its organisers and site admins run the redraft.");
       const seasons = loadSeasons(deps.store, lg.id);
-      if (read) return res(200, { redraft: boardView(lg, seasons, { source: query?.get("source") || undefined, target: query?.get("target") || undefined }) });
+      if (read) return res(200, { redraft: boardView(lg, seasons, { source: query?.get("source") || undefined, target: query?.get("target") || undefined }, nowDate) });
       return await boardPost(lg, auth, input, seasons, deps);
     }
     const seasons = loadSeasons(deps.store, lg.id);
@@ -183,7 +217,8 @@ export async function redraftRoutes(
     if (!isManager(lg, auth) && !coachOwnsTeam(ctx.team, auth.coach, leagueAliases(seasons))) return fail(403, "This is not your team: only its coach and the league organisers can see its redraft.");
     const state = source.redraft;
     const target = redraftTarget(seasons, source);
-    if (read) return res(200, { redraft: coachView(lg.id, state, ctx, target) });
+    const view = (): CoachRedraftView => coachView(lg.id, state, ctx, target, nowDate);
+    if (read) return res(200, { redraft: view() });
     const stale = checkRevision(input, state.revision, deps.ifMatch);
     if (stale) return stale;
     if (state.closedAt) return fail(409, "The redraft is closed.");
@@ -192,7 +227,8 @@ export async function redraftRoutes(
         : ctx.task.status === "expired" ? `This redraft expired: ${ctx.task.expiredReason ?? "the next season moved on."}` : "This team was taken out of the redraft.";
       return fail(409, why);
     }
-    const now = (deps.now?.() ?? new Date()).toISOString();
+    if (windowBefore(state.window, nowDate)) return fail(409, `The redraft opens at ${whenText(state.window!.opensAt)}.`);
+    const now = nowDate.toISOString();
 
     if (action === "rest") {
       if (ctx.task.rest) return fail(409, "Rest & Relaxation is already rolled for this team.");
@@ -203,44 +239,32 @@ export async function redraftRoutes(
       ctx.task.rest = { at: now, by: auth.coach, rolls };
       state.revision += 1;
       deps.store.putSeason(source);
-      return res(200, { ok: true, redraft: coachView(lg.id, state, ctx, target) });
+      // Discord "Redraft rolls" (off by default): each roll with its player and outcome.
+      if (rolls.length) {
+        const name = (id: string): string => { const p = ctx.team.players.find((x) => x.playerId === id); return p ? (p.name || p.position) : "A player"; };
+        const lines = rolls.map((r) => `${name(r.playerId)}: rolled ${r.roll} (needs ${r.target}+), ${r.recovered ? "niggling injury healed" : "niggling injury stays"}`);
+        await postLeagueEvent(deps.store, lg, "redraftRolls", buildRedraftPost(lg, `${ctx.team.name} Rest & Relaxation`, `${lines.join("\n")}${mode === "entered" ? "\n(tabletop rolls)" : ""}`), deps.postWebhook);
+      }
+      return res(200, { ok: true, redraft: view() });
     }
 
     // submit
     if (!ctx.task.rest && ctx.team.players.some((p) => (p.niggling | 0) > 0)) return fail(409, "Roll Rest & Relaxation first.");
     const draftInput = parseDraftInput(input);
-    const price = validateDraft(ctx, draftInput);
-    // The next season may have moved on since the board was confirmed: re-check it inside this read-modify-write.
-    const conflict = target ? targetConflict(target, ctx.team) : "";
-    if (conflict) {
-      ctx.task.status = "expired";
-      ctx.task.expiredReason = conflict;
-      state.log.unshift({ at: now, by: auth.coach, text: `${ctx.team.name}'s redraft expired: ${conflict}` });
-      state.revision += 1;
-      deps.store.putSeason(source);
-      return fail(409, `This redraft expired: ${conflict}`, { revision: state.revision });
-    }
-    const used = leaguePlayerIds(seasons);
-    const newTeam = buildDraftTeam(ctx, price, draftInput, { leagueId: lg.id, slug: target?.sourceSlug ?? `redraft:${source.id}` }, used);
-    ctx.task.draft = draftList(price, draftInput, newTeam);
-    ctx.task.status = "submitted";
-    ctx.task.submittedAt = now;
-    ctx.task.submittedBy = auth.coach;
-    if (target) {
-      applyDraftTeam(target, newTeam);
-      ctx.task.appliedTo = target.id;
-    }
-    const retired = ctx.team.players.length - price.keep.length;
-    const text = `${ctx.team.name} (${ctx.team.coach}) submitted a draft list: ${price.players} players, ${gold(price.spent)} spent, ${gold(price.remaining)} to the treasury${retired ? `, ${retired} retired` : ""}.`;
-    state.log.unshift({ at: now, by: auth.coach, text });
+    // The next season may have moved on since the board was confirmed: commitDraft re-checks it inside this write.
+    const done = commitDraft(seasons, lg.id, source, ctx, draftInput, auth.coach, now);
     state.revision += 1;
-    if (target) deps.store.putSeason(target);
+    if (!done.ok) {
+      deps.store.putSeason(source);
+      return fail(409, `This redraft expired: ${done.conflict}`, { revision: state.revision });
+    }
+    if (done.target) deps.store.putSeason(done.target);
     deps.store.putSeason(source);
     notifyAll(deps, organisersOf(lg).filter((c) => !sameCoach(c, auth.coach)).map((coach) => ({
-      coach, input: { type: "league-broadcast", title: "Redraft submitted", body: `${lg.name}: ${text}`, link: redraftLink(lg.id), from: auth.coach },
+      coach, input: { type: "league-broadcast", title: "Redraft submitted", body: `${lg.name}: ${done.text}`, link: redraftLink(lg.id), from: auth.coach },
     })));
-    await discord(lg, deps, "news", buildRedraftPost(lg, `${ctx.team.name} redrafted`, text));
-    return res(200, { ok: true, redraft: coachView(lg.id, state, ctx, target) });
+    await discord(lg, deps, "news", buildRedraftPost(lg, `${ctx.team.name} redrafted`, done.text));
+    return res(200, { ok: true, redraft: view() });
   } catch (e) {
     if (e instanceof RedraftError) return fail(e.status, e.message, e.field ? { field: e.field } : {});
     return fail(500, "Could not save the redraft right now.");
@@ -260,8 +284,10 @@ async function boardPost(lg: LeagueRecord, auth: LeagueApiIdentity, input: Recor
   if (!source) return fail(409, "Finish a season first: a redraft runs between seasons.");
   const stale = checkRevision(input, source.redraft?.revision ?? 0, deps.ifMatch);
   if (stale) return stale;
-  const now = (deps.now?.() ?? new Date()).toISOString();
+  const nowDate = deps.now?.() ?? new Date();
+  const now = nowDate.toISOString();
   const action = input.action;
+  const view = (): RedraftBoardView => boardView(deps.store.league(lg.id) ?? lg, seasons, {}, nowDate);
 
   if (action === "confirm") {
     if (source.redraft) return fail(409, `A redraft from ${source.name} has already been confirmed.`);
@@ -273,12 +299,28 @@ async function boardPost(lg: LeagueRecord, auth: LeagueApiIdentity, input: Recor
     if (target && target.fixtures.some((f) => f.home.score !== null && f.away.score !== null))
       return fail(409, `${target.name} already has results: a redraft happens between seasons.`);
     if (typeof input.capEnabled !== "boolean") throw new RedraftError(400, "capEnabled must be true or false.", "capEnabled");
-    const capAmount = input.cap === undefined ? DEFAULT_CAP : input.cap;
+    const settings = effectiveRedraftRules(lg);
+    const capAmount = input.cap === undefined ? settings.cap : input.cap;
     if (typeof capAmount !== "number" || !Number.isInteger(capAmount) || capAmount < 0 || capAmount > OVERRIDE_MAX)
       throw new RedraftError(400, "cap must be a whole number of gold.", "cap");
     const cap = { enabled: input.capEnabled, cap: capAmount };
+    let opensAt: string | undefined;
+    if (input.opensAt !== undefined && input.opensAt !== null && input.opensAt !== "") {
+      opensAt = parseInstant(input.opensAt);
+      if (!opensAt) throw new RedraftError(400, "Opens at must be a date and time with a timezone.", "opensAt");
+      if (Date.parse(opensAt) > nowDate.getTime() + 365 * 24 * 60 * 60 * 1000) throw new RedraftError(400, "Opens at must be within a year.", "opensAt");
+      // A time in the past opens it now.
+      if (Date.parse(opensAt) < nowDate.getTime()) opensAt = undefined;
+    }
+    let days = settings.windowDays;
+    if (input.windowDays !== undefined) {
+      const d = input.windowDays;
+      if (typeof d !== "number" || !Number.isInteger(d) || d < 1 || d > WINDOW_DAYS_MAX) throw new RedraftError(400, `The redraft window must be 1 to ${WINDOW_DAYS_MAX} days.`, "windowDays");
+      days = d;
+    }
+    const rules: RedraftRules = { ...settings, capEnabled: cap.enabled, cap: cap.cap, windowDays: days };
     if (!Array.isArray(input.teams)) throw new RedraftError(400, "teams must be a list.", "teams");
-    const { active, inactive } = redraftBoard(seasons, source, undefined, cap, target ?? null);
+    const { active, inactive } = redraftBoard(seasons, source, undefined, rules, target ?? null);
     const rows = new Map([...active, ...inactive].map((r) => [r.teamId, r]));
     const picks = new Map<string, { selected: boolean; override?: { budget: number; reason: string } }>();
     for (const [i, raw] of (input.teams as unknown[]).entries()) {
@@ -300,24 +342,36 @@ async function boardPost(lg: LeagueRecord, auth: LeagueApiIdentity, input: Recor
         ...(selected && pick?.override ? { override: { ...pick.override, by: auth.coach, at: now } } : {}),
       };
     });
-    const text = `${auth.coach} started the redraft from ${source.name}${targetPick && target ? ` into ${target.name}` : ""}: ${chosen} team${chosen === 1 ? "" : "s"} selected${cap.enabled ? `, budgets capped at ${gold(cap.cap)}` : ", no budget cap"}.`;
-    source.redraft = {
+    const window = newWindow(nowDate, opensAt, days);
+    const text = `${auth.coach} started the redraft from ${source.name}${targetPick && target ? ` into ${target.name}` : ""}: ${chosen} team${chosen === 1 ? "" : "s"} selected${cap.enabled ? `, budgets capped at ${gold(cap.cap)}` : ", no budget cap"}. The window runs from ${whenText(window.opensAt)} to ${whenText(window.closesAt)}.`;
+    const state: RedraftState = {
       startedAt: now, byCoach: auth.coach, capEnabled: cap.enabled, cap: cap.cap, revision: 1, teams, log: [{ at: now, by: auth.coach, text }],
       // Every resolved target is bound now: starting another season later never redirects this redraft.
       ...(target ? { targetSeasonId: target.id } : {}),
+      rules, window,
     };
+    // Lift teams to the budget (league setting): every selected team below the set budget, logged per team.
+    if (rules.liftToBudget) for (const t of teams) if (t.selected && t.status === "pending") liftTask(state, t, rules.setBudget, auth.coach, now, true);
+    const openNow = Date.parse(window.opensAt) <= nowDate.getTime();
+    if (openNow) window.openNotifiedAt = now;
+    source.redraft = state;
     deps.store.putSeason(source);
-    deps.store.updateLeague(lg.id, (l) => { l.redraftCap = cap; });
-    const coachNotices = teams.filter((t) => t.selected && t.coachId).map((t) => ({
-      coach: t.coachId!, input: {
-        type: "league-broadcast" as const, title: "Redraft: build next season's roster",
-        body: `${lg.name}: ${t.name} is in the redraft with a budget of ${gold(spendable(t))}. Roll Rest & Relaxation, re-hire players and staff, then submit your draft list.`,
-        link: redraftLink(lg.id, t.teamId), from: auth.coach,
-      },
-    }));
-    notifyAll(deps, coachNotices);
+    deps.store.updateLeague(lg.id, (l) => {
+      l.redraftCap = cap;
+      if (l.redraftRules) l.redraftRules = { ...l.redraftRules, capEnabled: cap.enabled, cap: cap.cap };
+    });
+    // Coaches are told now when the window is open; otherwise the window job tells them when it opens.
+    if (openNow) {
+      notifyAll(deps, teams.filter((t) => t.selected && t.coachId).map((t) => ({
+        coach: t.coachId!, input: {
+          type: "league-broadcast" as const, title: "Redraft: build next season's roster",
+          body: `${lg.name}: ${t.name} is in the redraft with a budget of ${gold(spendable(t))}, until ${whenText(window.closesAt)}. Roll Rest & Relaxation, re-hire players and staff in the Roster Builder, then submit your draft list.`,
+          link: redraftLink(lg.id, t.teamId), from: auth.coach, action: true,
+        },
+      })));
+    }
     await discord(lg, deps, "milestones", buildRedraftPost(lg, "Redraft started", text));
-    return res(200, { ok: true, redraft: boardView(deps.store.league(lg.id) ?? lg, seasons) });
+    return res(200, { ok: true, redraft: view() });
   }
 
   const state = source.redraft;
@@ -332,6 +386,7 @@ async function boardPost(lg: LeagueRecord, auth: LeagueApiIdentity, input: Recor
     let notice: NotificationInput | undefined;
     if (input.skip === true) {
       task.status = "skipped";
+      delete task.needsRedraft;
       text = `${auth.coach} took ${task.name} out of the redraft.`;
     } else if (input.override === null) {
       delete task.override;
@@ -343,16 +398,37 @@ async function boardPost(lg: LeagueRecord, auth: LeagueApiIdentity, input: Recor
       text = `${auth.coach} set ${task.name}'s budget to ${gold(o.budget)}: ${o.reason}`;
       notice = { type: "league-broadcast", title: "Redraft budget changed", body: `${lg.name}: ${task.name}'s redraft budget is now ${gold(o.budget)} (${o.reason}).`, link: redraftLink(lg.id, task.teamId), from: auth.coach };
     } else throw new RedraftError(400, "Send override (or null) or skip.", "override");
-    state.log.unshift({ at: now, by: auth.coach, text });
+    state.log.unshift({ at: now, by: auth.coach, text, teamId: task.teamId });
     state.revision += 1;
     deps.store.putSeason(source);
     if (notice && task.coachId && !sameCoach(task.coachId, auth.coach)) notifyAll(deps, [{ coach: task.coachId, input: notice }]);
-    return res(200, { ok: true, redraft: boardView(lg, seasons) });
+    return res(200, { ok: true, redraft: view() });
+  }
+
+  if (action === "lift") {
+    const setBudget = stateRules(state).setBudget;
+    let targets: RedraftTeamTask[];
+    if (input.all === true) targets = state.teams.filter((t) => t.selected && t.status === "pending");
+    else {
+      const task = state.teams.find((t) => t.teamId === input.teamId && t.selected);
+      if (!task) return fail(404, "That team is not in the redraft.", { field: "teamId" });
+      if (task.status !== "pending") return fail(409, "Only a team still drafting can be lifted.");
+      if (!liftApplies(task, setBudget)) return fail(409, task.override ? `${task.name} has a budget override: clear it first.` : `${task.name} already has at least the set budget of ${gold(setBudget)}.`);
+      targets = [task];
+    }
+    const lifted = targets.filter((t) => liftTask(state, t, setBudget, auth.coach, now, false));
+    if (!lifted.length) return fail(409, `No team still drafting is below the set budget of ${gold(setBudget)}.`);
+    state.revision += 1;
+    deps.store.putSeason(source);
+    notifyAll(deps, lifted.filter((t) => t.coachId && !sameCoach(t.coachId, auth.coach)).map((t) => ({
+      coach: t.coachId!, input: { type: "league-broadcast" as const, title: "Redraft budget lifted", body: `${lg.name}: ${t.name}'s redraft budget was lifted to the set budget of ${gold(setBudget)}.`, link: redraftLink(lg.id, t.teamId), from: auth.coach },
+    })));
+    return res(200, { ok: true, redraft: view() });
   }
 
   if (action === "close") {
     const left = state.teams.filter((t) => t.selected && t.status === "pending");
-    for (const t of left) t.status = "skipped";
+    for (const t of left) { t.status = "skipped"; delete t.needsRedraft; }
     const done = state.teams.filter((t) => t.status === "submitted").length;
     const text = `${auth.coach} closed the redraft: ${done} draft list${done === 1 ? "" : "s"} submitted${left.length ? `, ${left.length} team${left.length === 1 ? "" : "s"} did not redraft` : ""}.`;
     state.closedAt = now;
@@ -361,9 +437,69 @@ async function boardPost(lg: LeagueRecord, auth: LeagueApiIdentity, input: Recor
     state.revision += 1;
     deps.store.putSeason(source);
     await discord(lg, deps, "milestones", buildRedraftPost(lg, "Redraft closed", text));
-    return res(200, { ok: true, redraft: boardView(lg, seasons) });
+    return res(200, { ok: true, redraft: view() });
   }
-  throw new RedraftError(400, 'action must be "confirm", "team" or "close".', "action");
+  throw new RedraftError(400, 'action must be "confirm", "team", "lift" or "close".', "action");
+}
+
+// ---- the team summary's redraft budget ----
+
+export interface TeamRedraftBudgetView {
+  teamId: string;
+  teamName: string;
+  seasonId: string;
+  seasonName: string;
+  record: { played: number; wins: number; draws: number; losses: number };
+  /** The league's formula (Lift teams to the budget included). */
+  rules: Pick<RedraftRules, "base" | "perGame" | "perWin" | "perDraw" | "perLoss" | "capEnabled" | "cap" | "setBudget" | "liftToBudget">;
+  /** The budget if the redraft ran from this season now. */
+  budget: RedraftBudget;
+  earned: number;
+  setBudget: number;
+  /** The team earned less than the set budget: a lift would raise it (automatically when liftToBudget is on). */
+  liftWouldApply: boolean;
+  /** max(earned, set budget) when Lift teams to the budget is on, else earned. */
+  expected: number;
+  /** The open redraft task: only for the team's coach and the league's organisers. */
+  redraft: null | {
+    phase: string; spendable: number; override: RedraftTeamTask["override"] | null; lift: RedraftTeamTask["lift"] | null;
+    window: RedraftWindow | null; history: RedraftLogEntry[]; link: string;
+  };
+}
+
+/** GET .../seasons/:seasonId/teams/:teamId/redraft-budget (undefined when the path is not this route). */
+export function teamRedraftBudgetRoute(method: string, rest: string[], league: LeagueRecord | undefined, auth: LeagueApiIdentity | undefined, deps: LeagueApiDeps): LeagueApiResult | undefined {
+  const [first, seasonId, third, teamId, fifth, ...more] = rest;
+  if (first !== "seasons" || !seasonId || third !== "teams" || !teamId || fifth !== "redraft-budget" || more.length) return undefined;
+  if (method !== "GET" && method !== "HEAD") return fail(405, "Use GET.");
+  if (!league) return fail(404, "League not found.");
+  const seasons = loadSeasons(deps.store, league.id);
+  const season = seasons.find((s) => s.id === seasonId);
+  const team = season?.teams.find((t) => t.id === teamId);
+  if (!season || !team) return fail(404, "Team not found.");
+  const rules = effectiveRedraftRules(league);
+  const rec = teamRecord(season, team);
+  const budget = redraftBudget({ base: budgetBase(rules, season, team.race), treasury: team.treasury ?? 0, ...rec }, { enabled: rules.capEnabled, cap: rules.cap }, amountsOf(rules));
+  const earnedNow = budget.capped;
+  const liftWouldApply = earnedNow < rules.setBudget;
+  let redraft: TeamRedraftBudgetView["redraft"] = null;
+  const mine = Boolean(auth && (isManager(league, auth) || coachOwnsTeam(team, auth.coach, leagueAliases(seasons))));
+  if (mine) {
+    const open = seasons.find((s) => s.redraft && !s.redraft.closedAt && s.redraft.teams.some((t) => t.teamId === team.id && t.selected));
+    const task = open?.redraft?.teams.find((t) => t.teamId === team.id && t.selected);
+    if (open && task) {
+      redraft = {
+        phase: redraftPhase(task), spendable: spendable(task), override: task.override ?? null, lift: task.lift ?? null, window: open.redraft!.window ?? null,
+        history: open.redraft!.log.filter((l) => l.teamId === team.id).slice(0, 20), link: redraftLink(league.id, team.id),
+      };
+    }
+  }
+  const view: TeamRedraftBudgetView = {
+    teamId: team.id, teamName: team.name, seasonId: season.id, seasonName: season.name, record: rec,
+    rules: { base: rules.base, perGame: rules.perGame, perWin: rules.perWin, perDraw: rules.perDraw, perLoss: rules.perLoss, capEnabled: rules.capEnabled, cap: rules.cap, setBudget: rules.setBudget, liftToBudget: rules.liftToBudget },
+    budget, earned: earnedNow, setBudget: rules.setBudget, liftWouldApply, expected: rules.liftToBudget ? Math.max(earnedNow, rules.setBudget) : earnedNow, redraft,
+  };
+  return res(200, { budget: view }, mine ? { "cache-control": "private, no-store" } : {});
 }
 
 export interface MyRedraftTask {
@@ -375,6 +511,9 @@ export interface MyRedraftTask {
   status: RedraftTeamTask["status"];
   spendable: number;
   link: string;
+  /** not started / in progress / submitted / needs redraft / expired (redraftPhase). */
+  phase?: string;
+  closesAt?: string;
 }
 
 /** Open redraft tasks (pending, submitted or expired; redraft not closed) of this coach across every league. */
@@ -390,7 +529,10 @@ export function myRedraftTasks(store: LeagueStore, coach: string): MyRedraftTask
       if (!t.selected || t.status === "skipped") continue;
       const team = seasons.find((s) => s.id === t.sourceSeasonId)?.teams.find((x) => x.id === t.teamId) ?? t;
       if (!coachOwnsTeam(team, coach, aliases)) continue;
-      out.push({ leagueId: lg.id, leagueName: lg.name, teamId: t.teamId, teamName: t.name, race: t.race, status: t.status, spendable: spendable(t), link: redraftLink(lg.id, t.teamId) });
+      out.push({
+        leagueId: lg.id, leagueName: lg.name, teamId: t.teamId, teamName: t.name, race: t.race, status: t.status, spendable: spendable(t), link: redraftLink(lg.id, t.teamId),
+        phase: redraftPhase(t), ...(state.window ? { closesAt: state.window.closesAt } : {}),
+      });
     }
   }
   return out;

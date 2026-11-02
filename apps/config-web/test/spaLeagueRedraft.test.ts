@@ -3,7 +3,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ViteDevServer } from "vite";
 import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
-import { boardPath, budgetNote, createRedraftBoard, redraftPickers, createRedraftTeam, draftTotals, initialPicks, seasonsTitle, stepOf, tasksForTeam } from "../spa/src/leagues/redraft";
+import {
+  boardPath, budgetNote, createRedraftBoard, redraftPickers, createRedraftTeam, draftTotals, formulaText, initialPicks, localToIso, redraftModePath, seasonsTitle, stepOf, tasksForTeam,
+} from "../spa/src/leagues/redraft";
 import type { CoachRedraftView, RedraftBoardRow, RedraftBoardView } from "../spa/src/leagues/types";
 
 // SPA league redraft: the board and coach controllers, the live draft sums, and the board / dialog server-rendered.
@@ -136,7 +138,7 @@ describe("redraft helpers and controllers", () => {
     b.state.overrides.orcs = { budget: 1_200_000, reason: "Prize money" };
     expect(await b.confirm()).toBe(true);
     expect(f.calls.at(-1)!.body).toEqual({
-      revision: 0, action: "confirm", capEnabled: true, cap: 1_300_000,
+      revision: 0, action: "confirm", capEnabled: true, cap: 1_300_000, windowDays: 7,
       teams: [{ teamId: "elves", selected: true }, { teamId: "orcs", selected: true, override: { budget: 1_200_000, reason: "Prize money" } }, { teamId: "gobbos", selected: false }],
     });
     expect(b.state.view!.revision).toBe(1);
@@ -173,38 +175,114 @@ describe("redraft helpers and controllers", () => {
   });
 });
 
-describe("redraft pages (server-rendered)", () => {
+
+describe("redraft mode helpers (owner 11-02)", () => {
+  it("links, the formula line, Opens at in the browser's timezone", () => {
+    expect(redraftModePath("tabbl", "j.smith-orcs")).toBe("/tournament-team-builder/redraft/tabbl?team=j.smith-orcs");
+    expect(formulaText({ base: null, perGame: 20_000, perWin: 20_000, perDraw: 10_000, perLoss: 0 })).toBe("Budget = initial treasury + treasury left + 20k per game played + 20k per win + 10k per draw.");
+    expect(formulaText({ base: 900_000, perGame: 0, perWin: 30_000, perDraw: 0, perLoss: 5_000 })).toBe("Budget = 900k + treasury left + 30k per win + 5k per loss.");
+    expect(localToIso("")).toBe("");
+    expect(localToIso("not a date")).toBe("");
+    expect(localToIso("2026-11-09T18:00")).toBe(new Date("2026-11-09T18:00").toISOString());
+  });
+
+  it("keep / release, hire and staff steppers stay within the limits; big guys and rerolls are checked live", async () => {
+    const t = createRedraftTeam({ api: mockFetcher({ "/api/leagues/tabbl/redraft/teams/orcs": { redraft: rested() } }) });
+    await t.load("tabbl", "orcs");
+    t.toggleKeep("p2");
+    expect(t.state.picks.keep.p2).toBe(false);
+    t.toggleKeep("p2");
+    expect(t.state.picks.keep.p2).toBe(true);
+    t.stepHire("Troll", 1);
+    t.stepHire("Troll", 1);
+    expect(t.state.picks.hires.Troll).toBe(1); // max 1
+    t.stepHire("Troll", -5);
+    expect(t.state.picks.hires.Troll).toBe(0);
+    t.stepStaff("rerolls", 20);
+    expect(t.state.picks.staff.rerolls).toBe(8);
+    t.stepStaff("cheerleaders", -1);
+    expect(t.state.picks.staff.cheerleaders).toBe(0);
+    const v = rested();
+    const picks = initialPicks(v);
+    const big = { ...v, players: v.players.map((p, i) => (i === 1 ? { ...p, bigGuy: true } : p)) };
+    picks.hires.Troll = 1;
+    expect(draftTotals(big, picks).problems).toContain("At most 1 big guy (2 picked).");
+  });
+
+  it("board controller: Lift to budget per team and for all; confirm sends the window", async () => {
+    const f = mockFetcher({
+      "/api/leagues/tabbl/redraft": { redraft: boardView({ rules: { base: null, perGame: 20_000, perWin: 20_000, perDraw: 10_000, perLoss: 0, agentFee: 20_000, capEnabled: true, cap: 1_300_000, setBudget: 1_000_000, liftToBudget: false, windowDays: 5 } }) },
+      "POST /api/leagues/tabbl/redraft": () => ({ redraft: confirmedBoard() }),
+    });
+    const b = createRedraftBoard({ api: f });
+    await b.load("tabbl");
+    expect(b.state.windowDays).toBe(5);
+    b.state.picked.orcs = true;
+    b.state.opensAt = "2026-11-09T18:00";
+    await b.confirm();
+    expect(f.calls.at(-1)!.body).toMatchObject({ windowDays: 5, opensAt: new Date("2026-11-09T18:00").toISOString() });
+    await b.lift("orcs");
+    expect(f.calls.at(-1)!.body).toEqual({ revision: 1, action: "lift", teamId: "orcs" });
+    await b.liftAll();
+    expect(f.calls.at(-1)!.body).toEqual({ revision: 1, action: "lift", all: true });
+  });
+});
+
+describe("redraft surfaces (server-rendered)", () => {
   let vite: ViteDevServer;
   let mods: {
     createSpa: (o: { history: unknown; ssr?: boolean; fetcher?: Fetcher }) => {
       app: { provide: (k: unknown, v: unknown) => void };
-      router: { push: (p: string) => Promise<unknown>; isReady: () => Promise<void>; currentRoute: { value: { name: unknown } } };
+      router: { push: (p: string) => Promise<unknown>; isReady: () => Promise<void>; currentRoute: { value: { name: unknown; query: Record<string, unknown>; params: Record<string, unknown> } } };
     };
     createMemoryHistory: (base?: string) => unknown;
     renderToString: (app: unknown) => Promise<string>;
     redraft: typeof import("../spa/src/leagues/redraft");
+    settings: typeof import("../spa/src/leagues/settings");
   };
 
   beforeAll(async () => {
     const { createServer } = await import("vite");
     vite = await createServer({ configFile: SPA_CONFIG, logLevel: "silent", appType: "custom", server: { middlewareMode: true, hmr: false, ws: false } });
-    const [app, redraft, vueRouter, renderer] = await Promise.all([
-      vite.ssrLoadModule("/src/app.ts"), vite.ssrLoadModule("/src/leagues/redraft.ts"), vite.ssrLoadModule("vue-router"), vite.ssrLoadModule("vue/server-renderer"),
+    const [app, redraft, settings, vueRouter, renderer] = await Promise.all([
+      vite.ssrLoadModule("/src/app.ts"), vite.ssrLoadModule("/src/leagues/redraft.ts"), vite.ssrLoadModule("/src/leagues/settings.ts"), vite.ssrLoadModule("vue-router"), vite.ssrLoadModule("vue/server-renderer"),
     ]);
-    mods = { createSpa: app.createSpa, createMemoryHistory: vueRouter.createMemoryHistory, renderToString: renderer.renderToString, redraft: redraft as typeof import("../spa/src/leagues/redraft") };
+    mods = {
+      createSpa: app.createSpa, createMemoryHistory: vueRouter.createMemoryHistory, renderToString: renderer.renderToString,
+      redraft: redraft as typeof import("../spa/src/leagues/redraft"), settings: settings as typeof import("../spa/src/leagues/settings"),
+    };
   }, 60_000);
   afterAll(async () => { await vite?.close(); });
 
   const ORGANISER = { "/api/auth/session": { authenticated: true, coach: "Jay", authMethod: "discord", discordSsoEnabled: true } };
+  const RULES = { base: null, perGame: 20_000, perWin: 20_000, perDraw: 10_000, perLoss: 0, agentFee: 20_000, capEnabled: true, cap: 1_300_000, setBudget: 1_200_000, liftToBudget: false, windowDays: 7 };
+  const SETTINGS = {
+    id: "tabbl", revision: 3,
+    information: { name: "TABBL", fullName: "TABBL", description: "", ruleset: "BB2025", mode: "individual", address: null },
+    permissions: { owner: "Jay", organisers: [], admins: [], canEditOrganisers: true, canChangeOwner: false },
+    registrations: { allowedRosters: { official: true, nafApproved: true, unofficial: false }, allowRegistration: true, maxRegistrations: null, maxPerRace: null },
+    connections: { playOnFork: false, discord: { configured: false, maskedUrl: "", events: { news: true, fixtureCreated: true, matchStarted: false, matchResult: true, milestones: true, redraftRolls: false } }, naf: { available: false, note: "" } },
+    teamBuilding: null, redraft: { rules: RULES, defaults: { ...RULES, setBudget: 1_000_000 }, set: ["setBudget"] },
+    regions: { US: [], CA: [] }, rulesets: ["BB2020", "BB2025"], eliteSkills: [],
+  };
+  const LEAGUE_API = {
+    "/api/leagues/tabbl": { league: { id: "tabbl", name: "TABBL", fullName: "TABBL", slug: "tabbl", description: "", organisers: ["Jay"], createdAt: "2026-10-30T00:00:00.000Z", seasonCount: 1 }, seasons: [] },
+    "/api/leagues/tabbl/settings": { settings: SETTINGS },
+  };
 
-  async function render(path: string, routes: Routes, teamView?: CoachRedraftView) {
-    const f = mockFetcher({ ...ORGANISER, ...routes });
+  async function render(path: string, opts: { board?: RedraftBoardView; team?: CoachRedraftView; routes?: Routes } = {}) {
+    const f = mockFetcher({ ...ORGANISER, ...LEAGUE_API, ...(opts.routes ?? {}) });
     const spa = mods.createSpa({ history: mods.createMemoryHistory("/app/"), ssr: true, fetcher: f });
-    const board = mods.redraft.createRedraftBoard({ api: f });
-    await board.load("tabbl");
-    spa.app.provide(mods.redraft.REDRAFT_BOARD_KEY, board);
-    if (teamView) {
-      const team = mods.redraft.createRedraftTeam({ api: mockFetcher({ "/api/leagues/tabbl/redraft/teams/orcs": { redraft: teamView } }) });
+    const settings = mods.settings.createLeagueSettings({ api: f });
+    await settings.load("tabbl");
+    spa.app.provide(mods.settings.LEAGUE_SETTINGS_KEY, settings);
+    if (opts.board) {
+      const board = mods.redraft.createRedraftBoard({ api: mockFetcher({ "/api/leagues/tabbl/redraft": { redraft: opts.board } }) });
+      await board.load("tabbl");
+      spa.app.provide(mods.redraft.REDRAFT_BOARD_KEY, board);
+    }
+    if (opts.team) {
+      const team = mods.redraft.createRedraftTeam({ api: mockFetcher({ "/api/leagues/tabbl/redraft/teams/orcs": { redraft: opts.team } }) });
       await team.load("tabbl", "orcs");
       spa.app.provide(mods.redraft.REDRAFT_TEAM_KEY, team);
     }
@@ -213,61 +291,131 @@ describe("redraft pages (server-rendered)", () => {
     return { html: await mods.renderToString(spa.app), spa };
   }
 
-  it("board before confirmation: tabs, columns, checkboxes, Check all, cap, Confirm redraft", async () => {
-    const { html, spa } = await render("/leagues/tabbl/redraft", { "/api/leagues/tabbl/redraft": { redraft: boardView() } });
-    expect(spa.router.currentRoute.value.name).toBe("league-redraft");
+  const liftRows = (): RedraftBoardView => ({
+    ...confirmedBoard(), rules: RULES,
+    window: { opensAt: "2026-11-02T12:00:00.000Z", closesAt: "2026-11-09T12:00:00.000Z", open: true, before: false },
+    active: [
+      row("elves", { selected: true, status: "pending", phase: "needs-redraft", earned: 1_100_000, setBudget: 1_200_000, liftApplies: true, needsRedraft: { at: "", reason: "Over budget." } }),
+      row("orcs", { selected: true, status: "submitted", phase: "submitted", earned: 1_300_000, setBudget: 1_200_000, liftApplies: false }),
+    ],
+  });
+
+  it("old URLs redirect: the board to League settings -> Redraft, a team link to its Redraft mode", async () => {
+    const board = await render("/leagues/tabbl/redraft", { board: boardView() });
+    expect(board.spa.router.currentRoute.value.name).toBe("league-settings");
+    expect(board.spa.router.currentRoute.value.query).toEqual({ tab: "redraft" });
+    const team = await render("/leagues/tabbl/redraft?team=orcs", { team: coachView() });
+    expect(team.spa.router.currentRoute.value.name).toBe("roster-builder-redraft");
+    expect(team.spa.router.currentRoute.value.params).toEqual({ leagueId: "tabbl" });
+    expect(team.spa.router.currentRoute.value.query).toEqual({ team: "orcs" });
+  });
+
+  it("League settings -> Redraft: sub-nav entry, the board (before confirmation, with the window) and the budget formula", async () => {
+    const { html } = await render("/leagues/tabbl/settings?tab=redraft", { board: boardView({ rules: RULES }) });
+    expect(html).toMatch(/aria-current="page"[^>]*>Redraft</);
     expect(html).toContain("Redraft board");
-    expect(html).toContain("From Season 6");
-    expect(html).toContain("Active teams (2)");
-    expect(html).toContain("Inactive (1)");
-    for (const c of ["Team", "Coach", "Race", "GP", "W-D-L", "Treasury", "Budget"]) expect(html).toContain(`>${c}</th>`);
-    expect(html).toContain('aria-label="Select Orcs for redraft"');
-    expect(html).toContain("Check all");
-    expect(html).toContain("Cap budgets at");
-    expect(html).toContain("Capped from 1,420k");
-    expect(html).toContain('title="Ug: 3 seasons"');
-    expect(html).toMatch(/<button[^>]*disabled[^>]*>Confirm redraft \(0\)<\/button>/);
-    expect(html).not.toContain("Progress");
+    expect(html).toContain("Budget = initial treasury + treasury left + 20k per game played + 20k per win + 10k per draw.");
+    for (const c of ["Team", "Coach", "Race", "GP", "W-D-L", "Treasury", "Earned", "Budget"]) expect(html).toContain(`>${c}</th>`);
+    expect(html).toContain(">Opens at</span>");
+    expect(html).toContain(">Window (days)</span>");
+    expect(html).toContain("Redraft budget"); // the formula panel
+    expect(html).toContain("Lift teams to the budget");
+    for (const f of ["Base (k)", "Per game (k)", "Per win (k)", "Per draw (k)", "Per loss (k)", "Agent fee (k)", "Cap (k)", "Set budget (k)"]) expect(html).toContain(`>${f}</span>`);
+    expect(html).toMatch(/<button[^>]*disabled[^>]*>Save budget<\/button>/); // nothing changed yet
   });
 
-  it("board after confirmation: progress column, override note, highlighted row, log, Close redraft", async () => {
-    const { html } = await render("/leagues/tabbl/redraft", { "/api/leagues/tabbl/redraft": { redraft: confirmedBoard() } });
-    expect(html).toContain(">Progress</th>");
-    expect(html).toContain(">Drafting</span>");
-    expect(html).toContain("Not selected");
-    expect(html).toContain("Override: Prize money");
-    expect(html).toMatch(/class="lg-row-picked" data-team="orcs"/);
-    expect(html).toContain("Redraft news");
-    expect(html).toContain("Jay started the redraft from Season 6");
-    expect(html).toContain(">Close redraft</button>");
-    expect(html).not.toContain("Confirm redraft");
+  it("the board after confirmation: statuses, earned vs set, Lift to budget per team and Lift all, the window line", async () => {
+    const { html } = await render("/leagues/tabbl/settings?tab=redraft", { board: liftRows() });
+    expect(html).toContain(">Status</th>");
+    expect(html).toContain(">Needs redraft</span>");
+    expect(html).toContain(">Submitted</span>");
+    expect(html).toContain("below 1,200k");
+    expect(html).toContain('aria-label="Lift Elves to the set budget"');
+    expect(html).not.toContain('aria-label="Lift Orcs to the set budget"');
+    expect(html).toContain("Lift all to 1,200k");
+    expect(html).toContain("Teams in the redraft cannot play until then.");
   });
 
-  it("coach dialog: Rest & Relaxation step, then the draft list with live remaining budget, then submitted", async () => {
-    const routes = { "/api/leagues/tabbl/redraft": new ApiError(403, "no") };
-    const rest = await render("/leagues/tabbl/redraft?team=orcs", routes, coachView());
-    expect(rest.html).toContain('role="dialog"');
-    expect(rest.html).toMatch(/Redraft(<!--\[-->)?: Orcs/);
-    expect(rest.html).toContain("Rest &amp; Relaxation");
-    expect(rest.html).toContain("rolls off on a 3+ (Apothecary)");
-    expect(rest.html).toContain(">Roll for me</button>");
-    expect(rest.html).toContain(">Enter result</button>");
-    expect(rest.html).toContain("Your redraft"); // the page behind: not an organiser
-    const draft = await render("/leagues/tabbl/redraft?team=orcs", routes, rested());
-    expect(draft.html).toContain("Re-hire players");
-    expect(draft.html).toContain("4 healed");
-    expect(draft.html).toContain('aria-label="Keep #1 Ug"');
-    expect(draft.html).toContain(">165k</b>");
-    expect(draft.html).toContain("Rerolls (60k each, max 8)");
-    expect(draft.html).toContain("Hire new players");
-    expect(draft.html).toContain("Troll (115k, max 1)");
-    expect(draft.html).toMatch(/data-remaining[^>]*>115k</); // 1,160k - 865k re-hires - 180k staff
-    expect(draft.html).toContain(">Submit draft list</button>");
-    const done = await render("/leagues/tabbl/redraft?team=orcs", routes, coachView({
-      status: "submitted", draft: { spent: 1_000_000, treasury: 160_000, keep: [{ playerId: "p1", cost: 165_000 }], hires: [{ position: "Troll", count: 1, cost: 115_000 }] },
-    }));
-    expect(done.html).toContain("Draft list submitted");
-    expect(done.html).toContain("1 player re-hired, 1 new");
-    expect(done.html).toContain("becomes your team when the next season starts");
+  it("a coach who follows the board link sees their own redraft tasks", async () => {
+    const tasks = [{ leagueId: "tabbl", leagueName: "TABBL", teamId: "orcs", teamName: "Orcs", race: "Orc", status: "pending", spendable: 1_160_000, link: "/app/tournament-team-builder/redraft/tabbl?team=orcs", phase: "not-started" }];
+    const { html } = await render("/leagues/tabbl/settings?tab=redraft", {
+      routes: { "/api/leagues/tabbl/settings": new ApiError(403, "no"), "/api/leagues?redraft=mine": { tasks } },
+    });
+    expect(html).toContain("Not one of yours");
+    expect(html).toContain("Your redraft");
+  });
+
+  it("Redraft mode, step 1: the rest rolls in the Roster Builder layout with the budget beside them", async () => {
+    const { html } = await render("/tournament-team-builder/redraft/tabbl?team=orcs", { team: coachView() });
+    expect(html).toContain("hm-page tm-page tb-page sf-fit tb-wide rd-mode");
+    expect(html).toContain('id="rd-tab-rest"');
+    expect(html).toMatch(/id="rd-tab-roster"[^>]*disabled/);
+    expect(html).toContain("Rest &amp; Relaxation");
+    expect(html).toContain("rolls off on a 3+ (Apothecary)");
+    expect(html).toContain(">Roll for me</button>");
+    expect(html).toContain(">Enter result</button>");
+    expect(html).toContain("Redraft budget");
+  });
+
+  it("Redraft mode, step 2: Keep / Release with the re-hire cost, hires and staff the normal way, the value bar against the budget, Submit", async () => {
+    const v = rested();
+    v.players[0] = { ...v.players[0]!, stats: { MA: "6", ST: "3", AG: "3+", PA: "4+", AV: "10+" }, skills: ["Block"] };
+    v.skillCategories = { Block: "General" };
+    const { html } = await render("/tournament-team-builder/redraft/tabbl?team=orcs", { team: v });
+    expect(html).toContain('class="tb-work"');
+    expect(html).toContain("Hireable players");
+    expect(html).toContain("Sideline staff");
+    expect(html).toMatch(/aria-label="Release Ug \(re-hire 165k\)"/);
+    expect(html).toContain('class="skill skill-general">Block');
+    expect(html).toContain('aria-label="Hire a Troll, 115k"');
+    expect(html).toContain('aria-label="Add Rerolls"');
+    expect(html).toMatch(/data-spent[^>]*>1,045k/); // 865k re-hires + 180k staff
+    expect(html).toMatch(/data-remaining[^>]*>115k</);
+    expect(html).toContain("Valid: ready to submit.");
+    expect(html).toContain(">Submit draft list</button>");
+  });
+
+  // The old /app/leagues/:id/redraft page's actions (inventoried 11-02, before it became a redirect) and where each lives now.
+  const OLD_PAGE_ACTIONS: Array<{ action: string; where: "board-before" | "board-after" | "mode-rest" | "mode-roster" | "mode-done" | "mine"; marker: string | RegExp }> = [
+    { action: "pick the season to redraft from", where: "board-before", marker: ">Redraft from</span>" },
+    { action: "pick the season receiving the lists", where: "board-before", marker: ">Draft lists go into</span>" },
+    { action: "Active / Inactive team tabs", where: "board-before", marker: "Inactive (1)" },
+    { action: "select a team", where: "board-before", marker: 'aria-label="Select Orcs for redraft"' },
+    { action: "Check all", where: "board-before", marker: "Check all" },
+    { action: "budget cap on / amount", where: "board-before", marker: "Cap budgets at" },
+    { action: "per-team override before confirmation", where: "board-before", marker: ">Override</button>" },
+    { action: "Confirm redraft", where: "board-before", marker: /Confirm redraft \(\d+\)/ },
+    { action: "override after confirmation", where: "board-after", marker: ">Override</button>" },
+    { action: "Skip a team", where: "board-after", marker: ">Skip</button>" },
+    { action: "Close redraft", where: "board-after", marker: ">Close redraft</button>" },
+    { action: "redraft news log", where: "board-after", marker: "Redraft news" },
+    { action: "a coach's own tasks in the league", where: "mine", marker: "Your redraft" },
+    { action: "Roll for me", where: "mode-rest", marker: ">Roll for me</button>" },
+    { action: "Enter tabletop results", where: "mode-rest", marker: ">Enter result</button>" },
+    { action: "keep or release each player (re-hire cost)", where: "mode-roster", marker: /aria-pressed="true"[^>]*aria-label="Release Ug \(re-hire 165k\)"/ },
+    { action: "rerolls / assistant coaches / cheerleaders", where: "mode-roster", marker: 'aria-label="Add Cheerleaders"' },
+    { action: "apothecary", where: "mode-roster", marker: "<strong>Apothecary</strong>" },
+    { action: "hire new players by position", where: "mode-roster", marker: 'aria-label="Hire a Orc Lineman, 50k"' },
+    { action: "live remaining budget", where: "mode-roster", marker: "data-remaining" },
+    { action: "Submit draft list", where: "mode-roster", marker: ">Submit draft list</button>" },
+    { action: "submitted summary", where: "mode-done", marker: "Draft list submitted" },
+  ];
+
+  it("pins every action of the old redraft page in its new place", async () => {
+    const picks = { sources: [{ id: "season-6", name: "Season 6" }, { id: "season-5", name: "Season 5" }], targets: [{ id: "season-8", name: "Season 8", status: "active" }, { id: "season-7", name: "Season 7", status: "active" }] };
+    // Orcs comes back ticked, so its Override button shows before confirmation
+    const before = boardView({ ...picks, active: [row("elves"), row("orcs", { selected: true })] });
+    const tasks = [{ leagueId: "tabbl", leagueName: "TABBL", teamId: "orcs", teamName: "Orcs", race: "Orc", status: "pending", spendable: 1, link: "" }];
+    const pages: Record<string, string> = {
+      "board-before": (await render("/leagues/tabbl/settings?tab=redraft", { board: before })).html,
+      "board-after": (await render("/leagues/tabbl/settings?tab=redraft", { board: confirmedBoard() })).html,
+      mine: (await render("/leagues/tabbl/settings?tab=redraft", { routes: { "/api/leagues/tabbl/settings": new ApiError(403, "no"), "/api/leagues?redraft=mine": { tasks } } })).html,
+      "mode-rest": (await render("/tournament-team-builder/redraft/tabbl?team=orcs", { team: coachView() })).html,
+      "mode-roster": (await render("/tournament-team-builder/redraft/tabbl?team=orcs", { team: rested() })).html,
+      "mode-done": (await render("/tournament-team-builder/redraft/tabbl?team=orcs", { team: coachView({ status: "submitted", draft: { spent: 1_000_000, treasury: 160_000, keep: [{ playerId: "p1", cost: 165_000 }], hires: [] } }) })).html,
+    };
+    const missing = OLD_PAGE_ACTIONS.filter((a) => (typeof a.marker === "string" ? !pages[a.where]!.includes(a.marker) : !a.marker.test(pages[a.where]!))).map((a) => `${a.action} (${a.where})`);
+    expect(missing).toEqual([]);
+    expect(OLD_PAGE_ACTIONS).toHaveLength(22);
   });
 });

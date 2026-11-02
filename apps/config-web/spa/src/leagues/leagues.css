@@ -683,3 +683,30 @@ button.lg-cog { margin: 0; padding: 0; font: inherit; color: inherit; cursor: po
 .lg-cal-game:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .lg-cal-score { font: 13px/1 var(--sf-band-font); color: var(--sf-gold); }
 .lg-draw-vs { width: 24px; text-align: center; color: var(--ui-muted); }
+
+/* ---- Redraft (owner 11-02): League settings -> Redraft and the team summary budget ---- */
+/* League settings -> Redraft: the board beside the budget formula; on narrow screens the formula goes under the board */
+.rd-manage { display: grid; gap: 16px; align-items: start; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 1500px) { .rd-manage { grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); } }
+.rd-rules-form { display: grid; gap: 12px; }
+.rd-rules-form > p { margin: 0; }
+.rd-rules-group { display: grid; gap: 8px; margin: 0; min-width: 0; }
+.rd-rules-grid { display: grid; gap: 10px 12px; grid-template-columns: repeat(auto-fill, minmax(min(130px, 100%), 1fr)); align-items: end; }
+.rd-rules-grid .ls-field input { width: 100%; box-sizing: border-box; }
+.rd-window { align-items: flex-end; }
+.rd-window > p { flex: 1 1 220px; margin: 0; }
+.rd-window-line[data-open="true"] { color: var(--ui-text); }
+.rd-acts { white-space: nowrap; }
+.rd-acts .sf-btn + .sf-btn { margin-left: 4px; }
+
+/* Team summary: the current redraft budget (LeagueTeamRedraftBudget.vue) */
+.rd-lines { display: grid; gap: 2px; margin: 0 0 8px; }
+.rd-lines > div { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; border-bottom: 1px solid var(--sf-panel-line); }
+.rd-lines dt { color: var(--ui-muted); }
+.rd-lines dd { margin: 0; font-family: var(--sf-band-font); text-align: right; font-variant-numeric: tabular-nums; }
+.rd-lines > div[data-tone="hint"] dd { color: var(--ui-muted); }
+.rd-lines > div[data-tone="total"] dd { color: var(--sf-gold); }
+.rd-team-budget > p { margin: 0 0 6px; }
+.rd-team-budget ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 14px; }
+.rd-nowrap { white-space: nowrap; }
+.rd-team-budget .rd-lines, .rd-team-budget > p { max-width: 640px; }

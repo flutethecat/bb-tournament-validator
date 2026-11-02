@@ -35,6 +35,7 @@ import {
   DEFAULT_REGISTRATIONS, parseConnections, parseInformation, parseLeagueHouseRules, parseLeagueRegions, parseRegistrations, parseTeamBuilding, registrationsOf, SettingsError, teamBuildingTable,
 } from "./settings.js";
 import { LEAGUE_ID, leagueOwner, LeagueStoreError } from "./store.js";
+import { NEW_LEAGUE_REDRAFT_RULES } from "./redraftRules.js";
 import type { LeaguePhase, LeagueRecord, LeagueRegistrations, SeasonRecord } from "./types.js";
 
 export const WIZARD_STEPS = 5;
@@ -208,6 +209,8 @@ export async function createLeagueRoute(auth: LeagueApiIdentity | undefined, dep
       ...(info.address ? { address: info.address } : {}),
       registrations: structuredClone(DEFAULT_REGISTRATIONS),
       visibility: "draft", wizard: { step: 2, createdBy: auth.coach }, revision: 0, authorised: true,
+      // New leagues lift teams to the redraft budget (owner 11-02); leagues made before keep the old behaviour.
+      redraftRules: { ...NEW_LEAGUE_REDRAFT_RULES },
       ...(info.playOnFork ? { playOnFork: true } : {}),
       // Q13: what a test sign-in makes is a test league, the only kind it may change afterwards.
       ...(auth.test ? { test: true as const } : {}),

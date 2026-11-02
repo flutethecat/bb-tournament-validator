@@ -87,7 +87,7 @@ describe("fit to 1920x1080: the pages that opted in", () => {
     ["views/LeagueDetailView.vue", ["hm-page lg-page sf-fit", "lg-tab-body sf-fill sf-scroll sf-col"]],
     ["views/LeagueStatsView.vue", ["hm-page lg-page sf-fit", "lg-tab-body sf-fill sf-scroll sf-col"]],
     ["views/LeagueSettingsView.vue", ["hm-page lg-page ls-page sf-fit", "sh-manage sf-fill"]],
-    ["views/LeagueRedraftView.vue", ["hm-page lg-page ls-page sf-fit", 'class="sf-fill sf-scroll sf-col"']],
+    ["views/RosterBuilderRedraftView.vue", ["hm-page tm-page tb-page sf-fit", "tb-pane sf-fill"]],
     ["views/TournamentDetailView.vue", ["hm-page tn-page sf-fit", "tn-tab-body sf-fill"]],
     ["views/TournamentCreatorView.vue", ["hm-page cr-page sf-fit", "cr-pane sf-fill", "cr-pane-fit"]],
     ["views/TournamentBuilderView.vue", ["hm-page tm-page tb-page sf-fit", "tb-pane sf-fill"]],

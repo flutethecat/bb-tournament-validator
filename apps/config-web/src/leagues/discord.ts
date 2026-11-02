@@ -9,7 +9,7 @@ import { DISCORD_EVENT_KEYS, type DiscordEventKey, type DiscordEvents, type Leag
 export const DISCORD_WEBHOOK_URL = /^https:\/\/(?:(?:ptb|canary)\.)?(?:discord|discordapp)\.com\/api(?:\/v\d{1,2})?\/webhooks\/\d{5,25}\/[A-Za-z0-9_-]{20,120}$/;
 export const DISCORD_URL_MAX = 300;
 
-export const DEFAULT_DISCORD_EVENTS: DiscordEvents = { news: true, fixtureCreated: true, matchStarted: false, matchResult: true, milestones: true };
+export const DEFAULT_DISCORD_EVENTS: DiscordEvents = { news: true, fixtureCreated: true, matchStarted: false, matchResult: true, milestones: true, redraftRolls: false };
 
 export const DISCORD_EVENT_LABEL: Record<DiscordEventKey, string> = {
   news: "League news",
@@ -17,6 +17,7 @@ export const DISCORD_EVENT_LABEL: Record<DiscordEventKey, string> = {
   matchStarted: "Match started",
   matchResult: "Match result",
   milestones: "Redraft and season milestones",
+  redraftRolls: "Redraft rolls (each Rest & Relaxation roll)",
 };
 
 export function isDiscordWebhookUrl(url: unknown): url is string {

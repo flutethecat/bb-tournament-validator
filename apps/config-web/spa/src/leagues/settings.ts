@@ -7,20 +7,21 @@ import { ApiError } from "../shared/api";
 import type { Fetcher } from "../session";
 import type { LeagueCountry, LeagueSettingsView, LeagueSummary, PodiumProposal, PodiumSlot, SeasonSummary, TeamBuildingRosterRule } from "./types";
 
-export type SettingsTab = "administration" | "information" | "registrations" | "team-building" | "inducements" | "connections";
+export type SettingsTab = "administration" | "information" | "registrations" | "team-building" | "inducements" | "redraft" | "connections";
 export const SETTINGS_TABS: ReadonlyArray<{ id: SettingsTab; label: string }> = [
   { id: "administration", label: "Administration" },
   { id: "information", label: "Information" },
   { id: "registrations", label: "Registrations" },
   { id: "team-building", label: "Team building" },
   { id: "inducements", label: "Inducements" },
+  { id: "redraft", label: "Redraft" },
   { id: "connections", label: "External connections" },
 ];
 export const isSettingsTab = (v: unknown): v is SettingsTab => typeof v === "string" && SETTINGS_TABS.some((t) => t.id === v);
 
 /** The PATCH sections; each tab saves its own. */
 /** "competition" sends its payload's keys at the top level (house rules + regions, creation wizards v2). */
-export type SettingsSection = "administration" | "information" | "registrations" | "teamBuilding" | "connections" | "competition";
+export type SettingsSection = "administration" | "information" | "registrations" | "teamBuilding" | "connections" | "competition" | "redraft";
 
 export const COUNTRY_LABEL: Record<LeagueCountry, string> = { US: "United States", CA: "Canada" };
 export const REGION_LABEL: Record<LeagueCountry, string> = { US: "State", CA: "Province or territory" };
@@ -47,6 +48,7 @@ export const DISCORD_EVENT_LABEL: Record<string, string> = {
   matchStarted: "Match started",
   matchResult: "Match result",
   milestones: "Redraft and season milestones",
+  redraftRolls: "Redraft rolls (each Rest & Relaxation roll)",
 };
 
 /** "" for an integer in range, else the message. */

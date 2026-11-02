@@ -8,21 +8,24 @@
  *   - Budget = the roster's initial treasury (1,000,000 unless the season's Team building table says otherwise)
  *     + treasury left + 20,000 per league fixture played last season + 20,000 per win + 10,000 per draw, capped at
  *     1,300,000 when the league keeps the cap on (the excess is lost). An organiser may override a team's budget.
- *   - Re-hiring a player costs their current value + a 20,000 agent fee for every season they have taken part in
- *     (seasonsPlayed, plus the season just finished when their team played in it). A player not re-hired retires.
+ *     Since 11-02 every amount is a league setting (redraftRules.ts; these are the defaults), and a team that earned
+ *     less than the league's set budget may be lifted to it (budget = max(earned, set)).
+ *   - Re-hiring a player costs their current value + a 20,000 agent fee (a setting too) for every season they have taken
+ *     part in (seasonsPlayed, plus the season just finished when their team played in it). A player not re-hired retires.
  *   - Staff (rerolls, assistant coaches, cheerleaders, apothecary) are bought again at the standard price or let go;
  *     the rest of the team is drafted under the normal rules (11 to 16 players, position limits). Unspent gold becomes
  *     the new team's treasury.
  */
 import { createHash, randomInt } from "node:crypto";
-import { findPosition, findRoster, type DatasetPosition, type DatasetRoster } from "@bb/validator";
+import { findPosition, findRoster, findSkill, type DatasetPosition, type DatasetRoster } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 import { buildCoachAliases, fixtureOutcome, seasonCoachFacets, teamSeat, type CoachAliases } from "./identity.js";
 import { playerIdFor, teamPlayedIn } from "./playerIds.js";
 import {
-  EMPTY_PLAYER_STATS, type DraftList, type LeaguePlayer, type LeagueTeam, type RedraftBudget, type RedraftState, type RedraftTeamTask,
-  type RestRoll, type SeasonRecord,
+  EMPTY_PLAYER_STATS, type DraftList, type LeaguePlayer, type LeagueTeam, type RedraftAmounts, type RedraftBudget, type RedraftRules, type RedraftState,
+  type RedraftTeamTask, type RestRoll, type SeasonRecord,
 } from "./types.js";
+import { DEFAULT_AMOUNTS, DEFAULT_REDRAFT_RULES, amountsOf } from "./redraftRules.js";
 import { forkPlayLock } from "./forkTeam.js";
 import { computeTeamValue, refreshTeamValues } from "./teamValue.js";
 import { markCaptainVacancy } from "./captain.js";
@@ -96,17 +99,33 @@ export function teamRecord(season: Pick<SeasonRecord, "fixtures">, team: Pick<Le
 
 // ---- budget ----
 
-export interface BudgetInput { base: number; treasury: number; played: number; wins: number; draws: number }
+export interface BudgetInput { base: number; treasury: number; played: number; wins: number; draws: number; losses?: number }
 
-export function redraftBudget(input: BudgetInput, cap: { enabled: boolean; cap: number }): RedraftBudget {
-  const bonus = input.played * PER_GAME + input.wins * PER_WIN + input.draws * PER_DRAW;
+/** The budget with the league's amounts (default: the pre-11-02 hardcoded 20k / 20k / 10k / 0). */
+export function redraftBudget(input: BudgetInput, cap: { enabled: boolean; cap: number }, amounts: RedraftAmounts = DEFAULT_AMOUNTS): RedraftBudget {
+  const losses = Math.max(0, input.losses ?? 0);
+  const bonus = input.played * amounts.perGame + input.wins * amounts.perWin + input.draws * amounts.perDraw + losses * amounts.perLoss;
   const treasury = Math.max(0, Math.round(input.treasury || 0));
   const raw = input.base + treasury + bonus;
-  return { base: input.base, treasury, played: input.played, wins: input.wins, draws: input.draws, bonus, raw, capped: cap.enabled ? Math.min(raw, cap.cap) : raw };
+  return {
+    base: input.base, treasury, played: input.played, wins: input.wins, draws: input.draws, bonus, raw, capped: cap.enabled ? Math.min(raw, cap.cap) : raw,
+    losses, amounts: { ...amounts },
+  };
 }
 
-/** What the coach may spend: the organiser's override, else the (capped) budget. */
-export const spendable = (task: Pick<RedraftTeamTask, "budget" | "override">): number => task.override?.budget ?? task.budget.capped;
+/** What the team earned (the capped budget). */
+export const earned = (task: Pick<RedraftTeamTask, "budget">): number => task.budget.capped;
+
+/** What the coach may spend: the organiser's override, else max(earned, a lift to the set budget). */
+export const spendable = (task: Pick<RedraftTeamTask, "budget" | "override" | "lift">): number => task.override?.budget ?? Math.max(task.budget.capped, task.lift?.to ?? 0);
+
+/** A lift would raise this team: it earned less than the set budget, has no override and is not lifted that far yet. */
+export const liftApplies = (task: Pick<RedraftTeamTask, "budget" | "override" | "lift">, setBudget: number): boolean =>
+  !task.override && earned(task) < setBudget && (task.lift?.to ?? 0) < setBudget;
+
+/** The budget's starting amount: the league's base when it sets one, else the roster's initial treasury. */
+export const budgetBase = (rules: Pick<RedraftRules, "base">, rulesSeason: Pick<SeasonRecord, "rules"> | undefined, race: string): number =>
+  rules.base ?? baseFor(rulesSeason, race);
 
 /** The roster's initial treasury from the season's Team building table, else 1,000,000. */
 export function baseFor(rulesSeason: Pick<SeasonRecord, "rules"> | undefined, race: string): number {
@@ -147,14 +166,35 @@ export interface BoardRow {
   status?: RedraftTeamTask["status"];
   override?: RedraftTeamTask["override"];
   spendable: number;
+  /** Earned (the capped budget) vs the set budget, and whether a lift would raise it. */
+  earned: number;
+  setBudget: number;
+  liftApplies: boolean;
+  lift?: RedraftTeamTask["lift"];
+  /** The board's status column (redraftPhase). */
+  phase: RedraftPhase;
+  needsRedraft?: RedraftTeamTask["needsRedraft"];
+}
+
+export type RedraftPhase = "not-selected" | "not-started" | "in-progress" | "submitted" | "needs-redraft" | "skipped" | "expired";
+
+/** not started (nothing done), in progress (Rest & Relaxation rolled), submitted, needs redraft (window closed without a valid list). */
+export function redraftPhase(task: RedraftTeamTask | undefined): RedraftPhase {
+  if (!task || !task.selected) return "not-selected";
+  if (task.status === "submitted") return "submitted";
+  if (task.status === "skipped") return "skipped";
+  if (task.status === "expired") return "expired";
+  if (task.needsRedraft) return "needs-redraft";
+  return task.rest ? "in-progress" : "not-started";
 }
 
 const teamKey = (t: Pick<LeagueTeam, "id">): string => t.id;
 
-export function boardRow(source: SeasonRecord, team: LeagueTeam, cap: { enabled: boolean; cap: number }, rulesSeason: SeasonRecord | undefined, task?: RedraftTeamTask): BoardRow {
+export function boardRow(source: SeasonRecord, team: LeagueTeam, rules: RedraftRules, rulesSeason: SeasonRecord | undefined, task?: RedraftTeamTask): BoardRow {
   const rec = teamRecord(source, team);
-  const budget = task?.budget ?? redraftBudget({ base: baseFor(rulesSeason, team.race), treasury: team.treasury ?? 0, ...rec }, cap);
+  const budget = task?.budget ?? redraftBudget({ base: budgetBase(rules, rulesSeason, team.race), treasury: team.treasury ?? 0, ...rec }, { enabled: rules.capEnabled, cap: rules.cap }, amountsOf(rules));
   const played = teamPlayedIn(source, team);
+  const asTask = task ?? { budget };
   return {
     teamId: team.id, sourceSeasonId: source.id, sourceSeasonName: source.name, name: team.name, coach: team.coach,
     ...(team.coachId ? { coachId: team.coachId } : {}),
@@ -163,7 +203,11 @@ export function boardRow(source: SeasonRecord, team: LeagueTeam, cap: { enabled:
     selected: task?.selected ?? false,
     ...(task ? { status: task.status } : {}),
     ...(task?.override ? { override: task.override } : {}),
-    spendable: task ? spendable(task) : budget.capped,
+    spendable: spendable(asTask),
+    earned: budget.capped, setBudget: rules.setBudget, liftApplies: liftApplies(asTask, rules.setBudget),
+    ...(task?.lift ? { lift: task.lift } : {}),
+    phase: redraftPhase(task),
+    ...(task?.needsRedraft ? { needsRedraft: task.needsRedraft } : {}),
   };
 }
 
@@ -172,9 +216,9 @@ export function boardRow(source: SeasonRecord, team: LeagueTeam, cap: { enabled:
  * each team once, from the newest season it played in).
  */
 export function redraftBoard(
-  seasons: SeasonRecord[], source: SeasonRecord, state: RedraftState | undefined, cap: { enabled: boolean; cap: number }, target?: SeasonRecord | null,
+  seasons: SeasonRecord[], source: SeasonRecord, state: RedraftState | undefined, rules: RedraftRules, target?: SeasonRecord | null,
 ): { active: BoardRow[]; inactive: BoardRow[] } {
-  const effCap = state ? { enabled: state.capEnabled, cap: state.cap } : cap;
+  const effCap = state ? stateRules(state) : rules;
   // Initial treasuries come from the receiving season's Team building table (the resolved target; null = none yet).
   const rulesSeason = (target === undefined ? redraftTarget(seasons, source) : target) ?? source;
   const taskOf = (id: string): RedraftTeamTask | undefined => state?.teams.find((t) => t.teamId === id);
@@ -248,11 +292,11 @@ export interface RehireQuote {
   bigGuy: boolean;
 }
 
-export function rehireQuote(p: LeaguePlayer, teamPlayed: boolean, roster: DatasetRoster | undefined): RehireQuote {
+export function rehireQuote(p: LeaguePlayer, teamPlayed: boolean, roster: DatasetRoster | undefined, agentFee: number = AGENT_FEE): RehireQuote {
   const pos = roster ? findPosition(roster, p.position) : undefined;
   const value = typeof p.value === "number" && p.value >= 0 ? p.value : pos?.cost ?? 0;
   const seasons = feeSeasons(p, teamPlayed);
-  const fee = seasons * AGENT_FEE;
+  const fee = seasons * agentFee;
   return {
     playerId: p.playerId, number: p.number, name: p.name, position: p.position, value, seasons, fee, cost: value + fee,
     niggling: p.niggling | 0, missNextGame: p.missNextGame, bigGuy: isBigGuy(pos),
@@ -267,6 +311,23 @@ export interface DraftContext {
   team: LeagueTeam;
   roster: DatasetRoster | undefined;
   teamPlayed: boolean;
+  /** The redraft's agent fee (redraftRules.ts; the default when unset). */
+  agentFee?: number;
+}
+
+/** The rules a confirmed redraft runs with: its stored snapshot, else (confirmed before 11-02) the defaults with its cap. */
+export const stateRules = (state: Pick<RedraftState, "rules" | "capEnabled" | "cap">): RedraftRules =>
+  state.rules ?? { ...DEFAULT_REDRAFT_RULES, capEnabled: state.capEnabled, cap: state.cap };
+
+/** The open task, its team and roster for the coach routes and the window job (undefined = no such selected task). */
+export function draftContext(seasons: SeasonRecord[], source: SeasonRecord, teamId: string): DraftContext | undefined {
+  const state = source.redraft;
+  const task = state?.teams.find((t) => t.teamId === teamId && t.selected);
+  if (!state || !task) return undefined;
+  const from = seasons.find((s) => s.id === task.sourceSeasonId);
+  const team = from?.teams.find((t) => t.id === teamId);
+  if (!from || !team) return undefined;
+  return { task, source: from, team, roster: datasetRoster(team.race), teamPlayed: teamPlayedIn(from, team), agentFee: stateRules(state).agentFee };
 }
 
 export interface CoachRedraftView {
@@ -286,45 +347,93 @@ export interface CoachRedraftView {
   cap: number;
   override: RedraftTeamTask["override"] | null;
   spendable: number;
+  /** Redraft mode (11-02): earned vs the set budget, a lift, the agent fee, the window and the needs-redraft mark. */
+  earned: number;
+  setBudget: number;
+  lift: RedraftTeamTask["lift"] | null;
+  agentFee: number;
+  amounts: RedraftAmounts;
+  window: { opensAt: string; closesAt: string; open: boolean; before: boolean } | null;
+  needsRedraft: RedraftTeamTask["needsRedraft"] | null;
+  auto: boolean;
+  phase: RedraftPhase;
   apothecaryNow: boolean;
   rest: { target: number; done: boolean; rolls: RestRoll[]; needed: Array<{ playerId: string; name: string; position: string; niggling: number }> };
-  players: Array<RehireQuote & { nigglingAfter: number }>;
+  players: Array<RehireQuote & { nigglingAfter: number; stats: PlayerStatLine; skills: string[]; level: string }>;
   staff: {
     rerollCost: number; maxRerolls: number; assistantCoachCost: number; cheerleaderCost: number; apothecaryCost: number; apothecaryAllowed: boolean;
     current: { rerolls: number; assistantCoaches: number; cheerleaders: number; apothecary: boolean };
   };
-  positions: Array<{ name: string; cost: number; max: number; bigGuy: boolean }>;
+  positions: Array<{ name: string; cost: number; max: number; bigGuy: boolean; stats: PlayerStatLine; skills: string[] }>;
   limits: { minPlayers: number; maxPlayers: number; assistantCoaches: number; cheerleaders: number; maxBigGuys: number };
   draft: DraftList | null;
   knownRoster: boolean;
+  /** The dataset category of every skill shown (players and positions), for the skill chip colours. */
+  skillCategories: Record<string, string>;
 }
 
-export function coachView(leagueId: string, state: RedraftState, ctx: DraftContext, targetSeason: SeasonRecord | undefined): CoachRedraftView {
+/** MA / ST / AG / PA / AV as the sheet shows them (AG, PA, AV as targets "3+"; "-" when unknown). */
+export interface PlayerStatLine { MA: string; ST: string; AG: string; PA: string; AV: string }
+const statText = (v: number | string | null | undefined, plus: boolean): string => {
+  if (v === null || v === undefined || v === "") return "-";
+  const s = String(v).trim();
+  return plus && /^\d+$/.test(s) ? `${s}+` : s;
+};
+const positionStats = (p: DatasetPosition): PlayerStatLine => ({ MA: statText(p.MA, false), ST: statText(p.ST, false), AG: statText(p.AG, true), PA: statText(p.PA, true), AV: statText(p.AV, true) });
+const playerStats = (p: LeaguePlayer): PlayerStatLine => ({ MA: statText(p.ma, false), ST: statText(p.st, false), AG: statText(p.ag, true), PA: statText(p.pa, true), AV: statText(p.av, true) });
+
+/** The window as the coach sees it (now inside it, or not open yet). */
+export function windowView(state: Pick<RedraftState, "window">, now: Date): CoachRedraftView["window"] {
+  const w = state.window;
+  if (!w) return null;
+  const t = now.getTime();
+  return { opensAt: w.opensAt, closesAt: w.closesAt, before: t < Date.parse(w.opensAt), open: t >= Date.parse(w.opensAt) && t < Date.parse(w.closesAt) };
+}
+
+export function coachView(leagueId: string, state: RedraftState, ctx: DraftContext, targetSeason: SeasonRecord | undefined, now: Date = new Date()): CoachRedraftView {
   const { task, team, roster, teamPlayed } = ctx;
   const rolls = task.rest?.rolls ?? [];
+  const rules = stateRules(state);
   return {
     leagueId, revision: state.revision, teamId: team.id, name: team.name, race: team.race, coach: team.coach,
     sourceSeason: { id: ctx.source.id, name: ctx.source.name },
     targetSeason: targetSeason ? { id: targetSeason.id, name: targetSeason.name } : null,
     status: task.status, expiredReason: task.expiredReason ?? "", closed: Boolean(state.closedAt),
     budget: task.budget, capEnabled: state.capEnabled, cap: state.cap, override: task.override ?? null, spendable: spendable(task),
+    earned: earned(task), setBudget: rules.setBudget, lift: task.lift ?? null, agentFee: ctx.agentFee ?? AGENT_FEE,
+    amounts: task.budget.amounts ?? amountsOf(DEFAULT_REDRAFT_RULES), window: windowView(state, now), needsRedraft: task.needsRedraft ?? null,
+    auto: task.auto === true, phase: redraftPhase(task),
     apothecaryNow: team.apothecary,
     rest: {
       target: restTarget(team.apothecary), done: Boolean(task.rest), rolls,
       needed: team.players.filter((p) => (p.niggling | 0) > 0).map((p) => ({ playerId: p.playerId, name: p.name, position: p.position, niggling: p.niggling | 0 })),
     },
-    players: team.players.map((p) => ({ ...rehireQuote(p, teamPlayed, roster), nigglingAfter: nigglesAfter(p, rolls) })),
+    players: team.players.map((p) => ({
+      ...rehireQuote(p, teamPlayed, roster, ctx.agentFee), nigglingAfter: nigglesAfter(p, rolls), stats: playerStats(p), skills: [...(p.skills ?? [])], level: p.level ?? "",
+    })),
     staff: {
       rerollCost: rerollCost(roster), maxRerolls: roster?.maxReRolls ?? 8,
       assistantCoachCost: STAFF_COST.assistantCoach, cheerleaderCost: STAFF_COST.cheerleader, apothecaryCost: STAFF_COST.apothecary,
       apothecaryAllowed: roster?.apothecaryAllowed ?? true,
       current: { rerolls: team.rerolls ?? 0, assistantCoaches: team.assistantCoaches ?? 0, cheerleaders: team.cheerleaders ?? 0, apothecary: team.apothecary },
     },
-    positions: (roster?.positions ?? []).map((p) => ({ name: p.name, cost: p.cost, max: p.max, bigGuy: isBigGuy(p) })),
+    positions: (roster?.positions ?? []).map((p) => ({ name: p.name, cost: p.cost, max: p.max, bigGuy: isBigGuy(p), stats: positionStats(p), skills: [...p.skills] })),
     limits: { ...LIMITS, maxBigGuys: roster?.maxBigGuys ?? 16 },
     draft: task.draft ?? null,
     knownRoster: Boolean(roster),
+    skillCategories: skillCategories([...team.players.flatMap((p) => p.skills ?? []), ...(roster?.positions ?? []).flatMap((p) => p.skills)]),
   };
+}
+
+/** Skill name -> dataset category ("General", "Agility", ...); unknown skills are left out. */
+function skillCategories(skills: string[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const s of skills) {
+    if (out[s] !== undefined) continue;
+    const c = findSkill(bb2025, s.replace(/\s*\(.*\)\s*$/, ""))?.category;
+    if (c) out[s] = String(c);
+  }
+  return out;
 }
 
 // ---- validation ----
@@ -391,7 +500,7 @@ export function validateDraft(ctx: DraftContext, input: DraftInput): DraftPrice 
     seen.add(id);
     const p = team.players.find((x) => x.playerId === id);
     if (!p) { errors.push("A kept player is not on this team."); continue; }
-    keep.push({ quote: rehireQuote(p, teamPlayed, roster) });
+    keep.push({ quote: rehireQuote(p, teamPlayed, roster, ctx.agentFee) });
   }
   const perPosition = new Map<string, number>();
   let bigGuys = 0;

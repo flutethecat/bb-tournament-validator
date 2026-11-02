@@ -352,6 +352,7 @@ import { canSeeTournament, hiddenTournamentPath, testSessionTournamentRefusal } 
 import { isLeagueOrganiser, LeagueStore } from "./leagues/store.js";
 import { myLeagueDeadlines, myLeagues } from "./leagues/myLeagues.js";
 import { runDeadlineJob } from "./leagues/deadlines.js";
+import { runRedraftWindowJob } from "./leagues/redraftWindow.js";
 import { createLeagueForkClient } from "./leagues/forkClient.js";
 import { syncLeagueForkResults } from "./leagues/forkPlay.js";
 import { registerLeagueEvents } from "./leagues/events.js";
@@ -700,6 +701,16 @@ const leagueDeadlineTick = (): void => {
 };
 setTimeout(leagueDeadlineTick, 5_000).unref();
 setInterval(leagueDeadlineTick, 60_000).unref();
+// League redraft windows (src/leagues/redraftWindow.ts): open / 24 h reminder notices and the close (rebuild or needs
+// redraft), once each, written before anyone is told. Same pattern as the deadline job; never in a GET handler.
+const leagueRedraftTick = (): void => {
+  try {
+    const out = runRedraftWindowJob({ store: leagueStore, notify: leagueNotify, isAdmin: (c) => isAdmin(c) });
+    if (out.closed.length) console.log(`[leagues] redraft windows closed: ${out.closed.map((c) => `${c.leagueId}/${c.seasonId} rebuilt ${c.rebuilt.length}, needs redraft ${c.needsRedraft.length}`).join("; ")}`);
+  } catch (e) { console.error(`[leagues] redraft window job failed: ${(e as Error).message}`); }
+};
+setTimeout(leagueRedraftTick, 7_000).unref();
+setInterval(leagueRedraftTick, 60_000).unref();
 setActiveNotifier(tournamentNotifier);
 // NAF-sanctioned entries that owe their NAF answer but are not marked yet: marked once, one notice per coach (idempotent).
 try { settleNafOwedEntries({ store: tournamentStore, notify: tournamentNotifier, identityRecords: (coachIds) => { const all = readIdentities().coaches; return coachIds.map((c) => all[normalizeFfbCoachId(c)]); } }); } catch (e) { console.error(`[naf] startup settle failed: ${(e as Error).message}`); }

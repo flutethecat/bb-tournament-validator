@@ -2,7 +2,7 @@
 // League settings, Administration: who runs the league (owner, organisers added / removed by coach name looked up in
 // the identities, site admins read-only), the season actions (Start a new season in a dialog; Finish season in a dialog
 // that shows the podium the server proposes, which the organiser may change before confirming; Reopen a season finished
-// here) and Start redraft (opens the Redraft board, /app/leagues/:id/redraft).
+// here) and Start redraft (opens the Redraft board, League settings -> Redraft).
 import { computed, inject, nextTick, ref } from "vue";
 import { useRouter } from "vue-router";
 import { LEAGUE_SETTINGS_KEY, nextSeasonDefaults, openSeason, openSeasons, podiumPickError, podiumPicks } from "../leagues/settings";
@@ -78,7 +78,7 @@ async function reopen(): Promise<void> {
 }
 
 const router = useRouter();
-const openRedraft = (): void => { void router.push({ name: "league-redraft", params: { id: view.value.id } }); };
+const openRedraft = (): void => { void router.push({ name: "league-settings", params: { id: view.value.id }, query: { tab: "redraft" } }); };
 </script>
 
 <template>

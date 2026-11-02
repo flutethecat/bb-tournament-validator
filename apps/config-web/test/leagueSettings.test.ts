@@ -254,7 +254,7 @@ describe("league settings routes", () => {
     expect((await call("POST", "/api/leagues/tabbl/discord/test", JAY)).status).toBe(409);
     const set = await call("PATCH", "/api/leagues/tabbl/settings", JAY, { connections: { discord: { url: HOOK, events: { matchStarted: true, news: false } } } });
     expect(set.status).toBe(200);
-    expect(settings(set).connections.discord).toEqual({ configured: true, maskedUrl: "https://discord.com/api/webhooks/…/•••", events: { news: false, fixtureCreated: true, matchStarted: true, matchResult: true, milestones: true } });
+    expect(settings(set).connections.discord).toEqual({ configured: true, maskedUrl: "https://discord.com/api/webhooks/…/•••", events: { news: false, fixtureCreated: true, matchStarted: true, matchResult: true, milestones: true, redraftRolls: false } });
     expect(JSON.stringify(set.body)).not.toContain("123456789012345678");
     expect(JSON.stringify((await call("GET", "/api/leagues/tabbl/settings", JAY)).body)).not.toContain("abcdefghijklmnop");
     expect(readFileSync(join(dir, "leagues", "tabbl", "league.json"), "utf8")).not.toContain("webhooks");

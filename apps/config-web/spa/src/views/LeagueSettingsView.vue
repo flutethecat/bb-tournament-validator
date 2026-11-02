@@ -2,7 +2,8 @@
 // League management sub-panel (/app/leagues/:id/settings?tab=; /manage lands here), opened by the cog in the league's
 // section header, which stays on top. Organisers of the league and site admins; anyone else gets the friendly "not one
 // of yours" note (the server answers 403 and decides). The groups are a left sub-nav: Administration, Information,
-// Registrations, Team building, Inducements, External connections (panels with their own Save, PATCH
+// Registrations, Team building, Inducements, Redraft (the budget formula and the organiser Redraft board, owner 11-02),
+// External connections (panels with their own Save, PATCH
 // /api/leagues/:id/settings sections), Participants (the season's participant flags, moved from the league page) and
 // Artwork (the league logo and header bar, moved from the league Overview).
 import { computed, inject, onMounted, provide } from "vue";
@@ -20,6 +21,8 @@ import LeagueSettingsLifecycle from "../components/LeagueSettingsLifecycle.vue";
 import LeagueSettingsSeasonRegistration from "../components/LeagueSettingsSeasonRegistration.vue";
 import LeagueSettingsRegistrations from "../components/LeagueSettingsRegistrations.vue";
 import LeagueSettingsTeamBuilding from "../components/LeagueSettingsTeamBuilding.vue";
+import LeagueSettingsRedraft from "../components/LeagueSettingsRedraft.vue";
+import LeagueRedraftMine from "../components/LeagueRedraftMine.vue";
 import { followSeasons } from "../leagues/followSeasons";
 import { createLeagueDetail, LEAGUE_DETAIL_KEY, pickSeason } from "../leagues/league";
 import { createLeagueSettings, isSettingsTab, LEAGUE_SETTINGS_KEY, SETTINGS_TABS, type SettingsTab } from "../leagues/settings";
@@ -71,6 +74,8 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} settings` : ""));
       <p v-else>Sign in to manage this league.</p>
       <p class="hm-links"><RouterLink :to="{ name: 'league-detail', params: { id } }">Back to the league page</RouterLink></p>
     </section>
+    <!-- the old redraft page's coach side (owner 11-02): a coach who follows a board link sees their own redraft tasks -->
+    <LeagueRedraftMine v-if="state.denied === 'forbidden' && tab === 'redraft'" :league-id="id" />
     <p v-else-if="!state.loaded || !state.view" class="hm-empty" role="status">Loading league settings...</p>
     <!-- fit to 1920x1080 (owner 11-02): the header and the sub-nav stay; the group scrolls in its pane -->
     <div v-else class="sh-manage sf-fill">
@@ -87,6 +92,7 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} settings` : ""));
       <template v-else-if="tab === 'registrations'"><LeagueSettingsRegistrations /><LeagueSettingsSeasonRegistration /></template>
       <LeagueSettingsTeamBuilding v-else-if="tab === 'team-building'" />
       <LeagueSettingsInducements v-else-if="tab === 'inducements'" />
+      <LeagueSettingsRedraft v-else-if="tab === 'redraft'" :league-id="id" />
       <template v-else-if="tab === 'participants'">
         <LeagueParticipants v-if="season" :league-id="id" :season-id="season.id" :season-name="season.name" />
         <p v-else class="hm-empty" role="status">Loading the seasons...</p>

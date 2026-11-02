@@ -32,7 +32,7 @@
  *
  * Redraft (board for organisers, Team Draft List for the team's coach): see redraftApi.ts.
  *   GET|POST /api/leagues/:id/redraft, GET /api/leagues/:id/redraft/teams/:teamId, POST .../rest, POST .../submit,
- *   GET /api/leagues?redraft=mine
+ *   GET /api/leagues?redraft=mine, GET /api/leagues/:id/seasons/:seasonId/teams/:teamId/redraft-budget (team summary)
  *
  * Fixture lobby (public read; the two coaches + organisers write): see src/fixtureLobby/league.ts.
  *   GET .../seasons/:seasonId/fixtures/:fixtureId/lobby, POST .../lobby/presence|chat|roster|ready|inducements|start
@@ -67,7 +67,8 @@ import { readJsonObject, requestRevision } from "./http.js";
 import { applyForkSettings, leagueForkRoutes, publicForkState, updateForkSettings, type LeagueForkClient } from "./forkPlay.js";
 import { applyPendingDrafts } from "./redraft.js";
 import { assignTeamCoach } from "./teamCoach.js";
-import { myRedraftTasks, redraftRoutes } from "./redraftApi.js";
+import { myRedraftTasks, redraftRoutes, teamRedraftBudgetRoute } from "./redraftApi.js";
+import { RedraftRulesError, parseRedraftRules } from "./redraftRules.js";
 import { leagueParticipantRoutes, myPaymentStatus, participantsForPublic } from "./participants.js";
 import {
   parseConnections, parseInformation, parseLeagueHouseRules, parseLeagueRegions, parseRegistrations, parseTeamBuilding, registrationsOf, settingsView, SettingsError, teamBuildingTable,
@@ -397,6 +398,8 @@ export async function leagueApi(
   if (builder) return builder;
   const fork = await leagueForkRoutes(method, route.id, route.rest, auth, deps);
   if (fork) return fork;
+  const teamBudget = teamRedraftBudgetRoute(method, route.rest, league, auth, deps);
+  if (teamBudget) return teamBudget;
   const redraft = await redraftRoutes(method, route.rest, league, auth, deps, query);
   if (redraft) return redraft;
   const events = await leagueEventRoutes(method, route.rest, league, auth, deps);
@@ -732,6 +735,13 @@ function patchSettings(league: LeagueRecord, who: LeagueApiIdentity, input: Reco
   const registrations = input.registrations !== undefined ? parseRegistrations(input.registrations, registrationsOf(league)) : undefined;
   const connections = input.connections !== undefined ? parseConnections(input.connections, discordEvents(league)) : undefined;
   const team = input.teamBuilding !== undefined ? parseTeamBuilding(input.teamBuilding) : undefined;
+  let redraftRules: LeagueRecord["redraftRules"];
+  if (input.redraft !== undefined) {
+    try { redraftRules = parseRedraftRules(input.redraft, league.redraftRules); } catch (e) {
+      if (e instanceof RedraftRulesError) throw new SettingsError(400, e.message, e.field);
+      throw e;
+    }
+  }
   const season = team ? deps.store.season(league.id, team.seasonId) : undefined;
   if (team && !season) return { status: 404, body: { error: "Season not found.", field: "seasonId" } };
 
@@ -768,6 +778,7 @@ function patchSettings(league: LeagueRecord, who: LeagueApiIdentity, input: Reco
     if (registrations) l.registrations = registrations;
     if (connections?.playOnFork !== undefined) l.playOnFork = connections.playOnFork;
     if (connections?.discordEvents) l.discordEvents = connections.discordEvents;
+    if (redraftRules) l.redraftRules = redraftRules;
     l.revision = current + 1;
   }, now);
   return { status: 200, body: { ok: true, settings: view(updated, who, deps, team?.seasonId) } };

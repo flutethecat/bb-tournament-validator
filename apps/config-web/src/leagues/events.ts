@@ -28,6 +28,7 @@ import type {
   DiscordEventKey, FixtureSide, LeagueEventEntry, LeagueFixture, LeagueNewsPost, LeagueRecord, LeagueTeam, SeasonRecord,
 } from "./types.js";
 import { isDraftLeague } from "./lifecycle.js";
+import { fixtureRedraftBlock } from "./redraftWindow.js";
 
 export const EVENTS_MAX_BYTES = 64 * 1024;
 export const LOG_CAP = 200;
@@ -395,6 +396,11 @@ export async function editFixture(
       home: parseScore(r.home, "Home score", false)!, away: parseScore(r.away, "Away score", false)!,
       homeCas: parseScore(r.homeCas, "Home casualties", true), awayCas: parseScore(r.awayCas, "Away casualties", true),
     };
+  }
+  // A team in an open redraft window (or still needing its redraft) cannot play: no result for it (redraftWindow.ts).
+  if (result) {
+    const blocked = fixtureRedraftBlock(deps.store.seasons(league.id), fixture, deps.now?.() ?? new Date());
+    if (blocked) throw new SettingsError(409, blocked, "result");
   }
   if (date !== undefined) { if (date === null) delete fixture.date; else fixture.date = date; }
   if (round !== undefined) fixture.round = round;

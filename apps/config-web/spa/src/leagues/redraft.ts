@@ -1,14 +1,54 @@
-// League redraft (/app/leagues/:id/redraft): the organiser board (select teams, budgets, overrides, confirm, progress,
-// close) and the coach's Team Draft List (Rest & Relaxation, re-hire players and staff, hire rookies, submit). Controllers
-// over the redraft API (src/leagues/redraftApi.ts) and the pure helpers the components use; the server is the authority
-// on every rule and price, the helpers only mirror its sums for the live remaining-budget display.
+// League redraft: the organiser board (League settings -> Redraft: select teams, budgets earned vs set, overrides, Lift to
+// budget, the window, confirm, progress, close) and the coach's Team Draft List (the Roster Builder's Redraft mode: Rest &
+// Relaxation, keep / release with the re-hire cost, staff, hires, submit). Controllers over the redraft API
+// (src/leagues/redraftApi.ts) and the pure helpers the components use; the server is the authority on every rule and
+// price, the helpers only mirror its sums for the live remaining-budget display. The old /app/leagues/:id/redraft page
+// redirects to these two places (router.ts).
 
 import { reactive, type InjectionKey } from "vue";
 import { ApiError } from "../shared/api";
 import type { Fetcher } from "../session";
-import type { CoachRedraftView, MyRedraftTask, RedraftBoardRow, RedraftBoardView } from "./types";
+import type { CoachRedraftView, MyRedraftTask, RedraftBoardRow, RedraftBoardView, RedraftPhase, RedraftRules, TeamRedraftBudget } from "./types";
 
 export const goldK = (n: number): string => `${Math.round(n / 1000).toLocaleString("en-US")}k`;
+
+/** The coach's Redraft mode in the Roster Builder (a router path; the server's links carry /app in front). */
+/** (The team id rides in the query: league team ids may hold a dot, which the server's SPA fallback treats as a file.) */
+export const redraftModePath = (leagueId: string, teamId: string): string => `/tournament-team-builder/redraft/${encodeURIComponent(leagueId)}?team=${encodeURIComponent(teamId)}`;
+/** The organiser's board in League settings. */
+export const redraftBoardRoute = (leagueId: string) => ({ name: "league-settings", params: { id: leagueId }, query: { tab: "redraft" } });
+
+export const PHASE_LABEL: Record<RedraftPhase, string> = {
+  "not-selected": "Not selected", "not-started": "Not started", "in-progress": "In progress", submitted: "Submitted", "needs-redraft": "Needs redraft",
+  skipped: "Skipped", expired: "Expired",
+};
+export const PHASE_TONE: Record<RedraftPhase, "ok" | "soon" | "urgent" | "muted"> = {
+  "not-selected": "muted", "not-started": "soon", "in-progress": "soon", submitted: "ok", "needs-redraft": "urgent", skipped: "muted", expired: "muted",
+};
+
+/** The formula line the board and the settings show: "Budget = initial treasury + treasury left + 20k per game ...". */
+export function formulaText(r: Pick<RedraftRules, "base" | "perGame" | "perWin" | "perDraw" | "perLoss">): string {
+  const parts = [r.base === null ? "initial treasury" : goldK(r.base), "treasury left"];
+  if (r.perGame) parts.push(`${goldK(r.perGame)} per game played`);
+  if (r.perWin) parts.push(`${goldK(r.perWin)} per win`);
+  if (r.perDraw) parts.push(`${goldK(r.perDraw)} per draw`);
+  if (r.perLoss) parts.push(`${goldK(r.perLoss)} per loss`);
+  return `Budget = ${parts.join(" + ")}.`;
+}
+
+/** A datetime-local value ("2026-11-09T18:00") in the browser's timezone as an ISO instant ("" when empty or invalid). */
+export function localToIso(local: string): string {
+  if (!local) return "";
+  const t = new Date(local).getTime();
+  return Number.isFinite(t) ? new Date(t).toISOString() : "";
+}
+
+/** The team summary's redraft budget (null on any failure: the panel then stays hidden). */
+export async function loadTeamRedraftBudget(api: Fetcher, leagueId: string, seasonId: string, teamId: string): Promise<TeamRedraftBudget | null> {
+  try {
+    return (await api<{ budget: TeamRedraftBudget }>(`/api/leagues/${encodeURIComponent(leagueId)}/seasons/${encodeURIComponent(seasonId)}/teams/${encodeURIComponent(teamId)}/redraft-budget`)).budget;
+  } catch { return null; }
+}
 
 const errorText = (err: unknown, fallback: string): string => (err instanceof Error && err.message ? err.message : fallback);
 const statusOf = (err: unknown): number | undefined =>
@@ -49,6 +89,9 @@ export interface RedraftBoardState {
   /** Seasons may overlap: the finished season to redraft from and the season receiving the lists ("" = server default). */
   sourcePick: string;
   targetPick: string;
+  /** The window before confirmation: "Opens at" (datetime-local in the browser's timezone; "" = now) and its length. */
+  opensAt: string;
+  windowDays: number;
 }
 
 /** Which season pickers the board shows: source unless a redraft is running (closed ones never block), target before confirmation. */
@@ -69,12 +112,14 @@ export function boardPath(leagueId: string, picks: { source?: string; target?: s
 export function createRedraftBoard(deps: { api: Fetcher }) {
   const state = reactive<RedraftBoardState>({
     id: "", view: null, loaded: false, denied: "", error: "", busy: "", message: "", notice: "", picked: {}, overrides: {}, capEnabled: true, cap: 1_300_000, sourcePick: "", targetPick: "",
+    opensAt: "", windowDays: 7,
   });
 
   function take(view: RedraftBoardView): void {
     state.view = view;
     state.capEnabled = view.capEnabled;
     state.cap = view.cap;
+    if (view.rules && !view.state) state.windowDays = view.rules.windowDays;
     state.picked = Object.fromEntries([...view.active, ...view.inactive].map((r) => [r.teamId, r.selected]));
   }
 
@@ -125,7 +170,8 @@ export function createRedraftBoard(deps: { api: Fetcher }) {
     async pickSource(id: string): Promise<void> { state.sourcePick = id; state.targetPick = ""; state.overrides = {}; await load(state.id); },
     async pickTarget(id: string): Promise<void> { state.targetPick = id; await load(state.id); },
     confirm: () => post("confirm", {
-      action: "confirm", capEnabled: state.capEnabled, cap: state.cap,
+      action: "confirm", capEnabled: state.capEnabled, cap: state.cap, windowDays: state.windowDays,
+      ...(localToIso(state.opensAt) ? { opensAt: localToIso(state.opensAt) } : {}),
       ...(state.sourcePick && state.view?.source ? { sourceSeasonId: state.view.source.id } : {}),
       ...(state.targetPick && state.view?.target ? { targetSeasonId: state.view.target.id } : {}),
       teams: [...(state.view?.active ?? []), ...(state.view?.inactive ?? [])].map((r) => {
@@ -136,6 +182,9 @@ export function createRedraftBoard(deps: { api: Fetcher }) {
     setOverride: (teamId: string, budget: number, reason: string) => post(`team:${teamId}`, { action: "team", teamId, override: { budget, reason } }, "Budget override saved."),
     clearOverride: (teamId: string) => post(`team:${teamId}`, { action: "team", teamId, override: null }, "Budget override removed."),
     skip: (teamId: string) => post(`team:${teamId}`, { action: "team", teamId, skip: true }, "Team taken out of the redraft."),
+    /** Lift to budget: one team, or every team still drafting below the set budget. */
+    lift: (teamId: string) => post(`lift:${teamId}`, { action: "lift", teamId }, "Budget lifted to the set budget."),
+    liftAll: () => post("lift:all", { action: "lift", all: true }, "Every team below the set budget was lifted."),
     close: () => post("close", { action: "close" }, "Redraft closed."),
   };
 }
@@ -181,7 +230,11 @@ export function draftTotals(view: CoachRedraftView, picks: DraftPicks): DraftTot
     const have = kept.filter((p) => p.position === pos.name).length + n;
     if (have > pos.max) problems.push(`At most ${pos.max} ${pos.name}${pos.max === 1 ? "" : "s"}.`);
   }
+  const bigGuys = kept.filter((p) => p.bigGuy).length + view.positions.filter((p) => p.bigGuy).reduce((n, p) => n + Math.max(0, Math.floor(picks.hires[p.name] ?? 0)), 0);
+  if (bigGuys > view.limits.maxBigGuys) problems.push(`At most ${view.limits.maxBigGuys} big guy${view.limits.maxBigGuys === 1 ? "" : "s"} (${bigGuys} picked).`);
   const s = picks.staff;
+  if (s.rerolls > view.staff.maxRerolls) problems.push(`At most ${view.staff.maxRerolls} rerolls.`);
+  if (s.apothecary && !view.staff.apothecaryAllowed) problems.push("This roster cannot hire an Apothecary.");
   const staffCost = s.rerolls * view.staff.rerollCost + s.assistantCoaches * view.staff.assistantCoachCost + s.cheerleaders * view.staff.cheerleaderCost + (s.apothecary ? view.staff.apothecaryCost : 0);
   const spent = keepCost + hireCost + staffCost;
   const players = kept.length + hired;
@@ -270,6 +323,21 @@ export function createRedraftTeam(deps: { api: Fetcher }) {
     /** True when every "Enter result" box holds 1-6. */
     enteredComplete: (): boolean => Object.values(state.entered).every((list) => list.every((v) => typeof v === "number" && v >= 1 && v <= 6)),
     enterResults: () => post("rest", "rest", { mode: "entered", rolls: Object.fromEntries(Object.entries(state.entered).map(([k, v]) => [k, v.map(Number)])) }),
+    /** Keep / Release a player. */
+    toggleKeep(playerId: string): void { state.picks.keep[playerId] = !state.picks.keep[playerId]; },
+    /** Hire one more (+1) or one fewer (-1) of a position, within 0..its max. */
+    stepHire(position: string, delta: number): void {
+      const pos = state.view?.positions.find((p) => p.name === position);
+      if (!pos) return;
+      state.picks.hires[position] = Math.max(0, Math.min(pos.max, (state.picks.hires[position] ?? 0) + delta));
+    },
+    /** Staff steppers within the limits (the apothecary is a yes / no). */
+    stepStaff(key: "rerolls" | "assistantCoaches" | "cheerleaders", delta: number): void {
+      const v = state.view;
+      if (!v) return;
+      const max = key === "rerolls" ? v.staff.maxRerolls : key === "assistantCoaches" ? v.limits.assistantCoaches : v.limits.cheerleaders;
+      state.picks.staff[key] = Math.max(0, Math.min(max, state.picks.staff[key] + delta));
+    },
     submit: () => {
       const v = state.view;
       if (!v) return Promise.resolve(false);

@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-02",
+    "title": "Redraft mode in the Roster Builder, and the Redraft board in league management",
+    "body": "Coaches now redraft in the Roster Builder: roll Rest & Relaxation first, then keep or release each player with their re-hire cost, add hires, staff and rerolls the normal way, and submit against the redraft budget shown on the value bar. Organisers run the Redraft board from League settings -> Redraft, with each team's budget earned against the league's set budget, statuses, a redraft window (no games while it is open) and Lift to budget for one team or all. The budget formula is editable per league, and each team's page shows its current redraft budget.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-02",
     "title": "New league and tournament creation steps, with house rules",
     "body": "Creating a league or tournament now starts from ruleset cards (BB2025 first, then EuroBowl 2026, Small Gods and World Cup 3.0) and has a House rules group: Prayers to Nuffle, Brawling Brutes, stat increase caps, MVP and hire/fire for leagues, and Progression for tournaments. Tournaments get their own Format step with editable points and a tiebreaker list (points always rank first), plus an option to avoid pairing coaches from the same club or region. Played on (Tabletop or Super FUMBBL) is now a general setting, the Review step has Save as draft and Publish now, and each overview shows a House rules panel. Organisers find Create league and Create tournament in the account menu; other coaches find Ask to organise there.",
     "links": [

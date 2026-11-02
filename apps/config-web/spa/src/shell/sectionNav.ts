@@ -181,7 +181,7 @@ export function activeTab(kind: SectionKind, route: { name?: unknown; query?: Re
     case "league-settings": case "tournament-manage": case "series-manage": return "manage";
     case "league-stats": return "statistics";
     case "league-fixture-lobby": case "tournament-fixture-lobby": case "game": return "fixtures";
-    case "tournament-team": case "league-redraft": case "tournament-team-builder": return "participants";
+    case "tournament-team": case "roster-builder-redraft": case "tournament-team-builder": return "participants";
     default: return tabFromQuery(kind, route.query?.tab);
   }
 }

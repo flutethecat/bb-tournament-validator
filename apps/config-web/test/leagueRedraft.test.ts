@@ -64,7 +64,10 @@ const s6Fixtures = (): LeagueFixture[] => [
 describe("redraft maths", () => {
   it("budget: base + treasury + 20k per game + 20k per win + 10k per draw; cap on / off; override", () => {
     const b = redraftBudget({ base: 1_000_000, treasury: 50_000, played: 3, wins: 2, draws: 1 }, { enabled: true, cap: DEFAULT_CAP });
-    expect(b).toEqual({ base: 1_000_000, treasury: 50_000, played: 3, wins: 2, draws: 1, bonus: 60_000 + 40_000 + 10_000, raw: 1_160_000, capped: 1_160_000 });
+    expect(b).toEqual({
+      base: 1_000_000, treasury: 50_000, played: 3, wins: 2, draws: 1, bonus: 60_000 + 40_000 + 10_000, raw: 1_160_000, capped: 1_160_000,
+      losses: 0, amounts: { perGame: 20_000, perWin: 20_000, perDraw: 10_000, perLoss: 0 },
+    });
     const rich = redraftBudget({ base: 1_000_000, treasury: 400_000, played: 10, wins: 8, draws: 2 }, { enabled: true, cap: DEFAULT_CAP });
     expect(rich.raw).toBe(1_000_000 + 400_000 + 200_000 + 160_000 + 20_000);
     expect(rich.capped).toBe(1_300_000); // excess lost
@@ -211,7 +214,7 @@ describe("redraft routes", () => {
     expect(s6.redraft!.teams.find((t) => t.teamId === "elves")).toMatchObject({ selected: false, status: "skipped" });
     expect(s6.redraft!.teams.find((t) => t.teamId === "gobbos")).toMatchObject({ sourceSeasonId: "season-5", override: { budget: 1_050_000, reason: "Returning team", by: "Jay" } });
     expect(notes.map((n) => n.coach).sort()).toEqual(["Ann", "Cat"]);
-    expect(notes[0]!.link).toMatch(/^\/app\/leagues\/tabbl\/redraft\?team=/);
+    expect(notes[0]!.link).toMatch(/^\/app\/tournament-team-builder\/redraft\/tabbl\?team=/);
     expect(posts[0]!.embeds[0]!.title).toBe("TABBL: Redraft started");
     expect(store.league("tabbl")!.redraftCap).toEqual({ enabled: true, cap: DEFAULT_CAP });
     expect((await call("POST", "/api/leagues/tabbl/redraft", JAY, { revision: 1, action: "confirm", capEnabled: true, teams: [{ teamId: "orcs", selected: true }] })).status).toBe(409);
