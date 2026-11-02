@@ -780,10 +780,10 @@ button.lg-cog { margin: 0; padding: 0; font: inherit; color: inherit; cursor: po
 .cs-stats dt { font: 10px/1.4 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
 .cs-stats dd { margin: 0; font: 22px/1.1 var(--font-heading); font-variant-numeric: tabular-nums; color: var(--ui-text); }
 .cs-seasons { margin: 0; }
-.rd-facts dd { font-size: 18px; }
-.rd-table { font-size: 15px; }
-.rd-table .lg-skills { min-width: 180px; }
+.rpop-facts dd { font-size: 18px; }
+.rpop-table { font-size: 15px; }
+.rpop-table .lg-skills { min-width: 180px; }
 @media screen and (min-width: 1367px) and (min-height: 700px) {
-  .rd-scroll { max-height: 60vh; overflow: auto; }
-  .rd-scroll thead th { position: sticky; top: 0; z-index: 1; background: var(--ui-surface); }
+  .rpop-scroll { max-height: 60vh; overflow: auto; }
+  .rpop-scroll thead th { position: sticky; top: 0; z-index: 1; background: var(--ui-surface); }
 }

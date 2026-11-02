@@ -20,16 +20,16 @@ const teamPage = computed(() => ({
 </script>
 
 <template>
-  <LeagueDialog id="rd-dialog-h" :title="team.name" :cap="`${team.race} · ${team.coach}`" wide @close="emit('close')">
-    <dl class="cs-stats rd-facts" data-roster-popup>
+  <LeagueDialog id="rpop-dialog-h" :title="team.name" :cap="`${team.race} · ${team.coach}`" wide @close="emit('close')">
+    <dl class="cs-stats rpop-facts" data-roster-popup>
       <div><dt>{{ tv.secondary ? "Current team value" : "Team value" }}</dt><dd>{{ kValue(tv.main.value) }}</dd></div>
       <div><dt>Rerolls</dt><dd>{{ stat(team.rerolls) }}</dd></div>
       <div><dt>Players</dt><dd>{{ team.players.length }}</dd></div>
       <div><dt>Apothecary</dt><dd>{{ team.apothecary ? "Yes" : "No" }}</dd></div>
     </dl>
     <p v-if="!team.players.length" class="hm-empty">No roster recorded.</p>
-    <div v-else class="lg-scroll rd-scroll">
-      <table class="lg-table lg-players rd-table">
+    <div v-else class="lg-scroll rpop-scroll">
+      <table class="lg-table lg-players rpop-table">
         <thead>
           <tr>
             <th scope="col" class="lg-num">#</th><th scope="col">Player</th>
