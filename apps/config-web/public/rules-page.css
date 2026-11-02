@@ -14,7 +14,7 @@ body {
   margin: 0;
   background: var(--ui-secondary);
   color: var(--ui-text);
-  /* Typography tokens + Nuffle @font-face: /theme.css (owner 2026-10-22). */
+  /* Typography tokens: /theme.css (owner 2026-11-02: sans-serif, Nuffle retired). */
   font-family: var(--font-body, "Helvetica Neue", Helvetica, Arial, sans-serif);
   font-size: var(--text-base, 17px);
   line-height: var(--text-line, 1.45);

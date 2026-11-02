@@ -174,7 +174,8 @@ button.lg-cog { margin: 0; padding: 0; font: inherit; color: inherit; cursor: po
 .lg-select span { font: 11px var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
 .lg-select select { min-height: 44px; max-width: 100%; color: var(--ui-text); background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-radius: 2px; font: inherit; }
 .lg-round + .lg-round { margin-top: 14px; }
-.lg-round-h { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 0 0 8px; font: 12px/1.3 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-heading); }
+.lg-round-h { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 0 0 8px; font: 17px/1.15 var(--sf-band-title-font); text-transform: uppercase; letter-spacing: .06em; color: var(--ui-heading); }
+.lg-round-h .hm-cap { font-family: var(--sf-band-font); }
 .lg-fx-open {
   display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); grid-template-areas: "home vs away" "meta meta meta"; align-items: center; gap: 4px 10px;
   min-height: 44px; padding: 8px 12px; background: color-mix(in srgb, var(--ui-surface-2) 60%, transparent); border: 2px dashed var(--sf-panel-line); border-radius: 2px;
@@ -196,7 +197,7 @@ button.lg-cog { margin: 0; padding: 0; font: inherit; color: inherit; cursor: po
 /* ---- honour boards / leaders */
 .lg-boards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); }
 .lg-board { min-width: 0; padding: 8px 10px; background: color-mix(in srgb, var(--ui-surface-2) 55%, transparent); border: 1px solid var(--sf-panel-line); border-radius: 2px; }
-.lg-board-h { margin: 0 0 6px; font: 11px/1.3 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-heading); }
+.lg-board-h { margin: 0 0 6px; font: 17px/1.15 var(--sf-band-title-font); text-transform: uppercase; letter-spacing: .06em; color: var(--ui-heading); }
 .lg-board-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .lg-board-rows > li { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 32px; }
 .lg-board-rank { font: 11px var(--sf-band-font); color: var(--ui-muted); text-align: right; }
@@ -493,7 +494,7 @@ button.lg-cog { margin: 0; padding: 0; font: inherit; color: inherit; cursor: po
 .lg-spot-link:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .lg-spot-band {
   display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-bottom: 2px solid var(--sf-panel-line); border-left: 4px solid var(--ui-heading);
-  font: 12px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .12em; color: var(--ui-heading);
+  font: 18px/1.1 var(--sf-band-title-font); text-transform: uppercase; letter-spacing: .06em; color: var(--ui-heading);
 }
 .lg-spot[data-card="best-coach"] .lg-spot-band, .lg-spot[data-card="best-team"] .lg-spot-band { border-left-color: var(--sf-led); }
 .lg-spot[data-card="biggest-win"] .lg-spot-band { border-left-color: var(--ui-info); }

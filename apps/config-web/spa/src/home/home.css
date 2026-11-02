@@ -6,6 +6,9 @@
   font-family: "SNES";
   src: url("/assets/SNES-Italic.ttf") format("truetype");
   font-display: swap;
+  /* Only the glyphs the font draws (letters, digits, space ! ' , . ?); its other code points are blank boxes, so a
+     hyphen, middle dot, colon, slash or accented letter falls back to the sans (owner 11-02: SNES band rows). */
+  unicode-range: U+0020-0021, U+0027, U+002C, U+002E, U+0030-0039, U+003F, U+0041-005A, U+0061-007A;
 }
 
 :root {
@@ -21,7 +24,10 @@
   --sf-top-h: 56px;
   --sf-nav-w: 260px;
   --sf-rail-w: 56px;
-  --sf-band-font: "Silkscreen", var(--font-heading, sans-serif);
+  /* Typography (owner 11-02, design.md §4): band header rows in SNES Italic; captions, chips, tabs, buttons and table
+     heads in the bold sans (--font-heading); body copy in the sans (--font-body). The wordmark keeps SNES Italic. */
+  --sf-band-title-font: "SNES", var(--font-heading, sans-serif);
+  --sf-band-font: var(--font-heading, sans-serif);
   --sf-wordmark-font: "SNES", var(--font-heading, sans-serif);
   --sf-gold: #e8a33d; /* same gold as --ui-gold (dark) */
   --sf-discord: #5865f2; /* Discord Blurple (brand colour, same in both themes) */
@@ -79,7 +85,7 @@
 .sf-bell-pop:focus { outline: none; }
 .sf-bell-band {
   display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0; padding: 6px 12px;
-  font: 1rem var(--sf-band-font); letter-spacing: .06em; text-transform: uppercase; color: var(--ui-heading); border-bottom: 2px solid var(--sf-panel-line);
+  font: 1.2rem var(--sf-band-title-font); letter-spacing: .06em; text-transform: uppercase; color: var(--ui-heading); border-bottom: 2px solid var(--sf-panel-line);
 }
 .sf-bell-caption { font: 12px var(--font-body, inherit); letter-spacing: .04em; color: var(--ui-muted); white-space: nowrap; text-transform: none; }
 .sf-bell-note { padding: 16px 12px; }
@@ -278,7 +284,7 @@
 .hm-band { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 0 0 10px; padding: 7px 12px; border-bottom: 2px solid var(--sf-panel-line); border-left: 4px solid var(--ui-heading); }
 .hm-band[data-tone="info"] { border-left-color: var(--ui-info); }
 .hm-band[data-tone="admin"] { border-left-color: var(--ui-admin); }
-.hm-band h2 { margin: 0; font: 13px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .14em; color: var(--ui-heading); }
+.hm-band h2 { margin: 0; font: 20px/1.1 var(--sf-band-title-font); text-transform: uppercase; letter-spacing: .06em; color: var(--ui-heading); } /* SNES Italic band rows (owner 11-02) */
 .hm-cap { font: 11px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 a.hm-cap:hover { color: var(--ui-text); }
 .hm-empty { margin-top: 0; margin-bottom: 0; color: var(--ui-muted); }

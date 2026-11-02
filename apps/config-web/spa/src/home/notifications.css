@@ -5,7 +5,7 @@
 }
 .nf-band {
   display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0; padding: 6px 12px;
-  background: color-mix(in srgb, var(--ui-info) 78%, #000); color: var(--ui-text-on-primary); font-family: var(--font-heading); font-size: 1rem;
+  background: color-mix(in srgb, var(--ui-info) 78%, #000); color: var(--ui-text-on-primary); font-family: var(--sf-band-title-font, var(--font-heading)); font-size: 1.2rem;
   letter-spacing: .06em; text-transform: uppercase; border-bottom: 2px solid var(--ui-border);
 }
 .nf-caption { font-family: var(--font-body, inherit); font-size: 12px; letter-spacing: .04em; opacity: .9; white-space: nowrap; }

@@ -3,6 +3,8 @@
   src: url("./assets/SNES-Italic.ttf") format("truetype");
   font-style: italic;
   font-display: swap;
+  /* the glyphs the font draws; anything else falls back to the sans (blank boxes otherwise) */
+  unicode-range: U+0020-0021, U+0027, U+002C, U+002E, U+0030-0039, U+003F, U+0041-005A, U+0061-007A;
 }
 
 /*
@@ -67,7 +69,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  /* Typography tokens + the Nuffle @font-face live in /theme.css (owner 2026-10-22); the fallbacks keep a
+  /* Typography tokens live in /theme.css (owner 2026-11-02: sans-serif, Nuffle retired); the fallbacks keep a
      page that has not linked theme.css on the same sans-serif stack. */
   font-family: var(--font-body, "Helvetica Neue", Helvetica, Arial, "Liberation Sans", sans-serif);
   font-size: var(--text-base, 17px);
@@ -76,7 +78,7 @@ body {
 
 button, input, select, textarea { font: inherit; }
 
-/* Title lines in the Nuffle style. */
+/* Title lines in the bold sans (--font-heading). */
 h1, h2, h3,
 .page-title,
 .view-title,
@@ -89,7 +91,7 @@ h1, h2, h3,
 .environment-stamp,
 .console-tabs a,
 .rules-tabs button span,
-.rules-tabs button b { font-family: var(--font-heading, "Nuffle", "Helvetica Neue", Helvetica, Arial, sans-serif); }
+.rules-tabs button b { font-family: var(--font-heading, "Helvetica Neue", Helvetica, Arial, sans-serif); }
 
 button { color: inherit; }
 

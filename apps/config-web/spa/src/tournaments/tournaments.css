@@ -27,14 +27,14 @@
 .tn-panel { min-width: 0; background: var(--ui-surface-2); border: 2px solid var(--ui-border); border-radius: 4px; box-shadow: var(--tn-bevel); overflow: hidden; }
 .tn-band {
   display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0; padding: 6px 12px;
-  background: var(--ui-primary); color: var(--ui-text-on-primary); font-family: var(--font-heading); font-size: 1rem;
+  background: var(--ui-primary); color: var(--ui-text-on-primary); font-family: var(--sf-band-title-font, var(--font-heading)); font-size: 1.2rem;
   letter-spacing: .06em; text-transform: uppercase; border-bottom: 2px solid var(--ui-border);
 }
 .tn-band a { color: inherit; }
 .tn-panel-body { display: grid; gap: 10px; padding: 12px; min-width: 0; }
 /* inside an hm-panel the panel already insets its children by 12 px */
 .hm-panel > .tn-panel-body { padding: 0; }
-.tn-sub-h { margin: 0; font: 12px/1.3 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-heading); }
+.tn-sub-h { margin: 0; font: 17px/1.15 var(--sf-band-title-font); text-transform: uppercase; letter-spacing: .06em; color: var(--ui-heading); }
 .tn-problems { margin: 0; padding-left: 20px; color: var(--ui-danger); display: grid; gap: 2px; overflow-wrap: anywhere; font-size: 14px; }
 .tn-notice { margin: 0; color: var(--ui-success); font-size: 14px; }
 /* field caption: the builder's muted Silkscreen caption (.tb-k / .sf-k) */

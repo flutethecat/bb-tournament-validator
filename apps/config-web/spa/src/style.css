@@ -2,8 +2,8 @@
    <html>: Black/Red dark default, FUMBBL light variant). Lobby component rules: shared/lobby.css. */
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
-/* Typography tokens + the Nuffle @font-face come from /theme.css (owner 2026-10-22): sans-serif body,
-   Nuffle title lines (h1-h3 in shared/lobby.css, the brand here). */
+/* Typography tokens come from /theme.css (owner 2026-11-02): sans-serif body, bold sans title lines (h1-h3 in
+   shared/lobby.css, the brand here); Nuffle is retired. */
 body { margin: 0; background: var(--ui-secondary, #000); color: var(--ui-text, #e6e9ef); font-family: var(--font-body, sans-serif); font-size: var(--text-base, 17px); line-height: var(--text-line, 1.45); }
 .shell-header {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px;

@@ -48,16 +48,21 @@
   --ui-danger: #a40218;
   --ui-success: #015c27;
 }
-/* Typography (owner 2026-10-22): body copy = sans-serif system stack (Helvetica family; no font files
-   shipped for it), title lines = the Nuffle display face. ONE @font-face for every config-web page. */
+/* Typography (owner 2026-11-02, replaces the 10-22 Nuffle titles): every text on the site is the Roster Builder's
+   sans-serif system stack (Helvetica family; no font files shipped for it). Title lines (--font-heading) are the bold
+   face of the same stack: "SF Sans Bold" maps the installed bold face for every weight, so a title stays bold whatever
+   weight a rule asks for (the Nuffle rules asked for 500, which Helvetica / Arial would draw regular). Band header rows
+   use SNES Italic (--sf-band-title-font, spa home.css). Nuffle is retired from the site UI. */
 @font-face {
-  font-family: "Nuffle";
-  src: url("./assets/Nuffle.otf") format("opentype");
+  font-family: "SF Sans Bold";
+  src: local("Helvetica Neue Bold"), local("HelveticaNeue-Bold"), local("Helvetica Bold"), local("Helvetica-Bold"),
+    local("Arial Bold"), local("Arial-BoldMT"), local("Liberation Sans Bold"), local("LiberationSans-Bold");
+  font-weight: 100 900;
   font-display: swap;
 }
 :root {
   --font-body: "Helvetica Neue", Helvetica, Arial, "Liberation Sans", sans-serif;
-  --font-heading: "Nuffle", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-heading: "SF Sans Bold", "Helvetica Neue", Helvetica, Arial, "Liberation Sans", sans-serif;
   --text-base: 17px;
   --text-line: 1.45;
 }
