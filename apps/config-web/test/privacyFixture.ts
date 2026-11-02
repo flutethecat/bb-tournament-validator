@@ -88,6 +88,11 @@ export async function seed(root: string, opts: SeedOptions = {}): Promise<void> 
     ...(opts.extraCoaches ?? {}),
   } });
   w(join(root, "organizers.json"), { organizers: ["Alice", "Bob"] });
+  // "Become an organiser" requests: Alice's own (free text names her), and Bob's, decided by Alice as an admin.
+  w(join(d.stateDir, "organiser-requests.json"), { version: 1, requests: [
+    { id: "or000000000001", coach: "Alice", run: "league", competition: "Ally Example Cup", region: "North", note: "I am Alice and I run a club.", links: ["https://example.test/alice-club"], status: "pending", createdAt: "2026-11-01T00:00:00.000Z" },
+    { id: "or000000000002", coach: "Bob", run: "tournament", competition: "Bob Open", region: "", note: "Alice can vouch for me.", links: [], status: "declined", createdAt: "2026-10-30T00:00:00.000Z", closedAt: "2026-10-31T00:00:00.000Z", decidedBy: "Alice", reason: "Ask Alice again later." },
+  ] });
 
   // avatars
   await avatarStoreFor(d.coachAvatarsDir).save("Alice", coachAvatarKey("Alice"), png(), "png");

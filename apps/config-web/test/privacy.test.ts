@@ -349,7 +349,7 @@ describe("export", () => {
     const files = new Map((await collectExport(deps, "alice")).map((f) => [f.name, f.content]));
     expect([...files.keys()].sort()).toEqual([
       "README.txt", "account.json", "avatar.png", "bug-reports-index.json", "builder-saves.json", "league-teams.json", "notifications.json",
-      "results.json", "tabletop-matches.json", "team-library.json", "team-logos/library_t1.png", "team-logos/save_s1.png", "tournament-entries.json",
+      "organiser-requests.json", "results.json", "tabletop-matches.json", "team-library.json", "team-logos/library_t1.png", "team-logos/save_s1.png", "tournament-entries.json",
     ]);
     const text = (n: string) => String(files.get(n));
     const account = JSON.parse(text("account.json"));
@@ -357,6 +357,8 @@ describe("export", () => {
     expect(account.contact.phones).toEqual(["+00 0000 0001"]); // onboarding fields ride along (whole record)
     expect(account.consent.privacy.acceptedVersion).toBe("2026-10-31");
     expect(account.legacyOrganiser).toBe(true);
+    // her own organiser requests only, without who decided (Bob's request, decided by her, is not hers)
+    expect(JSON.parse(text("organiser-requests.json")).map((r: { id: string; decidedBy?: string }) => [r.id, r.decidedBy])).toEqual([["or000000000001", undefined]]);
     expect(account.sessions.length).toBeGreaterThan(0);
     expect(JSON.stringify(account.sessions)).not.toMatch(/[a-f0-9]{64}/);
     expect(JSON.parse(text("builder-saves.json"))).toEqual([{ id: "s1", name: "Green Orcs", sharedAt: "2026-10-01T00:00:00Z", body: {}, shared: true }]);
@@ -462,6 +464,11 @@ describe("delete", () => {
     expect(walkFiles(deps.bugReportsDir).map((p) => p.includes("Bob"))).toEqual([true]);
     // organiser roles
     expect(readJ(join(root, "organizers.json")).organizers).toEqual(["Bob"]);
+    // organiser requests: hers stays for the audit under the pseudonym with every free-text field cleared; Bob's keeps
+    // its text with her name replaced, and her name as the deciding admin becomes the pseudonym
+    const orq = readJ(join(deps.stateDir, "organiser-requests.json")).requests;
+    expect(orq[0]).toEqual({ id: "or000000000001", coach: P, run: "league", competition: "", region: "", note: "", links: [], status: "pending", createdAt: "2026-11-01T00:00:00.000Z" });
+    expect(orq[1]).toMatchObject({ coach: "Bob", decidedBy: P, note: `${P} can vouch for me.`, reason: `Ask ${P} again later.`, competition: "Bob Open" });
     const tf = readJ(join(deps.tournamentsDir, "tournaments.json"));
     expect(tf.version).toBe(4);
     expect(tf.tournaments.t1.organizerCoachIds).toEqual([]);

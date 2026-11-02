@@ -215,6 +215,7 @@ type TournamentFile = {
   series?: Record<string, Obj & { name?: string; createdBy?: string; organisers?: string[]; tournaments?: string[] }>;
 };
 const tournamentsFile = (deps: PrivacyDeps): string => join(deps.tournamentsDir, "tournaments.json");
+const organiserRequestsFile = (deps: PrivacyDeps): string => join(deps.stateDir, "organiser-requests.json");
 const leagueDirs = (deps: PrivacyDeps, strict = true): string[] => (strict ? listDirs(join(deps.stateDir, "leagues")) : (() => { try { return listDirs(join(deps.stateDir, "leagues")); } catch { return []; } })());
 
 /** A league row is linked to the coach by its account link (coachId); a row without one only by an exact coach id. */
@@ -597,6 +598,16 @@ export const STORE_COLLECTORS: StoreCollector[] = [
     erase: ["bug-reports"],
   },
   {
+    // "Become an organiser" requests (src/organiserRequests.ts): the coach's own rows, without who decided.
+    id: "organiser-requests",
+    location: "FORK_STATE_DIR/organiser-requests.json",
+    export: (ctx) => {
+      const rows = objs(readJsonLoose<Obj>(organiserRequestsFile(ctx.deps))?.requests).filter((r) => isMine(ctx.keys, r.coach)).map((r) => strip(r, "decidedBy"));
+      return rows.length ? [{ name: "organiser-requests.json", content: json(rows) }] : [];
+    },
+    erase: ["organiser-requests"],
+  },
+  {
     id: "mail",
     location: "FORK_STATE_DIR/mail/ (outbox/journal.jsonl, prefs.json, suppression.json, audit.jsonl)",
     export: (ctx) => (ctx.deps.mail ? [{ name: "mail.json", content: json(ctx.deps.mail.exportFor(ctx.coach)) }] : []),
@@ -633,7 +644,7 @@ export const KNOWN_STORES = [
   "team-library", "fork-db", "tournaments", "leagues", "tabletop", "tabletop-teams", "tournament-results", "tournament-matches", "naf-games",
   "coach-titles", "replay-moments", "notifications", "bug-reports", "test-games", "logs", "fork-teams-xml", "bot-registry",
   "privacy-blocklist", "lobby-chat", "desktop-claims", "translation-cache", "mail", "friends", "blocks", "messages",
-  "fixture-lobbies", "schedule-proposals",
+  "fixture-lobbies", "schedule-proposals", "organiser-requests",
 ] as const;
 
 /**
@@ -649,7 +660,7 @@ export const INVENTORY_ROWS: Record<(typeof KNOWN_STORES)[number], string[]> = {
   notifications: ["notifications"], "bug-reports": ["bug-reports"], "test-games": [], logs: ["logs"], "fork-teams-xml": ["fork-teams-xml"],
   "bot-registry": ["bot-registry"], "privacy-blocklist": [], "lobby-chat": ["lobby-chat"], "desktop-claims": ["desktop-claims"],
   "translation-cache": ["translation-cache"], mail: ["mail"], friends: ["friends"], blocks: ["blocks"], messages: ["messages"],
-  "fixture-lobbies": ["fixture-lobbies"], "schedule-proposals": ["schedule-proposals"],
+  "fixture-lobbies": ["fixture-lobbies"], "schedule-proposals": ["schedule-proposals"], "organiser-requests": ["organiser-requests"],
 };
 
 /** Team keys whose logos belong to the coach: their builder saves and library teams. */
@@ -1084,6 +1095,25 @@ export const DELETE_STEPS: DeleteStep[] = [
   {
     id: "bug-reports",
     run: ({ deps, names }) => { for (const r of bugReportDirs(deps.bugReportsDir, names)) rmSync(r.path, { recursive: true, force: true }); return "done"; },
+  },
+  {
+    // Organiser requests: the coach's rows stay (status and dates, for the admin audit) under the pseudonym with every
+    // free-text field cleared; an admin's name on a decision becomes their pseudonym; other coaches' notes and reasons get
+    // the free-text pass.
+    id: "organiser-requests",
+    run: ({ deps, an, text }) => {
+      const tx = text();
+      rewriteJson(organiserRequestsFile(deps), (d) => objs(d.requests).map((r) => {
+        if (an.matches(r.coach)) {
+          an.fields(r, ["coach"], []);
+          Object.assign(r, { competition: "", region: "", note: "", links: [] });
+          delete r.reason;
+          return true;
+        }
+        return [an.fields(r, ["decidedBy"], []), tx.texts(r, ["competition", "region", "note", "reason"])].some(Boolean);
+      }).some(Boolean));
+      return "done";
+    },
   },
   {
     id: "organiser-roles",

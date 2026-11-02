@@ -55,14 +55,14 @@ describe("coach access", () => {
     expect(isAdmin("admin")).toBe(true);
   });
 
-  it("keeps legacy organizers elevated when the store is absent or player", () => {
+  it("never reads organizers.json: it was imported into identity levels once at startup (spec 2026-11-02 Q14)", () => {
     setStores({ tarkin: identity("player") }, ["TARKIN", "Fives"]);
-    expect(coachLevel("tarkin")).toBe("organizer");
-    expect(coachLevel("fives")).toBe("organizer");
-    expect(isOrganizer("FIVES")).toBe(true);
+    expect(coachLevel("tarkin")).toBe("player");
+    expect(coachLevel("fives")).toBe("player");
+    expect(isOrganizer("FIVES")).toBe(false);
   });
 
-  it("de-elevates a banned admin even through the legacy bridge", () => {
+  it("de-elevates a banned admin", () => {
     setStores({ tarkin: identity("admin", { banned: true }) }, ["Tarkin"]);
     expect(coachLevel("TARKIN")).toBe("player");
     expect(isAdmin("Tarkin")).toBe(false);

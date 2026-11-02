@@ -1,4 +1,3 @@
-import { isOrganizer as isLegacyOrganizer } from "./organizers.js";
 import { normalizeFfbCoachId, readIdentities, type CoachIdentityRecord, type CoachLevel } from "./identitiesStore.js";
 
 export const BANNED_ACCOUNT_MESSAGE = "This account is banned from Super FUMBBL. Contact an organizer.";
@@ -19,8 +18,8 @@ export function coachLevel(coach: string): CoachLevel {
   const record = recordFor(coach);
   if (record?.banned === true) return "player";
   const level = record?.level;
-  if (level === "admin" || level === "organizer") return level;
-  return isLegacyOrganizer(coach) ? "organizer" : "player";
+  // Identity levels only: organizers.json was imported once at startup and is no longer read (src/auth/organizers.ts).
+  return level === "admin" || level === "organizer" ? level : "player";
 }
 
 export function isAdmin(coach: string): boolean {

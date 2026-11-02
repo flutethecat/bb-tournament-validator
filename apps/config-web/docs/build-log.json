@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-02",
+    "title": "Ask to become an organiser",
+    "body": "Want to run a league or tournament? Send a short request from your Account page and a site admin will approve or decline it; you get a notification and a Discord message with the answer. Admins review requests in Organiser requests under Testing.",
+    "links": [
+      {
+        "label": "Become an organiser",
+        "href": "/app/organiser/request"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-02",
     "title": "A new sign-up: pick your coach name, then your profile",
     "body": "Signing in with Discord for the first time now takes two short steps on the site itself: choose your coach name (with a live check, or link a Super FUMBBL account you already have), then check your profile and accept the privacy notice. Your coach page then shows a Get started panel with the next things to do: join a league, enter a tournament, build a team or run your own. Hide it whenever you like.",
     "links": [

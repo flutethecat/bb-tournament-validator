@@ -22,7 +22,7 @@ export interface ActionMessageInput {
 /** `title` is the notification's own title (Discord-escaped like the names). */
 export type ActionMessageBuilder = (m: { from: string; subject: string; url: string; title: string }) => string;
 
-/** Notification type -> DM text. The game-time proposal types, and the registration rows of registration spec Q18. */
+/** Notification type -> DM text. The game-time proposal types, the registration rows of registration spec Q18, and organiser requests. */
 export const ACTION_DM: Partial<Record<NotificationType, ActionMessageBuilder>> = {
   "proposal-received": ({ from, subject, url }) => `${from} proposed times for ${subject}. Accept or decline: ${url}`,
   "proposal-countered": ({ from, subject, url }) => `${from} suggested other times for ${subject}. Accept or decline: ${url}`,
@@ -33,6 +33,9 @@ export const ACTION_DM: Partial<Record<NotificationType, ActionMessageBuilder>> 
   registration: ({ title, url }) => `${title}. Review registrations: ${url}`,
   // Check-in opened for an accepted entrant (spec §7 / §8.3; once per entry per window, src/registration/service.ts).
   "check-in": ({ subject, url }) => `Check-in is open for ${subject}. Check in here: ${url}`,
+  // Organiser requests (registration spec 2026-11-02 §8.3): the subject is the whole sentence ("Bob asked to become an
+  // organiser." to admins, "Your organiser request was approved." to the coach).
+  "organiser-request": ({ subject, url }) => `${subject} Open it: ${url}`,
 };
 
 /** Types that DM only when the emitter marks the row actionable (NotificationInput.action). Every other emitter of these

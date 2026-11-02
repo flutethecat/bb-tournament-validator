@@ -323,8 +323,9 @@ import { ProposalStore } from "./schedule/store.js";
 import { clientIp } from "./translate/route.js";
 import { privacyContact } from "./privacy/contact.js";
 import { startLogRotation } from "./privacy/logRotation.js";
-import { organizersFile } from "./auth/organizers.js";
-import { PrivacyService, streamZip, ExportTooLargeError } from "./privacy/service.js";
+import { importLegacyOrganizers, organizersFile } from "./auth/organizers.js";
+import { fenceOpenJobs, PrivacyService, streamZip, ExportTooLargeError } from "./privacy/service.js";
+import { isOrganiserRequestAdminPath, isOrganiserRequestPath, OrganiserRequestStore, organiserRequestsApi } from "./organiserRequests.js";
 import { deletedPseudonymFor, deletedPseudonymForNaf, isDiscordBlocked, isRecentlyDeleted, privacyMapKey } from "./privacy/state.js";
 import { setReplayCoachFilter } from "./replay/store.js";
 import { setNafIdFilter } from "./nafRecords.js";
@@ -834,6 +835,13 @@ const deleteLimiter = new RateLimiter({ maxRequests: 1, maxChars: Number.MAX_SAF
 const ADMIN_COACH_DELETE_PATH = /^\/api\/admin\/coaches\/([^/]+)\/delete$/;
 const PRIVACY_RETRY_MS = 10 * 60_000;
 // A job a crash left open resumes at startup; one with a pending step (fork unreachable) retries on a timer.
+// Registration spec 2026-11-02 Q14: organizers.json is imported into identity levels ONCE, here, before the server
+// listens (so no permission check ever runs without it); coachLevel reads identity levels only. Coaches of unfinished
+// delete jobs are fenced first, so the import never recreates their records.
+fenceOpenJobs(FORK_STATE_DIR);
+importLegacyOrganizers(FORK_STATE_DIR);
+// "Become an organiser" requests and the admin queue (src/organiserRequests.ts).
+const organiserRequestStore = new OrganiserRequestStore(FORK_STATE_DIR);
 void privacyService.resumeAll().catch((e) => console.error(`[privacy] resume failed: ${(e as Error).message}`));
 setInterval(() => { void privacyService.resumeAll().catch(() => undefined); }, PRIVACY_RETRY_MS).unref();
 
@@ -2087,6 +2095,25 @@ async function handleApi(
       store: notificationStore,
       tournaments: tournamentStore,
       limiter: messageLimiter,
+    });
+    if (result) return sendJson(res, result.status, result.body);
+  }
+
+  if (isOrganiserRequestPath(path)) {
+    // Coach: GET/POST/DELETE /api/me/organiser-request. Admin: GET /api/admin/organiser-requests, POST .../:id/approve|decline.
+    const testSession = getSession(sessionTokenFromRequest(req))?.test === true;
+    let body: unknown;
+    if (method === "POST") { try { body = await readBody(req, 8 * 1024); } catch { return sendJson(res, 400, { error: "Invalid JSON request body." }); } }
+    // The session may have ended (sign-out, account deletion) while the body was read: writes need it still current.
+    if ((method === "POST" || method === "DELETE") && auth) {
+      if (isCoachFenced(auth.coach)) return sendJson(res, 410, { error: "This account is being deleted." });
+      const current = requestIdentity(req);
+      if (!current || normalizeFfbCoachId(current.coach) !== normalizeFfbCoachId(auth.coach)) return sendJson(res, 401, { error: "Authentication required." });
+    }
+    const adminActor = auth?.admin ? auth.coach : isAdminAuthed(req) || isTokenAuthed(req) ? "admin" : undefined;
+    const result = organiserRequestsApi(method, path, query, auth ? { ...auth, ...(testSession ? { test: true } : {}) } : undefined, adminActor, body, {
+      store: organiserRequestStore,
+      notify: (coach, input) => { notificationStore.add(coach, input); },
     });
     if (result) return sendJson(res, result.status, result.body);
   }
@@ -4905,6 +4932,7 @@ export const server = createServer((req, res) => {
           isLobbyApiPath(url.pathname) ||
           isTabletopApiPath(url.pathname) ||
           isAdminTestingPath(url.pathname) ||
+          isOrganiserRequestAdminPath(url.pathname) ||
           ADMIN_COACH_DELETE_PATH.test(url.pathname) ||
           url.pathname === "/api/admin/privacy/jobs" ||
           /^\/api\/admin\/privacy\/jobs\/[a-f0-9]{24}\/(retry|close)$/.test(url.pathname) ||

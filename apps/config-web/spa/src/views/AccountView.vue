@@ -175,6 +175,11 @@ onServerPrefetch(() => (coach.value ? schedule.value.load() : undefined));
           <p class="hm-links"><RouterLink to="/my-teams">My teams</RouterLink> · <RouterLink to="/my-teams#avatars">Team avatars</RouterLink></p>
         </section>
 
+        <section v-if="session.signedIn()" id="organiser" class="hm-panel" aria-labelledby="ac-organiser-h">
+          <header class="hm-band"><h2 id="ac-organiser-h">Organiser</h2><span class="hm-cap">{{ session.state.info?.organizer ? "Organiser" : "Coach" }}</span></header>
+          <p class="hm-links"><RouterLink to="/organiser/request">{{ session.state.info?.organizer ? "You're an organiser" : "Ask to become an organiser" }}</RouterLink></p>
+        </section>
+
         <section v-if="session.signedIn()" id="privacy" :key="`privacy-${coach}`" class="hm-panel" aria-labelledby="ac-privacy-h">
           <header class="hm-band"><h2 id="ac-privacy-h">Privacy</h2><span class="hm-cap">Your data</span></header>
           <AccountPrivacy :controller="privacy" :coach="session.coach()" />

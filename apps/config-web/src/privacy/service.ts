@@ -48,6 +48,16 @@ function journalFenceHashes(lines: ReturnType<typeof readJournal>): string[] {
   return [...out].filter((h) => typeof h === "string" && /^[a-f0-9]{64}$/.test(h));
 }
 
+/** Fence every coach of an unfinished delete job now, synchronously (resumeAll does it again later, asynchronously). For
+ *  startup writers that run before resumeAll, such as the legacy organiser import. */
+export function fenceOpenJobs(stateDir: string): void {
+  for (const jobId of listJobs(stateDir)) {
+    const lines = readJournal(stateDir, jobId);
+    if (lines.some((l) => l.type === "complete")) continue;
+    for (const h of journalFenceHashes(lines)) fenceCoachHash(h);
+  }
+}
+
 /** Steps an admin may leave unfinished when closing a stuck job (the account itself is already gone by then). */
 export const CLOSABLE_PENDING = new Set(["fork-account", "final-sweep"]);
 

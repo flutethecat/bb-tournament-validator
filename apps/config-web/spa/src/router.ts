@@ -5,6 +5,7 @@ import { createRouter, type RouteLocationNormalized, type RouteRecordRaw, type R
 import { LOBBY_ID_PATTERN } from "./shared/format";
 import type { SessionStore } from "./session";
 import AccountView from "./views/AccountView.vue";
+import AdminOrganiserRequestsView from "./views/AdminOrganiserRequestsView.vue";
 import AdminTournamentsView from "./views/AdminTournamentsView.vue";
 import HelpView from "./views/HelpView.vue";
 import GameSummaryView from "./views/GameSummaryView.vue";
@@ -23,6 +24,7 @@ import LobbyStartView from "./views/LobbyStartView.vue";
 import MessagesView from "./views/MessagesView.vue";
 import ScheduleView from "./views/ScheduleView.vue";
 import NotFoundView from "./views/NotFoundView.vue";
+import OrganiserRequestView from "./views/OrganiserRequestView.vue";
 import PrivacyView from "./views/PrivacyView.vue";
 import SeriesDetailView from "./views/SeriesDetailView.vue";
 import SeriesListView from "./views/SeriesListView.vue";
@@ -144,6 +146,9 @@ export const routes: RouteRecordRaw[] = [
   // Redraft: the organisers' board; a coach's own redraft (?team= opens the dialog from the notification link).
   { path: "/leagues/:id([a-z0-9-]{1,64})/redraft", name: "league-redraft", component: LeagueRedraftView, props: true, meta: { requiresAuth: true, title: "League redraft" } },
   { path: "/admin/tournaments", name: "admin-tournaments", component: AdminTournamentsView, meta: { requiresAuth: true, title: "Tournaments admin" } },
+  // Organiser requests (registration spec 2026-11-02 §3): coaches ask here; site admins answer in the queue.
+  { path: "/organiser/request", name: "organiser-request", component: OrganiserRequestView, meta: { requiresAuth: true, title: "Become an organiser" } },
+  { path: "/admin/organiser-requests", name: "admin-organiser-requests", component: AdminOrganiserRequestsView, meta: { requiresAuth: true, title: "Organiser requests" } },
   {
     path: "/team-builder",
     name: "team-builder",

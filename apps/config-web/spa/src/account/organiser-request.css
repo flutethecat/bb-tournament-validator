@@ -1,0 +1,89 @@
+/* "Become an organiser" page and the admin queue (design.md §5): panels and bands from home.css (hm-panel, hm-band,
+   hm-cap), buttons and fields from its shared controls (sf-btn, sf-k, sf-field, sf-error, sf-notice, sf-chip). The kind
+   picker is a row of selectable cards in the Roster Builder's .tb-card language. Tokens only. */
+
+.or-page { max-width: 1100px; }
+.or-grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: start; }
+@media (max-width: 900px) { .or-grid { grid-template-columns: minmax(0, 1fr); } }
+.or-lead { margin-top: 0; margin-bottom: 12px; }
+.or-form { display: grid; gap: 14px; }
+.or-form fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.or-form legend { padding: 0; margin: 0 0 6px; }
+.or-field { display: grid; gap: 4px; min-width: 0; }
+.or-field input, .or-field textarea { width: 100%; }
+.or-field textarea { min-height: 120px; resize: vertical; }
+.or-help { margin: 0; color: var(--ui-muted); font-size: 13px; }
+.or-count { justify-self: end; color: var(--ui-muted); font: 11px/1.2 var(--sf-band-font); letter-spacing: .06em; }
+.or-count[data-over="true"] { color: var(--ui-danger); }
+.or-two { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 640px) { .or-two { grid-template-columns: minmax(0, 1fr); } }
+.or-links { display: grid; gap: 6px; }
+
+/* kind picker: three selectable cards (pixel icon, Nuffle title, one muted line) */
+.or-kinds { display: grid; gap: 10px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 640px) { .or-kinds { grid-template-columns: minmax(0, 1fr); } }
+.or-kind {
+  display: grid; grid-template-columns: 40px minmax(0, 1fr); align-items: center; gap: 4px 10px; min-width: 0; padding: 10px 12px; margin: 0;
+  text-align: left; color: var(--ui-text); cursor: pointer;
+  background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface-2);
+  border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--sf-panel-line); border-radius: 2px;
+  box-shadow: inset 0 1px 0 var(--sf-panel-hi), 0 3px 0 var(--sf-panel-drop);
+}
+.or-kind:hover { border-color: var(--ui-heading); }
+.or-kind:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.or-kind[aria-checked="true"] { border-color: var(--ui-heading); border-left-color: var(--ui-heading); background: color-mix(in srgb, var(--ui-primary) 28%, var(--ui-surface-2)); }
+.or-kind img { grid-row: span 2; width: 40px; height: 40px; object-fit: contain; image-rendering: pixelated; }
+.or-kind strong { font: 500 1.05rem/1.2 var(--font-heading, sans-serif); letter-spacing: .03em; overflow-wrap: anywhere; }
+.or-kind small { color: var(--ui-muted); font-size: 13px; line-height: 1.3; }
+
+/* key/value facts (league side-panel style) */
+.or-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 14px; margin: 0; }
+.or-facts dt { margin: 0; font: 10px/1.6 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
+.or-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.or-note { margin: 0; white-space: pre-line; overflow-wrap: anywhere; }
+.or-linklist { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.or-linklist a { color: var(--ui-accent); overflow-wrap: anywhere; }
+.or-steps { display: grid; gap: 8px; margin: 0; padding-left: 20px; }
+.or-steps li::marker { color: var(--ui-heading); font-family: var(--sf-band-font); }
+.or-actions { margin-top: 4px; }
+
+/* admin queue: one card per request (the tournaments admin card frame) */
+.or-queue { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.or-card {
+  display: grid; gap: 10px; min-width: 0; padding: 10px 12px 12px;
+  background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface);
+  border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--ui-heading); border-radius: 2px;
+  box-shadow: inset 0 1px 0 var(--sf-panel-hi), 0 3px 0 var(--sf-panel-drop);
+}
+.or-card[data-status="approved"] { border-left-color: var(--ui-success); }
+.or-card[data-status="withdrawn"], .or-card[data-status="declined"] { border-left-color: var(--sf-panel-line); }
+.or-card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; }
+.or-card-head h3 { min-width: 0; margin: 0; font: 500 1.15rem/1.2 var(--font-heading, sans-serif); letter-spacing: .04em; overflow-wrap: anywhere; }
+.or-card-meta { margin: 0; color: var(--ui-muted); font-size: 13px; }
+.or-decide { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 6px 10px; padding-top: 10px; border-top: 1px solid var(--sf-panel-line); }
+.or-decide .or-field { grid-column: 1; }
+.or-decide .sf-btn-row { grid-column: 2; }
+@media (max-width: 640px) {
+  .or-decide { grid-template-columns: minmax(0, 1fr); }
+  .or-decide .sf-btn-row { grid-column: 1; }
+  .or-decide .sf-btn { flex: 1 1 0; }
+}
+.or-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+
+/* Fit to 1920x1080 (owner 11-02, laws 18a): on a desktop-sized screen the page fills the content area and never scrolls;
+   pane bodies (the form, the request facts, the queue list) scroll inside while the bands and primary actions stay put.
+   Smaller screens fall back to normal vertical page scroll. */
+.or-form-pane { display: grid; gap: 10px; }
+.or-foot { padding-top: 10px; border-top: 1px solid var(--sf-panel-line); }
+@media (min-width: 901px) and (min-height: 600px) {
+  .or-fit { height: calc(100dvh - var(--sf-top-h) - 32px); min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+  .or-fit > * { flex: none; }
+  .or-fit > .or-grid { flex: 1 1 auto; min-height: 0; grid-template-rows: minmax(0, 1fr); align-items: stretch; }
+  .or-fit .or-grid > .hm-col { min-height: 0; max-height: 100%; display: flex; flex-direction: column; }
+  .or-fit .or-pane { display: flex; flex-direction: column; min-height: 0; max-height: 100%; box-sizing: border-box; }
+  .or-fit .or-pane > .hm-band { flex: none; }
+  .or-fit .or-pane-body { flex: 0 1 auto; min-height: 0; overflow: auto; }
+  .or-fit .or-form-pane { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+  .or-fit .or-form-pane > :not(.or-pane-body) { flex: none; }
+  .or-fit-queue > .or-queue { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 0 2px 6px; align-content: start; }
+}
