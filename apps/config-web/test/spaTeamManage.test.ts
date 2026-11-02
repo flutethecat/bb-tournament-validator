@@ -393,7 +393,7 @@ describe("team management + My teams pages (server-rendered)", () => {
     await manage.load("library:77");
     manage.openAvatar();
     const html = await renderWith(manage, f);
-    expect(html).toMatch(/<div class="tm-content" inert aria-hidden="true">/);
+    expect(html).toMatch(/<div class="tm-content sf-fit sf-fill" inert aria-hidden="true">/);
     expect(html).toMatch(/role="dialog"[^>]*aria-modal="true"[^>]*aria-labelledby="tm-av-h"/);
     expect(html).toContain("Team avatar");
     expect(html).toMatch(/type="file" accept="image\/png,image\/jpeg,image\/webp"/);
@@ -438,12 +438,12 @@ describe("team management + My teams pages (server-rendered)", () => {
     await spa.router.push("/teams/library%3A77");
     await spa.router.isReady();
     const html = (await mods.renderer.renderToString(spa.app)) as string;
-    expect(html).toMatch(/<div class="tm-content" inert aria-hidden="true">/);
+    expect(html).toMatch(/<div class="tm-content sf-fit sf-fill" inert aria-hidden="true">/);
     expect(html).toMatch(/<div class="ls-dialog tm-modal" role="dialog" aria-modal="true" aria-labelledby="tm-adv-h" tabindex="-1" data-step="choose">/);
     // the dialog sits outside the inert content
     expect(html.indexOf('role="dialog"')).toBeGreaterThan(html.lastIndexOf('class="team-view tm-sheet"'));
     const closed = await render("/teams/library%3A77", { "/api/me/teams/library%3A77": libraryModel() });
-    expect(closed).toContain('<div class="tm-content">');
+    expect(closed).toContain('<div class="tm-content sf-fit sf-fill">');
     expect(closed).not.toContain('role="dialog"');
   });
 
@@ -466,7 +466,7 @@ describe("team management + My teams pages (server-rendered)", () => {
     await spa.router.push("/teams/library%3A77");
     await spa.router.isReady();
     const html = (await mods.renderer.renderToString(spa.app)) as string;
-    expect(html).toMatch(/<div class="tm-content" inert aria-hidden="true">/);
+    expect(html).toMatch(/<div class="tm-content sf-fit sf-fill" inert aria-hidden="true">/);
     expect(html).toContain('role="dialog" aria-modal="true" aria-labelledby="tm-ps-h" tabindex="-1"');
     expect(html.indexOf('aria-labelledby="tm-ps-h"')).toBeGreaterThan(html.lastIndexOf('class="team-view tm-sheet"'));
     expect(html).toContain('<p class="tm-ps-name">Big &lt;Bob&gt;</p>');
@@ -492,7 +492,7 @@ describe("team management + My teams pages (server-rendered)", () => {
   it("My teams: coach-page panels, tiles linking to the management page, Avatars and Build a team panels", async () => {
     const html = await render("/my-teams", { "/api/tabletop/saves?coach=Alice": { coach: "Alice", teams: [{ ref: "library:77", name: "Alice Lib", race: "Human" }, { ref: "sv_a", name: "Alice Save", race: "Orc" }] } });
     expect(html).toContain(`<h1 class="sf-page-title" aria-live="polite">My teams</h1>`);
-    expect(html).toContain('class="hm-grid"');
+    expect(html).toContain('class="hm-grid sf-fill sf-cols"'); // fit to 1920x1080 (owner 11-02)
     expect(html).toContain('<span class="hm-cap">2 teams</span>');
     expect(html).toContain('class="hm-teams hm-teams-lg"');
     expect(html).toContain('<a href="/app/teams/library%3A77" class="hm-team" title="Manage Alice Lib">');
