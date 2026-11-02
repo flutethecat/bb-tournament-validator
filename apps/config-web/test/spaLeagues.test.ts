@@ -648,9 +648,11 @@ describe("league routes (server-rendered against a mocked API)", () => {
     const hon = await render("/leagues/tabbl?tab=honours", loadedDetail());
     expect(hon.html).not.toContain("Loading awards..."); // the awards have their own tab now
     expect((await render("/leagues/tabbl?tab=awards", loadedDetail())).html).toContain("Loading awards..."); // league-wide, loaded on mount
-    expect(hon.html).toContain("Most touchdowns");
-    expect(hon.html).toContain('href="/app/leagues/tabbl?season=season-6&amp;tab=teams&amp;player=p-deth00000001"'); // a board row that is one player links by id
-    expect(hon.html).toContain("10-1-0 · 22 pts");
+    // owner 11-02: the Player / Coach / Team selector shows one kind of board at a time (Team by default)
+    const honPlayer = await render("/leagues/tabbl?tab=honours&view=player", loadedDetail());
+    expect(honPlayer.html).toContain("Most touchdowns");
+    expect(honPlayer.html).toContain('href="/app/leagues/tabbl?season=season-6&amp;tab=teams&amp;player=p-deth00000001"'); // a board row that is one player links by id
+    expect((await render("/leagues/tabbl?tab=honours&view=coach", loadedDetail())).html).toContain("10-1-0 · 22 pts");
   });
 
   it("fixtures nav bar: round strip opens on the current round, ?round= picks one or all, Prev / Next, team filter, view toggle", async () => {
