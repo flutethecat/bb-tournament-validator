@@ -32,6 +32,7 @@ import {
   canManageLeague, createLeagueDetail, LEAGUE_DETAIL_KEY, pickSeason, playerByRef, RULESET_TONE, seasonDates, seasonRowScroll, teamByRef,
 } from "../leagues/league";
 import { createHonours, LEAGUE_HONOURS_KEY } from "../leagues/honours";
+import { createLeagueStats, LEAGUE_STATS_KEY } from "../leagues/league";
 import { leagueFacts, tabFromQuery, type SectionTabId } from "../shell/sectionNav";
 import "../leagues/leagues.css";
 
@@ -46,6 +47,8 @@ const { state } = detail;
 // Awards + Hall of Fame (Honours and Awards tabs, and a team's awards on its roster): league-wide, loaded when one opens.
 const honours = inject(LEAGUE_HONOURS_KEY, null) ?? createHonours({ api: fetcher });
 provide(LEAGUE_HONOURS_KEY, honours);
+// League statistics (all time; public): the coach summary popup and the Honours Player / Coach views, loaded on demand.
+provide(LEAGUE_STATS_KEY, inject(LEAGUE_STATS_KEY, null) ?? createLeagueStats({ api: fetcher }));
 
 const current = computed(() => pickSeason(state.seasons, route.query.season));
 const season = computed(() => (current.value ? state.season[current.value.id] : undefined));
@@ -173,7 +176,7 @@ usePageTitle(() => state.league?.name);
       <p v-else-if="current && !season" class="hm-empty" role="status">Loading {{ current.name }}...</p>
       <template v-else-if="season">
         <template v-if="tab === 'overview'"><!-- in .lg-ov above --></template>
-        <LeagueStandings v-else-if="tab === 'standings'" :season="season" :me="session.coach()" />
+        <LeagueStandings v-else-if="tab === 'standings'" :season="season" :me="session.coach()" :league-id="id" />
         <LeagueFixtureSummary v-else-if="tab === 'fixtures' && fixtureRef" :league-id="id" :season-id="season.id" :fixture-id="fixtureRef" :back="fixturesQuery" />
         <LeagueFixtures v-else-if="tab === 'fixtures'" :league="state.league" :season="season" :crests="state.crests" :manage="manage" />
         <LeagueCalendar v-else-if="tab === 'calendar'" :season="season" :league-id="id" />
