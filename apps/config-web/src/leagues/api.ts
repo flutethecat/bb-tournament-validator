@@ -74,6 +74,10 @@ import { leagueStats, isStatsScope, type LeagueStats, type StatsScope } from "./
 import { clearStandingsCache, podiumAwards, PODIUM_SLOTS, proposePodium, withStandings, type PodiumPlace } from "./standings.js";
 import { fixturePlayed } from "./tourplay.js";
 import { ORGANISER_LOG_KINDS } from "./teamValue.js";
+import { isDraftLeague, leagueVisibleTo, seasonStage, visibleLeagues, type SeasonStage } from "./lifecycle.js";
+import { defaultSeasonRegistration } from "./seasonRegistration.js";
+import { createLeagueRoute, leagueLifecycleRoutes } from "./wizard.js";
+import { TEST_SESSION_REFUSAL, testSessionMayWrite } from "../registration/testSession.js";
 import { isLeagueOrganiser, LEAGUE_ART_DIR, LEAGUE_ART_PATH, leagueOwner, LeagueStore, LeagueStoreError, SEASON_ID } from "./store.js";
 import { LEAGUE_RULESETS, type LeagueFixture, type LeagueRecord, type LeagueTeam, type LeagueRuleset, type PodiumSlot, type SeasonRecord, type SeasonStatus } from "./types.js";
 
@@ -100,6 +104,8 @@ export interface LeagueSummary {
   bannerUrl?: string;
   seasonCount: number;
   currentSeason?: SeasonSummary;
+  /** Lane L5: "draft" only for a draft (seen by its organisers and admins); absent = published. */
+  visibility?: "draft";
 }
 
 export interface SeasonSummary {
@@ -116,9 +122,18 @@ export interface SeasonSummary {
   champion?: { coach: string; team: string; race: string };
   /** Finished on this site (it carries a podium record): an organiser may reopen it. */
   finishedHere?: boolean;
+  /** Lane L5: setup | registration | active | completed (lifecycle.ts seasonStage). */
+  stage: SeasonStage;
 }
 
-export interface LeagueApiIdentity { coach: string; admin: boolean }
+export interface LeagueApiIdentity {
+  coach: string;
+  admin: boolean;
+  /** Site organiser level (creates leagues, Q1). */
+  organizer?: boolean;
+  /** A test sign-in session (Q13): writes only in test leagues; a league it creates is a test league. */
+  test?: boolean;
+}
 
 /** One identity row the coach lookup and the admin list read (identities.json, read-only here). */
 export interface LeagueIdentityRow { coach: string; level: string; banned?: boolean }
@@ -183,6 +198,7 @@ export function seasonSummary(s: SeasonRecord): SeasonSummary {
     playedCount: played,
     ...(champ ? { champion: { coach: champ.coach, team: champ.team, race: champ.race } } : {}),
     ...(s.status === "completed" && s.podium ? { finishedHere: true } : {}),
+    stage: seasonStage(s),
   };
 }
 
@@ -200,6 +216,7 @@ export function leagueSummary(league: LeagueRecord, seasons: SeasonRecord[]): Le
     ...(banner ? { bannerUrl: banner } : {}),
     seasonCount: seasons.length,
     ...(newest ? { currentSeason: seasonSummary(newest) } : {}),
+    ...(isDraftLeague(league) ? { visibility: "draft" as const } : {}),
   };
 }
 
@@ -307,7 +324,9 @@ export async function leagueApi(
   const { store } = deps;
   const read = method === "GET" || method === "HEAD";
   if (!route.id) {
-    if (!read) return { status: 405, body: { error: "Use GET." } };
+    // Lane L5: POST /api/leagues creates a draft league (wizard.ts).
+    if (method === "POST") return createLeagueRoute(auth, deps);
+    if (!read) return { status: 405, body: { error: "Use GET or POST." } };
     if (query.get("redraft") === "mine") {
       // The signed-in coach's open redraft tasks (team management page panel).
       if (!auth) return { status: 401, headers: { "cache-control": "no-store" }, body: { error: "Sign in to see your redraft tasks." } };
@@ -318,10 +337,20 @@ export async function leagueApi(
       if (!auth) return { status: 401, headers: { "cache-control": "no-store" }, body: { error: "Sign in to see your awards." } };
       return { status: 200, headers: { "cache-control": "private, no-store" }, body: { awards: myAwards(store, auth.coach) } };
     }
-    return { status: 200, body: { leagues: store.list().map((l) => leagueSummary(l, store.seasons(l.id))) } };
+    // Drafts (lifecycle.ts) are listed only to their organisers and admins; such a list is never cached.
+    const leagues = visibleLeagues(store.list(), auth);
+    const privateList = leagues.some((l) => isDraftLeague(l));
+    return { status: 200, ...(privateList ? { headers: { "cache-control": "private, no-store" } } : {}), body: { leagues: leagues.map((l) => leagueSummary(l, store.seasons(l.id))) } };
   }
-  const league = store.league(route.id);
+  const found = store.league(route.id);
+  // Lane L5 visibility gate: a draft league does not exist for anyone but its organisers and site admins, on every route
+  // below (reads and writes alike), and a test sign-in writes only in a test league (Q13).
+  if (found && !leagueVisibleTo(found, auth)) return { status: 404, headers: { "cache-control": "private, no-store" }, body: { error: "League not found." } };
+  if (found && !read && !testSessionMayWrite(auth, found)) return { status: 403, body: { error: TEST_SESSION_REFUSAL } };
+  const league = found;
   const [first, second, ...extra] = route.rest;
+  const lifecycle = await leagueLifecycleRoutes(method, route.rest, league, auth, deps);
+  if (lifecycle) return lifecycle;
 
   if (first === "logo" || first === "banner") {
     if (second !== undefined) return { status: 404, body: { error: "Not found." } };
@@ -744,6 +773,10 @@ async function createSeason(league: LeagueRecord, who: LeagueApiIdentity, input:
   };
   // Draft lists submitted in a redraft before this season existed become its teams.
   const redrafted = applyPendingDrafts(seasons, season);
+  // Lane L5: the season starts from the league's registration defaults (Q7), in setup unless redraft gave it teams
+  // (Open registration / Start season in Administration move it on).
+  season.registration = defaultSeasonRegistration(league);
+  if (!season.teams.length) season.stage = "setup";
   deps.store.putSeason(season);
   for (const s of redrafted) deps.store.putSeason(s);
   await postMilestone(league, deps, buildMilestonePost(league, "season-started", name, ruleset));

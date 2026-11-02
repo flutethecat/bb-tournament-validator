@@ -126,6 +126,8 @@ export const routes: RouteRecordRaw[] = [
   },
   // Leagues (TABBL, imported from TourPlay): public read, no sign-in gate.
   { path: "/leagues", name: "leagues", component: LeagueListView, meta: { title: "Leagues" } },
+  // League creation wizard (registration spec 11-02 §4, lane L5): site organisers and admins; before /leagues/:id ("new" is reserved).
+  { path: "/leagues/new", name: "league-new", component: () => import("./views/LeagueWizardView.vue"), meta: { requiresAuth: true, title: "Create a league" } },
   { path: "/leagues/:id([a-z0-9-]{1,64})", name: "league-detail", component: LeagueDetailView, props: true, meta: { title: "League" } },
   { path: "/leagues/:id([a-z0-9-]{1,64})/stats", name: "league-stats", component: LeagueStatsView, props: true, meta: { title: "League statistics" } },
   // Fixture lobby (spec-landing-bubble-retro §8): public read; the two coaches and the organisers act (server-checked).

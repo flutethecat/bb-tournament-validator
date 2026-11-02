@@ -124,7 +124,7 @@ export function newFixtureError(f: NewFixtureForm): string {
 
 export type RawUploader = (path: string, body: Blob) => Promise<unknown>;
 
-const fetchUpload: RawUploader = async (path, body) => {
+export const fetchUpload: RawUploader = async (path, body) => {
   const res = await fetch(path, {
     method: "PUT", credentials: "same-origin", headers: { "x-cw-auth": "1", "content-type": body.type || "application/octet-stream" }, body,
   });

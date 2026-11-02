@@ -30,6 +30,7 @@ import type { TabletopTeamFile } from "../tabletop/postMatch.js";
 import { deriveTeamResult, type StoredTournamentResult } from "../tournamentResults.js";
 import { lobbyRoute, type LobbyDeps } from "./api.js";
 import { LOBBY_SIDES, type LobbyCoachStats, type LobbyFixture, type LobbyFixtureSide, type LobbyHeadToHead, type LobbyMeeting, type LobbySide, type LobbyTeam } from "./types.js";
+import { publishedLeagues } from "../leagues/lifecycle.js";
 
 export const LOBBY_BODY_MAX = 16 * 1024;
 
@@ -225,7 +226,7 @@ export function coachHistory(store: LeagueStore, deps: LeagueLobbyDeps, coaches:
   const games = new Map<string, Game[]>(keys.filter(Boolean).map((k) => [k, []]));
   const meetings: Meeting[] = [];
   const leagueGameIds = new Set<string>();
-  for (const league of store.list()) {
+  for (const league of publishedLeagues(store.list())) {
     for (const season of store.seasons(league.id)) {
       for (const f of season.fixtures) {
         if (f.fork?.result?.gameId) leagueGameIds.add(f.fork.result.gameId);

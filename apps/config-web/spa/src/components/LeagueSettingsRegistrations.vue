@@ -52,7 +52,7 @@ function save(): void {
 <template>
   <form class="lg-stack" novalidate @submit.prevent="save">
     <section class="hm-panel" aria-labelledby="ls-reg-h">
-      <header class="hm-band"><h2 id="ls-reg-h">Registrations</h2><span class="hm-cap">{{ form.allowRegistration ? "Open" : "Closed" }}</span></header>
+      <header class="hm-band"><h2 id="ls-reg-h">Registration defaults</h2><span class="hm-cap">New seasons copy these</span></header>
       <div class="ls-grid">
         <fieldset class="ls-toggles">
           <legend class="ls-k">Allowed rosters</legend>

@@ -18,6 +18,7 @@ import { artUrl } from "./api.js";
 import { effectiveDeadline, fixtureOpenForDeadline } from "./deadlines.js";
 import type { LeagueStore } from "./store.js";
 import type { LeagueFixture, LeagueTeam, SeasonRecord } from "./types.js";
+import { publishedLeagues } from "./lifecycle.js";
 
 export interface MyLeagueFixture {
   id: string;
@@ -179,7 +180,7 @@ const indexes = new WeakMap<LeagueStore, SeatIndex>();
 function buildIndex(store: LeagueStore): Pick<SeatIndex, "byCoach" | "deadlines"> {
   const byCoach = new Map<string, MyLeague[]>();
   const deadlines = new Map<string, MyLeagueDeadline[]>();
-  for (const lg of store.list()) {
+  for (const lg of publishedLeagues(store.list())) {
     const seasons = store.seasons(lg.id);
     const activeSeasons = seasons.filter((s) => s.status === "active");
     const active = activeSeasons[0];

@@ -23,9 +23,11 @@ import LeagueTabs from "../components/LeagueTabs.vue";
 import LeagueStandings from "../components/LeagueStandings.vue";
 import LeagueTeams from "../components/LeagueTeams.vue";
 import LeagueBuildTeamLink from "../components/LeagueBuildTeamLink.vue";
+import LeagueDraftNotice from "../components/LeagueDraftNotice.vue";
+import { SEASON_STAGE_LABEL, seasonStageOf, STAGE_TONE } from "../leagues/lifecycle";
 import {
   canManageLeague, createLeagueDetail, isLeagueTab, LEAGUE_DETAIL_KEY, LEAGUE_TABS, pickSeason, RULESET_TONE,
-  SEASON_STATUS_LABEL, seasonDates, seasonRowScroll, type LeagueTab,
+  seasonDates, seasonRowScroll, type LeagueTab,
 } from "../leagues/league";
 import { ANNOUNCE_KEY, createAnnounce } from "../leagues/dialog";
 import { createHonours, LEAGUE_HONOURS_KEY } from "../leagues/honours";
@@ -132,6 +134,7 @@ watch(() => route.fullPath, () => announce.moved(scopeKey.value));
     <p v-else-if="!state.loaded || !state.league" class="hm-empty" role="status">Loading league...</p>
     <template v-else>
       <LeagueFront :id="id" :league="state.league" :seasons="state.seasons" :manage="manage" :announce="Boolean(season)" @announce="openAnnounce" />
+      <LeagueDraftNotice v-if="state.league.visibility === 'draft'" :id="id" />
       <p v-if="announce.state.notice" class="sf-notice lg-announced" role="status">{{ announce.state.notice }}</p>
       <LeagueAnnounce
         v-if="manage && announceSeason" :key="announceSeason.id" :league-id="id" :season="announceSeason" :can-message="announceSeason.id === state.seasons[0]?.id"
@@ -149,7 +152,7 @@ watch(() => route.fullPath, () => announce.moved(scopeKey.value));
             <span class="lg-season-name">{{ s.name }}</span>
             <span class="lg-season-chips">
               <span class="sf-chip" :data-tone="RULESET_TONE[s.ruleset] ?? 'muted'" :data-ruleset="s.ruleset">{{ s.ruleset }}</span>
-              <span v-if="s.status === 'active'" class="sf-chip" data-tone="soon">{{ SEASON_STATUS_LABEL[s.status] }}</span>
+              <span v-if="s.status === 'active'" class="sf-chip" :data-tone="STAGE_TONE[seasonStageOf(s)]" :data-stage="seasonStageOf(s)">{{ SEASON_STAGE_LABEL[seasonStageOf(s)] }}</span>
             </span>
           </button>
         </div>

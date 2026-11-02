@@ -11,6 +11,8 @@ import LeagueSettingsAdmin from "../components/LeagueSettingsAdmin.vue";
 import LeagueSettingsConnections from "../components/LeagueSettingsConnections.vue";
 import LeagueSettingsInducements from "../components/LeagueSettingsInducements.vue";
 import LeagueSettingsInfo from "../components/LeagueSettingsInfo.vue";
+import LeagueSettingsLifecycle from "../components/LeagueSettingsLifecycle.vue";
+import LeagueSettingsSeasonRegistration from "../components/LeagueSettingsSeasonRegistration.vue";
 import LeagueSettingsRegistrations from "../components/LeagueSettingsRegistrations.vue";
 import LeagueSettingsTeamBuilding from "../components/LeagueSettingsTeamBuilding.vue";
 import { initials, safeArtUrl } from "../leagues/league";
@@ -59,9 +61,9 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} settings` : ""));
           :to="{ name: 'league-settings', params: { id }, query: tabQuery(t.id) }" replace
         >{{ t.label }}</RouterLink>
       </nav>
-      <LeagueSettingsAdmin v-if="tab === 'administration'" />
+      <template v-if="tab === 'administration'"><LeagueSettingsLifecycle /><LeagueSettingsAdmin /></template>
       <LeagueSettingsInfo v-else-if="tab === 'information'" />
-      <LeagueSettingsRegistrations v-else-if="tab === 'registrations'" />
+      <template v-else-if="tab === 'registrations'"><LeagueSettingsRegistrations /><LeagueSettingsSeasonRegistration /></template>
       <LeagueSettingsTeamBuilding v-else-if="tab === 'team-building'" />
       <LeagueSettingsInducements v-else-if="tab === 'inducements'" />
       <LeagueSettingsConnections v-else />

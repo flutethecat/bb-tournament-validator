@@ -24,6 +24,7 @@ import {
 } from "./redraft.js";
 import { isLeagueOrganiser, leagueOwner, type LeagueStore } from "./store.js";
 import type { LeagueRecord, RedraftState, RedraftTeamTask, SeasonRecord } from "./types.js";
+import { publishedLeagues } from "./lifecycle.js";
 
 export const REDRAFT_MAX_BYTES = 64 * 1024;
 const NO_STORE = { "cache-control": "no-store" };
@@ -378,7 +379,7 @@ export interface MyRedraftTask {
 /** Open redraft tasks (pending, submitted or expired; redraft not closed) of this coach across every league. */
 export function myRedraftTasks(store: LeagueStore, coach: string): MyRedraftTask[] {
   const out: MyRedraftTask[] = [];
-  for (const lg of store.list()) {
+  for (const lg of publishedLeagues(store.list())) {
     const seasons = store.seasons(lg.id);
     const source = redraftSource(seasons);
     const state = source?.redraft;

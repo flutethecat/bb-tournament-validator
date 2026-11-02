@@ -21,6 +21,7 @@ import type { FixtureSide, LeagueFixture, LeagueTeam, SeasonRecord } from "../le
 import type { TournamentStore } from "../tournaments/store.js";
 import type { ScheduledMatchRecord } from "../tournaments/types.js";
 import { scheduleKey, SLOT_MS } from "./store.js";
+import { publishedLeagues } from "../leagues/lifecycle.js";
 
 /** The agreed time written onto a fixture record by an accepted proposal. */
 export interface AgreedTime { start: string; end: string; agreedAt: string }
@@ -119,7 +120,7 @@ const leagueIndexes = new WeakMap<LeagueStore, LeagueIndex>();
 function buildLeagueIndex(store: LeagueStore): Pick<LeagueIndex, "byCoach" | "byRef"> {
   const byCoach = new Map<string, FixtureEntry[]>();
   const byRef = new Map<string, FixtureEntry>();
-  for (const lg of store.list()) {
+  for (const lg of publishedLeagues(store.list())) {
     const active = store.seasons(lg.id).filter((s) => s.status === "active");
     if (!active.length) continue;
     const aliases = buildCoachAliases((function* () { for (const s of active) yield* seasonCoachFacets(s); })());

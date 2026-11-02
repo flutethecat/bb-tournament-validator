@@ -61,7 +61,7 @@ beforeAll(async () => {
   const lg = store.league("tabbl")!;
   store.upsertLeague({ ...lg, registrations: { allowedRosters: { official: true, nafApproved: true, unofficial: false }, allowRegistration: true, maxRegistrations: null, maxPerRace: 1 } } as never);
   store.putSeason({
-    id: "s7", leagueId: "tabbl", number: 7, name: "Season 7", sourceSlug: "s7", ruleset: "BB2025", status: "active",
+    id: "s7", leagueId: "tabbl", number: 7, name: "Season 7", sourceSlug: "s7", ruleset: "BB2025", status: "active", stage: "registration",
     phases: [], fixtures: [], honours: [], awards: [], participants: [], unattributedStats: [], importedAt: "2026-11-01T00:00:00.000Z", source: "manual",
     teams: [{ id: "t1", name: "Reikland Rejects", race: "Human", coach: "Bob", teamValue: null, players: [], formerPlayers: [] }],
     rules: {

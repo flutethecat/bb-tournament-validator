@@ -30,6 +30,7 @@ import { readJsonObject, requestRevision } from "./http.js";
 import { PODIUM_AWARD } from "./standings.js";
 import { isLeagueOrganiser, type LeagueStore } from "./store.js";
 import type { HallOfFamePin, LeagueAward, LeagueCustomAward, LeagueRecord, SeasonRecord } from "./types.js";
+import { publishedLeagues } from "./lifecycle.js";
 
 export const HONOURS_MAX_BYTES = 16 * 1024;
 export const AWARDS_MAX = 500;
@@ -257,7 +258,7 @@ export function myAwards(store: LeagueStore, coach: string): Array<AwardView & {
   const me = key(coach);
   if (!me) return [];
   const out: Array<AwardView & { leagueId: string; leagueName: string }> = [];
-  for (const league of store.list()) {
+  for (const league of publishedLeagues(store.list())) {
     const seasons = store.seasons(league.id);
     const mine = new Set<string>();
     for (const s of seasons) { const ids = seasonAwardIds(s); s.awards.forEach((a, i) => { if (key(a.coachId) === me) mine.add(ids[i]!); }); }

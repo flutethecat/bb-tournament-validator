@@ -98,10 +98,10 @@ describe("max per race and the league context", () => {
     const lg = league({ maxPerRace: 2 });
     expect(leagueRaceProblems(lg, season(), "Orc")).toEqual(["Orc: 2 / 2 teams in this season, full."]);
     expect(leagueRaceProblems(lg, season(), "Halfling")).toEqual([]);
-    const ctx = leagueBuilderContext(lg, season());
+    const ctx = leagueBuilderContext(lg, season({ stage: "registration" }));
     expect(ctx.label).toBe("TABBL · Season 7");
     expect(ctx.packageName).toBe("league:tabbl:s7");
-    expect(ctx.registration).toMatchObject({ open: true, maxPerRace: 2, teams: 3, source: "allowRegistration" });
+    expect(ctx.registration).toMatchObject({ open: true, maxPerRace: 2, teams: 3, source: "window" });
     const orc = ctx.races.find((r) => r.roster === "Orc")!;
     expect(orc).toMatchObject({ teams: 2, full: true, selectable: false, reason: "Full: 2 / 2 Orc teams this season." });
     expect(ctx.races.find((r) => r.roster === "Halfling")).toMatchObject({ treasury: 1_150_000, tier: 4, startingSkills: { primary: 2, secondary: 1, elite: 1 }, selectable: true, class: "official" });
@@ -111,9 +111,12 @@ describe("max per race and the league context", () => {
     expect(ctx.inducements.find((i) => i.id === "bribes")).toMatchObject({ price: 50_000, cap: 2 });
     expect(ctx.inducements.some((i) => i.id === "wandering_apothecaries")).toBe(false);
   });
-  it("registration is open only while Allow registration is on and the season is not finished (until L0's window)", () => {
-    expect(leagueBuilderContext(league({ allowRegistration: false }), season()).registration.open).toBe(false);
+  it("registration is open only through the season's window (lane L5): registration stage, Allow registration on, not finished", () => {
+    expect(leagueBuilderContext(league({ allowRegistration: false }), season({ stage: "registration" })).registration.open).toBe(false);
     expect(leagueBuilderContext(league(), season({ status: "completed" })).registration.open).toBe(false);
+    // An active season (stage absent = active) is closed unless joining mid-season is on.
+    expect(leagueBuilderContext(league(), season()).registration.open).toBe(false);
+    expect(leagueBuilderContext(league(), season({ stage: "registration" })).registration.open).toBe(true);
   });
   it("a class the league turned off disables those races with the class reason", () => {
     const ctx = leagueBuilderContext(league({ allowedRosters: { official: false, nafApproved: true, unofficial: false } }), season(), ["Slann"]);

@@ -38,6 +38,13 @@ export interface LeagueRecord {
   playOnFork?: boolean;
   /** A test competition (registration spec Q13): the only kind a test sign-in may write in (src/registration/testSession.ts). */
   test?: true;
+  /** Lane L5 (registration spec §4): draft = visible to its organisers and site admins only (lifecycle.ts); absent = published
+   *  (every imported league). */
+  visibility?: "draft" | "published";
+  /** The creation wizard's progress (wizard.ts): the step reached, who started it, when Create league finished it. */
+  wizard?: { step: number; createdBy: string; completedAt?: string };
+  /** First published (Publish in League settings). */
+  publishedAt?: string;
   /** Redraft budget cap the board starts from (default on, 1,300,000); remembered from the last confirmed redraft. */
   redraftCap?: { enabled: boolean; cap: number };
   /** Settings revision: every settings write bumps it; a PATCH naming an older revision is refused (409). */
@@ -662,6 +669,11 @@ export interface SeasonRecord {
   /** "manual" = started from League settings (Start a new season). */
   source: "tourplay-export" | "manual";
   rules?: SeasonRules;
+  /** Lane L5: setup -> registration -> active -> completed (lifecycle.ts seasonStage); absent = derived from status. */
+  stage?: "setup" | "registration" | "active";
+  /** Per-season registration settings (Q7; seasonRegistration.ts), copied from the league defaults when the season is made;
+   *  absent = the league's Registrations settings. */
+  registration?: import("./seasonRegistration.js").SeasonRegistration;
   /** Round deadlines (organiser, per phase and round): a fixture without its own deadline takes its round's. */
   roundDeadlines?: RoundDeadline[];
   /** Auto-forfeit after the deadline (absent = off). */

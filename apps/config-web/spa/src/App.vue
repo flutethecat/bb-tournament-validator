@@ -4,6 +4,7 @@ import { computed, inject, nextTick, onBeforeUnmount, onMounted, onServerPrefetc
 import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
 import { API_KEY } from "./app";
 import AccountMenu from "./components/AccountMenu.vue";
+import { canCreateLeague } from "./leagues/lifecycle";
 import BellPopover from "./components/BellPopover.vue";
 import ShellNav from "./components/ShellNav.vue";
 import LandingWelcome from "./components/LandingWelcome.vue";
@@ -39,6 +40,7 @@ const creator = inject(TOURNAMENT_CREATOR_KEY, null);
 // "Create tournament" in the account menu: organisers only, the server's POST /api/tournaments rule. The rule gates
 // opening only: once open, the dialog stays until Cancel / Escape even if the session lapses (its 401 error shows).
 const canCreate = computed(() => Boolean(creator) && canCreateTournament(session));
+const canCreateLeagueHere = computed(() => canCreateLeague(session.state.info));
 // New-user flow (owner 10-31): while the signed-in coach has not completed onboarding, the welcome modal blocks the shell
 // on every route (header and body inert). Read once per coach, in the browser only.
 const onboarding = inject(ONBOARDING_KEY, null);
@@ -177,7 +179,7 @@ async function signOut(): Promise<void> {
             <span>{{ session.coach() }}</span>
             <span aria-hidden="true" class="sf-menu-caret">▾</span>
           </button>
-          <AccountMenu v-if="menuOpen" :can-create="canCreate" @create="openCreate" @sign-out="signOut" />
+          <AccountMenu v-if="menuOpen" :can-create="canCreate" :can-create-league="canCreateLeagueHere" @create="openCreate" @sign-out="signOut" />
         </div>
       </template>
       <!-- not on the sign-up step itself (/welcome): the coach is mid-sign-in there -->

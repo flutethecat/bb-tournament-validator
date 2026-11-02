@@ -1,0 +1,146 @@
+/* Create a league (/app/leagues/new, lane L5): design.md §5 panels and bands (hm-panel, hm-band, hm-cap), the shared
+   controls (sf-btn, sf-field, sf-k, sf-check, sf-error, sf-notice, sf-table, sf-chip), step tabs in the Roster Builder's
+   header pattern, selectable cards in the .tb-card language. Tokens only (raw colours live in the :root blocks). */
+
+.lw-page { max-width: 1560px; }
+.lw-pad { margin: 0 12px 8px; }
+
+/* step tabs: a joined segmented strip (the Tournaments list's .tl-seg look); in the shell header they are compact */
+.lw-steps {
+  display: flex; flex-wrap: wrap; margin: 0; padding: 0; list-style: none; min-width: 0;
+  background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface);
+  border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: 0 2px 0 var(--sf-panel-drop), inset 0 1px 0 var(--sf-panel-hi);
+}
+.lw-steps > li { display: flex; flex: 1 0 auto; }
+.lw-steps > li + li { border-left: 2px solid var(--sf-panel-line); }
+.lw-step {
+  display: inline-flex; flex: 1 0 auto; align-items: center; justify-content: center; gap: 8px; min-height: 44px; margin: 0; padding: 0 14px;
+  font: 12px/1 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-muted);
+  background: transparent; border: 0; border-radius: 0; cursor: pointer; white-space: nowrap;
+}
+.lw-step:hover:not(:disabled) { color: var(--ui-text); background: var(--ui-hover); }
+.lw-step[aria-current="step"] { color: var(--ui-text-on-primary); background: var(--ui-primary); }
+.lw-step:disabled { opacity: .5; cursor: not-allowed; }
+.lw-step:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: -2px; }
+.lw-step-n {
+  display: inline-grid; place-items: center; width: 20px; height: 20px; font-size: 11px; letter-spacing: 0;
+  border: 1px solid currentColor; border-radius: 2px; box-shadow: var(--sf-bevel);
+}
+.lw-steps.lw-steps-header { flex-wrap: nowrap; height: 36px; flex: 0 1 auto; }
+.lw-steps.lw-steps-header .lw-step { min-height: 0; height: 100%; padding: 0 12px; font-size: 11px; letter-spacing: .08em; }
+.lw-steps.lw-steps-header .lw-step-n { width: 18px; height: 18px; font-size: 10px; }
+@media (max-width: 1100px) { .lw-steps.lw-steps-header .lw-step { padding: 0 8px; letter-spacing: .04em; } }
+@media (max-width: 639.98px) {
+  .lw-steps { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .lw-steps > li + li { border-left: 2px solid var(--sf-panel-line); }
+  .lw-step { min-width: 0; padding: 0 4px; flex-direction: column; gap: 2px; font-size: 9px; letter-spacing: .02em; white-space: normal; text-align: center; }
+}
+
+/* the working area: the step pane and the LEAGUE SUMMARY side panel */
+.lw-grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) 340px; align-items: start; }
+@media (max-width: 1100px) { .lw-grid { grid-template-columns: minmax(0, 1fr); } }
+.lw-pane { display: flex; flex-direction: column; padding-bottom: 0; }
+.lw-pane-body { padding: 0 12px 12px; min-width: 0; }
+.lw-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 12px 12px; border-top: 2px solid var(--sf-panel-line); }
+.lw-msg { flex: 1 1 200px; min-width: 0; }
+.lw-msg:empty { flex: 1 1 0; }
+@media (max-width: 639.98px) { .lw-msg:not(:empty) { order: 9; flex-basis: 100%; } }
+.lw-summary { display: flex; flex-direction: column; }
+.lw-summary-body { display: grid; gap: 12px; padding: 0 12px; min-width: 0; }
+.lw-sum-title { margin: 0 0 4px; font: 500 1rem/1.2 var(--font-heading, sans-serif); letter-spacing: .03em; color: var(--ui-text); overflow-wrap: anywhere; }
+.lw-kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0; }
+.lw-kv dt { margin: 0; font: 10px/1.7 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
+.lw-kv dd { margin: 0; min-width: 0; font-size: 15px; overflow-wrap: anywhere; }
+
+/* step layouts: two columns of grouped fields */
+.lw-cols { display: grid; gap: 16px 24px; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+.lw-cols-rules { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); }
+@media (max-width: 900px) { .lw-cols, .lw-cols-rules { grid-template-columns: minmax(0, 1fr); } }
+.lw-col { display: grid; gap: 12px; min-width: 0; align-content: start; }
+.lw-two { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 520px) { .lw-two { grid-template-columns: minmax(0, 1fr); } }
+.lw-group { display: grid; gap: 6px; min-width: 0; margin: 0; padding: 10px 12px; border: 2px solid var(--sf-panel-line); border-radius: 2px; background: color-mix(in srgb, var(--ui-surface-2) 55%, transparent); }
+.lw-group > legend { padding: 0 4px; }
+.lw-group[data-invalid="true"] { border-color: var(--ui-danger); }
+.lw-field { display: grid; gap: 4px; min-width: 0; }
+.lw-field > span:not(.sf-k):not(.lw-slug):not(.lw-art) { font-size: 15px; }
+.lw-field input, .lw-field textarea, .lw-field select { width: 100%; box-sizing: border-box; }
+.lw-field textarea { resize: vertical; min-height: 96px; }
+.lw-field[data-invalid="true"] :is(input, textarea) { border-color: var(--ui-danger); }
+.lw-help { margin: 0; color: var(--ui-muted); font-size: 13px; line-height: 1.4; }
+.lw-check { display: flex; align-items: center; gap: 8px; font-size: 15px; }
+.lw-preview { margin: 0; font: 500 clamp(1.4rem, 2.4vw, 2rem)/1.15 var(--font-heading, sans-serif); letter-spacing: .04em; color: var(--ui-text); overflow-wrap: anywhere; }
+.lw-slug { display: flex; align-items: stretch; min-width: 0; }
+.lw-slug-pre { display: inline-flex; align-items: center; padding: 0 8px; font-size: 14px; color: var(--ui-muted); background: var(--ui-surface); border: 1px solid var(--sf-panel-line); border-right: 0; border-radius: 2px 0 0 2px; }
+.lw-slug input { flex: 1 1 auto; min-width: 0; }
+.lw-art { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-width: 0; }
+.lw-art input[type="file"] { max-width: 100%; color: var(--ui-text); font-size: 14px; }
+.lw-art-logo { width: 48px; height: 48px; object-fit: contain; border: 1px solid var(--sf-panel-line); border-radius: 2px; }
+.lw-art-banner { width: 160px; height: 40px; object-fit: cover; border: 1px solid var(--sf-panel-line); border-radius: 2px; }
+.lw-import { border-left: 4px solid var(--ui-info); }
+.lw-import h3 { margin: 0; }
+.lw-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; font-size: 14px; color: var(--ui-muted); overflow-wrap: anywhere; }
+.lw-division { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.lw-division .sf-input { width: 100%; box-sizing: border-box; }
+
+/* selectable cards (ruleset, approval): the Roster Builder's .tb-card language */
+.lw-cards { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 520px) { .lw-cards { grid-template-columns: minmax(0, 1fr); } }
+.lw-card {
+  display: grid; gap: 2px; justify-items: center; min-height: 56px; min-width: 0; margin: 0; padding: 8px 10px; font: inherit; text-align: center; color: var(--ui-text); cursor: pointer;
+  background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface-2);
+  border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--sf-panel-line); border-radius: 2px;
+  box-shadow: inset 0 1px 0 var(--sf-panel-hi), 0 3px 0 var(--sf-panel-drop);
+}
+.lw-card:hover { border-color: var(--ui-heading); }
+.lw-card:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.lw-card[aria-checked="true"] { border-color: var(--ui-heading); border-left-color: var(--ui-heading); background: color-mix(in srgb, var(--ui-primary) 28%, var(--ui-surface-2)); }
+.lw-card strong { font: 500 1.05rem/1.2 var(--font-heading, sans-serif); letter-spacing: .03em; overflow-wrap: anywhere; }
+.lw-card small { color: var(--ui-muted); font-size: 13px; line-height: 1.3; }
+
+/* the team building table scrolls inside its own pane */
+.lw-col-table { gap: 8px; }
+.lw-cap-inline { margin-left: 8px; text-transform: none; letter-spacing: 0; font: 12px/1.4 var(--font-body, sans-serif); color: var(--ui-muted); }
+.lw-scroll { overflow: auto; max-height: 60vh; border: 2px solid var(--sf-panel-line); border-radius: 2px; }
+.lw-table { font-size: 14px; }
+.lw-table thead th { position: sticky; top: 0; z-index: 1; background: var(--ui-surface); }
+.lw-table thead tr:nth-child(2) th { top: 26px; }
+.lw-table td { padding: 3px 6px; }
+.lw-table input, .lw-table select {
+  width: 58px; box-sizing: border-box; padding: 3px 4px; font: inherit; color: var(--ui-text);
+  background: var(--ui-surface-2); border: 1px solid var(--sf-panel-line); border-radius: 2px;
+}
+.lw-table td:nth-child(3) input { width: 72px; }
+.lw-table :is(input, select):focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 1px; }
+.lw-roster { white-space: nowrap; }
+
+/* review */
+.lw-review { display: grid; gap: 12px; }
+.lw-review-lead { font-size: 15px; }
+.lw-review-grid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+@media (max-width: 900px) { .lw-review-grid { grid-template-columns: minmax(0, 1fr); } }
+.lw-review-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.lw-review-head h3 { margin: 0; }
+
+/* Fit to 1920x1080 (owner 11-02, laws 18a; design.md §6): on a desktop-sized screen the page fills the content area and
+   never scrolls; the step body and the summary scroll inside their panels while the bands, step tabs and the footer
+   actions stay put. Smaller screens fall back to normal vertical page scroll. */
+@media (min-width: 1101px) and (min-height: 640px) {
+  .lw-fit { height: calc(100dvh - var(--sf-top-h) - 32px); min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+  .lw-fit > * { flex: none; }
+  .lw-fit > .lw-grid { flex: 1 1 auto; min-height: 0; grid-template-rows: minmax(0, 1fr); align-items: stretch; }
+  .lw-fit .lw-pane, .lw-fit .lw-summary { min-height: 0; max-height: 100%; box-sizing: border-box; }
+  .lw-fit .lw-pane > .hm-band, .lw-fit .lw-summary > .hm-band, .lw-fit .lw-foot { flex: none; }
+  .lw-fit .lw-pane-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  .lw-fit .lw-summary-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding-bottom: 12px; align-content: start; }
+  .lw-fit .lw-cols-rules { height: 100%; grid-template-rows: minmax(0, 1fr); }
+  .lw-fit .lw-col-table { min-height: 0; max-height: 100%; display: flex; flex-direction: column; }
+  .lw-fit .lw-col-table > * { flex: none; }
+  .lw-fit .lw-col-table > .lw-scroll { flex: 1 1 auto; min-height: 0; max-height: none; }
+}
+
+/* League settings, Administration: visibility and season stage rows (LeagueSettingsLifecycle) */
+.ls-life { display: grid; gap: 10px; padding: 0 12px; }
+.ls-life-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; padding-bottom: 10px; border-bottom: 1px solid var(--sf-panel-line); }
+.ls-life-text { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; min-width: 0; }
+.ls-life-text strong { font: 500 1.05rem/1.2 var(--font-heading, sans-serif); letter-spacing: .03em; }

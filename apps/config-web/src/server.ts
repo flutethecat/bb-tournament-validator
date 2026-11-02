@@ -346,6 +346,7 @@ import { parseTeamRef, saveCaptainError, teamFileFromLibraryDetail, teamFileFrom
 import { settleNafOwedEntries, tournamentApi } from "./tournaments/api.js";
 import { tournamentBannerApi, tournamentBannerPath } from "./tournaments/page.js";
 import { leagueApi, leaguePath } from "./leagues/api.js";
+import { testSessionMayWriteLeaguePath } from "./leagues/wizard.js";
 import { seriesApi, seriesPath } from "./tournaments/series.js";
 import { canSeeTournament, hiddenTournamentPath, testSessionTournamentRefusal } from "./tournaments/publication.js";
 import { isLeagueOrganiser, LeagueStore } from "./leagues/store.js";
@@ -2144,7 +2145,9 @@ async function handleApi(
   }
 
   if (leaguePath(path) !== undefined) {
-    if (WRITE_METHODS.has(method) && getSession(sessionTokenFromRequest(req))?.test)
+    // Q13 (lane L5): a test sign-in may create a league (a test league) and write only in test leagues.
+    const leagueTestSession = getSession(sessionTokenFromRequest(req))?.test === true;
+    if (WRITE_METHODS.has(method) && leagueTestSession && !testSessionMayWriteLeaguePath(leagueStore, path))
       return sendJson(res, 403, { error: "Test sign-in sessions cannot change league data." });
     if (leagueMessagesPath(path) !== undefined) {
       // League "Message members" (src/mail/leagueMessages.ts): organiser-gated in-handler; counts only in the response.
@@ -2169,7 +2172,7 @@ async function handleApi(
         return sendJson(res, result.status, result.body);
       }
     }
-    const league = await leagueApi(method, path, query, auth, {
+    const league = await leagueApi(method, path, query, auth ? { ...auth, ...(leagueTestSession ? { test: true } : {}) } : undefined, {
       store: leagueStore,
       readBody: (max) => readRawCapped(req, max),
       declaredTooLarge: (max) => declaredTooLarge(req, max),

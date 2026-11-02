@@ -4,10 +4,15 @@
 import { computed, inject, onMounted, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { API_KEY } from "../app";
+import { SESSION_KEY } from "../session";
+import { canCreateLeague } from "../leagues/lifecycle";
 import { createLeagueList, initials, LEAGUE_LIST_KEY, RULESET_TONE, safeArtUrl, SEASON_STATUS_LABEL, seasonDates } from "../leagues/league";
 import "../leagues/leagues.css";
 
 const fetcher = inject(API_KEY)!;
+const session = inject(SESSION_KEY, null);
+// Lane L5: site organisers and admins start a league here (the wizard at /leagues/new).
+const canCreate = computed(() => canCreateLeague(session?.state.info));
 const list = inject(LEAGUE_LIST_KEY, null) ?? createLeagueList({ api: fetcher });
 const { state } = list;
 const broken = ref<Record<string, boolean>>({});
@@ -18,6 +23,7 @@ onMounted(() => { if (!state.loaded) void list.load(); });
 
 <template>
   <div class="hm-page lg-page">
+    <div v-if="canCreate" class="sf-btn-row lg-list-tools"><RouterLink class="sf-btn primary" :to="{ name: 'league-new' }">Create league</RouterLink></div>
     <p v-if="state.error" class="lobby-error" role="alert">{{ state.error }}</p>
     <p v-else-if="!state.loaded" class="hm-empty" role="status">Loading leagues...</p>
     <section v-else-if="!state.leagues.length" class="hm-panel" aria-labelledby="lg-none-h">
@@ -39,6 +45,7 @@ onMounted(() => { if (!state.loaded) void list.load(); });
           <h3 :id="`lg-${c.l.id}`" class="lg-card-name">
             <img v-if="c.logo && !broken[`l:${c.l.id}`]" class="lg-card-logo" :src="c.logo" alt="" @error="broken[`l:${c.l.id}`] = true" />
             <RouterLink :to="{ name: 'league-detail', params: { id: c.l.id } }">{{ c.l.name }}</RouterLink>
+            <span v-if="c.l.visibility === 'draft'" class="sf-chip" data-tone="muted">Draft</span>
           </h3>
           <p v-if="c.l.fullName && c.l.fullName !== c.l.name" class="lg-card-full">{{ c.l.fullName }}</p>
           <dl class="tl-facts">

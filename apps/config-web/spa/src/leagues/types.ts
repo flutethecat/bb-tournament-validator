@@ -16,6 +16,8 @@ export interface SeasonSummary {
   champion?: { coach: string; team: string; race: string };
   /** Finished on this site (Finish season wrote a podium record): the organiser may reopen it. */
   finishedHere?: boolean;
+  /** Lane L5: setup | registration | active | completed (absent from older servers = derived from status). */
+  stage?: "setup" | "registration" | "active" | "completed";
 }
 
 export interface LeagueSummary {
@@ -32,6 +34,8 @@ export interface LeagueSummary {
   bannerUrl?: string;
   seasonCount: number;
   currentSeason?: SeasonSummary;
+  /** Lane L5: "draft" = only its organisers and admins see it. */
+  visibility?: "draft";
 }
 
 export interface FixtureSide {

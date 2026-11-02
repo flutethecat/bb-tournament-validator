@@ -15,8 +15,9 @@
  *
  * The builder addresses the package by the marker "league:<leagueId>:<seasonId>" (leagueBuilderMarker.ts).
  *
- * Registration window: L0 (registration core) adds the season's window. Until it lands, "registration open" is the
- * league's Allow registration setting on a season that is not finished (registrationOpen).
+ * Registration window (lane L5): the season's own registration settings (seasonRegistration.ts, the league's as defaults)
+ * through the registration core's window: "registration open" = seasonWindowStatus (registrationOpen); allowed rosters,
+ * max teams and max per race are the season's.
  */
 import { readFileSync } from "node:fs";
 import { findRoster, loadPackage, type TournamentPackage } from "@bb/validator";
@@ -24,7 +25,9 @@ import { bb2025 } from "@bb/validator/dataset";
 import { leaguePackageName, parseLeaguePackageName } from "../leagueBuilderMarker.js";
 import type { ResolvedBuilderPackage } from "../teamBuilderPackage.js";
 import { effectiveInducements, inducementConfigOf } from "./inducements.js";
-import { registrationsOf, teamBuildingTable } from "./settings.js";
+import { isDraftLeague } from "./lifecycle.js";
+import { seasonRegistrationOf, seasonWindowStatus } from "./seasonRegistration.js";
+import { teamBuildingTable } from "./settings.js";
 import type { LeagueStore } from "./store.js";
 import type { LeagueRecord, LeagueRegistrations, SeasonRecord } from "./types.js";
 
@@ -67,9 +70,9 @@ export function rosterAllowed(name: string, allowed: LeagueRegistrations["allowe
 
 // ---- the season ----
 
-/** Registration is open (until L0's window lands): the league allows registration and the season is not finished. */
-export const registrationOpen = (league: LeagueRecord, season: Pick<SeasonRecord, "status">): boolean =>
-  registrationsOf(league).allowRegistration && season.status !== "completed";
+/** Self-registration is open now: the season's window (seasonRegistration.ts seasonWindowStatus). */
+export const registrationOpen = (league: LeagueRecord, season: SeasonRecord, now: Date = new Date()): boolean =>
+  seasonWindowStatus(league, season, now).open;
 
 /** Teams per race already in the season (dataset names). */
 export function seasonRaceCounts(season: Pick<SeasonRecord, "teams">): Map<string, number> {
@@ -87,7 +90,7 @@ export const leagueBuilderLabel = (league: Pick<LeagueRecord, "name">, season: P
 
 /** The team problems the league adds to the validator's: a roster outside the allowed classes, a race at its season cap. */
 export function leagueRaceProblems(league: LeagueRecord, season: SeasonRecord, raceName: string, naf?: readonly string[]): string[] {
-  const regs = registrationsOf(league);
+  const regs = seasonRegistrationOf(league, season);
   const race = canonicalRace(raceName);
   const out: string[] = [];
   const allowed = rosterAllowed(race, regs.allowedRosters, naf);
@@ -103,7 +106,7 @@ export function leagueRaceProblems(league: LeagueRecord, season: SeasonRecord, r
 /** The season's team-building rules as a validator package (see the header for what each rule maps to). */
 export function leagueSeasonPackage(league: LeagueRecord, season: SeasonRecord, naf?: readonly string[]): TournamentPackage {
   const table = teamBuildingTable(season);
-  const regs = registrationsOf(league);
+  const regs = seasonRegistrationOf(league, season);
   const rows = table.rosters.filter((r) => rosterAllowed(r.roster, regs.allowedRosters, naf).allowed);
   const tiers = [...new Set(rows.map((r) => r.tier))].sort((a, b) => a - b).map((tier) => ({
     tier, label: `Tier ${tier}`, rosters: rows.filter((r) => r.tier === tier).map((r) => r.roster), gold: null,
@@ -163,8 +166,8 @@ export interface LeagueBuilderContext {
     maxRegistrations: number | null;
     allowedRosters: LeagueRegistrations["allowedRosters"];
     teams: number;
-    /** Until L0's registration window lands, "open" follows Allow registration. */
-    source: "allowRegistration";
+    /** "open" is the season's registration window (lane L5). */
+    source: "window";
   };
   races: LeagueBuilderRace[];
   eliteSkills: string[];
@@ -174,7 +177,7 @@ export interface LeagueBuilderContext {
 
 export function leagueBuilderContext(league: LeagueRecord, season: SeasonRecord, naf?: readonly string[]): LeagueBuilderContext {
   const table = teamBuildingTable(season);
-  const regs = registrationsOf(league);
+  const regs = seasonRegistrationOf(league, season);
   const counts = seasonRaceCounts(season);
   const races = table.rosters.map((r): LeagueBuilderRace => {
     const cls = rosterClasses(r.roster, naf);
@@ -194,7 +197,7 @@ export function leagueBuilderContext(league: LeagueRecord, season: SeasonRecord,
     packageName: leaguePackageName(league.id, season.id),
     registration: {
       open: registrationOpen(league, season), allowRegistration: regs.allowRegistration, maxPerRace: regs.maxPerRace,
-      maxRegistrations: regs.maxRegistrations, allowedRosters: { ...regs.allowedRosters }, teams: season.teams?.length ?? 0, source: "allowRegistration",
+      maxRegistrations: regs.maxRegistrations, allowedRosters: { ...regs.allowedRosters }, teams: season.teams?.length ?? 0, source: "window",
     },
     races,
     eliteSkills: [...table.eliteSkills],
@@ -213,7 +216,9 @@ export const LEAGUE_ROSTER_NOT_IN_TABLE = "This roster isn't in this league's te
 export function resolveLeaguePackage(store: Pick<LeagueStore, "league" | "season">, name: string | undefined): ResolvedBuilderPackage | { error: string } | undefined {
   const ref = parseLeaguePackageName(name);
   if (!ref) return undefined;
-  const league = store.league(ref.leagueId);
+  // A draft league (lifecycle.ts) is no league to the builder: its name never reaches a save, a share or a preview.
+  const found = store.league(ref.leagueId);
+  const league = found && !isDraftLeague(found) ? found : undefined;
   const season = league ? store.season(league.id, ref.seasonId) : undefined;
   if (!league || !season) return { error: LEAGUE_UNKNOWN };
   const pkg = leagueSeasonPackage(league, season);
