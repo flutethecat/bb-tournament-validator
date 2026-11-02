@@ -153,7 +153,23 @@ onUnmounted(() => { if (typeof window !== "undefined") window.removeEventListene
 <template>
   <div v-if="picker && slot" class="tn-modal-backdrop" @click.self="close()">
     <div ref="dialog" class="tn-modal tn-panel tb-modal" role="dialog" aria-modal="true" aria-labelledby="tb-picker-h" tabindex="-1">
-      <h3 id="tb-picker-h" class="tn-band">{{ heading }}<button type="button" class="tn-modal-x" aria-label="Close" @click="close()">×</button></h3>
+      <div class="tb-adv-head">
+        <h3 class="tn-band">
+          <span id="tb-picker-h" class="tb-band-title">{{ heading }}</span>
+          <span class="tb-band-tools">
+            <button ref="resetBtn" type="button" class="tb-reset-plate" :class="{ off: nothingToReset }" :aria-disabled="nothingToReset ? 'true' : undefined"
+              :aria-expanded="confirming ? 'true' : undefined" :title="resetTitle" aria-label="Reset player to base" @click="askReset()"><span class="tb-reset-caption" aria-hidden="true">Reset</span></button>
+            <button type="button" class="tn-modal-x" aria-label="Close" @click="close()">×</button>
+          </span>
+        </h3>
+        <div v-if="confirming" class="tb-adv-pop" role="alert">
+          <span class="tb-adv-confirm-text">{{ confirmText }}</span>
+          <span class="tb-adv-pop-btns">
+            <button type="button" class="sf-btn small danger" @click="doReset()">Confirm</button>
+            <button ref="cancelBtn" type="button" class="sf-btn small" @click="stopReset()">Cancel</button>
+          </span>
+        </div>
+      </div>
       <div class="tn-panel-body">
         <p v-if="picker.error" class="lobby-error" role="alert">{{ picker.error }}</p>
         <div class="tb-adv-top" :class="{ 'with-stats': steps.length }">
@@ -199,20 +215,6 @@ onUnmounted(() => { if (typeof window !== "undefined") window.removeEventListene
             </button>
             <button v-if="chip(k).added" type="button" class="tb-chip-x" :aria-label="`Remove ${k.skill}`" @click="builder.removeSkill(picker.index, k.skill)">×</button>
           </span>
-        </div>
-        <div class="tb-adv-foot" role="group" aria-label="Reset this player">
-          <template v-if="!confirming">
-            <span class="tb-reset-plate" :class="{ off: nothingToReset }">
-              <span class="tb-reset-caption" aria-hidden="true">Reset</span>
-              <button ref="resetBtn" type="button" class="tb-adv-reset" :aria-disabled="nothingToReset ? 'true' : undefined"
-                :title="resetTitle" aria-label="Reset player to base" @click="askReset()"></button>
-            </span>
-          </template>
-          <template v-else>
-            <span class="tb-adv-confirm-text" role="alert">{{ confirmText }}</span>
-            <button type="button" class="sf-btn small danger" @click="doReset()">Confirm</button>
-            <button ref="cancelBtn" type="button" class="sf-btn small" @click="stopReset()">Cancel</button>
-          </template>
         </div>
       </div>
     </div>

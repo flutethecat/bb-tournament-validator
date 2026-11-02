@@ -16,13 +16,7 @@
   --tb-reset-plate-hi: #e6e6e1;
   --tb-reset-plate-line: #6b6b67;
   --tb-reset-label: #8f0008;
-  --tb-reset-cap-top: #3c3c3e;
-  --tb-reset-cap-bottom: #0a0a0b;
-  --tb-reset-cap-line: #000000;
-  --tb-reset-cap-drop: #000000;
   --tb-reset-plate-shade: rgb(0 0 0 / 18%);
-  --tb-reset-cap-gloss: rgb(255 255 255 / 22%);
-  --tb-reset-cap-gloss-down: rgb(255 255 255 / 12%);
   --tb-num-outline: -1px -1px 0 #000000, 1px -1px 0 #000000, -1px 1px 0 #000000, 1px 1px 0 #000000, 0 0 4px rgb(0 0 0 / 80%);
 }
 :root[data-theme="light"] .tb-page {
@@ -33,13 +27,7 @@
   --tb-reset-plate-hi: #e6e6e1;
   --tb-reset-plate-line: #6b6b67;
   --tb-reset-label: #8f0008;
-  --tb-reset-cap-top: #3c3c3e;
-  --tb-reset-cap-bottom: #0a0a0b;
-  --tb-reset-cap-line: #000000;
-  --tb-reset-cap-drop: #000000;
   --tb-reset-plate-shade: rgb(0 0 0 / 18%);
-  --tb-reset-cap-gloss: rgb(255 255 255 / 22%);
-  --tb-reset-cap-gloss-down: rgb(255 255 255 / 12%);
   --tb-skillbar-muted: #232529; /* >= 4.5:1 on the light band */
   --tb-secondary-bar: #121212; /* white would vanish on the light chips: the light preset's ink */
   --tb-num-outline: -1px -1px 0 #000000, 1px -1px 0 #000000, -1px 1px 0 #000000, 1px 1px 0 #000000, 0 0 4px rgb(0 0 0 / 80%);
@@ -456,25 +444,31 @@
 .tb-adv-step[data-dir="up"] { color: var(--ui-text-on-primary); background: var(--ui-primary); }
 .tb-adv-step:hover:not([aria-disabled="true"]) { border-color: var(--ui-heading); }
 .tb-adv-step[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
-.tb-adv-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 10px; padding-top: 8px; border-top: 1px solid var(--sf-panel-line); }
-.tb-adv-confirm-text { flex: 1 1 220px; font-size: 14px; color: var(--ui-text); }
-/* Reset: an old-school console reset switch, CSS only. A grey plate with the red caption printed on it and a black push cap. */
+/* Reset lives in the dialog's red header, just left of the close ×; the header keeps its normal height. */
+.tb-adv-head { position: relative; }
+.tb-adv-head .tn-band { min-width: 0; }
+.tb-band-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tb-band-tools { flex: none; display: inline-flex; align-items: center; gap: 4px; }
+.tb-adv-pop {
+  position: absolute; z-index: 3; top: calc(100% + 6px); right: 8px; width: min(340px, calc(100% - 16px)); box-sizing: border-box;
+  display: grid; gap: 8px; padding: 10px 12px; background: var(--ui-surface); color: var(--ui-text);
+  border: 2px solid var(--ui-border); border-radius: 4px; box-shadow: 0 6px 0 var(--sf-panel-drop, rgb(0 0 0 / 35%));
+}
+.tb-adv-confirm-text { font-size: 14px; color: var(--ui-text); }
+.tb-adv-pop-btns { display: flex; justify-content: flex-end; gap: 8px; }
+/* Reset: a light-grey plate with the red caption printed on it; the whole plate is the button. */
 .tb-reset-plate {
-  display: inline-flex; align-items: center; gap: 12px; padding: 6px 8px 6px 12px; box-sizing: border-box;
+  position: relative; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; height: 28px; margin: 0 2px 2px 0; padding: 0 12px; cursor: pointer; font: inherit;
   background: linear-gradient(var(--tb-reset-plate-hi), var(--tb-reset-plate) 28%, var(--tb-reset-plate));
   border: 2px solid var(--tb-reset-plate-line); border-radius: 3px; box-shadow: inset 0 1px 0 var(--tb-reset-plate-hi), inset 0 -2px 0 var(--tb-reset-plate-shade), 0 2px 0 var(--tb-reset-plate-line);
+  transition: transform .06s ease, box-shadow .06s ease, filter .06s ease;
 }
-.tb-reset-caption { font: 11px/1 var(--sf-band-font); text-transform: uppercase; letter-spacing: .22em; color: var(--tb-reset-label); }
-.tb-adv-reset {
-  box-sizing: border-box; width: 52px; height: 28px; margin: 0 0 3px; padding: 0; cursor: pointer; border-radius: 5px;
-  background: linear-gradient(var(--tb-reset-cap-top), var(--tb-reset-cap-bottom)); border: 2px solid var(--tb-reset-cap-line);
-  box-shadow: inset 0 1px 0 var(--tb-reset-cap-gloss), 0 3px 0 var(--tb-reset-cap-drop); transition: transform .06s ease, box-shadow .06s ease, filter .06s ease;
-}
-.tb-adv-reset:hover:not([aria-disabled="true"]) { filter: brightness(1.35); }
-.tb-adv-reset:active:not([aria-disabled="true"]) { transform: translateY(2px); box-shadow: inset 0 1px 0 var(--tb-reset-cap-gloss-down), 0 1px 0 var(--tb-reset-cap-drop); }
-.tb-adv-reset:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 3px; }
-.tb-reset-plate.off { border-style: dashed; background: var(--tb-reset-plate); }
-.tb-adv-reset[aria-disabled="true"] { cursor: not-allowed; background: var(--tb-reset-cap-top); border-color: var(--tb-reset-plate-line); box-shadow: none; margin-bottom: 0; transform: translateY(3px); }
+.tb-reset-plate::after { content: ""; position: absolute; inset: -8px -4px; } /* a 40 px+ touch target around the 28 px plate */
+.tb-reset-caption { font: 11px/1 var(--sf-band-font); text-transform: uppercase; letter-spacing: .2em; color: var(--tb-reset-label); }
+.tb-reset-plate:hover:not([aria-disabled="true"]) { filter: brightness(.93); }
+.tb-reset-plate:active:not([aria-disabled="true"]) { transform: translateY(1px); box-shadow: inset 0 1px 0 var(--tb-reset-plate-hi), inset 0 -2px 0 var(--tb-reset-plate-shade), 0 1px 0 var(--tb-reset-plate-line); }
+.tb-reset-plate:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 3px; }
+.tb-reset-plate.off, .tb-reset-plate[aria-disabled="true"] { border-style: dashed; cursor: not-allowed; background: var(--tb-reset-plate); box-shadow: none; opacity: .75; }
 .tb-adv-note { margin: 0; font-size: 14px; }
 @media (max-width: 640px) {
   .tb-adv-top.with-stats { grid-template-columns: minmax(0, 1fr); }
