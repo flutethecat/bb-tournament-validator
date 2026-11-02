@@ -22,6 +22,7 @@ import type {
   TournamentNewsPost,
   TournamentPrimaryTiebreaker,
   TournamentRecord,
+  TournamentRegistrationSettings,
   TournamentRoundRecord,
   TournamentSeriesRecord,
   VerifiedCoachIdentity,
@@ -391,6 +392,122 @@ function logActivity(data: TournamentDataFileV4, tournamentId: string, entry: To
   data.tournaments[tournamentId] = { ...t, activity: [entry, ...(t.activity ?? [])].slice(0, TOURNAMENT_ACTIVITY_CAP), updatedAt: at };
 }
 
+/** The settings change behind updateTournament (and a wizard create, inside the same mutation). Throws before any write. */
+function applyTournamentUpdate(data: TournamentDataFileV4, tournamentId: string, patch: TournamentUpdate, now: Date): TournamentRecord {
+  const tournament = data.tournaments[tournamentId];
+  if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
+  if (patch.primaryTiebreaker !== undefined && tournament.status === "completed")
+    throw new TournamentStoreError(400, "Ranking is locked once the tournament is completed.");
+  const entrantCount = Object.values(data.entrants)
+    .filter((entrant) => entrant.tournamentId === tournamentId && entrant.droppedAt === undefined).length;
+  if (patch.maxPlayers !== undefined && patch.maxPlayers < entrantCount)
+    throw new TournamentStoreError(400, `maxPlayers cannot be below the current non-dropped entrant count of ${entrantCount}.`);
+  if (patch.maxPlayers !== undefined && patch.maxPlayers < 2)
+    throw new TournamentStoreError(400, "maxPlayers must be at least 2.");
+  const resultingFormat = patch.format ?? tournament.format;
+  if (patch.roundCount !== undefined) {
+    if (resultingFormat !== "swiss")
+      throw new TournamentStoreError(400, "roundCount can be set only for Swiss tournaments.");
+    if (patch.roundCount < 1 || patch.roundCount < tournament.currentRound || patch.roundCount > 50)
+      throw new TournamentStoreError(400, `roundCount must be between ${Math.max(1, tournament.currentRound)} and 50.`);
+  }
+  const hasRounds = Object.values(data.rounds).some((round) => round.tournamentId === tournamentId);
+  if (patch.format !== undefined && hasRounds)
+    throw new TournamentStoreError(400, "Format is locked once rounds exist.");
+  if (patch.packageName !== undefined && hasRounds)
+    throw new TournamentStoreError(400, "Ruleset is locked once rounds exist.");
+  if (patch.startsAt !== undefined && patch.startsAt !== "" &&
+    (!ISO_DATE_TIME.test(patch.startsAt) || !Number.isFinite(Date.parse(patch.startsAt))))
+    throw new TournamentStoreError(400, "startsAt must be an ISO-8601 timestamp.");
+  if (patch.endsAt !== undefined && patch.endsAt !== "" &&
+    (!ISO_DATE_TIME.test(patch.endsAt) || !Number.isFinite(Date.parse(patch.endsAt))))
+    throw new TournamentStoreError(400, "endsAt must be an ISO-8601 timestamp.");
+  const resultingStart = patch.startsAt === "" ? undefined : patch.startsAt ?? tournament.startsAt;
+  const resultingEnd = patch.endsAt === "" ? undefined : patch.endsAt ?? tournament.endsAt;
+  if (resultingStart && resultingEnd && Date.parse(resultingEnd) < Date.parse(resultingStart))
+    throw new TournamentStoreError(400, "endsAt must not be before startsAt.");
+  if (patch.pairingSystem !== undefined && !TOURNAMENT_PAIRING_SYSTEMS.includes(patch.pairingSystem))
+    throw new TournamentStoreError(400, "pairingSystem must be dutch, monrad or eloSeeded.");
+  if (patch.seedingMode !== undefined && !TOURNAMENT_SEEDING_MODES.includes(patch.seedingMode))
+    throw new TournamentStoreError(400, "seedingMode must be elo or manual.");
+  if (patch.organizerCoachId !== undefined && (!patch.organizerCoachId.trim() || patch.organizerCoachId.trim().length > 40))
+    throw new TournamentStoreError(400, "organizerCoachId must be a non-empty coach id of at most 40 characters.");
+  if (patch.turnTimer !== undefined) {
+    const t = patch.turnTimer;
+    if (!["off", "optional", "required"].includes(t.enforced))
+      throw new TournamentStoreError(400, "turnTimer.enforced must be off, optional or required.");
+    if (!Number.isInteger(t.seconds) || t.seconds < 30 || t.seconds > 3600)
+      throw new TournamentStoreError(400, "turnTimer.seconds must be a whole number from 30 to 3600.");
+  }
+  if (patch.inducementOptIns !== undefined) {
+    const list = patch.inducementOptIns;
+    if (!Array.isArray(list) || list.length > 20 || list.some((k) => typeof k !== "string" || !k.trim() || k.length > 40))
+      throw new TournamentStoreError(400, "inducementOptIns must be a list of at most 20 inducement keys.");
+    tournament.inducementOptIns = [...new Set(list.map((k) => k.trim()))];
+  }
+  if (patch.turnTimer !== undefined) tournament.turnTimer = { enforced: patch.turnTimer.enforced, seconds: patch.turnTimer.seconds };
+  if (patch.maxPlayers !== undefined) tournament.maxPlayers = patch.maxPlayers;
+  if (patch.format !== undefined) tournament.format = patch.format;
+  if (patch.packageName !== undefined && patch.packageName !== tournament.packageName) {
+    tournament.packageName = patch.packageName;
+    invalidateRosterChecks(data, tournamentId, now.toISOString());
+  }
+  if (patch.primaryTiebreaker !== undefined) {
+    tournament.tiebreakers = tiebreakerLadder(patch.primaryTiebreaker);
+    delete data.standings[tournamentId];
+  }
+  if (patch.startsAt === "") delete tournament.startsAt;
+  else if (patch.startsAt !== undefined) tournament.startsAt = patch.startsAt;
+  if (patch.endsAt === "") delete tournament.endsAt;
+  else if (patch.endsAt !== undefined) tournament.endsAt = patch.endsAt;
+  if (patch.pairingSystem !== undefined) tournament.pairingSystem = patch.pairingSystem;
+  if (patch.seedingMode !== undefined) tournament.seedingMode = patch.seedingMode;
+  if (patch.playOnFork === true) tournament.playOnFork = true;
+  else if (patch.playOnFork === false) delete tournament.playOnFork;
+  if (patch.nafSanctioned === true && tournament.nafSanctioned !== true) {
+    tournament.nafSanctioned = true;
+    // Entries made before the tournament was sanctioned owe a NAF answer now.
+    for (const entrant of Object.values(data.entrants)) {
+      if (entrant.tournamentId !== tournamentId || entrant.droppedAt !== undefined) continue;
+      if (!entrant.nafNumber && !entrant.notNafMember) entrant.nafPending = true;
+    }
+  } else if (patch.nafSanctioned === false && tournament.nafSanctioned === true) {
+    delete tournament.nafSanctioned;
+    for (const entrant of Object.values(data.entrants)) if (entrant.tournamentId === tournamentId) delete entrant.nafPending;
+  }
+  if (patch.organizerCoachId !== undefined) {
+    tournament.organizerCoachId = patch.organizerCoachId.trim();
+    tournament.ownerCoachId = tournament.organizerCoachId;
+  }
+  if (patch.roundCount !== undefined) {
+    tournament.roundCount = patch.roundCount;
+    tournament.roundCountExplicit = true;
+  } else if (!hasRounds && (patch.maxPlayers !== undefined || patch.format !== undefined) &&
+    (tournament.format !== "swiss" || tournament.roundCountExplicit !== true)) {
+    // Explicit Swiss counts survive unrelated maxPlayers edits; derived formats/counts do not.
+    tournament.roundCount = tournament.format === "roundRobin"
+      ? tournament.maxPlayers - (tournament.maxPlayers % 2 === 0 ? 1 : 0)
+      : Math.max(1, Math.ceil(Math.log2(tournament.maxPlayers)));
+    tournament.roundCountExplicit = false;
+  }
+  tournament.updatedAt = now.toISOString();
+  return tournament;
+}
+
+/** The page-field change behind updatePage (and a wizard create, inside the same mutation). */
+function applyPagePatch(data: TournamentDataFileV4, tournamentId: string, patch: TournamentPagePatch, now: Date): TournamentRecord {
+  const tournament = data.tournaments[tournamentId];
+  if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
+  for (const field of ["location", "startTime", "entryFee", "summary", "notes", "deadlines"] as const) {
+    const value = patch[field];
+    if (value === undefined) continue;
+    if (value === null) delete tournament[field];
+    else (tournament as unknown as Record<string, unknown>)[field] = structuredClone(value);
+  }
+  tournament.updatedAt = now.toISOString();
+  return tournament;
+}
+
 export class TournamentStoreError extends Error {
   constructor(readonly status: 400 | 401 | 403 | 404 | 409 | 428 | 503, message: string) {
     super(message);
@@ -444,6 +561,15 @@ export class TournamentStore {
       nafSanctioned?: boolean;
       /** Create inside a series: the tournament joins it and takes the series seeding as its pairing default. */
       seriesId?: string;
+      /** Created by a test sign-in session (registration spec Q13): marked test. */
+      test?: boolean;
+      /** The creation wizard (lane L3): "draft" = hidden until a manager publishes it, "published" = public now. Absent =
+       *  the old create route (public, as before). */
+      publication?: "draft" | "published";
+      /** Wizard fields applied in the same mutation (validated by the caller; the store re-checks the settings). */
+      settings?: TournamentUpdate;
+      page?: TournamentPagePatch;
+      registration?: TournamentRegistrationSettings;
     },
     now = new Date(),
   ): TournamentRecord {
@@ -480,6 +606,10 @@ export class TournamentStore {
         pairingSystem: "dutch",
         seedingMode: "elo",
         ...(input.nafSanctioned ? { nafSanctioned: true } : {}),
+        ...(input.test ? { test: true as const } : {}),
+        ...(input.publication === "draft" ? { unpublished: true as const } : {}),
+        ...(input.publication === "published" ? { publishedAt: timestamp } : {}),
+        ...(input.registration ? { registration: structuredClone(input.registration) } : {}),
         createdAt: timestamp,
         updatedAt: timestamp,
       };
@@ -494,7 +624,45 @@ export class TournamentStore {
         series.updatedAt = timestamp;
       }
       data.tournaments[record.id] = record;
-      return record;
+      // Wizard fields: the same checks as the Manage routes; a refusal throws before the file is written.
+      if (input.settings && Object.keys(input.settings).length) applyTournamentUpdate(data, record.id, input.settings, now);
+      if (input.page && Object.keys(input.page).length) applyPagePatch(data, record.id, input.page, now);
+      return data.tournaments[record.id]!;
+    });
+  }
+
+  /** Publish (public, registration per its window) or unpublish (back to a hidden draft) a draft tournament (lane L3).
+   *  Unpublishing is refused while anyone is entered, so a hidden draft never holds a coach's entry. */
+  setPublished(tournamentId: string, published: boolean, now = new Date()): TournamentRecord {
+    return this.mutate((data) => {
+      const tournament = data.tournaments[tournamentId];
+      if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
+      if (published) {
+        if (tournament.unpublished !== true) return tournament;
+        delete tournament.unpublished;
+        tournament.publishedAt = now.toISOString();
+      } else {
+        if (tournament.unpublished === true) return tournament;
+        if (tournament.status !== "draft") throw new TournamentStoreError(409, "Only a draft tournament can be unpublished.");
+        const entered = Object.values(data.entrants).some((e) => e.tournamentId === tournamentId && e.droppedAt === undefined);
+        if (entered) throw new TournamentStoreError(409, "Coaches are entered. Withdraw their entries before unpublishing.");
+        tournament.unpublished = true;
+        delete tournament.publishedAt;
+      }
+      tournament.updatedAt = now.toISOString();
+      return tournament;
+    });
+  }
+
+  /** Replace (or clear, with null) a tournament's registration settings (validated by the caller). */
+  setRegistration(tournamentId: string, registration: TournamentRegistrationSettings | null, now = new Date()): TournamentRecord {
+    return this.mutate((data) => {
+      const tournament = data.tournaments[tournamentId];
+      if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
+      if (registration) tournament.registration = structuredClone(registration);
+      else delete tournament.registration;
+      tournament.updatedAt = now.toISOString();
+      return tournament;
     });
   }
 
@@ -503,122 +671,12 @@ export class TournamentStore {
     patch: TournamentUpdate,
     now = new Date(),
   ): TournamentRecord {
-    return this.mutate((data) => {
-      const tournament = data.tournaments[tournamentId];
-      if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
-      if (patch.primaryTiebreaker !== undefined && tournament.status === "completed")
-        throw new TournamentStoreError(400, "Ranking is locked once the tournament is completed.");
-      const entrantCount = Object.values(data.entrants)
-        .filter((entrant) => entrant.tournamentId === tournamentId && entrant.droppedAt === undefined).length;
-      if (patch.maxPlayers !== undefined && patch.maxPlayers < entrantCount)
-        throw new TournamentStoreError(400, `maxPlayers cannot be below the current non-dropped entrant count of ${entrantCount}.`);
-      if (patch.maxPlayers !== undefined && patch.maxPlayers < 2)
-        throw new TournamentStoreError(400, "maxPlayers must be at least 2.");
-      const resultingFormat = patch.format ?? tournament.format;
-      if (patch.roundCount !== undefined) {
-        if (resultingFormat !== "swiss")
-          throw new TournamentStoreError(400, "roundCount can be set only for Swiss tournaments.");
-        if (patch.roundCount < 1 || patch.roundCount < tournament.currentRound || patch.roundCount > 50)
-          throw new TournamentStoreError(400, `roundCount must be between ${Math.max(1, tournament.currentRound)} and 50.`);
-      }
-      const hasRounds = Object.values(data.rounds).some((round) => round.tournamentId === tournamentId);
-      if (patch.format !== undefined && hasRounds)
-        throw new TournamentStoreError(400, "Format is locked once rounds exist.");
-      if (patch.packageName !== undefined && hasRounds)
-        throw new TournamentStoreError(400, "Ruleset is locked once rounds exist.");
-      if (patch.startsAt !== undefined && patch.startsAt !== "" &&
-        (!ISO_DATE_TIME.test(patch.startsAt) || !Number.isFinite(Date.parse(patch.startsAt))))
-        throw new TournamentStoreError(400, "startsAt must be an ISO-8601 timestamp.");
-      if (patch.endsAt !== undefined && patch.endsAt !== "" &&
-        (!ISO_DATE_TIME.test(patch.endsAt) || !Number.isFinite(Date.parse(patch.endsAt))))
-        throw new TournamentStoreError(400, "endsAt must be an ISO-8601 timestamp.");
-      const resultingStart = patch.startsAt === "" ? undefined : patch.startsAt ?? tournament.startsAt;
-      const resultingEnd = patch.endsAt === "" ? undefined : patch.endsAt ?? tournament.endsAt;
-      if (resultingStart && resultingEnd && Date.parse(resultingEnd) < Date.parse(resultingStart))
-        throw new TournamentStoreError(400, "endsAt must not be before startsAt.");
-      if (patch.pairingSystem !== undefined && !TOURNAMENT_PAIRING_SYSTEMS.includes(patch.pairingSystem))
-        throw new TournamentStoreError(400, "pairingSystem must be dutch, monrad or eloSeeded.");
-      if (patch.seedingMode !== undefined && !TOURNAMENT_SEEDING_MODES.includes(patch.seedingMode))
-        throw new TournamentStoreError(400, "seedingMode must be elo or manual.");
-      if (patch.organizerCoachId !== undefined && (!patch.organizerCoachId.trim() || patch.organizerCoachId.trim().length > 40))
-        throw new TournamentStoreError(400, "organizerCoachId must be a non-empty coach id of at most 40 characters.");
-      if (patch.turnTimer !== undefined) {
-        const t = patch.turnTimer;
-        if (!["off", "optional", "required"].includes(t.enforced))
-          throw new TournamentStoreError(400, "turnTimer.enforced must be off, optional or required.");
-        if (!Number.isInteger(t.seconds) || t.seconds < 30 || t.seconds > 3600)
-          throw new TournamentStoreError(400, "turnTimer.seconds must be a whole number from 30 to 3600.");
-      }
-      if (patch.inducementOptIns !== undefined) {
-        const list = patch.inducementOptIns;
-        if (!Array.isArray(list) || list.length > 20 || list.some((k) => typeof k !== "string" || !k.trim() || k.length > 40))
-          throw new TournamentStoreError(400, "inducementOptIns must be a list of at most 20 inducement keys.");
-        tournament.inducementOptIns = [...new Set(list.map((k) => k.trim()))];
-      }
-      if (patch.turnTimer !== undefined) tournament.turnTimer = { enforced: patch.turnTimer.enforced, seconds: patch.turnTimer.seconds };
-      if (patch.maxPlayers !== undefined) tournament.maxPlayers = patch.maxPlayers;
-      if (patch.format !== undefined) tournament.format = patch.format;
-      if (patch.packageName !== undefined && patch.packageName !== tournament.packageName) {
-        tournament.packageName = patch.packageName;
-        invalidateRosterChecks(data, tournamentId, now.toISOString());
-      }
-      if (patch.primaryTiebreaker !== undefined) {
-        tournament.tiebreakers = tiebreakerLadder(patch.primaryTiebreaker);
-        delete data.standings[tournamentId];
-      }
-      if (patch.startsAt === "") delete tournament.startsAt;
-      else if (patch.startsAt !== undefined) tournament.startsAt = patch.startsAt;
-      if (patch.endsAt === "") delete tournament.endsAt;
-      else if (patch.endsAt !== undefined) tournament.endsAt = patch.endsAt;
-      if (patch.pairingSystem !== undefined) tournament.pairingSystem = patch.pairingSystem;
-      if (patch.seedingMode !== undefined) tournament.seedingMode = patch.seedingMode;
-      if (patch.playOnFork === true) tournament.playOnFork = true;
-      else if (patch.playOnFork === false) delete tournament.playOnFork;
-      if (patch.nafSanctioned === true && tournament.nafSanctioned !== true) {
-        tournament.nafSanctioned = true;
-        // Entries made before the tournament was sanctioned owe a NAF answer now.
-        for (const entrant of Object.values(data.entrants)) {
-          if (entrant.tournamentId !== tournamentId || entrant.droppedAt !== undefined) continue;
-          if (!entrant.nafNumber && !entrant.notNafMember) entrant.nafPending = true;
-        }
-      } else if (patch.nafSanctioned === false && tournament.nafSanctioned === true) {
-        delete tournament.nafSanctioned;
-        for (const entrant of Object.values(data.entrants)) if (entrant.tournamentId === tournamentId) delete entrant.nafPending;
-      }
-      if (patch.organizerCoachId !== undefined) {
-        tournament.organizerCoachId = patch.organizerCoachId.trim();
-        tournament.ownerCoachId = tournament.organizerCoachId;
-      }
-      if (patch.roundCount !== undefined) {
-        tournament.roundCount = patch.roundCount;
-        tournament.roundCountExplicit = true;
-      } else if (!hasRounds && (patch.maxPlayers !== undefined || patch.format !== undefined) &&
-        (tournament.format !== "swiss" || tournament.roundCountExplicit !== true)) {
-        // Explicit Swiss counts survive unrelated maxPlayers edits; derived formats/counts do not.
-        tournament.roundCount = tournament.format === "roundRobin"
-          ? tournament.maxPlayers - (tournament.maxPlayers % 2 === 0 ? 1 : 0)
-          : Math.max(1, Math.ceil(Math.log2(tournament.maxPlayers)));
-        tournament.roundCountExplicit = false;
-      }
-      tournament.updatedAt = now.toISOString();
-      return tournament;
-    });
+    return this.mutate((data) => applyTournamentUpdate(data, tournamentId, patch, now));
   }
 
   /** Tournament page fields (parsed by page.ts parsePagePatch): null clears a field. */
   updatePage(tournamentId: string, patch: TournamentPagePatch, now = new Date()): TournamentRecord {
-    return this.mutate((data) => {
-      const tournament = data.tournaments[tournamentId];
-      if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
-      for (const field of ["location", "startTime", "entryFee", "summary", "notes", "deadlines"] as const) {
-        const value = patch[field];
-        if (value === undefined) continue;
-        if (value === null) delete tournament[field];
-        else (tournament as unknown as Record<string, unknown>)[field] = structuredClone(value);
-      }
-      tournament.updatedAt = now.toISOString();
-      return tournament;
-    });
+    return this.mutate((data) => applyPagePatch(data, tournamentId, patch, now));
   }
 
   /** Records (or clears) the banner file path; the caller owns the file itself. */
@@ -699,6 +757,8 @@ export class TournamentStore {
     return this.mutate((data) => {
       const tournament = data.tournaments[tournamentId];
       if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
+      // An unpublished draft takes no entries from anyone (lane L3): publish it first.
+      if (tournament.unpublished === true) throw new TournamentStoreError(409, "Registration is not open yet.");
       if (!(["draft", "active"] as TournamentRecord["status"][]).includes(tournament.status))
         throw new TournamentStoreError(400, "Tournament registration is closed.");
       if (Object.values(data.rounds).some((round) => round.tournamentId === tournamentId && round.number === 1))
@@ -1022,6 +1082,7 @@ export class TournamentStore {
       const tournament = data.tournaments[tournamentId];
       if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
       if (tournament.status !== "draft") throw new TournamentStoreError(409, "Only a draft tournament can be started.");
+      if (tournament.unpublished === true) throw new TournamentStoreError(409, "Publish the tournament before starting it.");
       const field = Object.values(data.entrants).filter((entrant) => entrant.tournamentId === tournamentId && entrant.droppedAt === undefined);
       if (field.length < 2) throw new TournamentStoreError(409, "A tournament needs at least two entrants to start.");
       if (!tournament.rostersLockedAt) {

@@ -347,6 +347,7 @@ import { settleNafOwedEntries, tournamentApi } from "./tournaments/api.js";
 import { tournamentBannerApi, tournamentBannerPath } from "./tournaments/page.js";
 import { leagueApi, leaguePath } from "./leagues/api.js";
 import { seriesApi, seriesPath } from "./tournaments/series.js";
+import { hiddenTournamentPath, testSessionTournamentRefusal } from "./tournaments/publication.js";
 import { isLeagueOrganiser, LeagueStore } from "./leagues/store.js";
 import { myLeagueDeadlines, myLeagues } from "./leagues/myLeagues.js";
 import { runDeadlineJob } from "./leagues/deadlines.js";
@@ -2218,9 +2219,15 @@ async function handleApi(
   }
 
   if (path === "/api/tournaments" || path.startsWith("/api/tournaments/") || path === "/api/fork/tournaments" || path.startsWith("/api/fork/tournaments/") || path.startsWith("/api/scheduled-matches")) {
-    // A test sign-in session (src/auth/testLogin.ts) must never create real tournament or scheduled-match state.
-    if (WRITE_METHODS.has(method) && getSession(sessionTokenFromRequest(req))?.test)
-      return sendJson(res, 403, { error: "Test sign-in sessions cannot write tournament or scheduled-match data." });
+    // A test sign-in session (src/auth/testLogin.ts) never touches real tournament or scheduled-match state: it may create
+    // a tournament (marked test) and write only in tournaments marked test (registration spec Q13).
+    const tournamentTestSession = getSession(sessionTokenFromRequest(req))?.test === true;
+    if (WRITE_METHODS.has(method) && tournamentTestSession) {
+      const refusal = testSessionTournamentRefusal(tournamentStore, method, path);
+      if (refusal) return sendJson(res, 403, { error: refusal });
+    }
+    // An unpublished draft is seen only by its managers and admins: every route under it (banner, lobby, API) is a 404.
+    if (hiddenTournamentPath(tournamentStore, path, auth)) return sendJson(res, 404, { error: "Tournament not found." });
     // Tournament banner (raw image body, managers; public read): src/tournaments/page.ts, guards shared with team avatars.
     if (tournamentBannerPath(path) !== undefined) {
       const banner = await tournamentBannerApi(method, path, auth, {
@@ -2274,7 +2281,7 @@ async function handleApi(
     }
     const body = WRITE_METHODS.has(method) && method !== "DELETE" ? await readBody(req) : undefined;
     let eloSnapshot: ReturnType<typeof computeElo> | undefined;
-    const result = await tournamentApi(method, path, query, auth, body, {
+    const result = await tournamentApi(method, path, query, auth && tournamentTestSession ? { ...auth, test: true } : auth, body, {
       store: tournamentStore,
       teamBuild: (teamId) => libraryTeamForId(teamId),
       identityRecord: (coachId) => ownIdentityRecord(coachId),

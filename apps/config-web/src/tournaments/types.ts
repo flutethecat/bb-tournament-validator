@@ -44,6 +44,15 @@ export interface TournamentRecord {
   status: TournamentStatus;
   /** A test competition (registration spec Q13): the only kind a test sign-in may write in (src/registration/testSession.ts). */
   test?: true;
+  /** Registration spec §6 / Q3 (lane L3): set when a manager published the tournament. Informational; visibility follows
+   *  `unpublished` (src/tournaments/publication.ts). */
+  publishedAt?: string;
+  /** Set on a draft created unpublished by the wizard (or unpublished by a manager): only its managers and admins see it,
+   *  and nobody can register. Absent = published, so every record written before publishing existed (Q3: "existing
+   *  drafts count as published") and every record the old create route wrote stays public. */
+  unpublished?: true;
+  /** Registration settings (registration spec §2). Absent on legacy records (today's behaviour). */
+  registration?: TournamentRegistrationSettings;
   format: "swiss" | "roundRobin" | "knockout";
   packageName: string;
   /** Zero is accepted only for migrated legacy data and means uncapped. */
@@ -128,6 +137,24 @@ export interface TournamentAward {
   /** The giving organiser's (or admin's) account. */
   by: string;
   at: string;
+}
+
+/** A tournament's registration window settings (registration spec §2). One source per value: the cap is `maxPlayers`, the
+ *  close is `deadlines.registration` and the check-in close is `deadlines.checkIn` (the Manage → Page form keeps editing
+ *  those), so only the rest is stored here. */
+export interface TournamentRegistrationSettings {
+  /** Absent = open from publication. */
+  opensAt?: string;
+  /** Q5: tournaments auto-accept by default. */
+  approval: "auto" | "organiser";
+  /** Q6: on by default. */
+  waitlist: boolean;
+  /** Q4: "register now, roster later", on by default. */
+  rosterLater: boolean;
+  /** The roster deadline under "roster later". */
+  rosterBy?: string;
+  /** Q11: self check-in on by default; absent opensAt = 24 h before the start. */
+  checkIn: { self: boolean; opensAt?: string };
 }
 
 export interface TournamentLocation { venue?: string; address?: string; mapUrl?: string }

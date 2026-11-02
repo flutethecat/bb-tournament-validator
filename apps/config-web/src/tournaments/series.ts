@@ -14,6 +14,7 @@
 //
 // Writes send the revision they loaded (body `revision` or If-Match): 428 missing, 409 stale (the league settings pattern).
 
+import { visibleTournamentData } from "./publication.js";
 import { calculateStandings } from "./pairing.js";
 import { isTournamentManager, TournamentStore, TournamentStoreError, type SeriesInput } from "./store.js";
 import { SERIES_SCORING, SERIES_SEEDINGS } from "./types.js";
@@ -332,6 +333,11 @@ function seriesDetail(series: TournamentSeriesRecord, data: TournamentDataFileV4
   };
 }
 
+/** seriesDetail over the viewer's data, with the series' tournament list as that data has it (hidden drafts left out). */
+function seriesDetailVisible(series: TournamentSeriesRecord, data: TournamentDataFileV4, auth: SeriesApiIdentity | undefined) {
+  return seriesDetail(data.series?.[series.id] ?? series, data, auth);
+}
+
 // ---- routes -----------------------------------------------------------------------------------------------------------------
 
 export function seriesApi(
@@ -346,8 +352,8 @@ export function seriesApi(
   try {
     if (path === "/api/series") {
       if (method === "GET") {
-        const data = deps.store.snapshot();
-        return { status: 200, body: { series: deps.store.seriesList().map((s) => seriesSummary(s, data, auth)) } };
+        const data = visibleTournamentData(deps.store.snapshot(), auth);
+        return { status: 200, body: { series: deps.store.seriesList().map((s) => seriesSummary(data.series?.[s.id] ?? s, data, auth)) } };
       }
       if (method === "POST") {
         const identity = authenticated(auth);
@@ -383,12 +389,12 @@ export function seriesApi(
       const updated = method === "POST"
         ? deps.store.attachToSeries(seriesId, tournamentId, revision, now)
         : deps.store.detachFromSeries(seriesId, tournamentId, revision, now);
-      return { status: 200, body: seriesDetail(updated, deps.store.snapshot(), identity) };
+      return { status: 200, body: seriesDetailVisible(updated, visibleTournamentData(deps.store.snapshot(), auth), identity) };
     }
 
     const standings = path.match(/^\/api\/series\/([^/]+)\/standings$/);
     if (standings && method === "GET") {
-      const data = deps.store.snapshot();
+      const data = visibleTournamentData(deps.store.snapshot(), auth);
       const series = data.series?.[decoded(standings[1]!)] ?? fail(404, "Series not found.");
       return { status: 200, body: { seriesId: series.id, standings: computeSeriesStandings(series, data) } };
     }
@@ -397,7 +403,7 @@ export function seriesApi(
     if (detail) {
       const seriesId = decoded(detail[1]!);
       if (method === "GET") {
-        const data = deps.store.snapshot();
+        const data = visibleTournamentData(deps.store.snapshot(), auth);
         const series = data.series?.[seriesId] ?? fail(404, "Series not found.");
         return { status: 200, body: seriesDetail(series, data, auth) };
       }
@@ -416,7 +422,7 @@ export function seriesApi(
         if (patch.organisers !== undefined && patch.organisers.length === 0) fail(400, "A series needs at least one organiser.");
         for (const name of patch.organisers ?? []) assertNotFenced(name);
         const updated = deps.store.updateSeries(seriesId, revision, patch, now);
-        return { status: 200, body: seriesDetail(updated, deps.store.snapshot(), identity) };
+        return { status: 200, body: seriesDetailVisible(updated, visibleTournamentData(deps.store.snapshot(), auth), identity) };
       }
     }
     return undefined;

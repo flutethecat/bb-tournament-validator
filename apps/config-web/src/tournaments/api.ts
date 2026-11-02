@@ -3,6 +3,9 @@ import { generateTournamentPairings } from "./pairing.js";
 import { NafExportError, renderNafTournamentReport } from "./nafExport.js";
 import { isTournamentManager, tournamentOwner, TournamentStore, TournamentStoreError, type TournamentUpdate } from "./store.js";
 import { canEditSeries, seriesChip } from "./series.js";
+import {
+  assertRegistrationOrder, canSeeTournament, hiddenTournamentPath, parseRegistrationSettings, selfRegistrationStatus,
+} from "./publication.js";
 import { bannerUrl, NEWS_MAX_POSTS, newNewsPost, orderedNews, PAGE_FIELDS, parseNewsInput, parsePagePatch } from "./page.js";
 import { DEFAULT_ENTRANT_FLAGS, DEFAULT_TOURNAMENT_TURN_TIMER, TOURNAMENT_PAIRING_SYSTEMS, TOURNAMENT_SEEDING_MODES } from "./types.js";
 import type {
@@ -14,6 +17,7 @@ import type {
   TournamentSubmission,
   TournamentPrimaryTiebreaker,
   TournamentRecord,
+  TournamentRegistrationSettings,
   VerifiedCoachIdentity,
 } from "./types.js";
 import { tournamentLink, type TournamentNotify } from "../notifications.js";
@@ -28,6 +32,8 @@ export interface TournamentApiIdentity {
   coach: string;
   organizer: boolean;
   admin: boolean;
+  /** A test sign-in session (registration spec Q13): what it creates is marked test (server.ts gates its other writes). */
+  test?: boolean;
 }
 
 export interface TournamentApiDeps {
@@ -783,6 +789,57 @@ function visibleActivity(
     }));
 }
 
+/** The creation wizard's extra fields on POST /api/tournaments (lane L3), validated before anything is written: `publish`,
+ *  the settings the Manage route edits (dates, pairing, seeding, where it is played, turn timer), the page fields
+ *  (location, start time, entry fee, summary, notes, deadlines) and the registration settings. Absent `publish` = the old
+ *  dialog's body (nothing else is read, so the record is exactly what it made before). */
+function wizardCreateFields(input: Record<string, unknown>):
+  { fields: { publication?: "draft" | "published"; settings?: TournamentUpdate; page?: ReturnType<typeof parsePagePatch>; registration?: TournamentRegistrationSettings } } | { error: string } {
+  if (input.publish === undefined) return { fields: {} };
+  if (typeof input.publish !== "boolean") return { error: "publish must be true or false." };
+  try {
+    const settings: TournamentUpdate = {};
+    for (const key of ["startsAt", "endsAt"] as const) {
+      if (input[key] === undefined || input[key] === "") continue;
+      if (typeof input[key] !== "string") return { error: `${key} must be a string.` };
+      settings[key] = input[key] as string;
+    }
+    if (input.pairingSystem !== undefined) {
+      if (!TOURNAMENT_PAIRING_SYSTEMS.includes(input.pairingSystem as TournamentPairingSystem)) return { error: "pairingSystem must be dutch, monrad or eloSeeded." };
+      settings.pairingSystem = input.pairingSystem as TournamentPairingSystem;
+    }
+    if (input.seedingMode !== undefined) {
+      if (!TOURNAMENT_SEEDING_MODES.includes(input.seedingMode as TournamentSeedingMode)) return { error: "seedingMode must be elo or manual." };
+      settings.seedingMode = input.seedingMode as TournamentSeedingMode;
+    }
+    if (input.playOnFork !== undefined) {
+      if (typeof input.playOnFork !== "boolean") return { error: "playOnFork must be true or false." };
+      if (input.playOnFork) settings.playOnFork = true;
+    }
+    if (input.turnTimer !== undefined) {
+      const t = jsonObject(input.turnTimer);
+      const enforced = t.enforced === undefined ? DEFAULT_TOURNAMENT_TURN_TIMER.enforced : t.enforced;
+      if (enforced !== "off" && enforced !== "optional" && enforced !== "required") return { error: "turnTimer.enforced must be off, optional or required." };
+      settings.turnTimer = { enforced, seconds: t.seconds === undefined ? DEFAULT_TOURNAMENT_TURN_TIMER.seconds : integer(t.seconds, "turnTimer.seconds") };
+    }
+    const page = parsePagePatch(Object.fromEntries(PAGE_FIELDS.filter((f) => input[f] !== undefined).map((f) => [f, input[f]])));
+    for (const key of PAGE_FIELDS) if (page[key] === null) delete page[key];
+    const registration = input.registration === undefined || input.registration === null ? undefined : parseRegistrationSettings(input.registration);
+    assertRegistrationOrder(registration, page.deadlines ?? undefined, settings.startsAt);
+    return {
+      fields: {
+        publication: input.publish ? "published" : "draft",
+        ...(Object.keys(settings).length ? { settings } : {}),
+        ...(Object.keys(page).length ? { page } : {}),
+        ...(registration ? { registration } : {}),
+      },
+    };
+  } catch (error) {
+    if (error instanceof TournamentStoreError && error.status === 400) return { error: error.message };
+    throw error;
+  }
+}
+
 export async function tournamentApi(
   method: string,
   path: string,
@@ -796,9 +853,14 @@ export async function tournamentApi(
   path = path.replace(/^\/api\/fork\/tournaments(?=\/|$)/, "/api/tournaments");
   const now = deps.now?.() ?? new Date();
   try {
+    // An unpublished draft is seen only by its managers and admins (lane L3): every /api/tournaments/:id route answers
+    // 404 to anyone else, as if it did not exist (src/tournaments/publication.ts).
+    if (hiddenTournamentPath(deps.store, path, auth)) return { status: 404, body: { error: "Tournament not found." } };
+
     if (path === "/api/tournaments" && method === "POST") {
       const identity = authenticated(auth);
-      if (!identity.organizer) return { status: 403, body: { error: "Organizer access required." } };
+      // Site organisers and admins create (registration spec Q1).
+      if (!identity.organizer && !identity.admin) return { status: 403, body: { error: "Organizer access required." } };
       const input = jsonObject(body);
       if (typeof input.name !== "string" || !input.name.trim())
         return { status: 400, body: { error: "name is required." } };
@@ -831,22 +893,25 @@ export async function tournamentApi(
         if (!canEditSeries(series, identity)) return { status: 403, body: { error: "You are not this series' organiser." } };
         seriesId = series.id;
       }
-      return {
-        status: 201,
-        body: {
-          tournament: deps.store.createTournament({
-            name,
-            packageName,
-            maxPlayers,
-            format: input.format,
-            organizerCoachId: identity.coach,
-            primaryTiebreaker: chosenTiebreaker,
-            ...(roundCount === undefined ? {} : { roundCount }),
-            ...(input.nafSanctioned === true ? { nafSanctioned: true } : {}),
-            ...(seriesId ? { seriesId } : {}),
-          }, now),
-        },
-      };
+      // The creation wizard (lane L3): `publish` (true = public now, false = a hidden draft) plus the details, page and
+      // registration fields, all validated here and written in the same store mutation. Without `publish` this is the old
+      // dialog's create (public draft, as before).
+      const wizard = wizardCreateFields(input);
+      if ("error" in wizard) return { status: 400, body: { error: wizard.error } };
+      const created = deps.store.createTournament({
+        name,
+        packageName,
+        maxPlayers,
+        format: input.format,
+        organizerCoachId: identity.coach,
+        primaryTiebreaker: chosenTiebreaker,
+        ...(roundCount === undefined ? {} : { roundCount }),
+        ...(input.nafSanctioned === true ? { nafSanctioned: true } : {}),
+        ...(seriesId ? { seriesId } : {}),
+        ...(identity.test ? { test: true } : {}),
+        ...wizard.fields,
+      }, now);
+      return { status: 201, body: { tournament: created } };
     }
 
     // Statistics, Honours and Awards (src/tournaments/honours.ts): public reads, organiser/admin award writes.
@@ -874,9 +939,11 @@ export async function tournamentApi(
                     ? deps.store.tournaments(["draft", "active", "completed", "cancelled"])
                     : deps.store.activeTournaments();
       const nameQuery = query.get("q")?.trim().toLowerCase();
+      // Unpublished drafts list only for their managers and admins (lane L3).
+      const seen = source.filter((tournament) => canSeeTournament(tournament, auth));
       let filtered = nameQuery
-        ? source.filter((tournament) => tournament.name.toLowerCase().includes(nameQuery))
-        : source;
+        ? seen.filter((tournament) => tournament.name.toLowerCase().includes(nameQuery))
+        : seen;
       // apps/tauri/src/game/tournamentApi.ts:145 hard-rejects non-Swiss items AND one bad item
       // throws the whole list. The client resolves ForkApi.get('tournaments') to the FORK
       // spelling (forkChallenge.ts builds `/api/fork/${path}`), so path alone cannot identify
@@ -1081,6 +1148,11 @@ export async function tournamentApi(
       if (!self) {
         if (!tournament) return { status: 404, body: { error: "Tournament not found." } };
         requireTournamentManager(tournament, identity);
+      } else if (tournament) {
+        // Self-entry only while published and inside the registration window (lane L3; organisers may still add coaches).
+        const round1 = deps.store.rounds(tournament.id).some((round) => round.number === 1);
+        const window = selfRegistrationStatus(tournament, round1, now);
+        if (!window.open) return { status: 409, body: { error: window.message, code: window.reason } };
       }
       // Share picker (owner 10-31): only the coach chooses; an organiser-made entry carries no grant.
       let share: ShareField[] = [];
@@ -1281,10 +1353,21 @@ export async function tournamentApi(
         if (bad !== undefined) return { status: 400, body: { error: `"${bad}" is not an opt-in inducement.` } };
         patch.inducementOptIns = (input.inducementOptIns as string[]).map((k) => k.trim());
       }
-      const coreKeys = Object.keys(input).filter((key) => !(PAGE_FIELDS as readonly string[]).includes(key));
+      // Registration settings (lane L3): replace as a whole (null clears back to today's behaviour), checked against the
+      // deadlines and start the same request leaves in place.
+      let registration: TournamentRegistrationSettings | null | undefined;
+      if (input.registration !== undefined) {
+        registration = input.registration === null ? null : parseRegistrationSettings(input.registration);
+      }
+      if (registration !== undefined || input.deadlines !== undefined || input.startsAt !== undefined) {
+        const deadlines = pagePatch.deadlines === undefined ? existing.deadlines : pagePatch.deadlines ?? undefined;
+        const startsAt = patch.startsAt === undefined ? existing.startsAt : patch.startsAt || undefined;
+        if (registration !== undefined || existing.registration) assertRegistrationOrder(registration === undefined ? existing.registration : registration ?? undefined, deadlines, startsAt);
+      }
+      const coreKeys = Object.keys(input).filter((key) => !(PAGE_FIELDS as readonly string[]).includes(key) && key !== "registration");
       const pendingBefore = new Set(deps.store.entrants(tournamentId).filter((e) => e.nafPending).map((e) => e.id));
       const wasSanctioned = existing.nafSanctioned === true;
-      let tournament = coreKeys.length || !hasPage ? deps.store.updateTournament(tournamentId, patch, now) : existing;
+      let tournament = coreKeys.length || (!hasPage && registration === undefined) ? deps.store.updateTournament(tournamentId, patch, now) : existing;
       if (patch.nafSanctioned === true && !wasSanctioned) {
         // Made NAF sanctioned with entries already in: one notice per coach, none to organisers. Every active entrant
         // whose profile NAF details now reach the organisers is told so (whatever the entry stored before); a newly
@@ -1298,10 +1381,25 @@ export async function tournamentApi(
         }
       }
       if (hasPage) tournament = deps.store.updatePage(tournamentId, pagePatch, now);
+      if (registration !== undefined) tournament = deps.store.setRegistration(tournamentId, registration, now);
       return {
         status: 200,
         body: { tournament: clientTournament(tournament, deps.store.entrants(tournamentId), auth) },
       };
+    }
+
+    // Publish / Unpublish (lane L3, managers): publishing a hidden draft makes it public (registration then follows its
+    // window); unpublishing puts a draft nobody has entered back out of sight.
+    const publishMatch = path.match(/^\/api\/tournaments\/([^/]+)\/(publish|unpublish)$/);
+    if (publishMatch && method === "POST") {
+      const identity = authenticated(auth);
+      const tournamentId = decoded(publishMatch[1]!);
+      if (!tournamentId) return { status: 400, body: { error: "Invalid tournament id." } };
+      const tournament = deps.store.tournament(tournamentId);
+      if (!tournament) return { status: 404, body: { error: "Tournament not found." } };
+      requireTournamentManager(tournament, identity);
+      const updated = deps.store.setPublished(tournamentId, publishMatch[2] === "publish", now);
+      return { status: 200, body: { tournament: clientTournament(updated, deps.store.entrants(tournamentId), auth) } };
     }
 
     const finishMatch = path.match(/^\/api\/tournaments\/([^/]+)\/finish$/);
