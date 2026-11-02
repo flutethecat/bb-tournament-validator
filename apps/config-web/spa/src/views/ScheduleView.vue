@@ -165,8 +165,8 @@ watch(() => notifications?.unread.value, (n, was) => { if (n !== undefined && wa
 </script>
 
 <template>
-  <div class="hm-page sc-page">
-    <div class="hm-grid">
+  <div class="hm-page sf-fit sc-page">
+    <div class="hm-grid sf-fill sf-cols"><!-- fit to 1920x1080 (owner 11-02): each column scrolls -->
       <div class="hm-col hm-col-main">
         <section id="schedule" class="hm-panel" aria-labelledby="sc-h">
           <header class="hm-band"><h2 id="sc-h">Schedule</h2><span class="hm-cap">{{ zone }}</span></header>

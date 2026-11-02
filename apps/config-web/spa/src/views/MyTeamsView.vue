@@ -58,8 +58,8 @@ onServerPrefetch(async () => {
 </script>
 
 <template>
-  <div class="hm-page">
-    <div class="hm-grid">
+  <div class="hm-page sf-fit">
+    <div class="hm-grid sf-fill sf-cols"><!-- fit to 1920x1080 (owner 11-02): each column scrolls -->
       <div class="hm-col hm-col-main">
         <section id="teams" class="hm-panel" aria-labelledby="mt-teams-h">
           <header class="hm-band"><h2 id="mt-teams-h">My teams</h2><span class="hm-cap">{{ countLabel }}</span></header>

@@ -143,7 +143,10 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="hm-page">
+  <div class="hm-page sf-fit">
+    <!-- fit to 1920x1080 (owner 11-02): the forms and My matches scroll in two columns -->
+    <div class="hm-grid sf-fill sf-cols tt-home-grid">
+    <div class="hm-col">
     <section class="hm-panel" aria-labelledby="tt-fx-h">
       <header class="hm-band"><h2 id="tt-fx-h">Your fixtures</h2><span v-if="state.fixturesLoaded && state.fixtures.length" class="hm-cap">({{ state.fixtures.length }})</span></header>
       <p v-if="state.fixturesError" class="sf-error" role="alert">{{ state.fixturesError }}</p>
@@ -215,7 +218,9 @@ onMounted(() => {
 
     <TabletopTestMatchCard />
     <AdminDeleteCoachCard />
+    </div>
 
+    <div class="hm-col">
     <section class="hm-panel" aria-labelledby="tt-mm-h">
       <header class="hm-band"><h2 id="tt-mm-h">My matches</h2><span v-if="state.loaded && state.matches.length" class="hm-cap">({{ state.matches.length }})</span></header>
       <RouterLink v-if="session.state.info?.organizer === true" class="tt-tap-link" to="/tabletop/organiser">Organiser console</RouterLink>
@@ -230,6 +235,8 @@ onMounted(() => {
         </template>
       </div>
     </section>
+    </div>
+    </div>
   </div>
 </template>
 

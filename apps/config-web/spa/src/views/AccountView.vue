@@ -112,10 +112,10 @@ onServerPrefetch(() => (coach.value ? schedule.value.load() : undefined));
 </script>
 
 <template>
-  <div class="ac-root">
-  <div class="hm-page ac-page" :inert="dialogOpen ? true : undefined" :aria-hidden="dialogOpen ? 'true' : undefined">
+  <div class="ac-root sf-fit">
+  <div class="hm-page sf-fit sf-fill ac-page" :inert="dialogOpen ? true : undefined" :aria-hidden="dialogOpen ? 'true' : undefined">
     <p class="ac-privacy-link" data-testid="account-privacy"><RouterLink to="/privacy">How we use your data</RouterLink></p>
-    <div class="hm-grid">
+    <div class="hm-grid sf-fill sf-cols"><!-- fit to 1920x1080 (owner 11-02): each column scrolls -->
       <div class="hm-col hm-col-main">
         <section v-if="session.signedIn()" id="identity" :key="`identity-${coach}`" class="hm-panel" aria-labelledby="ac-identity-h">
           <header class="hm-band"><h2 id="ac-identity-h">Identity</h2><span class="hm-cap">What coaches see</span></header>

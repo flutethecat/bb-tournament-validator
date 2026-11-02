@@ -64,6 +64,7 @@ a.so-name:hover { text-decoration: underline; }
   .so-back { display: inline-flex; }
   .so-page[data-open="true"] .so-side { display: none; }
   .so-page[data-open="false"] .so-convo { display: none; }
+  .so-side { align-content: start; }
   .so-convo { min-height: 0; }
 }
 .so-bubbles { display: flex; flex-direction: column; gap: 8px; flex: 1 1 auto; max-height: min(62vh, 640px); overflow-y: auto; margin-top: 0; margin-bottom: 0; padding: 4px 2px 8px; list-style: none; scrollbar-width: thin; }
@@ -86,3 +87,10 @@ a.so-name:hover { text-decoration: underline; }
 /* band icons for this page's panels (same pixel set and placement as home.css's panel icons) */
 :is(#so-threads-h, #so-thread-h, #so-new-h)::before { content: ""; background-image: url(/icons/panel/messages.png); }
 #so-blocked-h::before { content: ""; background-image: url(/icons/panel/account.png); }
+/* Fit to 1920x1080 (owner 11-02, home.css "Fit to 1920x1080"): the Messages page fills the content area; the conversation
+   list scrolls on the left and the open conversation's bubbles scroll above the composer. */
+@media (min-width: 1367px) and (min-height: 700px) {
+  .shell-main .so-page.sf-fit { display: grid; grid-template-rows: minmax(0, 1fr); align-items: stretch; }
+  .so-convo { min-height: 0; }
+  .so-bubbles { max-height: none; min-height: 0; }
+}

@@ -76,10 +76,10 @@ onServerPrefetch(() => Promise.all([loadTeams(), loadLog()]));
 </script>
 
 <template>
-  <div class="hm-page">
+  <div class="hm-page sf-fit">
     <!-- New coaches (spec 11-02 §3): next steps, until hidden or all done -->
     <HomeGetStarted />
-    <div class="hm-grid">
+    <div class="hm-grid sf-fill sf-cols"><!-- fit to 1920x1080 (owner 11-02): each column scrolls -->
       <div class="hm-col hm-col-main">
         <section id="whats-new" class="hm-panel" aria-labelledby="hm-new-h">
           <header class="hm-band" data-tone="admin"><h2 id="hm-new-h">What's new</h2><RouterLink class="hm-cap" to="/whats-new">All updates</RouterLink></header>

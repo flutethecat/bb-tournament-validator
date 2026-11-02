@@ -47,7 +47,7 @@ usePageTitle(() => (state.view?.leagueName ? `${state.view.leagueName} redraft` 
 </script>
 
 <template>
-  <div class="hm-page lg-page ls-page">
+  <div class="hm-page lg-page ls-page sf-fit">
     <RouterLink class="tn-back lg-back" :to="{ name: 'league-settings', params: { id } }">Back to League settings</RouterLink>
 
     <p v-if="state.error" class="sf-error" role="alert">{{ state.error }}</p>
@@ -67,7 +67,7 @@ usePageTitle(() => (state.view?.leagueName ? `${state.view.leagueName} redraft` 
       </template>
     </section>
     <p v-else-if="!state.loaded || !state.view" class="hm-empty" role="status">Loading the redraft...</p>
-    <LeagueRedraftBoard v-else />
+    <LeagueRedraftBoard v-else class="sf-fill sf-scroll sf-col" />
 
     <LeagueRedraftDialog v-if="teamId" @close="closeTeam" />
   </div>

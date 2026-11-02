@@ -19,11 +19,11 @@ onServerPrefetch(load);
 </script>
 
 <template>
-  <section class="hm-panel hm-whats-new" aria-labelledby="wn-h">
+  <section class="hm-panel hm-whats-new sf-fit sf-pane" aria-labelledby="wn-h">
     <header class="hm-band" data-tone="admin"><h2 id="wn-h">What's new</h2><span class="hm-cap">Build log</span></header>
     <p v-if="error" class="lobby-error">{{ error }}</p>
     <p v-else-if="loaded && !entries.length" class="hm-empty">Nothing yet</p>
-    <ol class="hm-log hm-log-full">
+    <ol class="hm-log hm-log-full sf-pane-body">
       <li v-for="(e, i) in entries" :key="`${e.date}-${i}`">
         <time :datetime="e.date" class="hm-log-date">{{ logDate(e.date) }}<span v-if="e.version" class="hm-log-version"> · {{ e.version }}</span></time>
         <h3 class="hm-log-title">{{ e.title }}</h3>

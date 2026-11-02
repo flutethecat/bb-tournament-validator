@@ -188,8 +188,8 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer); });
 </script>
 
 <template>
-  <div class="so-page" :data-open="open ? 'true' : 'false'">
-    <div class="so-side">
+  <div class="so-page sf-fit" :data-open="open ? 'true' : 'false'">
+    <div class="so-side sf-scroll sf-col">
       <section class="hm-panel" aria-labelledby="so-threads-h">
         <header class="hm-band"><h2 id="so-threads-h">Conversations</h2><span class="hm-cap">{{ messages.unread.value }} unread</span></header>
         <form v-if="canWrite" class="so-new" @submit.prevent="startNew">

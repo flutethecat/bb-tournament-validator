@@ -10,6 +10,7 @@
 .tt-fixture-text { display: block; min-width: 0; text-align: left; overflow-wrap: anywhere; }
 .tt-fixture-text b { font-weight: 700; }
 .tt-list { display: grid; gap: 8px; }
+@media (min-width: 1280px) { .tt-home-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } } /* tabletop home: the forms | My matches (fit to 1920x1080) */
 .tt-list-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .tt-table td, .tt-table th { padding: 8px 6px; }
 .tt-check-box { width: 24px; height: 24px; min-height: 0; }

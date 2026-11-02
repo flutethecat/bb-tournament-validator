@@ -55,7 +55,7 @@ const midLine = computed(() => {
 </script>
 
 <template>
-  <div class="fl-page">
+  <div class="fl-page sf-fit">
     <p v-if="!state.loaded" class="hm-empty">Loading the lobby…</p>
     <section v-else-if="!view" class="hm-panel" aria-labelledby="fl-err">
       <header class="hm-band"><h2 id="fl-err">Fixture lobby</h2></header>
@@ -100,7 +100,7 @@ const midLine = computed(() => {
       <p v-if="state.actionError" class="sf-error" role="alert">{{ state.actionError }}</p>
       <p v-else-if="state.notice" class="sf-notice" role="status">{{ state.notice }}</p>
 
-      <div class="fl-grid">
+      <div class="fl-grid sf-fill"><!-- fit to 1920x1080 (owner 11-02): each column scrolls (lobby.css) -->
         <div class="fl-col">
           <LobbyCoachPanel :view="view" :side="left" :mine="true" />
           <LobbyInducements :view="view" :side="left" />

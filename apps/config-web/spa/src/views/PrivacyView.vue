@@ -33,7 +33,7 @@ const sections = [
 </script>
 
 <template>
-  <div class="hm-page pv-page">
+  <div class="hm-page pv-page sf-fit sf-scroll sf-col"><!-- fit to 1920x1080 (owner 11-02): a long text page scrolls in one content pane -->
     <section class="hm-panel" aria-labelledby="pv-h">
       <header class="hm-band"><h2 id="pv-h">Privacy notice</h2></header>
       <p class="pv-updated"><time :datetime="PRIVACY_LAST_UPDATED">Last updated {{ PRIVACY_LAST_UPDATED }}</time></p>
@@ -153,7 +153,7 @@ const sections = [
 .pv-page { display: grid; gap: 16px; }
 .pv-updated { margin: 0; color: var(--ui-muted); }
 .pv-toc { margin: 8px 0 0; line-height: 1.8; }
-.pv-table-wrap { overflow-x: auto; margin-top: 12px; }
+.pv-table-wrap { position: relative; overflow-x: auto; margin-top: 12px; } /* relative: the visually hidden caption stays inside the scroll box (no sideways page scroll at 375 px) */
 .pv-table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .pv-table th, .pv-table td { padding: 8px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--sf-panel-line); }
 .pv-table thead th { font: 10px/1.4 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); white-space: nowrap; }

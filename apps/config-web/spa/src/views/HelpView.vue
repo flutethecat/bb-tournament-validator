@@ -4,7 +4,7 @@ import { RouterLink } from "vue-router";
 </script>
 
 <template>
-  <div class="hm-page">
+  <div class="hm-page sf-fit sf-scroll sf-col">
     <section class="hm-panel" aria-labelledby="help-h">
       <header class="hm-band"><h2 id="help-h">Help</h2><span class="hm-cap">Where to ask</span></header>
       <ul class="hm-help">
