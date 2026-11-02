@@ -4,7 +4,7 @@
 // without one gets its own, loaded here). The status chip is the season dropdown: picking a season keeps the tab
 // (shell/sectionNav.ts seasonSwitchQuery). Organisers and admins get the cog (League settings = the management
 // sub-panel) and the Announcement megaphone, whose dialog lives here so it works on every league page.
-import { computed, inject, onMounted, watch } from "vue";
+import { computed, inject, onMounted, onServerPrefetch, provide, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { API_KEY } from "../app";
 import { SESSION_KEY, writesAllowed } from "../session";
@@ -34,6 +34,9 @@ const route = useRoute();
 const router = useRouter();
 const provided = inject(LEAGUE_DETAIL_KEY, null);
 const detail = provided ?? createLeagueDetail({ api: fetcher });
+// A standalone league page (fixture lobby, Roster Builder league mode) has no controller of its own: the header's goes to
+// its children too, so the Announcement dialog (LeagueNewsComposer, LeagueMessageMembers) reads the same league.
+if (!provided) provide(LEAGUE_DETAIL_KEY, detail);
 const { state } = detail;
 const ready = computed(() => state.loaded && state.id === props.id && Boolean(state.league));
 
@@ -105,6 +108,12 @@ watch(() => route.fullPath, () => announce.moved(scopeKey.value));
 onMounted(async () => {
   // A page that shares its controller loads it itself; one that does not gets the league read here.
   if (!provided && (!state.loaded || state.id !== props.id)) await detail.load(props.id);
+});
+// Server rendering of a standalone page reads the same league (and the season an open Announcement posts to).
+onServerPrefetch(async () => {
+  if (provided) return;
+  if (!state.loaded || state.id !== props.id) await detail.load(props.id);
+  if (announce.state.seasonId) await detail.ensureSeason(announce.state.seasonId);
 });
 </script>
 

@@ -9,7 +9,7 @@ import { useRoute } from "vue-router";
 export const SITE_NAME = "Super FUMBBL";
 
 export interface PageTitleStore {
-  readonly state: { text: string; path: string; owner: number; blank: boolean; blankName: string };
+  readonly state: { text: string; path: string; owner: number; blank: boolean; blankName: string; sectionPath: string };
   /** Claims the override for a path; the returned handle sets and releases it (a stale handle cannot clear a newer one). */
   claim(path: string, name?: string): { set(text: string): void; blank(): void; release(): void };
 }
@@ -17,7 +17,7 @@ export interface PageTitleStore {
 export const PAGE_TITLE_KEY: InjectionKey<PageTitleStore> = Symbol("page-title");
 
 export function createPageTitle(): PageTitleStore {
-  const state = reactive({ text: "", path: "", owner: 0, blank: false, blankName: "" });
+  const state = reactive({ text: "", path: "", owner: 0, blank: false, blankName: "", sectionPath: "" });
   let next = 0;
   return {
     state,
@@ -51,6 +51,31 @@ export function useBlankPageTitle(): void {
   const handle = store.claim(route.path, String(route.name ?? ""));
   handle.blank();
   onBeforeUnmount(() => handle.release());
+}
+
+/**
+ * Inside a league, tournament or series the section header carries the name (owner 11-02): the page that shows a section
+ * header marks its path, and the top bar keeps the title for assistive tech and the document title only.
+ */
+export function useSectionTitle(): void {
+  const store = inject(PAGE_TITLE_KEY, null);
+  if (!store) return;
+  const route = useRoute();
+  const me = ++sectionClaims;
+  sectionOwner.set(store, me);
+  store.state.sectionPath = route.path;
+  // a later section header (the next page) takes over; this one only follows its own page and releases only its own claim
+  watch(() => route.path, (p) => { if (sectionOwner.get(store) === me) store.state.sectionPath = p; });
+  onBeforeUnmount(() => { if (sectionOwner.get(store) === me) store.state.sectionPath = ""; });
+}
+let sectionClaims = 0;
+const sectionOwner = new WeakMap<PageTitleStore, number>();
+
+/** True while the current page shows a section header (the top bar title is then visually hidden). */
+export function useInSection(): ComputedRef<boolean> {
+  const store = inject(PAGE_TITLE_KEY)!;
+  const route = useRoute();
+  return computed(() => store.state.sectionPath !== "" && store.state.sectionPath === route.path);
 }
 
 /** The shell's title for the current route (override > meta.title); also keeps document.title in sync (the one place). */

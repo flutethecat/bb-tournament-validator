@@ -20,6 +20,7 @@ import LeagueSettingsLifecycle from "../components/LeagueSettingsLifecycle.vue";
 import LeagueSettingsSeasonRegistration from "../components/LeagueSettingsSeasonRegistration.vue";
 import LeagueSettingsRegistrations from "../components/LeagueSettingsRegistrations.vue";
 import LeagueSettingsTeamBuilding from "../components/LeagueSettingsTeamBuilding.vue";
+import { followSeasons } from "../leagues/followSeasons";
 import { createLeagueDetail, LEAGUE_DETAIL_KEY, pickSeason } from "../leagues/league";
 import { createLeagueSettings, isSettingsTab, LEAGUE_SETTINGS_KEY, SETTINGS_TABS, type SettingsTab } from "../leagues/settings";
 import "../leagues/leagues.css";
@@ -48,6 +49,9 @@ const tabQuery = (t: ManageGroup): Record<string, string> => {
 };
 /** Participants: the season the header shows (?season=, else the newest). */
 const season = computed(() => pickSeason(detail.state.seasons, route.query.season));
+// A season action here (Start a new season, Finish, Reopen, stage changes) reloads the settings' season list; the shared
+// league controller (header season dropdown, Participants) follows it, so a new season shows without a reload.
+followSeasons(state, detail, () => props.id);
 
 onMounted(() => {
   if (!state.loaded || state.id !== props.id) void settings.load(props.id);

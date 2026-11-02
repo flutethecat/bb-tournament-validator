@@ -45,7 +45,7 @@ const removeLabel = (a: AwardView): string => (state.busy === `award:${a.id}` ? 
     <p v-else-if="!state.view" class="hm-empty" role="status">Loading awards...</p>
     <p v-else-if="!awards.length" class="hm-empty">{{ season ? "No awards for this choice." : "No awards yet." }}</p>
     <ul v-else class="aw-list" aria-label="Awards">
-      <AwardItem v-for="a in awards" :key="a.id" :award="a" :show-source="manage">
+      <AwardItem v-for="a in awards" :id="`award-${a.id}`" :key="a.id" :award="a" :show-source="manage">
         <template v-if="manage">
           <button
             v-if="!pinned.has(a.id)" type="button" class="sf-btn small" :disabled="Boolean(state.busy)"

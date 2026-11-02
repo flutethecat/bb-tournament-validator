@@ -21,7 +21,7 @@ import { THEME_KEY, themeLabel } from "./theme";
 import { gateFor } from "./router";
 import { COACH_TREE_KEY } from "./home/tree";
 import { DRAWER_QUERY, FOCUSABLE, rememberRail, SHELL_UI_KEY, trapTarget, typingTarget } from "./home/shell";
-import { useShellTitle } from "./shell/pageTitle";
+import { useInSection, useShellTitle } from "./shell/pageTitle";
 import { NOTIFICATIONS_KEY } from "./home/notifications";
 import type { AccountInfo } from "./shared/api";
 import { clearFlash, flash } from "./account/privacy";
@@ -36,6 +36,8 @@ const router = useRouter();
 // Header title colour follows the section (owner 10-31): Tournaments and Leagues pages carry gold, every other page red.
 const titleArea = computed(() => (/^\/(tournaments|series|tournament-creator|admin\/tournaments|leagues)(\/|$|\?)/.test(route.path) ? "gold" : "red"));
 const pageTitle = useShellTitle();
+// inside a section the section header names it: the top bar title stays for assistive tech only (visually hidden)
+const inSection = useInSection();
 const creator = inject(TOURNAMENT_CREATOR_KEY, null);
 // "Create tournament" in the account menu: organisers only, the server's POST /api/tournaments rule. The rule gates
 // opening only: once open, the dialog stays until Cancel / Escape even if the session lapses (its 401 error shows).
@@ -166,7 +168,7 @@ async function signOut(): Promise<void> {
     <!-- the wordmark with the page title stacked under it (owner 10-31) -->
     <div class="sf-titleblock">
       <RouterLink class="brand sf-wordmark" to="/home" aria-label="Super FUMBBL home">Super FUMBBL</RouterLink>
-      <h1 class="sf-page-title" aria-live="polite">{{ pageTitle }}</h1>
+      <h1 class="sf-page-title" :class="{ 'sf-sr': inSection }" aria-live="polite">{{ pageTitle }}</h1>
     </div>
     <!-- a page's own header controls (Teleport target; empty on every page but the Tournament Builder, owner 10-31) -->
     <div id="sf-header-slot" class="sf-header-slot"></div>

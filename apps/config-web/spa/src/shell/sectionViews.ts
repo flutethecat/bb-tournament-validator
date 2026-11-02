@@ -2,7 +2,7 @@
 // data exists elsewhere, build a light view from existing API data only"): a league season's Calendar (fixtures by day)
 // and Draws (the pairings round by round). Pure; LeagueCalendar.vue / LeagueDraws.vue render them.
 
-import { phaseLabel } from "../leagues/league";
+import { fixturePlayed, phaseLabel } from "../leagues/league";
 import type { LeagueFixture } from "../leagues/types";
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -33,7 +33,7 @@ export function fixtureCalendar(fixtures: readonly LeagueFixture[]): { months: C
   const byDay = new Map<string, CalendarGame[]>();
   let undated = 0;
   for (const f of fixtures) {
-    const played = f.home.score !== null && f.away.score !== null;
+    const played = fixturePlayed(f); // the league rule: a suspended 0-0 TourPlay row is not a result
     const finished = isoDay(f.finishedAt);
     const agreed = isoDay(f.scheduledTime?.start);
     const scheduled = f.date && isDay(f.date) ? f.date : "";

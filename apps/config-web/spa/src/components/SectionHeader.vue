@@ -8,10 +8,13 @@
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 import { ROLE_LABEL, ROLE_TONE, SECTION_UP, showsStrip, type SectionHeaderModel } from "../shell/sectionNav";
+import { useSectionTitle } from "../shell/pageTitle";
 import "../shell/section.css";
 
 const props = defineProps<{ model: SectionHeaderModel }>();
 const emit = defineEmits<{ season: [id: string]; announce: [] }>();
+// the section's name shows here, not again in the top bar
+useSectionTitle();
 /** Bound, not a literal src: a literal would be rewritten as a bundled asset (public/icons is served as-is). */
 const COG_ICON = "/icons/league/league-settings.png";
 const up = computed(() => SECTION_UP[props.model.kind]);

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createSSRApp } from "vue";
+import { createSSRApp, nextTick, reactive } from "vue";
 import type { ViteDevServer } from "vite";
 import { ApiError, type TournamentDetailResponse, type TournamentEntrant, type TournamentSummary } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
@@ -13,6 +13,7 @@ import {
 import { drawRounds, fixtureCalendar } from "../spa/src/shell/sectionViews";
 import { scheduleCards, type SeriesStandings } from "../spa/src/tournaments/series";
 import type { LeagueFixture } from "../spa/src/leagues/types";
+import { followSeasons } from "../spa/src/leagues/followSeasons";
 
 // The shared section header (owner 11-02: "a standard Nav Header bar that is shared across all surfaces of the site when
 // inside of a section"; spec-section-header-2026-11-02): the tab lists and their rules (shell/sectionNav.ts), the light
@@ -137,7 +138,9 @@ describe("section tabs: sub-routes, breadcrumbs, seasons, roles, old URLs", () =
     expect(legacyRedirect(at("tournament-detail", { tab: "participants" }))).toMatchObject({ query: { tab: "entrants" } });
     expect(legacyRedirect(at("league-detail", { tab: "participants", season: "season-1" }))).toEqual({ name: "league-detail", params: { id: "x" }, query: { season: "season-1", tab: "teams" }, hash: "" });
     expect(legacyRedirect(at("league-detail", { tab: "statistics", season: "season-1", team: "a" }))).toEqual({ name: "league-stats", params: { id: "x" }, query: { season: "season-1" }, hash: "" });
-    for (const keep of [at("tournament-detail", { tab: "rounds" }), at("league-detail", { tab: "teams", team: "a" }), at("league-detail", {}), at("series-detail", { tab: "schedule" })]) {
+    // award links from before the Awards tab carry the award's anchor: they open it on Awards
+    expect(legacyRedirect(at("league-detail", { tab: "honours" }, "#award-a-1"))).toEqual({ name: "league-detail", params: { id: "x" }, query: { tab: "awards" }, hash: "#award-a-1" });
+    for (const keep of [at("tournament-detail", { tab: "rounds" }), at("league-detail", { tab: "teams", team: "a" }), at("league-detail", {}), at("series-detail", { tab: "schedule" }), at("league-detail", { tab: "honours" })]) {
       expect(legacyRedirect(keep)).toBeNull();
     }
   });
@@ -147,6 +150,12 @@ describe("light tab views from existing data", () => {
   const side = (team: string, score: number | null) => ({ team, coach: `${team} coach`, race: "Orc", score, cas: null, conceded: false });
   const fx = (id: string, round: number, table: number, extra: Partial<LeagueFixture> = {}, scores: [number | null, number | null] = [null, null]): LeagueFixture => ({
     id, category: "Season", phase: "Regular", phaseId: "season-regular", group: "", round, table, home: side(`H${id}`, scores[0]), away: side(`A${id}`, scores[1]), suspended: false, ...extra,
+  });
+
+  it("Calendar: a suspended 0-0 row without a result is not a scored game (the league's fixturePlayed rule)", () => {
+    const cal = fixtureCalendar([fx("s", 4, 1, { date: "2026-11-09", suspended: true }, [0, 0]), fx("n", 4, 2, { suspended: true }, [0, 0])]);
+    expect(cal.months.flatMap((mo) => mo.days.flatMap((d) => d.games))).toEqual([expect.objectContaining({ id: "s", score: "", kind: "scheduled" })]);
+    expect(cal.undated).toBe(1);
   });
 
   it("Calendar: played on the day it finished, an agreed time with its time, else the scheduled date; undated only counted", () => {
@@ -349,6 +358,48 @@ describe("section header (server-rendered)", () => {
     expect(org).toContain('aria-label="Alice: coach profile"');
     expect(org).not.toContain("alice@example.com"); // only inside the profile dialog, on a click
     expect(org.match(/<a[^>]*data-tab="participants"[^>]*>/)?.[0] ?? "").toContain('aria-current="page"');
+  });
+
+  it("standalone league page (fixture lobby): the header's own controller reaches the Announcement dialog", async () => {
+    const dialogMod = await vite.ssrLoadModule("/src/leagues/dialog.ts");
+    const f = mockFetcher({ ...LEAGUE_API, ...who("Quill") });
+    const spa = m.app.createSpa({ history: m.vueRouter.createMemoryHistory("/app/"), ssr: true, fetcher: f });
+    const a = dialogMod.createAnnounce();
+    a.open("season-6", "tabbl/season-6"); // the organiser pressed Announcement on the lobby page
+    spa.app.provide(dialogMod.ANNOUNCE_KEY, a);
+    await spa.router.push("/leagues/tabbl/seasons/season-6/fixtures/f1/lobby");
+    await spa.router.isReady();
+    const html = (await m.renderer.renderToString(spa.app)).replace(/<!--[^>]*-->/g, ""); // no league controller provided by the page
+    expect(html).toContain('<header class="sh"');
+    expect(html).toContain('aria-labelledby="lg-announce-h"');
+    expect(html).toContain("News post"); // the composer rendered against the header's league controller
+  });
+
+  it("league management: after a season action the shared league controller re-reads, so a new season shows without a reload", async () => {
+    const settings = reactive({ id: "tabbl", seasons: [{ id: "season-1", status: "active" }] });
+    const loads: string[] = [];
+    const detail = {
+      state: reactive({ id: "tabbl", loaded: true, seasons: [{ id: "season-1", status: "active" }] as Array<{ id: string; status: string }> }),
+      async load(id: string) { loads.push(id); this.state.seasons = [...settings.seasons]; },
+    };
+    const stop = followSeasons(settings, detail, () => "tabbl");
+    settings.seasons = [{ id: "season-2", status: "active" }, { id: "season-1", status: "active" }]; // Start a new season
+    await nextTick();
+    expect(loads).toEqual(["tabbl"]);
+    expect(detail.state.seasons.map((s) => s.id)).toEqual(["season-2", "season-1"]);
+    settings.seasons = [...settings.seasons]; // the same list again: nothing to do
+    await nextTick();
+    expect(loads).toEqual(["tabbl"]);
+    settings.seasons = [{ id: "season-2", status: "completed" }, { id: "season-1", status: "active" }]; // Finish
+    await nextTick();
+    expect(loads).toEqual(["tabbl", "tabbl"]);
+    stop();
+  });
+
+  it("inside a section the name shows in the section header only: the top bar title is visually hidden (kept for assistive tech)", async () => {
+    const app = src("App.vue");
+    expect(app).toContain(`:class="{ 'sf-sr': inSection }"`);
+    expect(src("components/SectionHeader.vue")).toContain("useSectionTitle();");
   });
 
   it("the coach profile shows the public line and only what was shared with this scope", async () => {

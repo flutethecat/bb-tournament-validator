@@ -190,7 +190,8 @@ describe("award and Hall of Fame routes", () => {
     });
     expect(store.league("tabbl")!.honoursRevision).toBe(1);
     expect(store.league("tabbl")!.revision).toBeUndefined(); // the settings revision is untouched
-    expect(notes).toEqual([{ coach: "Bob", type: "award", title: "TABBL: Best sportsmanship", body: 'Jay gave Elves (Season 3) the award "Best sportsmanship". Always on time.', link: "/app/leagues/tabbl?tab=honours" }]);
+    // the link opens the award on the league's Awards tab (its own tab since the shared section header)
+    expect(notes).toEqual([{ coach: "Bob", type: "award", title: "TABBL: Best sportsmanship", body: 'Jay gave Elves (Season 3) the award "Best sportsmanship". Always on time.', link: `/app/leagues/tabbl?tab=awards#award-${stored[0]!.id}` }]);
     const v = (res.body as { honours: HonoursView }).honours;
     expect(v.awards[0]).toMatchObject({ source: "custom", title: "Best sportsmanship", toTeam: "Elves", seasonName: "Season 3" });
     expect(v.revision).toBe(1);

@@ -254,6 +254,8 @@ export function legacyRedirect(to: { name?: unknown; params: Record<string, unkn
     if (tab === "participants") return { name, params: { id }, query: { ...rest(), tab: "entrants" }, hash: to.hash };
   }
   if (name === "league-detail") {
+    // award links from before the Awards tab (?tab=honours#award-<id>) open the award where it lives now
+    if (tab === "honours" && to.hash.startsWith("#award-")) return { name, params: { id }, query: { ...rest(), tab: "awards" }, hash: to.hash };
     if (tab === "participants") return { name, params: { id }, query: { ...rest(), tab: "teams" }, hash: to.hash };
     if (tab === "statistics" || tab === "stats") return { name: "league-stats", params: { id }, query: rest(["team", "player", "fixture"]), hash: to.hash };
   }

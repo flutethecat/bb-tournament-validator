@@ -334,7 +334,8 @@ function gate(league: LeagueRecord | undefined, auth: LeagueApiIdentity | undefi
   return undefined;
 }
 
-const awardLink = (leagueId: string): string => `/app/leagues/${encodeURIComponent(leagueId)}?tab=honours`;
+/** The award on the league page's Awards tab (its own tab since the shared section header). */
+const awardLink = (leagueId: string, awardId: string): string => `/app/leagues/${encodeURIComponent(leagueId)}?tab=awards#award-${encodeURIComponent(awardId)}`;
 
 /** Routes this module owns (undefined = not one of them). */
 export async function leagueHonoursRoutes(
@@ -410,7 +411,7 @@ function giveAward(lg: LeagueRecord, seasons: SeasonRecord[], who: LeagueApiIden
     const season = seasonId ? seasons.find((s) => s.id === seasonId)?.name : undefined;
     const what = award.toTeam ? `${award.toTeam}${season ? ` (${season})` : ""}` : `you${season ? ` (${season})` : ""}`;
     try {
-      deps.notify?.(to, { type: "award", title: `${lg.name}: ${title}`.slice(0, 120), body: `${who.coach} gave ${what} the award "${title}".${note ? ` ${note}` : ""}`.slice(0, 400), link: awardLink(lg.id), from: who.coach });
+      deps.notify?.(to, { type: "award", title: `${lg.name}: ${title}`.slice(0, 120), body: `${who.coach} gave ${what} the award "${title}".${note ? ` ${note}` : ""}`.slice(0, 400), link: awardLink(lg.id, award.id), from: who.coach });
     } catch { /* fire-and-forget */ }
   }
   const view = honoursView(updated, seasons, who);
