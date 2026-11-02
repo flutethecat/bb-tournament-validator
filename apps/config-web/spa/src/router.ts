@@ -36,6 +36,7 @@ import TournamentDetailView from "./views/TournamentDetailView.vue";
 import TournamentListView from "./views/TournamentListView.vue";
 import TournamentTeamView from "./views/TournamentTeamView.vue";
 import WhatsNewView from "./views/WhatsNewView.vue";
+import WelcomeView from "./views/WelcomeView.vue";
 
 declare module "vue-router" {
   interface RouteMeta {
@@ -57,6 +58,9 @@ export const routes: RouteRecordRaw[] = [
   { path: "/help", name: "help", component: HelpView, meta: { title: "Help" } },
   { path: "/privacy", name: "privacy", component: PrivacyView, meta: { title: "Privacy" } },
   { path: "/whats-new", name: "whats-new", component: WhatsNewView, meta: { title: "What's new" } },
+  // Sign-up step 1 (spec 11-02 §3, Q2): the Discord callback lands here; /discord-complete.html 302s here. Public: the
+  // pending Discord sign-in is the credential (src/account/welcome.ts).
+  { path: "/welcome", name: "welcome", component: WelcomeView, meta: { title: "Welcome" } },
   { path: "/lobby", name: "lobby", component: LobbyStartView, meta: { requiresAuth: true, title: "Start Game" } },
   {
     path: `/lobby/:id(${LOBBY_ID_PATTERN})`,

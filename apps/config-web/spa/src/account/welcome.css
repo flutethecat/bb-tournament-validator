@@ -1,0 +1,74 @@
+/* Sign-up flow (spec-registration-creation-flows 11-02 §3): the two-step frame (step 1 /app/welcome, WelcomeView.vue;
+   step 2 the profile dialog, OnboardingDialog.vue), its step indicator (OnboardingSteps.vue) and the coach page's
+   "Get started" panel (HomeGetStarted.vue). Panels, bands, fields and buttons are the shared ones (home.css .hm-panel /
+   .hm-band / .sf-btn, onboarding.css .ob-field / .ob-btn); this file adds only what they lack. Tokens only. */
+
+/* ---- step 1 page */
+.ob-page { display: grid; justify-items: center; align-content: start; align-self: start; padding: 8px 0 24px; }
+.ob-frame { width: min(720px, 100%); box-sizing: border-box; align-self: start; }
+.ob-frame > .wl-form, .ob-frame > .wl-message, .ob-frame > .hm-empty { margin-top: 4px; }
+.wl-form { gap: 12px; }
+.wl-who { margin: 0; color: var(--ui-muted); overflow-wrap: anywhere; }
+.wl-who strong { color: var(--ui-text); font-weight: 600; }
+/* the large Nuffle preview of the chosen name */
+.wl-preview {
+  min-height: 64px; display: flex; align-items: center; justify-content: center; padding: 10px 12px; box-sizing: border-box;
+  font: 500 clamp(1.6rem, 6vw, 2.6rem)/1.1 var(--font-heading); letter-spacing: .03em; color: var(--sf-gold); text-align: center;
+  overflow-wrap: anywhere; background: color-mix(in srgb, var(--ui-surface-2) 70%, transparent);
+  border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: inset 0 1px 0 var(--sf-panel-hi), 0 3px 0 var(--sf-panel-drop);
+}
+.wl-preview[data-empty] { color: var(--ui-text-dim); }
+.wl-form .ob-help[data-tone="ok"] { color: var(--ui-success); }
+.wl-form input[readonly] { border-style: dashed; color: var(--ui-muted); }
+/* the secondary "I already have a Super FUMBBL account" link: a text button, not a third button style */
+.wl-link {
+  justify-self: start; padding: 4px 0; font: inherit; font-size: 15px; color: var(--ui-link, var(--ui-accent)); background: none; border: 0;
+  text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
+}
+.wl-link:hover { color: var(--ui-heading); }
+.wl-link:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.wl-password { gap: 6px; }
+.wl-message { display: grid; gap: 12px; }
+
+/* ---- step indicator: two numbered chips joined by a rule */
+.ob-steps { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 0 0 12px; padding: 0; list-style: none; counter-reset: none; }
+.ob-step { display: inline-flex; align-items: center; gap: 8px; min-width: 0; font: 11px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-muted); }
+.ob-step + .ob-step::before { content: ""; width: 28px; height: 2px; background: var(--sf-panel-line); }
+.ob-step-n {
+  display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; flex: none; font: 12px/1 var(--sf-band-font);
+  color: var(--ui-muted); background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface-2);
+  border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: var(--sf-bevel);
+}
+.ob-step[data-state="current"] { color: var(--ui-text); }
+.ob-step[data-state="current"] .ob-step-n { color: var(--ui-text-on-primary); background: var(--ui-primary); border-color: var(--ui-heading); }
+.ob-step[data-state="done"] .ob-step-n { color: var(--sf-gold); border-color: var(--sf-gold); }
+/* inside the step 2 dialog: the indicator and its caption sit under the title */
+.ob-stepbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; margin: 10px 0 0; }
+.ob-stepbar .ob-steps { margin: 0; }
+
+/* ---- coach page: Get started */
+.gs-panel { margin: 0; }
+.gs-band-end { display: inline-flex; align-items: center; gap: 12px; min-width: 0; }
+.gs-cards { display: grid; gap: 10px; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; padding: 0; list-style: none; }
+.gs-card {
+  position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; align-items: center; height: 100%;
+  min-height: 76px; box-sizing: border-box; padding: 10px 12px; color: var(--ui-text); text-decoration: none;
+  background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface-2);
+  border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--sf-panel-line); border-radius: 2px;
+  box-shadow: inset 0 1px 0 var(--sf-panel-hi), 0 3px 0 var(--sf-panel-drop);
+}
+a.gs-card:hover { border-color: var(--ui-heading); }
+a.gs-card:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.gs-card[data-done="true"] { border-left-color: var(--sf-gold); }
+.gs-icon { grid-row: 1 / span 2; width: 36px; height: 36px; image-rendering: pixelated; }
+.gs-title { font: 500 1.05rem/1.2 var(--font-heading); letter-spacing: .03em; overflow-wrap: anywhere; padding-right: 22px; }
+.gs-line { grid-column: 2; margin: 0; font-size: 14px; line-height: 1.35; color: var(--ui-muted); }
+.gs-check { position: absolute; top: 6px; right: 8px; font: 16px/1 var(--sf-band-font); color: var(--sf-gold); }
+
+@media (max-width: 1100px) { .gs-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) {
+  .gs-cards { grid-template-columns: minmax(0, 1fr); }
+  .ob-step + .ob-step::before { width: 10px; }
+  .ob-steps { gap: 6px; }
+  .ob-step { letter-spacing: .06em; }
+}

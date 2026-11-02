@@ -53,16 +53,9 @@ export function clearFences(): void { fenced.clear(); }
 
 // ---- reserved pseudonym names --------------------------------------------------------------------------------------
 
-export const PSEUDONYM_PREFIX = "Deleted coach #";
-
-/** True for anything that reads as "Deleted coach…": NFKC, case-folded, with spaces, punctuation and format characters removed. */
-export function isReservedCoachName(name: unknown): boolean {
-  if (typeof name !== "string") return false;
-  const folded = name.normalize("NFKC").toLowerCase().replace(/[\s\p{Cf}\p{P}\p{S}_]/gu, "");
-  return folded.startsWith("deletedcoach");
-}
-
-export const RESERVED_NAME_MESSAGE = "That coach name is reserved.";
+// The check itself lives in ./reservedNames.ts (no node: imports) so the SPA's coach-name step shares it.
+import { RESERVED_NAME_MESSAGE } from "./reservedNames.js";
+export { isReservedCoachName, PSEUDONYM_PREFIX, RESERVED_NAME_MESSAGE } from "./reservedNames.js";
 
 export class ReservedNameError extends Error {
   readonly status = 400;

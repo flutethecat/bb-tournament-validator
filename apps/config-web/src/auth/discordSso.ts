@@ -437,11 +437,16 @@ export function discordStartHostGuard(
   return { kind: "redirect", status: 302, location: target.toString() };
 }
 
+/** Onboarding step 1, "Your coach name" (SPA /app/welcome, spec 11-02 §3): where the callback sends a verified sign-in. */
+export const DISCORD_WELCOME_PATH = "/app/welcome";
+/** The retired vanilla coach-name page: it 302s to DISCORD_WELCOME_PATH with its query (server.ts legacy redirects). */
+export const LEGACY_DISCORD_COMPLETE_PATH = "/discord-complete.html";
+
 export function discordCompletionErrorUrl(
   config: DiscordOauthConfig,
   error: "host-browser-mismatch" | "expired" | "invalid-state",
 ): string {
-  const target = new URL("/discord-complete.html", new URL(config.redirectUri).origin);
+  const target = new URL(DISCORD_WELCOME_PATH, new URL(config.redirectUri).origin);
   target.searchParams.set("error", error);
   return target.toString();
 }

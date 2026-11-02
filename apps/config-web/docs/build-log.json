@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-02",
+    "title": "A new sign-up: pick your coach name, then your profile",
+    "body": "Signing in with Discord for the first time now takes two short steps on the site itself: choose your coach name (with a live check, or link a Super FUMBBL account you already have), then check your profile and accept the privacy notice. Your coach page then shows a Get started panel with the next things to do: join a league, enter a tournament, build a team or run your own. Hide it whenever you like.",
+    "links": [
+      {
+        "label": "Coach page",
+        "href": "/app/home"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-02",
     "title": "Tournament Creator summary page restyled, and inherited Sevens",
     "body": "The Preview tab is now a summary page in the Roster Builder style: Overview, Team building, Skills & advancement, Inducements & stars and Special rules panels with figures, gold prices and on/off chips, and a package summary with the Save button beside it. A package that builds on a Sevens package now shows the Sevens settings on every tab, marked inherited until you change them here.",
     "links": [

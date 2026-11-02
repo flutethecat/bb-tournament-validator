@@ -166,6 +166,7 @@ import {
   completeOnboarding, CONTACT_PATH, contactView, ONBOARDING_PATH, ONBOARDING_REQUIRED_MESSAGE,
   onboardingGateApplies, onboardingView, updateOwnContact,
 } from "./auth/onboarding.js";
+import { GET_STARTED_PATH, getStartedDone, GetStartedError, getStartedView, setGetStartedHidden } from "./auth/getStarted.js";
 import { contactOf, onboardingNeeded } from "./auth/contactSchema.js";
 import {
   createMailerRecipientLookup, parseShareScope, publicIdentityRecord, sharedContactFor, tournamentOrganiserOf, type MembershipSources,
@@ -275,6 +276,8 @@ import {
   discordAvatarUrl,
   discordAuthorizeUrl,
   discordCompletionErrorUrl,
+  DISCORD_WELCOME_PATH,
+  LEGACY_DISCORD_COMPLETE_PATH,
   discordOauthConfigFromEnv,
   discordSsoEnabled,
   discordOauthStateMatches,
@@ -1601,8 +1604,6 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
         pathname === "/tournament-rules.html" ||
         pathname === "/tournament-rules.css" ||
         pathname === "/tournament-rules.js" ||
-        pathname === "/discord-complete.html" ||
-        pathname === "/discord-complete.js" ||
         pathname === "/admin.html" ||
         pathname === "/admin.css" ||
         pathname === "/admin.js" ||
@@ -1999,6 +2000,28 @@ async function handleApi(
       return sendJson(res, 200, onboardingView(completeOnboarding(auth.coach, rawBody)));
     } catch (error) {
       return sendJson(res, 400, { error: (error as Error).message });
+    }
+  }
+
+  // Coach page "Get started" panel (spec 11-02 §3): which next steps are done (derived) and the coach's Hide choice.
+  if (path === GET_STARTED_PATH && (method === "GET" || method === "POST")) {
+    if (!auth) return sendJson(res, 401, { error: "Authentication required." });
+    res.setHeader("cache-control", "private, no-store");
+    try {
+      const record = method === "GET" ? ownIdentityRecord(auth.coach) : await (async () => {
+        let rawBody: unknown;
+        try { rawBody = await readBody(req, 1024); } catch { throw new GetStartedError("Invalid JSON request body."); }
+        return setGetStartedHidden(auth.coach, rawBody);
+      })();
+      return sendJson(res, 200, getStartedView(record, getStartedDone(auth.coach, {
+        leagues: leagueStore,
+        tournaments: tournamentStore,
+        hasTeam: (coach) => readSaves(BUILDER_SAVES_DIR, coach).length > 0 || readLibrary(LIBRARY_DIR, coach).length > 0,
+        isOrganiser: (coach) => coachLevel(coach) !== "player" || isOrganizer(coach),
+      })));
+    } catch (error) {
+      if (error instanceof GetStartedError) return sendJson(res, 400, { error: error.message });
+      return sendJson(res, 500, { error: method === "GET" ? "Could not read your next steps." : "Could not save. Try again." });
     }
   }
 
@@ -2406,7 +2429,7 @@ async function handleApi(
         ...(oauthState.desktopFlowId ? { desktopFlowId: oauthState.desktopFlowId } : {}),
       });
       res.writeHead(302, {
-        location: "/discord-complete.html",
+        location: DISCORD_WELCOME_PATH,
         "set-cookie": [
           buildClearDiscordOauthStateCookie(secure),
           buildDiscordPendingCookie(pendingToken, secure),
@@ -3192,6 +3215,8 @@ async function handleApi(
     const coach = query.get("coach")?.trim();
     if (!coach) return sendJson(res, 400, { error: "coach is required." });
     if (coach.length > 40) return sendJson(res, 400, { error: "coach must be at most 40 characters." });
+    // The same refusal /api/auth/discord/complete gives, so the coach-name step says so before the coach submits.
+    if (isReservedCoachName(coach)) return sendJson(res, 400, { error: RESERVED_NAME_MESSAGE });
     const cfg = forkDbConfigFromEnv();
     if (!cfg) return sendJson(res, 503, { error: "Fork DB not configured on this host (set FORK_DB_HOST)." });
     try {
@@ -4684,6 +4709,11 @@ setInterval(() => sweepSessions(), 10 * 60 * 1000).unref();
  * vanilla URLs answer with a 302 that carries the query through (`?save=<id>` becomes the path segment).
  */
 export function legacyTournamentRedirect(pathname: string, search: string): string | undefined {
+  // The retired coach-name page (spec 11-02 Q2): onboarding step 1 is the SPA's /app/welcome; ?error= rides along.
+  if (pathname === LEGACY_DISCORD_COMPLETE_PATH || pathname === "/discord-complete.js") {
+    const q = new URLSearchParams(search).toString();
+    return q && pathname.endsWith(".html") ? `${DISCORD_WELCOME_PATH}?${q}` : DISCORD_WELCOME_PATH;
+  }
   if (pathname === "/tournament-team-builder.html") {
     const params = new URLSearchParams(search);
     const save = params.get("save");

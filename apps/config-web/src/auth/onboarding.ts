@@ -42,6 +42,8 @@ export function onboardingGateApplies(method: string, path: string): boolean {
 
 export interface OnboardingView {
   needed: boolean;
+  /** An earlier privacy notice was accepted: the coach only re-accepts (the SPA shows step 2 alone, no coach-name step). */
+  reaccept: boolean;
   /** phones and leagueContact carry what is stored, so a re-acceptance after a privacy-version bump keeps them. */
   prefill: { preferredName: string; email: string | null; emailSource: CoachContact["emailSource"]; country: string | null; phones: CoachPhone[]; leagueContact: boolean };
   privacyVersion: string;
@@ -53,6 +55,7 @@ export function onboardingView(record: CoachIdentityRecord): OnboardingView {
   const contact = contactOf(record);
   return {
     needed: onboardingNeeded(record),
+    reaccept: Boolean(record.consent?.privacy?.acceptedVersion),
     prefill: {
       preferredName: preferredNameOf(record), email: contact.email, emailSource: contact.emailSource, country: contact.country ?? null,
       phones: contact.phones.slice(0, MAX_PHONES), leagueContact: record.consent?.leagueContact?.granted === true,

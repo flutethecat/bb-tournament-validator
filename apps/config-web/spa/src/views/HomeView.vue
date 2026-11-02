@@ -10,6 +10,7 @@ import NotificationsPanel from "../components/NotificationsPanel.vue";
 import HomeHonours from "../components/HomeHonours.vue";
 import HomeFriends from "../components/HomeFriends.vue";
 import HomeMessages from "../components/HomeMessages.vue";
+import HomeGetStarted from "../components/HomeGetStarted.vue";
 import RecentGames from "../components/RecentGames.vue";
 import { SESSION_KEY, writesAllowed } from "../session";
 import { NOTIFICATIONS_KEY } from "../home/notifications";
@@ -76,6 +77,8 @@ onServerPrefetch(() => Promise.all([loadTeams(), loadLog()]));
 
 <template>
   <div class="hm-page">
+    <!-- New coaches (spec 11-02 §3): next steps, until hidden or all done -->
+    <HomeGetStarted />
     <div class="hm-grid">
       <div class="hm-col hm-col-main">
         <section id="whats-new" class="hm-panel" aria-labelledby="hm-new-h">

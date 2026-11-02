@@ -82,8 +82,6 @@ function isPublicRequest(method: string, pathname: string): boolean {
       pathname === "/tournament-rules.html" ||
       pathname === "/tournament-rules.css" ||
       pathname === "/tournament-rules.js" ||
-      pathname === "/discord-complete.html" ||
-      pathname === "/discord-complete.js" ||
       pathname === "/admin.html" ||
       pathname === "/admin.css" ||
       pathname === "/admin.js" ||

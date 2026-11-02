@@ -180,7 +180,8 @@ async function signOut(): Promise<void> {
           <AccountMenu v-if="menuOpen" :can-create="canCreate" @create="openCreate" @sign-out="signOut" />
         </div>
       </template>
-      <DiscordLoginButton v-else-if="session.state.status === 'ready' && session.ssoEnabled()" :href="loginHref" label="Login" />
+      <!-- not on the sign-up step itself (/welcome): the coach is mid-sign-in there -->
+      <DiscordLoginButton v-else-if="session.state.status === 'ready' && session.ssoEnabled() && route.name !== 'welcome'" :href="loginHref" label="Login" />
     </div>
   </header>
   <div class="sf-body" :data-rail="ui.collapsed ? 'true' : 'false'" :inert="createOpen || undefined" :aria-hidden="createOpen ? 'true' : undefined">

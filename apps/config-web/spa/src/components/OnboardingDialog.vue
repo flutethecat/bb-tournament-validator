@@ -10,6 +10,7 @@ import "../account/onboarding.css";
 import { FOCUSABLE } from "../home/shell";
 import { EMAIL_UNVERIFIED_NOTE, LEAGUE_CONTACT_HINT, ONBOARDING_KEY, onboardingKey, PREFERRED_NAME_MAX } from "../account/onboarding";
 import CountryField from "./CountryField.vue";
+import OnboardingSteps from "./OnboardingSteps.vue";
 import PhoneField from "./PhoneField.vue";
 
 const emit = defineEmits<{ signOut: []; done: [] }>();
@@ -22,6 +23,8 @@ const emailInput = ref<HTMLInputElement | null>(null);
 const touched = ref<Record<string, boolean>>({});
 const problems = computed(() => onboarding.problems());
 const show = (key: string, problem: string) => (touched.value[key] ? problem : "");
+// Step 2 of the sign-up frame (spec 11-02 §3); a coach who only re-accepts a changed privacy notice sees this step alone.
+const reaccept = computed(() => state.info?.reaccept === true);
 const emailIsDiscord = computed(() => state.info?.prefill.emailSource === "discord" && Boolean(state.info?.prefill.email) &&
   state.form.email.trim().toLowerCase() === (state.info?.prefill.email ?? "").toLowerCase());
 
@@ -62,8 +65,11 @@ onUnmounted(() => window.removeEventListener("keydown", onKey, true));
   <div class="ob-backdrop">
     <div ref="root" class="ob-modal" role="dialog" aria-modal="true" aria-labelledby="ob-h" aria-describedby="ob-intro" tabindex="-1">
       <header class="ob-head">
-        <h2 id="ob-h" class="ob-title">Welcome to Super FUMBBL</h2>
-        <p id="ob-intro" class="ob-intro">Before you start, check the details we hold for you and choose how we may use them.</p>
+        <h2 id="ob-h" class="ob-title">{{ reaccept ? "Our privacy notice has changed" : "Welcome to Super FUMBBL" }}</h2>
+        <p id="ob-intro" class="ob-intro">{{ reaccept
+          ? "Read the new notice, check the details we hold for you and accept it to carry on."
+          : "Before you start, check the details we hold for you and choose how we may use them." }}</p>
+        <div v-if="!reaccept" class="ob-stepbar"><OnboardingSteps :current="2" /><span class="hm-cap">Step 2 of 2</span></div>
       </header>
       <form class="ob-form" novalidate :aria-busy="state.busy ? 'true' : undefined" @submit.prevent="save">
         <fieldset class="ob-fieldset" :disabled="state.busy">

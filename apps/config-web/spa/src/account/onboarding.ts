@@ -46,6 +46,8 @@ export const EMAIL_UNVERIFIED_NOTE = "We'll verify this address later.";
 
 export interface OnboardingInfo {
   needed: boolean;
+  /** An earlier privacy notice was accepted: the dialog is step 2 alone (no coach-name step, no step indicator). */
+  reaccept?: boolean;
   prefill: { preferredName: string; email: string | null; emailSource: "discord" | "user"; country?: string | null; phones?: Array<{ number: string; country?: string; label?: PhoneLabel }>; leagueContact?: boolean };
   privacyVersion: string;
   leagueContactText: string;
