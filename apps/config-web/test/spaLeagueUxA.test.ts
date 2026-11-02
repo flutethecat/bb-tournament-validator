@@ -5,6 +5,7 @@ import type { ViteDevServer } from "vite";
 import { createSSRApp } from "vue";
 import { phaseComplete, phaseFoldId, phaseFoldKey, phaseOpen, readPhaseFolds, writePhaseFold } from "../spa/src/leagues/fixtureNav";
 import { currentStandingsPhase, pickStandingsPhase, standingsPhaseOptions } from "../spa/src/leagues/standingsView";
+import { coachTitles, honoursView, playerLeaderBoards } from "../spa/src/leagues/hallViews";
 import { coachAvatarSrc, coachSummaryOf, findCoachRecord, teamForRow, wdlLine } from "../spa/src/leagues/popups";
 import type { CoachRecord, LeagueTeam, SeasonRecord } from "../spa/src/leagues/types";
 
@@ -210,5 +211,121 @@ describe("standings + popups: rendered", () => {
     expect(html).toContain("Block, Tackle");
     expect(html).toContain(">90k<");
     expect(html).toMatch(/href="\/app\/leagues\/harbour\?season=season-6&amp;tab=teams&amp;team=t1"[^>]*data-team-page-link/);
+  });
+});
+
+// ---- honours: pin icon (organisers) and the Player / Coach / Team selector
+const HALL = {
+  revision: 1,
+  hallOfFame: [
+    { seasonId: "season-5", number: 5, name: "Season 5", ruleset: "BB2025", champion: { team: "Team 1", coach: "Coach1", race: "Orc" }, runnerUp: { team: "Team 2", coach: "Coach2", race: "Elf" }, source: "podium" },
+    { seasonId: "season-4", number: 4, name: "Season 4", ruleset: "BB2020", champion: { team: "Team 9", coach: "coach1", race: "Orc" }, runnerUp: { team: "Team 1", coach: "Coach2", race: "Orc" }, source: "podium" },
+    { seasonId: "season-3", number: 3, name: "Season 3", ruleset: "BB2020", champion: { team: "Team 2", coach: "Coach2", race: "Elf" }, source: "podium" },
+  ],
+  pins: [{ id: "pin1", kind: "champion", seasonId: "season-5", note: "", by: "Olga", at: "2026-07-02T00:00:00.000Z", resolved: { title: "Season 5 champion", team: "Team 1", coach: "Coach1", race: "Orc", seasonName: "Season 5" } }],
+  awards: [],
+};
+const seasonWithBoards = (): SeasonRecord => ({
+  ...season(),
+  honours: [
+    { key: "season:td", category: "season", stat: "mosttouchdowns", kind: "player", rows: [{ rank: 1, name: "Grimtooth", team: "Team 1", coach: "Coach1", playerId: "p1", value: 5 }] },
+    { key: "season:team-td", category: "season", stat: "mosttouchdowns", kind: "team", rows: [{ rank: 1, name: "Team 1", team: "Team 1", coach: "Coach1", value: 9 }] },
+    { key: "season:record", category: "season", stat: "record", kind: "coach", rows: [{ rank: 1, name: "Coach1", team: "Team 1", coach: "Coach1", value: { Wins: 3, Draws: 0, Defeats: 0, Points: 9 } }] },
+  ],
+} as unknown as SeasonRecord);
+
+describe("honours: helpers", () => {
+  it("?view= is player, coach or team (default team)", () => {
+    expect(honoursView("player")).toBe("player");
+    expect(honoursView(["coach"])).toBe("coach");
+    expect(honoursView("nonsense")).toBe("team");
+    expect(honoursView(undefined)).toBe("team");
+  });
+  it("coach titles count the podium champions per coach (case-insensitive), then runner-ups", () => {
+    const t = coachTitles(HALL.hallOfFame as never);
+    expect(t.map((c) => [c.coach, c.titles, c.runnerUps])).toEqual([["Coach1", 2, 0], ["Coach2", 1, 2]]);
+    expect(t[0]!.teams).toEqual(["Team 1", "Team 9"]);
+  });
+  it("player records: the leader of each stat and the next two, zero rows left out", () => {
+    const b = playerLeaderBoards({ leaders: { td: [leader("A", 9), leader("B", 8), leader("C", 7), leader("D", 6)], cas: [leader("Z", 0)], mvp: [], spp: [], int: [], completions: [], fouls: [] } } as never);
+    expect(b.map((x) => x.id)).toEqual(["td"]);
+    expect(b[0]!.top.name).toBe("A");
+    expect(b[0]!.rest.map((r) => r.name)).toEqual(["B", "C"]);
+  });
+});
+
+describe("honours: rendered", () => {
+  let vite: ViteDevServer | undefined;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let m: Record<string, any>;
+  beforeAll(async () => {
+    const { createServer } = await import("vite");
+    vite = await createServer({ configFile: SPA_CONFIG, logLevel: "silent", appType: "custom", server: { middlewareMode: true, hmr: false, ws: false } });
+    const [renderer, vueRouter, app, league, honours, hof] = await Promise.all([
+      vite.ssrLoadModule("vue/server-renderer"), vite.ssrLoadModule("vue-router"), vite.ssrLoadModule("/src/app.ts"), vite.ssrLoadModule("/src/leagues/league.ts"),
+      vite.ssrLoadModule("/src/leagues/honours.ts"), vite.ssrLoadModule("/src/components/LeagueHonours.vue"),
+    ]);
+    m = { renderer, vueRouter, app, league, honours, Honours: hof.default };
+  }, 60_000);
+  afterAll(async () => { await vite?.close(); });
+
+  async function render(view: string, manage: boolean): Promise<string> {
+    const blank = { render: () => null };
+    const router = m.vueRouter.createRouter({ history: m.vueRouter.createMemoryHistory("/app/"), routes: [
+      { path: "/leagues/:id", name: "league-detail", component: blank }, { path: "/:p(.*)*", component: blank },
+    ] });
+    await router.push(`/leagues/harbour?tab=honours${view ? `&view=${view}` : ""}`);
+    await router.isReady();
+    const app = createSSRApp(m.Honours, { season: seasonWithBoards(), manage, awards: false });
+    app.use(router);
+    const api = (async () => { throw new Error("no api"); }) as never;
+    app.provide(m.app.API_KEY, api);
+    const stats = m.league.createLeagueStats({ api });
+    stats.state.id = "harbour";
+    stats.state.byScope.all = STATS_ALL;
+    app.provide(m.league.LEAGUE_STATS_KEY, stats);
+    const h = m.honours.createHonours({ api });
+    Object.assign(h.state, { leagueId: "harbour", loaded: true, view: JSON.parse(JSON.stringify(HALL)) });
+    app.provide(m.honours.LEAGUE_HONOURS_KEY, h);
+    return ((await m.renderer.renderToString(app)) as string).replace(/<!--[^>]*-->/g, "");
+  }
+
+  it("organisers get a pin icon at the top right of each card (Pin / Unpin); no Pin text buttons", async () => {
+    const html = await render("", true);
+    expect(html).toMatch(/data-season="season-5" data-pinned="true"[^]*?<button type="button" class="hof-pin" data-pinned="true"[^>]*aria-label="Unpin" title="Unpin the Season 5 champion"/);
+    expect(html).toMatch(/data-season="season-4"[^]*?<button type="button" class="hof-pin" data-pinned="false"[^>]*aria-label="Pin" title="Pin the Season 4 champion"/);
+    expect(html).not.toMatch(/>\s*Pin\s*</);
+    expect(html).not.toContain("hof-pin-mark");
+  });
+
+  it("the public sees the pinned mark only, never a pin button", async () => {
+    const html = await render("", false);
+    expect(html).not.toContain('class="hof-pin"');
+    expect(html.match(/class="hof-pin-mark" role="img" aria-label="Pinned"/g)).toHaveLength(1);
+    expect(html).toMatch(/data-season="season-5" data-pinned="true"[^]*?hof-pin-mark/);
+    expect(html).not.toContain("Unpin");
+  });
+
+  it("the selector switches the Hall of Fame and the season's boards together", async () => {
+    const team = await render("", false);
+    expect(team).toMatch(/<button type="button" class="sf-tab" data-view="team" aria-pressed="true">Team<\/button>/);
+    expect(team).toContain('aria-label="Season champions"');
+    expect(team).toContain('data-kind="team"');
+    expect(team).not.toContain('data-kind="player"');
+
+    const player = await render("player", false);
+    expect(player).toMatch(/data-view="player" aria-pressed="true">Player<\/button>/);
+    expect(player).toContain('aria-label="Player records"');
+    expect(player).toMatch(/data-stat="td"[^]*Most touchdowns[^]*class="hof-team">Grimtooth</);
+    expect(player).not.toContain('aria-label="Season champions"');
+    expect(player).toContain('data-kind="player"');
+    expect(player).not.toContain('data-kind="team"');
+
+    const coach = await render("coach", false);
+    expect(coach).toMatch(/data-view="coach" aria-pressed="true">Coach<\/button>/);
+    expect(coach).toMatch(/aria-label="Coach titles"[^]*<h3>Coach1<\/h3><span class="sf-chip" data-tone="soon">2 titles<\/span>/);
+    expect(coach).toMatch(/aria-label="Best coach records"[^]*Coach1[^]*70% · 6-2-2 · 10 games/);
+    expect(coach).toContain('data-kind="coach"');
+    expect(coach).not.toContain('data-kind="player"');
   });
 });

@@ -71,3 +71,42 @@
 .aw-kind input { accent-color: var(--ui-primary); }
 .aw-help { margin: 0; font-size: 13px; color: var(--ui-muted); }
 .aw-team { margin-bottom: 10px; }
+
+/* Honours UX pass (owner 11-02): Player / Coach / Team selector in the Hall of Fame band, larger sans text, a pin icon at
+   the top right of each card (organisers) and a small pin mark on pinned cards (everyone). */
+.hof-panel > .hm-band { align-items: center; flex-wrap: wrap; }
+.hof-tools { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; margin-left: auto; min-width: 0; }
+.hof-views .sf-tab { min-height: 32px; padding: 0 14px; font-size: 12px; }
+.hof-card { position: relative; gap: 8px; padding: 12px 14px; }
+.hof-head { flex-wrap: nowrap; align-items: center; padding-right: 30px; }
+.hof-head h3 { flex: 1 1 auto; min-width: 0; font-size: 21px; }
+.hof-head .sf-chip { flex: none; }
+.hof-dates { font-size: 14px; }
+.hof-team { font-size: 19px; }
+.hof-coach { font-size: 16px; }
+.hof-race { font-size: 14px; }
+.hof-k { font-size: 11px; }
+.hof-places { font-size: 16px; gap: 4px; }
+.hof-sub { font-size: 12px; }
+.hof-pins .aw-title { font-size: 17px; }
+.hof-pins .aw-who { font-size: 15px; }
+.hof-pin, .hof-pin-mark { position: absolute; top: 8px; right: 8px; display: inline-flex; align-items: center; justify-content: center; }
+.hof-pins .hof-pin { position: static; }
+.hof-pin {
+  width: 30px; height: 30px; margin: 0; padding: 0; color: var(--ui-muted); background: var(--ui-surface-2);
+  border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: var(--sf-bevel); cursor: pointer;
+}
+.hof-pin:hover:not(:disabled) { color: var(--ui-text); border-color: var(--ui-heading); }
+.hof-pin[data-pinned="true"] { color: var(--sf-gold); border-color: var(--sf-gold); }
+.hof-pin:disabled { cursor: not-allowed; opacity: .6; }
+.hof-pin:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.hof-pin-mark { width: 22px; height: 22px; color: var(--sf-gold); }
+.hof-pin-ink { fill: currentColor; }
+.hof-card[data-pinned="true"] { border-left-color: var(--sf-gold); box-shadow: inset 0 1px 0 var(--sf-panel-hi), 0 3px 0 var(--sf-panel-drop), inset 0 0 0 1px color-mix(in srgb, var(--sf-gold) 40%, transparent); }
+.hof-big { font: 20px/1 var(--font-heading); color: var(--sf-gold); border-style: solid; }
+.hof-records { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); }
+.hof-records > li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 8px 10px; font-size: 16px; background: color-mix(in srgb, var(--ui-surface-2) 70%, transparent); border-left: 3px solid var(--sf-seat-home); border-radius: 2px; }
+.hof-rank { font: 18px/1 var(--font-heading); color: var(--sf-gold); }
+.hof-rec { flex-basis: 100%; color: var(--ui-muted); font-size: 14px; font-variant-numeric: tabular-nums; }
+/* the season's honour boards under the selector: larger rows */
+.lg-honours .lg-board-rows { font-size: 15px; }
