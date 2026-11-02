@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-02",
+    "title": "Pages fit a 1920x1080 screen",
+    "body": "On a desktop screen the page itself no longer scrolls: the top bar, sidebar and page headers stay put and long content scrolls inside its own pane. League and tournament tabs, the Tournament Creator (its Preview columns scroll separately), the Roster Builder's three columns, the coach page, Account, Schedule, Messages, Tabletop, the fixture lobby, the redraft board and the lists all work this way, with table headers that stay in view. On laptops, tablets and phones pages scroll as before.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-02",
     "title": "Create your own league",
     "body": "Site organisers can now start a league from Create league on the Leagues list: five short steps for the name and artwork, the rules and team building, Season 1 with its registration window, and Discord. A new league stays a draft that only its organisers see until you press Publish in League settings, where Open registration and Start season now live too. Each season keeps its own registration settings (max teams, max per race, approval), copied from the league's defaults.",
     "links": [

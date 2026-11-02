@@ -145,9 +145,9 @@ watch(() => props.teamRef, (ref) => void manage.load(ref));
 </script>
 
 <template>
-  <div class="tm-page">
+  <div class="tm-page sf-fit">
     <!-- While the advancement dialog or the player sheet is open the page behind it is inert (aria-modal; no Tab stops, no clicks). -->
-    <div class="tm-content" :inert="state.flow || state.sheet || state.avatar.open ? true : undefined" :aria-hidden="state.flow || state.sheet || state.avatar.open ? 'true' : undefined">
+    <div class="tm-content sf-fit sf-fill" :inert="state.flow || state.sheet || state.avatar.open ? true : undefined" :aria-hidden="state.flow || state.sheet || state.avatar.open ? 'true' : undefined">
     <nav class="tm-bar" aria-label="Team actions">
       <RouterLink ref="backLink" class="lobby-btn tm-back" to="/my-teams">Back to My teams</RouterLink>
       <template v-if="info">
@@ -177,7 +177,7 @@ watch(() => props.teamRef, (ref) => void manage.load(ref));
         <span v-if="typeof info!.teamValue === 'number'">Team value <b>{{ kTv(info!.teamValue) }}</b></span>
         <span v-if="typeof info!.treasury === 'number'">Treasury <b>{{ gold(info!.treasury) }}</b></span>
       </p>
-      <div class="team-view tm-sheet" @click="onSheetClick" v-html="sheetHtml"></div>
+      <div class="team-view tm-sheet sf-shrink sf-scroll sf-col" @click="onSheetClick" v-html="sheetHtml"></div>
     </template>
     </div>
     <TeamAvatarModal v-if="state.avatar.open && model" :manage="manage" />

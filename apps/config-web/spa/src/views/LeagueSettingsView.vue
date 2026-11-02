@@ -35,7 +35,7 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} settings` : ""));
 </script>
 
 <template>
-  <div class="hm-page lg-page ls-page">
+  <div class="hm-page lg-page ls-page sf-fit">
     <RouterLink class="tn-back lg-back" :to="{ name: 'league-detail', params: { id } }">Back to the league</RouterLink>
     <div v-if="state.league" class="ls-head">
       <img v-if="logo" class="ls-head-logo" :src="logo" alt="" />
@@ -61,12 +61,15 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} settings` : ""));
           :to="{ name: 'league-settings', params: { id }, query: tabQuery(t.id) }" replace
         >{{ t.label }}</RouterLink>
       </nav>
+      <!-- fit to 1920x1080 (owner 11-02): the header and tabs stay; the section scrolls in this pane -->
+      <div class="lg-tab-body sf-fill sf-scroll sf-col">
       <template v-if="tab === 'administration'"><LeagueSettingsLifecycle /><LeagueSettingsAdmin /></template>
       <LeagueSettingsInfo v-else-if="tab === 'information'" />
       <template v-else-if="tab === 'registrations'"><LeagueSettingsRegistrations /><LeagueSettingsSeasonRegistration /></template>
       <LeagueSettingsTeamBuilding v-else-if="tab === 'team-building'" />
       <LeagueSettingsInducements v-else-if="tab === 'inducements'" />
       <LeagueSettingsConnections v-else />
+      </div>
     </template>
   </div>
 </template>
