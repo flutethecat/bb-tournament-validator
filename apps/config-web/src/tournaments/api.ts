@@ -891,6 +891,9 @@ export async function tournamentApi(
         const series = deps.store.seriesRecord(input.seriesId);
         if (!series) return { status: 404, body: { error: "Series not found." } };
         if (!canEditSeries(series, identity)) return { status: 403, body: { error: "You are not this series' organiser." } };
+        // A test sign-in session never writes into a real series (registration spec Q13).
+        if (identity.test && (series as { test?: boolean }).test !== true)
+          return { status: 403, body: { error: "Test sign-in sessions can only create tournaments outside a series." } };
         seriesId = series.id;
       }
       // The creation wizard (lane L3): `publish` (true = public now, false = a hidden draft) plus the details, page and

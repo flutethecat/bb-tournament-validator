@@ -54,7 +54,7 @@ const WIZARD_EXTRAS = {
   entryFee: "15 GBP",
   summary: "Two days of Blood Bowl.",
   deadlines: { registration: "2026-12-01T18:00:00.000Z", checkIn: "2026-12-05T08:30:00.000Z" },
-  registration: { opensAt: "2026-11-03T09:00:00.000Z", approval: "organiser", waitlist: false, rosterLater: true, rosterBy: "2026-12-03T18:00:00.000Z", checkIn: { self: true, opensAt: "2026-12-04T09:00:00.000Z" } },
+  registration: { opensAt: "2026-11-03T09:00:00.000Z", approval: "auto", waitlist: false, rosterLater: true, rosterBy: "2026-12-03T18:00:00.000Z", checkIn: { self: true, opensAt: "2026-12-04T09:00:00.000Z" } },
 };
 
 async function createDraft(store: TournamentStore, extra: Record<string, unknown> = {}, who = owner): Promise<TournamentRecord> {
@@ -82,7 +82,7 @@ describe("creation wizard: POST /api/tournaments with publish", () => {
       startsAt: WIZARD_EXTRAS.startsAt, endsAt: WIZARD_EXTRAS.endsAt, pairingSystem: "monrad", seedingMode: "manual",
       turnTimer: { enforced: "required", seconds: 300 }, location: WIZARD_EXTRAS.location, startTime: "09:00", entryFee: "15 GBP",
       summary: "Two days of Blood Bowl.", deadlines: WIZARD_EXTRAS.deadlines,
-      registration: { opensAt: "2026-11-03T09:00:00.000Z", approval: "organiser", waitlist: false, rosterLater: true, rosterBy: "2026-12-03T18:00:00.000Z", checkIn: { self: true, opensAt: "2026-12-04T09:00:00.000Z" } },
+      registration: { opensAt: "2026-11-03T09:00:00.000Z", approval: "auto", waitlist: false, rosterLater: true, rosterBy: "2026-12-03T18:00:00.000Z", checkIn: { self: true, opensAt: "2026-12-04T09:00:00.000Z" } },
     });
     expect(wiz.tournament).not.toHaveProperty("unpublished");
     expect(wiz.tournament).not.toHaveProperty("playOnFork");
@@ -266,13 +266,34 @@ describe("registration and the publication / window", () => {
   it("Manage PATCH edits the registration settings (validated against the deadlines) and null clears them", async () => {
     const store = newStore();
     const t = await createDraft(store, { registration: {}, deadlines: { registration: "2026-12-01T00:00:00.000Z" } });
-    const ok = await call(store, "PATCH", `/api/tournaments/${t.id}`, owner, { registration: { approval: "organiser", waitlist: false, rosterLater: false, checkIn: { self: false } } });
+    const ok = await call(store, "PATCH", `/api/tournaments/${t.id}`, owner, { registration: { approval: "auto", waitlist: false, rosterLater: false, checkIn: { self: false } } });
     expect(ok?.status).toBe(200);
-    expect(store.tournament(t.id)!.registration).toEqual({ approval: "organiser", waitlist: false, rosterLater: false, checkIn: { self: false } });
+    expect(store.tournament(t.id)!.registration).toEqual({ approval: "auto", waitlist: false, rosterLater: false, checkIn: { self: false } });
     expect((await call(store, "PATCH", `/api/tournaments/${t.id}`, owner, { registration: { opensAt: "2026-12-02T00:00:00.000Z" } }))?.status).toBe(400);
     expect((await call(store, "PATCH", `/api/tournaments/${t.id}`, otherOrganiser, { registration: {} }))?.status).toBe(404);
     expect((await call(store, "PATCH", `/api/tournaments/${t.id}`, owner, { registration: null }))?.status).toBe(200);
     expect(store.tournament(t.id)!.registration).toBeUndefined();
+  });
+
+  it("organiser approval is refused (400) on create and on PATCH until the approval flow ships", async () => {
+    const store = newStore();
+    const res = await call(store, "POST", "/api/tournaments", owner, { name: "Approve", packageName: "Spike 2026", maxPlayers: 4, format: "swiss", publish: true, registration: { approval: "organiser" } });
+    expect(res?.status).toBe(400);
+    expect((res?.body as { error: string }).error).toContain("coming with registration approvals");
+    expect(store.tournaments(["draft"])).toHaveLength(0);
+    const t = await createDraft(store, { registration: {} });
+    expect((await call(store, "PATCH", `/api/tournaments/${t.id}`, owner, { registration: { approval: "organiser" } }))?.status).toBe(400);
+    expect(store.tournament(t.id)!.registration?.approval).toBe("auto");
+  });
+
+  it("a blank registration close falls back to the start: no self-entry once the tournament has started", async () => {
+    const store = newStore();
+    const started = await createDraft(store, { publish: true, registration: {}, startsAt: "2026-11-01T09:00:00.000Z" });
+    const late = await call(store, "POST", `/api/tournaments/${started.id}/entrants`, coach("Alice"), { teamId: "team-alice" });
+    expect(late?.status).toBe(409);
+    expect(late?.body).toMatchObject({ code: "closed" });
+    const upcoming = await createDraft(store, { publish: true, registration: {}, startsAt: "2026-12-01T09:00:00.000Z" });
+    expect((await call(store, "POST", `/api/tournaments/${upcoming.id}/entrants`, coach("Alice"), { teamId: "team-alice" }))?.status).toBe(201);
   });
 
   it("an unpublished draft cannot be started", () => {
@@ -298,5 +319,14 @@ describe("test sign-in sessions (Q13)", () => {
     expect(testSessionTournamentRefusal(store, "POST", "/api/tournaments/missing/entrants")).toBe(TEST_SESSION_TOURNAMENT_REFUSAL);
     expect(testSessionTournamentRefusal(store, "PATCH", "/api/scheduled-matches/m1/result")).toBe(TEST_SESSION_TOURNAMENT_REFUSAL);
     expect(testSessionTournamentRefusal(store, "DELETE", "/api/tournaments")).toBe(TEST_SESSION_TOURNAMENT_REFUSAL);
+  });
+
+  it("a test session cannot create inside a real series", async () => {
+    const store = newStore();
+    const series = store.createSeries({ name: "Real Series", description: "", organisers: ["Veers"], scoring: "sum", seeding: "dutch", createdBy: "Veers" }, now);
+    const res = await call(store, "POST", "/api/tournaments", { ...owner, test: true }, { name: "T", packageName: "Spike 2026", maxPlayers: 4, format: "swiss", publish: false, seriesId: series.id });
+    expect(res?.status).toBe(403);
+    expect(store.seriesRecord(series.id)!.tournaments).toEqual([]);
+    expect((await call(store, "POST", "/api/tournaments", owner, { name: "R", packageName: "Spike 2026", maxPlayers: 4, format: "swiss", publish: false, seriesId: series.id }))?.status).toBe(201);
   });
 });

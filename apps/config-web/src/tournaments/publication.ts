@@ -83,6 +83,10 @@ function boolField(value: unknown, field: string, fallback: boolean): boolean {
   return value;
 }
 
+/** Organiser approval of entries comes with the registration lane (L4), which turns this on. */
+export const ORGANISER_APPROVAL_AVAILABLE = false;
+export const ORGANISER_APPROVAL_REFUSAL = "Organiser approval is coming with registration approvals. Use automatic acceptance for now.";
+
 /** The defaults the owner accepted (11-02): auto-accept (Q5), waitlist on (Q6), roster later on (Q4), self check-in on (Q11). */
 export function defaultTournamentRegistration(): TournamentRegistrationSettings {
   return { approval: "auto", waitlist: true, rosterLater: true, checkIn: { self: true } };
@@ -94,6 +98,8 @@ export function parseRegistrationSettings(value: unknown): TournamentRegistratio
   const raw = value as Record<string, unknown>;
   const base = defaultTournamentRegistration();
   if (raw.approval !== undefined && raw.approval !== "auto" && raw.approval !== "organiser") bad("registration.approval must be auto or organiser.");
+  // Self-entry still accepts at once until the approval flow ships (lane L4), so no tournament may promise an approval step.
+  if (raw.approval === "organiser" && !ORGANISER_APPROVAL_AVAILABLE) bad(ORGANISER_APPROVAL_REFUSAL);
   const checkInRaw = raw.checkIn === undefined || raw.checkIn === null ? {} : raw.checkIn;
   if (typeof checkInRaw !== "object" || Array.isArray(checkInRaw)) bad("registration.checkIn must be an object.");
   const checkIn = checkInRaw as Record<string, unknown>;
@@ -127,7 +133,8 @@ export function assertRegistrationOrder(registration: TournamentRegistrationSett
 /** The tournament's registration window in the core's shape (close values from deadlines, cap from maxPlayers). */
 export function tournamentRegistrationWindow(t: TournamentRecord): RegistrationWindow {
   const r = t.registration ?? defaultTournamentRegistration();
-  const closesAt = t.deadlines?.registration;
+  // A blank close means "until the start" (what the wizard promises): no self-entry once the tournament has started.
+  const closesAt = t.deadlines?.registration ?? t.startsAt;
   const checkInCloses = t.deadlines?.checkIn;
   return resolveRegistrationWindow("tournament", {
     ...(r.opensAt ? { opensAt: r.opensAt } : {}),

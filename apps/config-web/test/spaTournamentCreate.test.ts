@@ -376,6 +376,9 @@ describe("create views (server-rendered against a mocked API)", () => {
     expect(captions(html)).toEqual(["Opens (UTC)", "Closes (UTC)", "Places", "Roster deadline (UTC)", "Opens (UTC)", "Closes (UTC)", "Entry fee"]);
     expect(html).toContain("Waitlist when full");
     expect(html).toMatch(/aria-pressed="true">Automatic<\/button>/);
+    // organiser approval waits for the approval flow (lane L4): offered disabled, with the reason beside it
+    expect(html).toMatch(/aria-pressed="false" disabled aria-describedby="tw-approval-soon">Organisers approve<\/button>/);
+    expect(html).toContain("Organiser approval is coming with registration approvals.");
     expect(html).toContain("Register now, roster later");
     expect(html).toContain("Coaches check themselves in");
     expect(html).toContain('data-naf-note="true"');

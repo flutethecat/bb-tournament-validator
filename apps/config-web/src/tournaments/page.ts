@@ -205,7 +205,8 @@ export interface BannerApiResult {
   body?: unknown;
   headers?: Record<string, string>;
   /** GET: the file to stream. */
-  file?: { path: string; contentType: string };
+  /** `private`: an unpublished draft's banner (no shared caching). */
+  file?: { path: string; contentType: string; private?: boolean };
   /** 413: answer, then drop the connection rather than drain the upload. */
   close?: boolean;
 }
@@ -227,7 +228,8 @@ export async function tournamentBannerApi(
     const path = tournament?.bannerPath && BANNER_PATH.test(tournament.bannerPath) ? join(deps.dataDir, tournament.bannerPath) : undefined;
     if (!path) return { status: 404, body: { error: "No banner." } };
     const ext = tournament!.bannerPath!.split(".").pop() as AvatarExt;
-    return { status: 200, file: { path, contentType: AVATAR_CONTENT_TYPE[ext] } };
+    // An unpublished draft's banner is never cached by shared caches (only its managers reach it at all).
+    return { status: 200, file: { path, contentType: AVATAR_CONTENT_TYPE[ext], ...(tournament!.unpublished === true ? { private: true } : {}) } };
   }
   if (method !== "PUT" && method !== "DELETE") return { status: 405, body: { error: "Use GET, PUT or DELETE." } };
   if (!auth) return { status: 401, body: { error: "Sign in to change the banner." } };

@@ -347,7 +347,7 @@ import { settleNafOwedEntries, tournamentApi } from "./tournaments/api.js";
 import { tournamentBannerApi, tournamentBannerPath } from "./tournaments/page.js";
 import { leagueApi, leaguePath } from "./leagues/api.js";
 import { seriesApi, seriesPath } from "./tournaments/series.js";
-import { hiddenTournamentPath, testSessionTournamentRefusal } from "./tournaments/publication.js";
+import { canSeeTournament, hiddenTournamentPath, testSessionTournamentRefusal } from "./tournaments/publication.js";
 import { isLeagueOrganiser, LeagueStore } from "./leagues/store.js";
 import { myLeagueDeadlines, myLeagues } from "./leagues/myLeagues.js";
 import { runDeadlineJob } from "./leagues/deadlines.js";
@@ -2248,7 +2248,8 @@ async function handleApi(
             res.writeHead(200, {
               "content-type": banner.file.contentType,
               "content-length": String(bytes.length),
-              "cache-control": "public, max-age=3600",
+              // public caching only for a published tournament; a draft's banner depends on who asks
+              ...(banner.file.private ? { "cache-control": "private, no-store", vary: "Cookie, Authorization" } : { "cache-control": "public, max-age=3600" }),
               "x-content-type-options": "nosniff",
             });
             res.end(method === "HEAD" ? undefined : bytes);
@@ -3960,7 +3961,10 @@ async function handleApi(
     if ("error" in resolvedPkg) return sendJson(res, 400, { error: resolvedPkg.error });
     // Commissioner opt-ins (e.g. canopicJar) are listed only for a named competition that enabled them.
     const optInTournament = query.get("tournamentId")?.trim();
-    const optIns = optInTournament ? tournamentStore.tournament(optInTournament)?.inducementOptIns ?? [] : [];
+    const optInRecord = optInTournament ? tournamentStore.tournament(optInTournament) : undefined;
+    // An unpublished draft's settings reach only its managers and admins (lane L3).
+    if (optInRecord && !canSeeTournament(optInRecord, requestIdentity(req))) return sendJson(res, 404, { error: "Tournament not found." });
+    const optIns = optInRecord?.inducementOptIns ?? [];
     return sendJson(res, 200, { inducements: teamBuilderInducementCatalog(resolvedPkg.pkg, bb2025, optIns) });
   }
 

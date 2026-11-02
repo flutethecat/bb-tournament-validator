@@ -91,3 +91,25 @@ describe("tournament banner over HTTP", () => {
     expect((await fetch(url())).status).toBe(404);
   });
 });
+
+describe("unpublished draft over HTTP (lane L3)", () => {
+  it("its banner is private/no-store for the owner and a 404 for others; the team-builder inducements read hides its settings", async () => {
+    const store = new TournamentStore(join(root, "tournaments"));
+    const draft = store.createTournament({ name: "Hidden Cup", packageName: "Rules", maxPlayers: 8, format: "swiss", organizerCoachId: "Alice", publication: "draft" });
+    const banner = `${origin}/api/tournaments/${draft.id}/banner`;
+    const up = await fetch(banner, { method: "PUT", headers: { cookie: ownerCookie, "x-cw-auth": "1", "content-type": "image/png" }, body: new Uint8Array(png(1600, 400, 16)) });
+    expect(up.status).toBe(200);
+    const own = await fetch(banner, { headers: { cookie: ownerCookie } });
+    expect(own.status).toBe(200);
+    expect(own.headers.get("cache-control")).toBe("private, no-store");
+    expect(own.headers.get("vary")).toContain("Cookie");
+    expect((await fetch(banner)).status).toBe(404);
+    expect((await fetch(banner, { headers: { cookie: otherCookie } })).status).toBe(404);
+    const published = await fetch(url());
+    if (published.status === 200) expect(published.headers.get("cache-control")).toBe("public, max-age=3600");
+    const ind = (cookie?: string) => fetch(`${origin}/api/fork/team-builder/inducements?tournamentId=${draft.id}`, { headers: cookie ? { cookie } : {} });
+    expect((await ind()).status).toBe(404);
+    expect((await ind(otherCookie)).status).toBe(404);
+    expect((await ind(ownerCookie)).status).not.toBe(404);
+  });
+});

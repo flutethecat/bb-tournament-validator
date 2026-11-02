@@ -276,6 +276,7 @@ export function createTournamentWizard(deps: { api: Fetcher; onSignedOut?: () =>
           if (v !== undefined && ok) (form as unknown as Record<string, unknown>)[k] = v;
         }
       }
+      if (form.approval !== "auto") form.approval = "auto"; // organiser approval waits for lane L4
       state.form = form;
       state.step = saved?.step && WIZARD_STEPS.some((s) => s.id === saved.step) ? saved.step : "ruleset";
       if (opts.seriesId) state.form.seriesId = opts.seriesId;

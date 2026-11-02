@@ -215,9 +215,10 @@ function startOver(): void {
               <label class="sf-check tw-check"><input v-model="state.form.waitlist" type="checkbox" /> Waitlist when full</label>
               <div class="sf-tabs small tw-wide" role="group" aria-label="Approval">
                 <button type="button" class="sf-tab" :aria-pressed="state.form.approval === 'auto' ? 'true' : 'false'" @click="state.form.approval = 'auto'">Automatic</button>
-                <button type="button" class="sf-tab" :aria-pressed="state.form.approval === 'organiser' ? 'true' : 'false'" @click="state.form.approval = 'organiser'">Organisers approve</button>
+                <!-- Organiser approval waits for the registration approval flow (lane L4); the server refuses it until then. -->
+                <button type="button" class="sf-tab" aria-pressed="false" disabled aria-describedby="tw-approval-soon">Organisers approve</button>
               </div>
-              <p class="tw-help tw-wide">{{ APPROVAL_LABEL[state.form.approval] }}.</p>
+              <p class="tw-help tw-wide">{{ APPROVAL_LABEL[state.form.approval] }}. <span id="tw-approval-soon">Organiser approval is coming with registration approvals.</span></p>
             </fieldset>
 
             <fieldset class="tw-group">
