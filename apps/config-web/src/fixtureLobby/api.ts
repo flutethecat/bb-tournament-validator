@@ -17,7 +17,7 @@
  */
 import { starProfanity } from "../discord/profanity.js";
 import { plainText } from "../leagues/inducementRules.js";
-import type { NotificationInput } from "../notifications.js";
+import { SenderRateLimiter, type NotificationInput } from "../notifications.js";
 import {
   budgetFor, CHAT_KEEP, CHAT_MAX_CHARS, fixedTeamStale, gateOf, holdBanner, inducementStep, kGold, menuFor, newLobby, parsePicks, picksVisible, planSide,
   prefilledLines, priceSide, resolveStart, sideHasStep, tvRoles, type LobbyViewer,
@@ -65,8 +65,12 @@ export interface LobbyDeps {
    * blocked the other (no copy and no note); undefined = not available (a time-gated note instead).
    */
   mirror?: (from: string, to: string, text: string, context: { title: string; link: string }) => { burst: boolean } | "blocked" | undefined;
+  /** The shared per-coach message limit (Messages' 30 a minute, across fixtures): false = refuse (429). Absent = none. */
+  messageAllowed?: (coach: string) => boolean;
   /** Per-fixture note gate when there is no Messages burst to go by (default: one shared in-memory gate). */
   notices?: LobbyNoticeGate;
+  /** "Ask an organiser" per coach, across fixtures (default: ASK_LIMIT in ASK_WINDOW_MS, shared in memory). */
+  askLimiter?: { take(coach: string, now?: number): boolean };
 }
 
 /** At most one note per fixture and recipient every NOTICE_GAP_MS when there is no burst signal (memory only, bounded). */
@@ -84,6 +88,10 @@ export class LobbyNoticeGate {
   }
 }
 const sharedNotices = new LobbyNoticeGate();
+/** A coach may ask the organisers in at most ASK_LIMIT fixtures per ASK_WINDOW_MS (each ask notes and DMs every organiser). */
+export const ASK_LIMIT = 3;
+export const ASK_WINDOW_MS = 10 * 60_000;
+const sharedAsks = new SenderRateLimiter(ASK_LIMIT, ASK_WINDOW_MS);
 
 /** What START sends to the recorder (and what a recovery checks an open match against): the fixture's current coaches,
  *  the locked recorder teams and the resolved lists by coach. */
@@ -233,6 +241,7 @@ export async function lobbyRoute(
     if ([...text].length > CHAT_MAX_CHARS) return fail(400, `A message can be at most ${CHAT_MAX_CHARS} characters.`);
     const wait = deps.chatLimiter?.take([`lobby:${fx.key}:${auth.coach.trim().toLowerCase()}`], 0) ?? 0;
     if (wait > 0) return { ...fail(429, "You are sending messages too fast. Try again in a moment."), headers: { ...NO_STORE, "retry-after": String(wait) } };
+    if (deps.messageAllowed && !deps.messageAllowed(auth.coach)) return { ...fail(429, "Too many messages; wait a minute and try again."), headers: { ...NO_STORE, "retry-after": "60" } };
   }
   let after: (() => void) | undefined;
   const out = await write(fx, auth, deps, async (rec, now) => {
@@ -263,6 +272,8 @@ export async function lobbyRoute(
       case "ask": {
         if (!fx.organisers.length) return fail(409, "This competition has no organisers to ask.");
         if (rec.askedOrganiser) return ok(); // once
+        if (!(deps.askLimiter ?? sharedAsks).take(auth.coach, now.getTime()))
+          return { ...fail(429, "You asked organisers in several fixtures just now. Try again in a few minutes."), headers: { ...NO_STORE, "retry-after": "600" } };
         rec.askedOrganiser = { at, by: auth.coach };
         system(rec, fx, whoSide, "{actor} asked an organiser to join the messages.", at, auth.coach);
         after = () => noteAsk(fx, deps, auth.coach);

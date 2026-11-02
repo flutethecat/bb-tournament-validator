@@ -4,6 +4,7 @@
 // treasury, inducement budget) the server worked out by the recorder's rules. The schedule line is the agreed time
 // (Schedule), else the fixture date. Server figures only.
 import { computed } from "vue";
+import { RouterLink } from "vue-router";
 import { initials } from "../leagues/league";
 import { kGold, type LobbySide, type LobbyView } from "../leagues/lobby";
 import { ordinal, recordLine, scheduleLine } from "../leagues/fixtureSummary";
@@ -40,6 +41,7 @@ const caption = computed(() => [`Round ${props.view.header.round}${props.view.he
           <p class="fs-team-name" data-team-name>{{ st(s).team.name }}</p>
           <p class="fs-team-race">{{ st(s).team.race }} · {{ st(s).coach }}</p>
           <button v-if="rosterLinks && st(s).team.id" type="button" class="fs-link fs-roster-link" data-roster-link @click="emit('roster', s)">Roster</button>
+          <RouterLink v-else-if="st(s).teamLink" class="fs-link fs-roster-link" data-roster-link :to="st(s).teamLink!">Roster</RouterLink>
         </div>
       </div>
       <div class="fs-compare" style="order: 1">

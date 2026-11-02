@@ -595,8 +595,9 @@ export const STORE_COLLECTORS: StoreCollector[] = [
       try { paths = listFiles(join(ctx.deps.stateDir, "fixture-lobbies"), ".json"); } catch { paths = []; }
       const lobbies = paths
         .map((p) => readJsonLoose<Obj>(p))
-        .filter((l): l is Obj => Boolean(l) && ((Array.isArray(l!.coaches) && (l!.coaches as unknown[]).some((c) => isMine(ctx.keys, c))) || objs(l!.chat).some((m) => isMine(ctx.keys, m.from))))
-        .map((l) => ({ key: l.key, coaches: l.coaches, sides: l.sides, hold: l.hold ?? null, started: l.started ?? null, chat: objs(l.chat) }));
+        .filter((l): l is Obj => Boolean(l) && ((Array.isArray(l!.coaches) && (l!.coaches as unknown[]).some((c) => isMine(ctx.keys, c))) || objs(l!.chat).some((m) => isMine(ctx.keys, m.from))
+          || (isObj(l!.askedOrganiser) && isMine(ctx.keys, (l!.askedOrganiser as Obj).by))))
+        .map((l) => ({ key: l.key, coaches: l.coaches, sides: l.sides, hold: l.hold ?? null, started: l.started ?? null, askedOrganiser: l.askedOrganiser ?? null, chat: objs(l.chat) }));
       return lobbies.length ? [{ name: "fixture-lobbies.json", content: json(lobbies) }] : [];
     },
     erase: ["anonymise-fixture-lobbies"],
@@ -1098,6 +1099,7 @@ export const DELETE_STEPS: DeleteStep[] = [
           ...vals(l.sides).map((st) => an.fields(st, ["by"], [])),
           isObj(l.started) ? an.fields(l.started, ["by"], []) : false,
           isObj(l.starting) ? an.fields(l.starting, ["by"], []) : false,
+          isObj(l.askedOrganiser) ? an.fields(l.askedOrganiser, ["by"], []) : false,
         ].some(Boolean));
       }
       return "done";

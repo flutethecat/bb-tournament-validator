@@ -355,8 +355,10 @@ export function teamMeetings(store: LeagueStore, league: LeagueRecord, sides: Re
     }
   }
   meetings.sort((a, b) => b.at.localeCompare(a.at));
+  // hidden only when it is exactly the coaches' own set of games (every coach meeting is one of these team meetings);
+  // a coach meeting without a link (a results-store game) or in another league makes the records differ
   const coachLinks = new Set(coachMeetings.map((m) => m.to).filter(Boolean));
-  if (meetings.length === coachLinks.size && meetings.every((m) => coachLinks.has(m.to))) return null;
+  if (meetings.length === coachMeetings.length && coachLinks.size === coachMeetings.length && meetings.every((m) => coachLinks.has(m.to))) return null;
   const h: LobbyHeadToHead = { wins: { home: 0, away: 0 }, draws: 0, td: { home: 0, away: 0 }, cas: { home: 0, away: 0 }, meetings: [] };
   for (const m of meetings) {
     const homeIsHome = m.homeTeamId === ids.home;

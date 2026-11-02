@@ -317,7 +317,7 @@ import { isTournamentManager, TournamentStore } from "./tournaments/store.js";
 import { DEFAULT_TOURNAMENT_TURN_TIMER } from "./tournaments/types.js";
 import { RateLimiter } from "./translate/guards.js";
 import { createTournamentNotifier, isNotificationApiPath, NotificationStore, notificationsApi, SenderRateLimiter, setActiveNotifier, setOrganiserThreadSink, type NotificationInput, type NotificationRecord } from "./notifications.js";
-import { appendFixtureMessage, appendOrganiserMessage, createSocialLimiters, isSocialApiPath, socialApi, type SocialApiDeps } from "./social/api.js";
+import { appendFixtureMessage, appendOrganiserMessage, fixtureMessageAllowed, createSocialLimiters, isSocialApiPath, socialApi, type SocialApiDeps } from "./social/api.js";
 import { SocialStore } from "./social/store.js";
 import { isScheduleApiPath, scheduleApi, type ScheduleApiDeps } from "./schedule/api.js";
 import { createFixtureSource } from "./schedule/fixtures.js";
@@ -336,8 +336,9 @@ import { assertNotFenced, DeletionFenceError, isCoachFenced, isReservedCoachName
 import { adoptLobbyMatch, dropAllSnapshots, clockView, createMatch, isTabletopApiPath, recoverTabletop, tabletopApi, tabletopMatchTeams, type TabletopApiDeps } from "./tabletop/api.js";
 import { FixtureLobbyStore } from "./fixtureLobby/store.js";
 import { LobbyPresence } from "./fixtureLobby/presence.js";
-import type { LeagueLobbyDeps } from "./fixtureLobby/league.js";
-import { LOBBY_BODY_MAX as TOURNAMENT_LOBBY_BODY_MAX, tournamentLobbyKey, tournamentLobbyPath, tournamentLobbyRoute, type TournamentLobbyDeps } from "./fixtureLobby/tournament.js";
+import { leagueLobbyFixture, type LeagueLobbyDeps } from "./fixtureLobby/league.js";
+import { lobbyConfirmRules } from "./fixtureLobby/core.js";
+import { LOBBY_BODY_MAX as TOURNAMENT_LOBBY_BODY_MAX, tournamentLobbyFixture, tournamentLobbyKey, tournamentLobbyPath, tournamentLobbyRoute, type TournamentLobbyDeps } from "./fixtureLobby/tournament.js";
 import { LEAGUE_FIXTURE_REF, leagueFixtureView, recordLeagueFixture, retractLeagueFixture } from "./leagues/tabletopFixtures.js";
 import { FileTabletopRepository } from "./tabletop/store.js";
 import { createRecorderWebhook, recorderAnnouncement } from "./tabletop/discord.js";
@@ -1118,6 +1119,21 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
     },
     // A tournament fixture somebody opened a lobby for starts from that lobby only (src/fixtureLobby/tournament.ts).
     fixtureHasLobby: (fixtureRef) => fixtureLobbyStore.get(tournamentLobbyKey(fixtureRef)) !== undefined,
+    // A match started from a fixture lobby: the recorder's inducement confirm uses that lobby's own rules (one validator).
+    lobbyRules: (match) => {
+      const ref = match.fixtureRef;
+      if (!ref) return undefined;
+      const lg = LEAGUE_FIXTURE_REF.exec(ref);
+      if (lg) {
+        const league = leagueStore.league(lg[1]!);
+        const season = league ? leagueStore.season(league.id, lg[2]!) : undefined;
+        const f = season?.fixtures.find((x) => x.id === lg[3]);
+        return league && season && f ? lobbyConfirmRules(leagueLobbyFixture(league, season, f, undefined, leagueStore, fixtureLobbyDeps())) : undefined;
+      }
+      const m = tournamentStore.match(ref);
+      const t = m ? tournamentStore.tournament(m.tournamentId) : undefined;
+      return t && m && m.away ? lobbyConfirmRules(tournamentLobbyFixture(t, m, undefined, tournamentLobbyDeps())) : undefined;
+    },
   };
   if (first) await recoverTabletop(deps);
   return deps;
@@ -1138,6 +1154,7 @@ function fixtureLobbyDeps(): LeagueLobbyDeps {
     ratings: () => computeElo(tournamentResults.list()),
     notify: leagueNotify,
     mirror: (from, to, text, context) => appendFixtureMessage(socialDeps, from, to, text, context),
+    messageAllowed: (coach) => fixtureMessageAllowed(socialDeps, coach),
     // the coach's recorder teams (the same refs POST /api/tabletop/matches takes): library teams and Roster Builder saves
     recorderTeams: (coach) => {
       try {

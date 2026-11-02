@@ -4,8 +4,9 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CoachEloRating } from "../src/coachElo";
 import { WORDS_ROT13 } from "../src/discord/profanityList";
-import { LobbyNoticeGate, NOTICE_GAP_MS, winRateOf } from "../src/fixtureLobby/api";
-import { budgetFor, newLobby } from "../src/fixtureLobby/core";
+import { ASK_LIMIT, LobbyNoticeGate, NOTICE_GAP_MS, winRateOf } from "../src/fixtureLobby/api";
+import { SenderRateLimiter } from "../src/notifications";
+import { budgetFor, lobbyConfirmRules, newLobby } from "../src/fixtureLobby/core";
 import { headToHead, ratingsOf, teamMeetings, type Meeting } from "../src/fixtureLobby/league";
 import { LobbyPresence } from "../src/fixtureLobby/presence";
 import { FixtureLobbyStore } from "../src/fixtureLobby/store";
@@ -17,7 +18,7 @@ import { leagueFixtureView } from "../src/leagues/tabletopFixtures";
 import type { LeagueFixture, LeagueTeam, SeasonRecord } from "../src/leagues/types";
 import { actionDmText } from "../src/mail/actionMessages";
 import type { NotificationInput } from "../src/notifications";
-import { appendFixtureMessage } from "../src/social/api";
+import { appendFixtureMessage, createSocialLimiters, fixtureMessageAllowed } from "../src/social/api";
 import { SocialStore } from "../src/social/store";
 import { createMatch, tabletopApi, type TabletopApiDeps } from "../src/tabletop/api";
 import { inducementMenu } from "../src/tabletop/pregame";
@@ -71,6 +72,8 @@ describe("fixture summary routes (league)", () => {
   let mirrored: Array<{ from: string; to: string; text: string; context: { title: string; link: string } }>;
   let mirrorAnswer: { burst: boolean } | "blocked" | undefined;
   let gate: LobbyNoticeGate;
+  let allowed = true;
+  let asks: SenderRateLimiter;
   let clock = 0;
   const ratings = new Map<string, CoachEloRating>([
     ["ann", { rating: 1561.4, games: 12, provisional: false }],
@@ -84,7 +87,7 @@ describe("fixture summary routes (league)", () => {
     now: () => new Date(Date.parse("2026-11-02T12:00:00.000Z") + clock++ * 1000),
     notify: (to, input) => { notes.push({ to, input }); },
     lobby: {
-      store: lobbyStore, presence: new LobbyPresence(), ratings: () => ratings, notices: gate,
+      store: lobbyStore, presence: new LobbyPresence(), ratings: () => ratings, notices: gate, messageAllowed: () => allowed, askLimiter: asks,
       now: () => new Date(Date.parse("2026-11-02T12:00:00.000Z") + clock * 1000),
       mirror: (from, to, text, context) => { mirrored.push({ from, to, text, context }); return mirrorAnswer; },
       recorderTeams: (coach) => [{ ref: `library:${coach.toLowerCase()}-team`, name: coach === "Ann" ? "Green Tide" : "Grudge Rollers", race: coach === "Ann" ? "Orc" : "Human" }],
@@ -118,6 +121,8 @@ describe("fixture summary routes (league)", () => {
     mirrored = [];
     mirrorAnswer = { burst: true };
     gate = new LobbyNoticeGate();
+    asks = new SenderRateLimiter(ASK_LIMIT, 600_000);
+    allowed = true;
     clock = 0;
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
@@ -194,6 +199,13 @@ describe("fixture summary routes (league)", () => {
     expect((await post("Eve", "ask", {})).status).toBe(403);
     expect((await post(undefined, "chat", { text: "hi" })).status).toBe(401);
     expect((await post(undefined, "ask", {})).status).toBe(401);
+    // "Ask an organiser" is throttled per coach across fixtures (each ask notes and DMs every organiser)
+    for (let i = 0; i < ASK_LIMIT; i += 1) expect(asks.take("Ann", Date.parse("2026-11-02T12:00:00.000Z"))).toBe(true);
+    const throttled = await post("Ann", "ask", {});
+    expect(throttled.status).toBe(429);
+    expect(notes.filter((n) => n.to === "Org")).toHaveLength(0);
+    expect((await view("Org")).chat).toBeNull();
+    asks = new SenderRateLimiter(ASK_LIMIT, 600_000);
     // a coach asks: the organisers are noted (actionable), and can read and write from then on
     expect((await view("Ann")).messages).toMatchObject({ asked: false, canAsk: true });
     expect((await post("Ann", "ask", {})).status).toBe(200);
@@ -228,6 +240,10 @@ describe("fixture summary routes (league)", () => {
     expect((await post("Bob", "chat", { text: "See you" })).status).toBe(200);
     expect((await post("Bob", "chat", { text: "Bye" })).status).toBe(200);
     expect(notes.filter((n) => n.to === "Ann")).toHaveLength(1);
+    // the shared Messages limit (across fixtures) refuses with 429 before anything is written
+    allowed = false;
+    expect((await post("Ann", "chat", { text: "over the limit" })).status).toBe(429);
+    allowed = true;
     // a refused message writes nothing and notes nobody
     expect((await post("Ann", "chat", { text: "x".repeat(501) })).status).toBe(400);
     expect(notes).toHaveLength(2);
@@ -245,7 +261,7 @@ describe("fixture summary routes (league)", () => {
     try {
       const social = new SocialStore(sdir);
       const known = new Map([["ann", "Ann"], ["bob", "Bob"]]);
-      const sdeps = { store: social, coach: (n: string) => known.get(n.trim().toLowerCase()), isFenced: () => false };
+      const sdeps = { store: social, coach: (n: string) => known.get(n.trim().toLowerCase()), isFenced: () => false, limiters: createSocialLimiters(), now: () => 1_000 };
       const ctx = { title: "Green Tide v Grudge Rollers · Alpha League", link: "/app/leagues/alpha/seasons/season-2/fixtures/f1/lobby" };
       expect(appendFixtureMessage(sdeps, "ann", "Bob", "Hi Bob", ctx)).toEqual({ burst: true });
       expect(appendFixtureMessage(sdeps, "Ann", "Bob", "Again", ctx)).toEqual({ burst: false });
@@ -258,6 +274,15 @@ describe("fixture summary routes (league)", () => {
       social.block("Bob", "Ann");
       expect(appendFixtureMessage(sdeps, "Ann", "Bob", "blocked?", ctx)).toBe("blocked");
       expect(appendFixtureMessage(sdeps, "Ann", "Nobody", "?", ctx)).toBeUndefined();
+      // the shared limits: 30 messages a minute across fixtures; a new conversation counts against 20 an hour
+      const lim = { limiters: createSocialLimiters(), now: () => 5_000 };
+      for (let i = 0; i < 30; i += 1) expect(fixtureMessageAllowed(lim, "Ann")).toBe(true);
+      expect(fixtureMessageAllowed(lim, "ann")).toBe(false);
+      const many = new Map([["ann", "Ann"], ...Array.from({ length: 21 }, (_, i) => [`c${i}`, `C${i}`] as [string, string])]);
+      const tdeps = { ...sdeps, coach: (n: string) => many.get(n.trim().toLowerCase()), limiters: createSocialLimiters() };
+      for (let i = 0; i < 20; i += 1) expect(appendFixtureMessage(tdeps, "Ann", `C${i}`, "hi", ctx)).toEqual({ burst: true });
+      expect(appendFixtureMessage(tdeps, "Ann", "C20", "hi", ctx)).toBeUndefined();
+      expect(appendFixtureMessage(tdeps, "Ann", "C0", "again", ctx)).toEqual({ burst: false }); // an existing thread still copies
     } finally {
       rmSync(sdir, { recursive: true, force: true });
     }
@@ -337,6 +362,8 @@ describe("fixture summary maths (pure)", () => {
       const same = [meeting("2026-10-10T20:00:00.000Z", "Ann", "Bob", 2, 1, "/leagues/alpha?season=season-2&tab=fixtures&fixture=f0")];
       expect(teamMeetings(store, league, sides, same)).toBeNull();
       expect(teamMeetings(store, league, sides, [])).toMatchObject({ wins: { home: 1, away: 0 }, td: { home: 2, away: 1 } });
+      // the coaches also met in a game without a link (a results-store game): the records differ, so the teams' shows
+      expect(teamMeetings(store, league, sides, [...same, meeting("2026-08-01T20:00:00.000Z", "Ann", "Bob", 0, 3)])).toMatchObject({ wins: { home: 1, away: 0 } });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -445,11 +472,125 @@ describe("lobby picks pre-fill the recorder's inducement picker, which can still
     // the favourite confirms its (empty) list; the phase waits for the underdog
     r = await adv("Bob", { team: "away", skip: true });
     expect(r.body).toMatchObject({ phase: "pregame:inducements", waitingFor: ["home"] });
-    // the underdog CHANGES its pre-filled list (two bribes instead of one would be over budget; a keg instead)
-    r = await adv("Ann", { team: "home", picks: [{ id: "bloodweiser_kegs", qty: 1 }] });
+    // without the fixture's rules (no lobbyRules here) a change cannot be judged: only the list as picked confirms
+    expect((await adv("Ann", { team: "home", picks: [{ id: "bloodweiser_kegs", qty: 1 }] })).status).toBe(409);
+    r = await adv("Ann", { team: "home", picks: [{ id: "bribes", qty: 1 }] });
     expect(r.status).toBe(200);
     expect((r.body as { phase: string }).phase).toBe("pregame:coin");
     const events = (await deps.repo.readEvents(id)).filter((e) => e.type === "inducement" && e.team === "home");
-    expect(events.map((e) => [e.payload.lobby ?? false, (e.payload.picks as Array<{ id: string }>).map((p) => p.id)])).toEqual([[true, ["bribes"]], [false, ["bloodweiser_kegs"]]]);
+    expect(events.map((e) => [e.payload.lobby ?? false, e.payload.total])).toEqual([[true, 100_000], [false, 100_000]]);
+  });
+});
+
+
+describe("the recorder confirm uses the lobby's own rules (stars, Builder-paid lines, package limits)", () => {
+  let dir = "";
+  let store: LeagueStore;
+  const tplayers = (n: number, prefix: string): TabletopPlayer[] => Array.from({ length: n }, (_, i) => ({ id: `${prefix}${i + 1}`, name: `${prefix} ${i + 1}`, spp: 0, skills: [], mng: false, niggles: 0, statLoss: {}, dead: false }));
+  const tfile = (race: string, prefix: string): TabletopTeamFile => ({ schema: 1, name: `${prefix} XI`, race, treasury: 100_000, dedicatedFans: 2, teamValue: 1_000_000, players: tplayers(11, prefix) });
+  const STAR = "star:Akhorne the Squirrel";
+  // Ann (home, underdog: 1.0M v 1.1M, 100K treasury) with a Builder-paid bribe; Bob the favourite
+  function lobbyFx(opts: { kegsOff?: boolean } = {}): LobbyFixture {
+    const { offers, ids } = seasonInducementOffers(undefined);
+    const team = (name: string, tv: number, treasury: number): LobbyTeam => ({
+      id: name, name, race: "Orc", tv, treasury, rerolls: 2, apothecary: false, fans: 2, assistantCoaches: 0, cheerleaders: 0, playerCount: 11, roster: [],
+      file: { schema: 1, name, race: "Orc", treasury, dedicatedFans: 2, teamValue: tv, players: [] }, stars: [{ name: "Akhorne the Squirrel", cost: 80_000 }],
+    });
+    const stats = { played: 0, wins: 0, draws: 0, losses: 0, tdPerGame: 0, casPerGame: 0, form: [] };
+    const table = effectiveInducements(undefined).map((r) => (opts.kegsOff && r.id === "bloodweiser_kegs" ? { ...r, enabled: false } : r));
+    return {
+      key: "tournament:m1", source: "tournament", mode: "tabletop", open: true, header: { competition: "Cup", round: 1, ruleset: "x" },
+      links: { competition: "", fixture: "", standings: "", rules: "" },
+      sides: { home: { coachId: "Ann", coach: "Ann", team: team("A", 1_000_000, 100_000), stats: { season: stats, allTime: stats } }, away: { coachId: "Bob", coach: "Bob", team: team("B", 1_100_000, 0), stats: { season: stats, allTime: stats } } },
+      rules: { treasuryTopUp: true, highlander: false, starClash: "refund" }, noInducements: "", offers, ids, table,
+      isOrganiser: () => false, headToHead: { wins: { home: 0, away: 0 }, draws: 0, td: { home: 0, away: 0 }, cas: { home: 0, away: 0 }, meetings: [] },
+      organisers: [], recorderTeamAllowed: () => true, start: { fixtureRef: "x", extra: {} }, prefilled: { home: [{ id: "bribes", qty: 1 }], away: [] },
+    };
+  }
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "fixture-summary-rules-"));
+    store = new LeagueStore(dir);
+    store.upsertLeague({ id: "alpha", name: "Alpha League", fullName: "Alpha League", slug: "alpha", organisers: ["Org"] });
+    store.putSeason(season("season-2", 2, [fx("f1", 1)]));
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  async function seeded(fixture: LobbyFixture | undefined) {
+    const deps: TabletopApiDeps = {
+      repo: new FileTabletopRepository(join(dir, "tt")), results: new TournamentResultStore(join(dir, "res")),
+      loadTeamFile: (coach) => (coach === "Ann" ? tfile("Orc", "a") : tfile("Human", "b")),
+      isBanned: () => false, isOrganizer: () => false, drawSeats: () => false, rollDie: () => 3,
+      leagueInducements: () => ({ config: undefined, active: true, coaches: ["Ann", "Bob"] }),
+      fixtures: { get: (id) => leagueFixtureView(store, id), record: () => undefined, retract: () => undefined },
+      lobbyRules: () => (fixture ? lobbyConfirmRules(fixture) : undefined),
+    };
+    const lists = {
+      ann: { picks: [{ id: STAR, name: "Akhorne the Squirrel", qty: 1, cost: 80_000 }, { id: "bribes", name: "Bribes", qty: 1, cost: 0, prefilled: 1 }], total: 80_000, treasury: 0, pettyCash: 100_000 },
+      bob: { picks: [], total: 0, treasury: 0, pettyCash: 0 },
+    };
+    const body = { fixtureRef: "league:alpha:season-2:f1", home: { coach: "Ann", team: "library:a" }, away: { coach: "Bob", team: "library:b" }, leagueSeason: { leagueId: "alpha", seasonId: "season-2" }, league: "Alpha League" };
+    const made = await createMatch("Ann", false, body, deps, () => new Date("2026-11-02T12:00:00.000Z"), { inducementsByCoach: lists, fromLobby: true });
+    const id = (made.body as { match: { id: string } }).match.id;
+    const adv = async (coach: string, b: Record<string, unknown> = { mode: "site" }) => (await tabletopApi("POST", `/api/tabletop/matches/${id}/pregame/advance`, { coach, method: "discord" }, b, deps))!;
+    let r = await adv("Ann");
+    for (let i = 0; i < 2; i += 1) r = await adv("Ann");
+    return { deps, id, adv, view: r.body as { phase: string; pregame: { inducementOptions: Record<string, Array<{ id: string; max: number }>>; budget: Record<string, { role: string; pettyCash: number; topUpLimit: number }> } } };
+  }
+  const cart = [{ id: STAR, qty: 1 }, { id: "bribes", qty: 1 }];
+
+  it("confirming keeps a star hire and never charges a Builder-paid line again; the picker shows the lobby's catalogue", async () => {
+    const { deps, id, adv, view } = await seeded(lobbyFx());
+    expect(view.phase).toBe("pregame:inducements");
+    expect(view.pregame.inducementOptions.home!.map((o) => o.id)).toContain(STAR);
+    expect(view.pregame.inducementOptions.home!.find((o) => o.id === "bribes")!.max).toBe(3);
+    expect(view.pregame.budget.home).toMatchObject({ role: "underdog", pettyCash: 100_000, topUpLimit: 50_000 });
+    expect((await adv("Bob", { team: "away", skip: true })).status).toBe(200);
+    const r = await adv("Ann", { team: "home", picks: cart });
+    expect(r.status).toBe(200);
+    expect((r.body as { phase: string }).phase).toBe("pregame:coin");
+    const last = (await deps.repo.readEvents(id)).filter((e) => e.type === "inducement" && e.team === "home").at(-1)!;
+    expect(last.payload).toMatchObject({ total: 80_000, treasury: 0 });
+    expect((last.payload.picks as Array<{ id: string; qty: number; cost: number }>).map((p) => [p.id, p.qty, p.cost])).toEqual([[STAR, 1, 80_000], ["bribes", 1, 0]]);
+    // removing the Builder-paid bribe is refused
+    expect((await adv("Ann", { team: "home", picks: [{ id: STAR, qty: 1 }] })).status).not.toBe(200);
+  });
+
+  it("changes follow the lobby's rules: a forbidden item, over budget and a star the other team has are refused", async () => {
+    const { adv } = await seeded(lobbyFx({ kegsOff: true }));
+    expect((await adv("Bob", { team: "away", skip: true })).status).toBe(200);
+    expect((await adv("Ann", { team: "home", picks: [...cart, { id: "bloodweiser_kegs", qty: 1 }] })).status).toBe(400);
+    expect((await adv("Ann", { team: "home", picks: [{ id: STAR, qty: 1 }, { id: "bribes", qty: 3 }] })).status).toBe(400); // 2 more bribes: 280K > 150K
+    // a star the other team already has cannot be added (the lobby's star rule)
+    expect(lobbyConfirmRules(lobbyFx()).plan("home", cart, 0, [STAR])).toMatchObject({ error: expect.stringMatching(/already plays for the other team/) });
+    // a valid change: drop the star, keep the paid bribe
+    const ok = await adv("Ann", { team: "home", picks: [{ id: "bribes", qty: 1 }] });
+    expect(ok.status).toBe(200);
+    expect((ok.body as { phase: string }).phase).toBe("pregame:coin");
+  });
+});
+
+
+describe("privacy: who asked an organiser", () => {
+  it("the export names the asker's lobby; deletion anonymises askedOrganiser.by", async () => {
+    const { collectExport, DELETE_STEPS } = await import("../src/privacy/collectors");
+    const { createAnonymiser, createTextReplacer } = await import("../src/privacy/anonymise");
+    const dir = mkdtempSync(join(tmpdir(), "fixture-summary-privacy-"));
+    try {
+      const store = new FixtureLobbyStore(dir);
+      // an organiser-side lobby where only the ask names the coach (not a seat, no chat line of theirs)
+      const rec = newLobby({ key: "league:alpha:season-2:f9", source: "league", sides: { home: { coachId: "Cat" }, away: { coachId: "Dee" } } as never }, new Date("2026-11-02T12:00:00.000Z"));
+      rec.askedOrganiser = { at: "2026-11-02T12:00:00.000Z", by: "Ann" };
+      store.put(rec);
+      const deps = { stateDir: dir, tournamentsDir: dir, libraryDir: dir, builderSavesDir: dir, teamAvatarsDir: dir, coachAvatarsDir: dir, bugReportsDir: dir, tabletopDir: dir };
+      const files = await collectExport(deps, "Ann");
+      const lobbies = JSON.parse(String(files.find((f) => f.name === "fixture-lobbies.json")!.content)) as Array<{ askedOrganiser: { by: string } }>;
+      expect(lobbies[0]!.askedOrganiser.by).toBe("Ann");
+      const step = DELETE_STEPS.find((s) => s.id === "anonymise-fixture-lobbies")!;
+      await step.run({ deps, an: createAnonymiser(["Ann"], "Deleted coach #7"), names: new Set(["ann"]), text: () => createTextReplacer(["Ann"], "Deleted coach #7", []) } as never);
+      const after = JSON.parse(readFileSync(join(store.dir, readdirSync(store.dir)[0]!), "utf8")) as { askedOrganiser: { by: string } };
+      expect(after.askedOrganiser.by).toBe("Deleted coach #7");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

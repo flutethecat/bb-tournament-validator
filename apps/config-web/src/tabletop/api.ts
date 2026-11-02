@@ -46,6 +46,7 @@ import { duplicatePlayerId, parseTeamRef } from "./teamFile.js";
 import { tabletopCaptainApi, teamCaptainVacancy } from "./captain.js";
 import { matchTeamKeys, teamLockKey, withTeamLocks } from "./teamLock.js";
 import type { NotificationInput } from "../notifications.js";
+import type { LobbyConfirmRules } from "../fixtureLobby/core.js";
 
 export interface TabletopAuth { coach: string; method: string; /** A test sign-in session: matches it creates are flagged test. */ test?: boolean }
 export interface TabletopResult { status: number; body: unknown; contentType?: string; headers?: Record<string, string> }
@@ -186,6 +187,12 @@ export interface TabletopApiDeps {
   leagueInducements?: (leagueId: string, seasonId: string) => { config: SeasonInducements | undefined; active: boolean; coaches: readonly string[] } | undefined;
   /** Does this (non-league) fixture have a fixture lobby? Then only the lobby's START creates its match. Throws when unreadable. */
   fixtureHasLobby?: (fixtureRef: string) => boolean;
+  /**
+   * A match started from a fixture lobby (match.inducements): the lobby's own inducement rules for its fixture (menu,
+   * budget, validator), so the recorder's confirm judges a pre-filled list exactly as the lobby picker did. undefined =
+   * the fixture cannot be read (the step then confirms the pre-filled lists only, unchanged).
+   */
+  lobbyRules?: (match: MatchRecord) => LobbyConfirmRules | undefined;
   /** The coach's own saved team as a team file (baseline revision), or undefined if they have no such save. */
   /** The baseline team file; `{ error }` (client-safe) when the stored team can't be admitted (e.g. an invalid Team Captain). */
   loadTeamFile: (coach: string, teamSaveId: string) => TabletopTeamFile | { error: string } | undefined;
@@ -1628,6 +1635,14 @@ async function pregameAdvance(
     const earlier = all().filter((e) => e.type === "inducement" && e.team === side).length;
     const picks = b.skip === true ? [] : b.picks;
     if (!Array.isArray(picks)) return err(400, "picks must be an array (or send skip: true).");
+    if (match.inducements) {
+      // started from a fixture lobby: the lobby's own rules (one validator with the lobby picker)
+      const out2 = lobbyConfirm(match, deps, all(), side, b.skip === true ? [] : picks);
+      if ("error" in out2) return err(out2.status, out2.error);
+      mk(earlier === 0 ? `pg-inducement-${side}` : `pg-inducement-${side}-${earlier + 1}`, "inducement", side, {
+        ...out2.payload, submittedBy: me, ...(earlier > 0 ? { replaces: earlier } : {}),
+      });
+    } else {
     const jm = (s: Side) => all().filter((e) => e.type === "journeyman" && e.team === s).map((e) => e.payload.player as TabletopPlayer);
     const tvHome = teamValueWithJourneymen(baseTeams.home!, jm("home"));
     const tvAway = teamValueWithJourneymen(baseTeams.away!, jm("away"));
@@ -1647,6 +1662,7 @@ async function pregameAdvance(
       picks: plan.picks, total: plan.total, treasury: plan.treasury, pettyCash: plan.pettyCash, skipped: plan.picks.length === 0,
       submittedBy: me, ...(earlier > 0 ? { replaces: earlier } : {}),
     });
+    }
     const both = sides.every((s) => inducementConfirmed(all(), s));
     if (both) next = prayersBought("home") + prayersBought("away") > 0 ? "pregame:prayers" : "pregame:coin";
   } else if (phase === "pregame:prayers") {
@@ -1794,9 +1810,75 @@ function pregameViewOf(match: MatchRecord, events: readonly TabletopEvent[], bas
     // the organiser may still swap home and away (before the first pre-game record)
     seatsSwappable: match.state === "recording" && phase === "pregame:fans" && seatsSwappable(events),
   };
-  if (phase === "pregame:inducements" && baseTeams.home && baseTeams.away)
+  if (phase === "pregame:inducements" && baseTeams.home && baseTeams.away) {
     Object.assign(view, inducementMenu({ teams: { home: baseTeams.home, away: baseTeams.away }, events, ...inducementSourceFor(match, deps) }));
+    // a lobby match: the lobby's menu and budget (stars, package caps, Builder-paid lines), by the drawn seats
+    const lr = match.inducements ? lobbyRulesOf(match, deps) : undefined;
+    if (lr) {
+      const options: Record<string, unknown> = {}, budget: Record<string, unknown> = {};
+      for (const s of ["home", "away"] as const) {
+        const ls = lr.sideOf(match[s].coach);
+        if (!ls) continue;
+        const own = latestInducement(events, s);
+        const b = lr.budget(ls, lobbyOverdogSpend(lr, ls, match, events));
+        options[s] = lr.options(ls);
+        budget[s] = {
+          role: b.role === "overdog" ? "favourite" : b.role, pettyCash: b.pettyCash, treasury: b.treasury, topUpLimit: b.topUpLimit,
+          spent: Number(own?.payload.total ?? 0), submitted: inducementConfirmed(events, s), ...(own?.payload.lobby === true ? { lobby: true } : {}),
+        };
+      }
+      Object.assign(view, { inducementOptions: { ...(view.inducementOptions as object), ...options }, budget: { ...(view.budget as object), ...budget } });
+    }
+  }
   return view;
+}
+
+function lobbyRulesOf(match: MatchRecord, deps: TabletopApiDeps): LobbyConfirmRules | undefined {
+  try { return deps.lobbyRules?.(match); } catch { return undefined; }
+}
+
+/** The favourite's treasury spend as confirmed here (what feeds the underdog's petty cash); 0 for the favourite itself. */
+function lobbyOverdogSpend(lr: LobbyConfirmRules, ls: "home" | "away", match: MatchRecord, events: readonly TabletopEvent[]): number {
+  if (ls !== lr.underdog || !lr.overdog) return 0;
+  const seat = (["home", "away"] as const).find((s) => lr.sideOf(match[s].coach) === lr.overdog);
+  if (!seat || !inducementConfirmed(events, seat)) return 0;
+  return Number(latestInducement(events, seat)?.payload.treasury ?? 0);
+}
+
+/**
+ * The recorder's confirm of a lobby match's inducements for one drawn seat: the lobby's validator with the favourite's
+ * spend as confirmed here. Without the lobby's rules (fixture unreadable) only the pre-filled list itself can be confirmed.
+ */
+function lobbyConfirm(match: MatchRecord, deps: TabletopApiDeps, events: readonly TabletopEvent[], side: Side, picks: unknown[]):
+  { payload: Record<string, unknown> } | { status: number; error: string } {
+  const other: Side = side === "home" ? "away" : "home";
+  const lr = lobbyRulesOf(match, deps);
+  const seeded = events.find((e) => e.id === `pg-inducement-${side}`)?.payload;
+  if (!lr) {
+    // the underdog (petty cash in its lobby list) still goes second
+    const otherSeed = events.find((e) => e.id === `pg-inducement-${other}`)?.payload;
+    if (Number(seeded?.pettyCash ?? 0) > 0 && Number(otherSeed?.pettyCash ?? 0) === 0 && !inducementConfirmed(events, other))
+      return { status: 409, error: `The higher-value team (${other}) goes first: its treasury spending feeds the petty cash.` };
+    const key = (list: unknown) => JSON.stringify((Array.isArray(list) ? list : []).map((p) => [String((p as { id?: unknown }).id), Number((p as { qty?: unknown }).qty)]).sort());
+    if (!seeded || key(picks) !== key(seeded.picks)) return { status: 409, error: "The fixture's inducement rules cannot be read right now: confirm the list as picked, or try again later." };
+    return { payload: { picks: seeded.picks, total: seeded.total, treasury: seeded.treasury, pettyCash: seeded.pettyCash, skipped: (seeded.picks as unknown[]).length === 0, confirmedAsPicked: true } };
+  }
+  const ls = lr.sideOf(match[side].coach);
+  if (!ls) return { status: 409, error: "This match's coaches no longer match its fixture." };
+  if (ls === lr.underdog && lr.overdog) {
+    const seat = (["home", "away"] as const).find((s) => lr.sideOf(match[s].coach) === lr.overdog);
+    if (seat && !inducementConfirmed(events, seat)) return { status: 409, error: `The higher-value team (${seat}) goes first: its treasury spending feeds the petty cash.` };
+  }
+  const spend = lobbyOverdogSpend(lr, ls, match, events);
+  const otherPicks = ((latestInducement(events, other)?.payload.picks as Array<{ id: string }> | undefined) ?? []).map((p) => p.id);
+  const plan = lr.plan(ls, picks, spend, otherPicks);
+  if ("error" in plan) return { status: 400, error: plan.error };
+  return {
+    payload: {
+      picks: plan.picks, total: plan.total, treasury: plan.treasury, pettyCash: plan.pettyCash, skipped: plan.picks.length === 0,
+      ...(ls === lr.underdog && lr.overdog ? { overdogSpend: spend } : {}),
+    },
+  };
 }
 
 /**

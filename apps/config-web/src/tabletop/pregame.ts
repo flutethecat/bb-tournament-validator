@@ -221,7 +221,13 @@ export function latestInducement(events: readonly TabletopEvent[], side: Side): 
  */
 export function inducementConfirmed(events: readonly TabletopEvent[], side: Side): boolean {
   const e = latestInducement(events, side);
-  return Boolean(e) && e!.payload.lobby !== true;
+  if (!e || e.payload.lobby === true) return false;
+  // a lobby-match underdog confirmed against the favourite's spend at that moment: a later change of that spend reopens it
+  if (typeof e.payload.overdogSpend === "number") {
+    const o = latestInducement(events, side === "home" ? "away" : "home");
+    if (!o || o.payload.lobby === true || Number(o.payload.treasury ?? 0) !== e.payload.overdogSpend) return false;
+  }
+  return true;
 }
 
 export function pregameSummary(events: readonly TabletopEvent[], phase?: MatchPhase) {
@@ -311,7 +317,7 @@ export function inducementMenu(input: {
     const own = latest(s);
     const spent = Number((own?.payload as { total?: number } | undefined)?.total ?? 0);
     const fromLobby = own?.payload.lobby === true;
-    const done = { submitted: !!own && !fromLobby, ...(fromLobby ? { lobby: true as const } : {}) };
+    const done = { submitted: inducementConfirmed(input.events, s), ...(fromLobby ? { lobby: true as const } : {}) };
     if (mine === null || theirs === null || mine === theirs) return { role: "equal", pettyCash: 0, treasury, topUpLimit: 0, spent, ...done };
     if (mine > theirs) return { role: "favourite", pettyCash: 0, treasury, topUpLimit: treasury, spent, ...done };
     const favSpent = Number((latest(other)?.payload as { treasury?: number } | undefined)?.treasury ?? 0);

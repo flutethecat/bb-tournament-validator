@@ -137,7 +137,7 @@ export function prefilledLines(fx: LobbyFixture, side: LobbySide): ResolvedPick[
 }
 
 /** Adds the pre-filled lines to a resolved side (merged into a picked line of the same id). Totals do not change. */
-function withPrefilled(fx: LobbyFixture, side: LobbySide, plan: ResolvedSide): ResolvedSide {
+export function withPrefilled(fx: LobbyFixture, side: LobbySide, plan: ResolvedSide): ResolvedSide {
   const lines = prefilledLines(fx, side);
   if (!lines.length) return plan;
   const picks = plan.picks.map((p) => ({ ...p }));
@@ -390,4 +390,57 @@ export function applyStarRule(fx: LobbyFixture, rec: Pick<LobbyRecord, "sides">,
     clashes.push({ name: id.slice(STAR_PREFIX.length), ...(kept ? { kept } : {}), removedFrom, refunded });
   }
   return clashes;
+}
+
+// ---- the recorder's confirm of a lobby-seeded list (fixture summary, UX pass 11-02) ---------------------------------
+
+/**
+ * The rules the recorder's inducement step uses for a match started from this lobby: the SAME menu, budget and validator
+ * as the lobby picker (stars, package allowances and caps, roster restrictions, treasury top-up, Builder-paid lines), so
+ * confirming or changing a pre-filled list never drops a valid hire or charges a paid line twice. Sides here are the
+ * lobby's own; the recorder maps its drawn seats by coach (sideOf).
+ */
+export interface LobbyConfirmRules {
+  sideOf(coach: string): LobbySide | undefined;
+  overdog?: LobbySide;
+  underdog?: LobbySide;
+  /** The picker's catalogue: `max` counts the Builder-paid lines too (the cart starts with them). */
+  options(side: LobbySide): Array<{ id: string; name: string; price: number; max: number; prefilled?: number }>;
+  budget(side: LobbySide, overdogSpend: number): SideBudget;
+  /** A full list as the recorder's cart holds it (Builder-paid lines included): the resolved side, or why not. */
+  plan(side: LobbySide, picks: unknown, overdogSpend: number, otherPicks: readonly string[]): ResolvedSide | { error: string };
+}
+
+const holdOf = (fx: LobbyFixture, overdogSpend: number): Pick<LobbyRecord, "hold"> => {
+  const r = tvRoles(fx);
+  return r.underdog && overdogSpend > 0 ? { hold: { at: "", underdog: r.underdog, overdogSpend, pettyCash: r.gap + overdogSpend, was: r.gap } } : {};
+};
+
+export function lobbyConfirmRules(fx: LobbyFixture): LobbyConfirmRules {
+  const r = tvRoles(fx);
+  const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+  return {
+    sideOf: (coach) => LOBBY_SIDES.find((s) => fx.sides[s].coachId && same(fx.sides[s].coachId, coach)),
+    ...(r.overdog ? { overdog: r.overdog } : {}),
+    ...(r.underdog ? { underdog: r.underdog } : {}),
+    options: (side) => (inducementStep(fx) ? [] : menuFor(fx, side).flatMap((c) => c.items.map((i) => ({
+      id: i.id, name: i.name, price: i.price, max: i.max + (i.prefilled ?? 0), ...(i.prefilled ? { prefilled: i.prefilled } : {}),
+    })))),
+    budget: (side, overdogSpend) => budgetFor(fx, holdOf(fx, overdogSpend), side),
+    plan: (side, raw, overdogSpend, otherPicks) => {
+      const parsed = parsePicks(raw);
+      if ("error" in parsed) return parsed;
+      // the cart carries the Builder-paid lines: they are not charged again (the allowance is kept)
+      const own = parsed.map((p) => ({ id: p.id, qty: p.qty - prefilledQty(fx, side, p.id) }));
+      if (own.some((p) => p.qty < 0)) return { error: "A line bought in the Builder cannot be removed." };
+      const picks = own.filter((p) => p.qty > 0);
+      if (picks.length && inducementStep(fx)) return { error: inducementStep(fx) };
+      if (picks.length && !sideHasStep(fx, side)) return { error: `${fx.sides[side].team.name} buys no inducements in this fixture.` };
+      const clash = picks.find((p) => p.id.startsWith(STAR_PREFIX) && otherPicks.includes(p.id));
+      if (clash) return { error: `${clash.id.slice(STAR_PREFIX.length)} already plays for the other team.` };
+      const plan = picks.length ? planSide(fx, holdOf(fx, overdogSpend), side, picks) : { picks: [], total: 0, treasury: 0, pettyCash: budgetFor(fx, holdOf(fx, overdogSpend), side).pettyCash };
+      if ("error" in plan) return plan;
+      return fx.mode === "tabletop" ? withPrefilled(fx, side, plan) : plan;
+    },
+  };
 }

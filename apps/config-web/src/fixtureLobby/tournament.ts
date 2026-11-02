@@ -37,7 +37,8 @@ import { isTournamentManager, tournamentOwner, type TournamentStore } from "../t
 import type { ScheduledMatchRecord, TournamentRecord, TournamentSubmission } from "../tournaments/types.js";
 import { lobbyRoute, type LobbyAuth, type LobbyDeps, type LobbyResult } from "./api.js";
 import { STAR_PREFIX } from "./core.js";
-import { agreedTime, coachHistory, headToHead, statsOf, type Game } from "./league.js";
+import { agreedTime, coachHistory, headToHead, ratingsOf, statsOf, type Game } from "./league.js";
+import type { CoachEloRating } from "../coachElo.js";
 import { LOBBY_SIDES, type LobbyFixture, type LobbyFixtureSide, type LobbyPick, type LobbySide, type LobbyTeam } from "./types.js";
 
 /** One side's team: the team file the lobby judges (race, TV, treasury, players) and what the Builder bought. */
@@ -58,6 +59,8 @@ export interface TournamentLobbyDeps extends LobbyDeps {
   leagues?: LeagueStore;
   results?: () => StoredTournamentResult[];
   resultsRevision?: () => string;
+  /** The coaches' site rating (the existing Elo) for the fixture summary's coach cards. */
+  ratings?: () => ReadonlyMap<string, CoachEloRating>;
   /** When the recorder's chain for a coach's save started (its baseline revision's createdAt); undefined = no chain. */
   chainStartedAt?(coach: string, saveId: string): Promise<string | undefined>;
 }
@@ -228,6 +231,7 @@ export function tournamentLobbyFixture(t: TournamentRecord, m: ScheduledMatchRec
   const teamLinks: Partial<Record<LobbySide, string>> = {};
   const rosterStars: Record<LobbySide, { count: number; cost: number }> = { home: { count: 0, cost: 0 }, away: { count: 0, cost: 0 } };
   const withdrawn: string[] = [];
+  const rate = ratingsOf(deps);
   const side = (s: LobbySide): LobbyFixtureSide => {
     const ms = m[s]!;
     const entrant = entrants.find((e) => e.id === ms.entrantId);
@@ -258,7 +262,8 @@ export function tournamentLobbyFixture(t: TournamentRecord, m: ScheduledMatchRec
     const row = standings.find((r) => r.entrantId === ms.entrantId);
     return {
       coachId: cid, coach: ms.coach.ffbCoachId, team,
-      ...(row ? { standing: { rank: row.rank, points: row.points, group: "" } } : {}),
+      ...(row ? { standing: { rank: row.rank, points: row.points, group: "", played: row.played, wins: row.wins, draws: row.draws, losses: row.losses } } : {}),
+      ...(rate ? { rating: rate(cid) } : {}),
       stats: {
         season: { ...statsOf(tournamentGames(matches, cid)), ...(row ? { points: row.points } : {}) },
         allTime: statsOf(history.games.get(cid.trim().toLowerCase()) ?? []),

@@ -183,12 +183,20 @@ function send(deps: SocialApiDeps, me: string, toName: string, rawText: unknown,
  * A coach's message on a fixture summary, copied into the two coaches' thread so it shows in both inboxes (league UX pass
  * 11-02). Blocks apply (either way: no copy, "blocked"); a deleted / fenced / unknown account gets no copy (undefined).
  * Returns whether the recipient had nothing unread in the thread before (a new burst: the caller notifies once).
+ * The shared limiters hold: the message itself was counted by fixtureMessageAllowed (the lobby refuses past it), and a
+ * NEW conversation counts against the 20-an-hour conversation limit (past it: no copy, undefined).
  */
-export function appendFixtureMessage(deps: Pick<SocialApiDeps, "store" | "coach" | "isFenced">, from: string, to: string, text: string, fixture: FixtureContext): { burst: boolean } | "blocked" | undefined {
+export function appendFixtureMessage(deps: Pick<SocialApiDeps, "store" | "coach" | "isFenced" | "limiters" | "now">, from: string, to: string, text: string, fixture: FixtureContext): { burst: boolean } | "blocked" | undefined {
   const a = deps.coach(from), b = deps.coach(to);
   if (!a || !b || socialKey(a) === socialKey(b) || deps.isFenced(a) || deps.isFenced(b)) return undefined;
   if (deps.store.blockedEitherWay(a, b)) return "blocked";
+  if (!deps.store.findThread(a, b) && !deps.limiters.threads.take(a, deps.now?.() ?? Date.now())) return undefined;
   return { burst: deps.store.append(a, b, text, undefined, fixture).burst };
+}
+
+/** A coach's fixture-summary message counts against the same 30-a-minute message limit as Messages (across fixtures). */
+export function fixtureMessageAllowed(deps: Pick<SocialApiDeps, "limiters" | "now">, from: string): boolean {
+  return deps.limiters.messages.take(from, deps.now?.() ?? Date.now());
 }
 
 export function appendOrganiserMessage(store: SocialStore, organiser: string, coach: string, text: string, context: OrganiserContext): void {

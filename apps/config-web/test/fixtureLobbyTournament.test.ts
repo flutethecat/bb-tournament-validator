@@ -113,6 +113,7 @@ describe("tournament fixture lobby", () => {
     },
     adoptMatch: (input) => adoptLobbyMatch(tt, input),
     chainStartedAt: async () => chainAt,
+    ratings: () => new Map([["ann", { rating: 1540.4, games: 11, provisional: false }]]),
   });
   const L = `/api/tournaments/t1/fixtures/${encodeURIComponent(M1)}/lobby`;
   const call = async (coach: string | undefined, method: string, path: string, body: Record<string, unknown> = {}): Promise<LobbyResult> => {
@@ -129,6 +130,11 @@ describe("tournament fixture lobby", () => {
     const anon = await view();
     expect(anon).toMatchObject({ source: "tournament", mode: "tabletop", viewer: { role: "spectator", canChat: false }, chat: null });
     expect(anon.header).toMatchObject({ competition: "Autumn Open", round: 1, rounds: 3, ruleset: "test-cup" });
+    // the fixture summary's coach cards and record: Rating (the existing Elo) and the tournament standings row
+    expect(anon.sides.home.rating).toMatchObject({ value: 1540, games: 11, rank: 1, of: 1 });
+    expect(anon.sides.away.rating).toBeNull();
+    expect(anon.sides.home.standing).toMatchObject({ played: 0, wins: 0, draws: 0, losses: 0 });
+    expect(anon.sides.home.teamLink).toBe("/tournaments/t1/team/e1");
     // the submitted roster is the coaches' and managers' business
     expect(anon.sides.home.team.roster).toEqual([]);
     expect(anon.sides.home.inducements.prefilled).toBeNull();

@@ -60,7 +60,8 @@ const crestMap = computed<Record<LobbySide, string>>(() => ({
   away: view.value ? crestFor(crests.value, view.value.sides.away.team.race) : "",
 }));
 
-// Shared popups (UX-A): the coach summary and the roster, league fixtures only (both read league data).
+// Shared popups (UX-A): the coach summary and the roster, league fixtures only (both read league data). A tournament's
+// Roster link opens the entrant's team page (teamLink), under that page's own privacy rules.
 const coachOpen = ref<LobbySide | null>(null);
 const rosterTeam = ref<LeagueTeam | null>(null);
 const rosterError = ref("");
