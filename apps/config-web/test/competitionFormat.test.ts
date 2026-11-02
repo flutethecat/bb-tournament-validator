@@ -192,3 +192,37 @@ describe("Swiss pairing avoidance", () => {
     expect(pairs).toEqual([{ homeEntrantId: "e1", awayEntrantId: "e3" }, { homeEntrantId: "e2", awayEntrantId: "e4" }]);
   });
 });
+
+describe("pairing review fixes (Sol P2s)", () => {
+  it("18 players (eloSeeded, greedy-size field): club avoidance never forces an avoidable rematch", () => {
+    // Everyone drew once, so the order is the stable coin flip alone; read it, then build the trap around it: the
+    // 15th seat shares a club with the 16th and has met the 18th. A greedy pick (15 v 17, dodging the clash) would leave
+    // 16 v 18 as a rematch; a draw with neither a rematch nor a clash exists (15 v 18, 16 v 17).
+    const base = Array.from({ length: 18 }, (_, i) => entrant(i + 1));
+    const dummy = Array.from({ length: 9 }, (_, i) => game(2 * i + 1, 2 * i + 2, 0, 0));
+    const order = calculateStandings(base, dummy, pts, []).map((r) => Number(r.entrantId.slice(1)));
+    const r = (i: number) => order[i]!;
+    const priors = [[0, 2], [1, 3], [4, 6], [5, 7], [8, 10], [9, 12], [11, 14], [13, 16], [15, 17]].map(([a, b]) => game(r(a!), r(b!), 0, 0));
+    const field = base.map((e) => (e.id === `e${r(14)}` || e.id === `e${r(15)}` ? { ...e, clubId: "red" } : { ...e, clubId: `club-${e.id}` }));
+    const met = new Set(priors.map((m) => [m.home.entrantId, m.away!.entrantId].sort().join("|")));
+    const pairs = generateTournamentPairings("swiss", 2, field, priors, pts, [], { system: "eloSeeded", clash: (a, b) => pairingClash("club", a, b) });
+    expect(pairs).toHaveLength(9);
+    expect(pairs.filter((p) => met.has([p.homeEntrantId, p.awayEntrantId!].sort().join("|")))).toEqual([]);
+    expect(pairs.filter((p) => p.clash)).toEqual([]);
+  });
+  it("a negative scheme (0 / -1000 / -2000) never makes a rematch cheaper than a fresh pairing", () => {
+    const neg = { win: 0, draw: -1000, loss: -2000, bye: 0 };
+    // R1: 1 beat 2, 3 beat 4. R2: 1 beat 3, 2 beat 4. Fresh round 3 = 1 v 4 and 2 v 3 (a 4000-point gap); the only other
+    // draw is two rematches.
+    const prior = [game(1, 2, 1, 0), game(3, 4, 1, 0), game(1, 3, 1, 0, 0, 0, 2), game(2, 4, 1, 0, 0, 0, 2)];
+    for (const system of ["eloSeeded", "dutch", "monrad"] as const) {
+      const pairs = generateTournamentPairings("swiss", 3, [1, 2, 3, 4].map((n) => entrant(n)), prior, neg, [], { system });
+      expect(pairsOf(pairs), system).toEqual(["e1-e4", "e2-e3"]);
+    }
+    expect(() => parsePointsScheme({ win: 0, draw: 0, loss: -1 })).toThrow(/more points than a draw/);
+    expect(() => parsePointsScheme({ win: 0, draw: -2, loss: -1 })).toThrow(/at least as many points as a loss/);
+    expect(parsePointsScheme({ win: 0, draw: -1000, loss: -2000 })).toEqual({ win: 0, draw: -1000, loss: -2000 });
+  });
+});
+
+const pairsOf = (p: Array<{ homeEntrantId: string; awayEntrantId?: string }>) => p.map((x) => [x.homeEntrantId, x.awayEntrantId].sort().join("-")).sort();

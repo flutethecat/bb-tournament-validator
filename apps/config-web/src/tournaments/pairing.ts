@@ -258,8 +258,11 @@ export function generateSwissPairings(
   const pool = standings.filter((row) => row.entrantId !== byeId);
 
   interface SearchResult { cost: number; key: string; pairs: SwissPairing[] }
-  // A score gap is measured in "3-point wins", so a 2000/1000/0 scheme weighs a gap exactly as 3/1/0 does.
-  const scoreUnit = points.win > 0 ? 3 / points.win : 1;
+  // A score gap is measured on the win-to-loss range (3/1/0 = a range of 3), so a 2000/1000/0 or 0/-1000/-2000 scheme
+  // weighs a gap exactly as 3/1/0 does and a score gap never outweighs a rematch. (Schemes with win <= loss are refused
+  // where points are set: src/competition/format.ts parsePointsScheme.)
+  const range = points.win - points.loss;
+  const scoreUnit = range > 0 ? 3 / range : 1;
   const pairCost = (home: StandingRow, away: StandingRow): number => {
     const rematchCost = played.has(playedKey(home.entrantId, away.entrantId)) ? 1_000_000 : 0;
     // Pairing avoidance: a clash costs more than any likely score gap but less than a rematch.
@@ -269,6 +272,18 @@ export function generateSwissPairings(
     return rematchCost + clashCost + scoreCost + rankCost;
   };
   if (pool.length > 16) {
+    // Too many for the exhaustive search: a depth-first search in cost order that refuses rematches (and, when a rule is
+    // set, clashes) and backtracks, so an early pick can never force a later rematch or an avoidable clash. Only when no
+    // such draw exists does the greedy pick below run (rematch cost >> clash cost).
+    const byId = new Map(pool.map((row) => [row.entrantId, row]));
+    const ranked = pool.map((row) => ({ entrantId: row.entrantId, points: row.points }));
+    const byCost = (remaining: RankedEntrant[]): RankedEntrant[] => {
+      const home = byId.get(remaining[0]!.entrantId)!;
+      return remaining.slice(1).sort((left, right) =>
+        pairCost(home, byId.get(left.entrantId)!) - pairCost(home, byId.get(right.entrantId)!) || left.entrantId.localeCompare(right.entrantId));
+    };
+    const searched = (clash ? backtrackPairs(ranked, played, byCost, clashes) : undefined) ?? backtrackPairs(ranked, played, byCost);
+    if (searched) return [...pairings, ...searched];
     const remaining = [...pool];
     const pairs: SwissPairing[] = [];
     while (remaining.length > 0) {
