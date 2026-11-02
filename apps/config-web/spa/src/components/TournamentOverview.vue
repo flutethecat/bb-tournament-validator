@@ -19,7 +19,7 @@ const props = defineProps<{ tournament: TournamentSummary }>();
 const facts = computed(() => factsStrip(props.tournament));
 const detail = inject(TOURNAMENT_DETAIL_KEY, null);
 const rulesetName = computed(() => rulesetLabel(props.tournament.rulesetPackName ?? props.tournament.packageName, "the ruleset"));
-const houseEdit = computed(() => (detail?.state.capabilities.manage ? { query: { tab: "manage" }, hash: "#tn-edit-h" } : null));
+const houseEdit = computed(() => (detail?.state.capabilities.manage ? { name: "tournament-manage", params: { id: props.tournament.id }, hash: "#tn-edit-h" } : null));
 const showPay = computed(() => {
   const t = props.tournament;
   if (!t.paymentLinks || t.status === "completed" || t.status === "cancelled") return false;
