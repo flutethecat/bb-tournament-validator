@@ -352,6 +352,8 @@ button.lg-cog { margin: 0; padding: 0; font: inherit; color: inherit; cursor: po
 .ls-field textarea { min-height: 96px; padding: 8px 10px; resize: vertical; line-height: 1.45; }
 .ls-field[data-invalid="true"] input, .ls-field[data-invalid="true"] select { border-color: var(--ui-danger); }
 .ls-field-error { margin: 0; color: var(--ui-danger); font-size: 14px; }
+/* League time zone not set yet (owner 11-02): a visible note for organisers */
+.ls-tz-note { margin: 4px 0 0; padding: 6px 10px; font-size: 14px; color: var(--ui-text); background: color-mix(in srgb, var(--ui-warn) 18%, var(--ui-surface-2)); border: 1px solid var(--ui-warn); border-left-width: 4px; border-radius: 2px; }
 .ls-wide { grid-column: 1 / -1; }
 .ls-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .ls-actions > p { margin: 0; }

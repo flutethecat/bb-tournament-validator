@@ -8,6 +8,10 @@ import {
 import { TOURNAMENT_DISCORD_EVENTS, tournamentModeEvents } from "../spa/src/tournaments/wizard";
 import { loadProfanitySetting, profanitySetting, saveProfanitySetting, shown } from "../spa/src/shared/profanity";
 import { WORDS_ROT13 } from "../src/discord/profanityList";
+import { browserTimeZone, TIME_ZONE_NOTE, timeZones as zoneList } from "../spa/src/shared/timeZone";
+import { emptyForm, stepPayload } from "../spa/src/leagues/wizard";
+import { informationPayload } from "../spa/src/leagues/settings";
+
 
 /** A listed word, decoded at run time (the list stays out of test names and output). */
 const LISTED = WORDS_ROT13[1]!.replace(/[a-z]/g, (c) => String.fromCharCode(((c.charCodeAt(0) - 97 + 13) % 26) + 97));
@@ -77,6 +81,28 @@ describe("discord helpers", () => {
   });
 });
 
+describe("league time zone", () => {
+  it("browser zone default, note copy, the select always lists the current zone", () => {
+    expect(TIME_ZONE_NOTE).toBe("Set your league's time zone. Until then schedules use UTC.");
+    expect(browserTimeZone()).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
+    expect(zoneList("Mars/Olympus")[0]).toBe("Mars/Olympus");
+    expect(zoneList()).toContain("UTC");
+  });
+
+  it("wizard: the General step defaults to the browser zone and sends it on create and in identity PATCHes", () => {
+    const f = emptyForm();
+    expect(f.identity.timeZone).toBe(browserTimeZone());
+    f.identity.name = "Demo";
+    f.identity.timeZone = "America/New_York";
+    expect(stepPayload("identity", f)).toMatchObject({ identity: { name: "Demo", timeZone: "America/New_York" } });
+  });
+
+  it("settings: the Information payload always carries the time zone", () => {
+    const body = informationPayload({ name: "TABBL", fullName: "", description: "", ruleset: "BB2025", rulesetPackage: "", playOnFork: false, timeZone: "America/Chicago", country: "US", region: "", postcode: "", locality: "", street: "" });
+    expect(body).toMatchObject({ timeZone: "America/Chicago", address: null, rulesetPackage: null });
+  });
+});
+
 describe("Filter profanity (display only)", () => {
   it("default on: a listed word shows starred; off: shown as written; the store follows load and save", async () => {
     profanitySetting.on = true;
@@ -109,11 +135,15 @@ describe("discord components (server-rendered)", () => {
   beforeAll(async () => {
     const { createServer } = await import("vite");
     vite = await createServer({ configFile: SPA_CONFIG, logLevel: "silent", appType: "custom", server: { middlewareMode: true, hmr: false, ws: false } });
-    const [renderer, app] = await Promise.all([vite.ssrLoadModule("vue/server-renderer"), vite.ssrLoadModule("/src/app.ts")]);
+    const [renderer, app, vueRouter] = await Promise.all([vite.ssrLoadModule("vue/server-renderer"), vite.ssrLoadModule("/src/app.ts"), vite.ssrLoadModule("vue-router")]);
     const vue = await import("vue");
     render = async (component, props, routes) => {
       const mod = await vite.ssrLoadModule(component);
       const a = vue.createSSRApp(mod.default, props);
+      a.use(vueRouter.createRouter({ history: vueRouter.createMemoryHistory("/app/"), routes: [
+        { path: "/", component: { render: () => null } },
+        { path: "/leagues/:id/settings", name: "league-settings", component: { render: () => null } },
+      ] }));
       a.provide(app.API_KEY, async (path: string) => {
         if (!(path in routes)) throw new Error(`no mock for ${path}`);
         return routes[path];
@@ -172,12 +202,17 @@ describe("discord components (server-rendered)", () => {
     expect(org).not.toContain("textarea");
   });
 
-  it("Weekly Digest: schedule fields with the league time zone", async () => {
-    const view = { ...tournamentView, kind: "league", type: "league", weekly: { enabled: true, trigger: "schedule", day: 0, time: "10:00", everyWeeks: 2, timeZone: "America/Vancouver", weekdays: [] } };
-    const html = await render("/src/components/LeagueWeeklyDigest.vue", { leagueId: "tabbl", view }, {});
-    for (const t of ["Weekly Digest", "On a set day", "After each round", "League time zone", ">Preview</button>", ">Post now</button>"]) expect(html).toContain(t);
-    expect(html).toMatch(/<option value="America\/Vancouver"[^>]*selected/);
+  it("Weekly Digest: schedule fields; the zone is the league's (read only here, linked to General)", async () => {
+    const weekly = { enabled: true, trigger: "schedule", day: 0, time: "10:00", everyWeeks: 2, timeZone: "America/Vancouver", timeZoneSet: true, weekdays: [] };
+    const html = await render("/src/components/LeagueWeeklyDigest.vue", { leagueId: "tabbl", view: { ...tournamentView, kind: "league", type: "league", weekly } }, {});
+    for (const t of ["Weekly Digest", "On a set day", "After each round", ">Preview</button>", ">Post now</button>", "Times are in America/Vancouver."]) expect(html).toContain(t);
+    expect(html).not.toContain("League time zone");
+    expect(html).toContain('href="/app/leagues/tabbl/settings?tab=information"');
+    expect(html).not.toContain("Set your league&#39;s time zone");
     expect(html).toMatch(/<option value="2"[^>]*selected/);
+    const unset = await render("/src/components/LeagueWeeklyDigest.vue", { leagueId: "tabbl", view: { ...tournamentView, kind: "league", type: "league", weekly: { ...weekly, timeZone: "UTC", timeZoneSet: false } } }, {});
+    expect(unset).toContain("Times are in UTC.");
+    expect(unset).toContain("Set your league&#39;s time zone. Until then schedules use UTC.");
   });
 
   it("recorder and pages wire the pieces in", () => {

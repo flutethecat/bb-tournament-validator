@@ -141,7 +141,9 @@ describe("league wizard v2", () => {
     const f = emptyForm();
     f.identity.name = "Grill";
     f.identity.playOnFork = true;
-    expect(stepPayload("identity", f)).toEqual({ identity: { name: "Grill", fullName: "", description: "", playOnFork: true } });
+    // the league time zone rides the General step (the browser zone until the organiser picks another)
+    expect(stepPayload("identity", f)).toEqual({ identity: { name: "Grill", fullName: "", description: "", playOnFork: true, timeZone: f.identity.timeZone } });
+    expect(f.identity.timeZone).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
     expect(stepPayload("connections", f)).toEqual({ connections: { discord: { events: f.connections.events } } });
     const groups = summaryGroups(f, null);
     expect(groups[0]!.title).toBe("General");

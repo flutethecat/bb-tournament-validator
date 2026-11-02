@@ -334,6 +334,19 @@ describe("league settings routes (server-rendered)", () => {
     expect(html).toContain("Save information");
   });
 
+  it("Information: time zone select; not set = the organiser note and the browser zone preselected; set = no note", async () => {
+    const unset = await render("/leagues/tabbl/settings?tab=information", loaded(), ORGANISER);
+    expect(unset.html).toContain("data-time-zone");
+    expect(unset.html).toContain("Set your league&#39;s time zone. Until then schedules use UTC.");
+    const browser = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    expect(unset.html).toMatch(new RegExp(`<option value="${browser.replace(/[+]/g, "[+]")}"[^>]*selected`));
+    const setView = view();
+    (setView.information as { timeZone?: string | null }).timeZone = "America/Halifax";
+    const set = await render("/leagues/tabbl/settings?tab=information", loaded({ "/api/leagues/tabbl/settings": { settings: setView } }), ORGANISER);
+    expect(set.html).not.toContain("Until then schedules use UTC");
+    expect(set.html).toMatch(/<option value="America\/Halifax"[^>]*selected/);
+  });
+
   it("Registrations: allowed rosters, toggles and limits; no bulk actions", async () => {
     const { html } = await render("/leagues/tabbl/settings?tab=registrations", loaded(), ORGANISER);
     for (const t of ["Official", "NAF-approved", "Unofficial", "Allow registration", "Max registrations", "Max per race"]) expect(html).toContain(t);

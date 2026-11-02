@@ -6,12 +6,13 @@
 import { computed, inject, onMounted, reactive, ref, watch } from "vue";
 import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
-import { COUNTRY_LABEL, LEAGUE_SETTINGS_KEY, POSTCODE_LABEL, postcodeError, REGION_LABEL } from "../leagues/settings";
+import { COUNTRY_LABEL, informationPayload, LEAGUE_SETTINGS_KEY, POSTCODE_LABEL, postcodeError, REGION_LABEL } from "../leagues/settings";
 import type { LeagueCountry } from "../leagues/types";
 import { BB2020_CARD } from "../leagues/wizard";
 import { cardKey, rulesetCards, type PackageListItem } from "../shared/competition";
 import LeagueSettingsHouseRules from "./LeagueSettingsHouseRules.vue";
 import PlayedOnToggle from "./PlayedOnToggle.vue";
+import { browserTimeZone, TIME_ZONE_NOTE, timeZones } from "../shared/timeZone";
 
 const settings = inject(LEAGUE_SETTINGS_KEY)!;
 const { state } = settings;
@@ -51,26 +52,26 @@ const fromView = () => {
     rulesetPackage: i.rulesetPackage ?? "", playOnFork: (i.playOnFork ?? view.value.connections.playOnFork) === true,
     country: (i.address?.country ?? "US") as LeagueCountry, region: i.address?.region ?? "", postcode: i.address?.postcode ?? "",
     locality: i.address?.locality ?? "", street: i.address?.street ?? "",
+    // not set yet: the browser zone is preselected (saved only with Save information)
+    timeZone: i.timeZone || browserTimeZone(),
   };
 };
 const form = reactive(fromView());
 watch(() => JSON.stringify(fromView()), () => Object.assign(form, fromView()));
 
 const regions = computed(() => view.value.regions[form.country] ?? []);
+const zones = computed(() => timeZones(form.timeZone));
+const zoneUnset = computed(() => !view.value.information.timeZone);
 // A region from the other country is dropped when the country changes.
 watch(() => form.country, () => { if (!regions.value.some((r) => r.code === form.region)) form.region = ""; });
 const postError = computed(() => postcodeError(form.country, form.postcode));
 const nameError = computed(() => (form.name.trim() ? "" : "Name is required."));
-const hasAddress = computed(() => Boolean(form.region || form.postcode.trim() || form.locality.trim() || form.street.trim()));
+
 const valid = computed(() => !postError.value && !nameError.value);
 
 function save(): void {
   if (!valid.value) return;
-  void settings.save("information", {
-    name: form.name, fullName: form.fullName, description: form.description, ruleset: form.ruleset, mode: "individual",
-    rulesetPackage: form.rulesetPackage || null, playOnFork: form.playOnFork,
-    address: hasAddress.value ? { country: form.country, region: form.region, postcode: form.postcode, locality: form.locality, street: form.street } : null,
-  });
+  void settings.save("information", informationPayload(form));
 }
 </script>
 
@@ -105,6 +106,14 @@ function save(): void {
             <span>Mode</span>
             <select disabled><option>Individual</option></select>
           </label>
+          <div class="ls-field ls-wide" data-field="time-zone">
+            <label class="ls-field">
+              <span>Time zone</span>
+              <select v-model="form.timeZone" data-time-zone><option v-for="z in zones" :key="z" :value="z">{{ z }}</option></select>
+            </label>
+            <p v-if="zoneUnset" class="ls-tz-note" role="note" data-tz-note>{{ TIME_ZONE_NOTE }}</p>
+            <small v-else class="hm-small hm-empty">Deadlines, the Weekly Digest and other schedules use this zone.</small>
+          </div>
         </div>
       </section>
 

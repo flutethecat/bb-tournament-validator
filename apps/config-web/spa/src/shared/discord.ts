@@ -9,7 +9,9 @@ export interface WeeklySettings {
   day: number;
   time: string;
   everyWeeks: 1 | 2 | 4;
+  /** The effective zone (the league's, else UTC) and whether the league set one. */
   timeZone: string;
+  timeZoneSet?: boolean;
   weekdays: readonly string[];
 }
 
@@ -70,20 +72,8 @@ export function samplesLine(o: SampleOutcome): string {
   return `Sent ${o.posted} of ${o.total} samples; ${o.failed} did not go through.`;
 }
 
-const FALLBACK_ZONES = [
-  "UTC", "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles", "America/Anchorage", "America/Toronto",
-  "America/Vancouver", "America/Halifax", "America/St_Johns", "Europe/London", "Europe/Paris", "Europe/Berlin", "Australia/Sydney",
-];
-
-/** IANA time zones for the league time-zone select (the browser's list when it has one). */
-export function timeZones(current?: string): string[] {
-  let list: string[] = FALLBACK_ZONES;
-  try {
-    const intl = Intl as unknown as { supportedValuesOf?: (k: string) => string[] };
-    if (typeof intl.supportedValuesOf === "function") list = ["UTC", ...intl.supportedValuesOf("timeZone").filter((z) => z !== "UTC")];
-  } catch { /* fallback list */ }
-  return current && !list.includes(current) ? [current, ...list] : list;
-}
+/** IANA time zones for a select (moved to ./timeZone.ts). */
+export { timeZones } from "./timeZone";
 
 // ---- registration DM notice ----
 

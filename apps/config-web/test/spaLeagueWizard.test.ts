@@ -45,6 +45,12 @@ const draft = (over: Partial<WizardDraft> = {}): WizardDraft => ({
 });
 
 describe("wizard helpers", () => {
+  it("time zone: a resumed draft keeps its zone; a draft without one starts from the browser zone", () => {
+    expect(formFromDraft(draft({ identity: { name: "H", fullName: "", slug: "h", description: "", address: null, timeZone: "Europe/Paris" } })).identity.timeZone).toBe("Europe/Paris");
+    const browser = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    expect(formFromDraft(draft({ identity: { name: "H", fullName: "", slug: "h", description: "", address: null, timeZone: null } })).identity.timeZone).toBe(browser);
+  });
+
   it("slug, field checks mirror the server, payloads per step", () => {
     expect(slugify("Tahoma Área B.B.L.")).toBe("tahoma-area-b-b-l");
     const f = emptyForm();

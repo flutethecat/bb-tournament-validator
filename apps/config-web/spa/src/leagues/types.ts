@@ -474,6 +474,8 @@ export interface LeagueSettingsView {
     /** Creation wizards v2 (absent on older servers): Played on, and the ruleset card's package. */
     playOnFork?: boolean;
     rulesetPackage?: string | null;
+    /** IANA time zone; null = not set (the league reads UTC). */
+    timeZone?: string | null;
   };
   /** Creation wizards v2 (absent on older servers): house rules, the organiser's regions, and the authorised flag. */
   houseRules?: HouseRules;

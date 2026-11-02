@@ -6,6 +6,7 @@ import { computed, inject, watch } from "vue";
 import { SESSION_KEY } from "../session";
 import { DESCRIPTION_MAX, FULL_NAME_MAX, LEAGUE_WIZARD_KEY, NAME_MAX, slugify } from "../leagues/wizard";
 import PlayedOnToggle from "./PlayedOnToggle.vue";
+import { timeZones } from "../shared/timeZone";
 
 const wizard = inject(LEAGUE_WIZARD_KEY)!;
 const session = inject(SESSION_KEY)!;
@@ -17,6 +18,7 @@ const onSlug = (e: Event): void => { f.value.slug = (e.target as HTMLInputElemen
 const pick = (kind: "logo" | "banner", e: Event): void => { state[kind] = (e.target as HTMLInputElement).files?.[0] ?? null; };
 const logoUrl = computed(() => state.draft?.identity.logoUrl);
 const bannerUrl = computed(() => state.draft?.identity.bannerUrl);
+const zones = computed(() => timeZones(f.value.timeZone));
 </script>
 
 <template>
@@ -51,6 +53,15 @@ const bannerUrl = computed(() => state.draft?.identity.bannerUrl);
         <legend class="sf-k">Played on</legend>
         <PlayedOnToggle v-model="f.playOnFork" />
         <p class="lw-help">{{ f.playOnFork ? "Super FUMBBL: a site admin can allow single fixtures to be played online." : "Tabletop: games are played in person and reported here." }}</p>
+      </fieldset>
+      <fieldset class="lw-group" data-group="time-zone">
+        <legend class="sf-k">Time zone</legend>
+        <label class="sf-field lw-field" :data-invalid="state.errors.timeZone ? 'true' : undefined">
+          <span class="sf-k">League time zone</span>
+          <select v-model="f.timeZone" data-time-zone><option v-for="z in zones" :key="z" :value="z">{{ z }}</option></select>
+          <small v-if="state.errors.timeZone" class="sf-error">{{ state.errors.timeZone }}</small>
+        </label>
+        <p class="lw-help">Deadlines, the Weekly Digest and other schedules use this zone. It starts as your own.</p>
       </fieldset>
       <fieldset class="lw-group">
         <legend class="sf-k">Artwork</legend>

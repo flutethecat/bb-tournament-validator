@@ -4,6 +4,7 @@
 // PATCH /api/leagues/:id/draft (every later Next saves its step), plus the pure helpers the step components use. The
 // server validates with the League settings parsers, so the messages here only mirror what it will say. No DOM.
 
+import { browserTimeZone } from "../shared/timeZone";
 import { reactive, toRaw, type InjectionKey } from "vue";
 import { ApiError } from "../shared/api";
 import { normalisePayPal, normaliseVenmo, payPalProblem, venmoProblem } from "../shared/payLinks";
@@ -35,7 +36,7 @@ export interface WizardDraft {
   step: number;
   completedAt?: string;
   test: boolean;
-  identity: { name: string; fullName: string; slug: string; description: string; address: LeagueAddress | null; logoUrl?: string; bannerUrl?: string; playOnFork?: boolean };
+  identity: { name: string; fullName: string; slug: string; description: string; address: LeagueAddress | null; logoUrl?: string; bannerUrl?: string; playOnFork?: boolean; timeZone?: string | null };
   rules: {
     ruleset: "BB2020" | "BB2025";
     rulesetPackage?: string | null;
@@ -63,6 +64,8 @@ export interface WizardForm {
     name: string; fullName: string; slug: string; slugEdited: boolean; description: string;
     /** Played on (a General setting since creation wizards v2): true = Super FUMBBL, false = tabletop. */
     playOnFork: boolean;
+    /** IANA time zone (owner 11-02): the organiser's browser zone until changed. */
+    timeZone: string;
   };
   rules: {
     ruleset: "BB2020" | "BB2025"; official: boolean; nafApproved: boolean; unofficial: boolean; maxRegistrations: string; maxPerRace: string; rosters: TeamBuildingRosterRule[];
@@ -96,7 +99,7 @@ export function slugify(name: string): string {
 
 export function emptyForm(): WizardForm {
   return {
-    identity: { name: "", fullName: "", slug: "", slugEdited: false, description: "", playOnFork: false },
+    identity: { name: "", fullName: "", slug: "", slugEdited: false, description: "", playOnFork: false, timeZone: browserTimeZone() },
     rules: {
       ruleset: "BB2025", official: true, nafApproved: true, unofficial: false, maxRegistrations: "", maxPerRace: "", rosters: [],
       rulesetPackage: "", houseRules: defaultHouseRules("league"),
@@ -132,7 +135,7 @@ export function formFromDraft(d: WizardDraft): WizardForm {
   const f = emptyForm();
   // Older servers sent Played on under connections only.
   const played = d.identity.playOnFork ?? d.connections.playOnFork;
-  f.identity = { name: d.identity.name, fullName: d.identity.fullName, slug: d.identity.slug, slugEdited: true, description: d.identity.description, playOnFork: played === true };
+  f.identity = { name: d.identity.name, fullName: d.identity.fullName, slug: d.identity.slug, slugEdited: true, description: d.identity.description, playOnFork: played === true, timeZone: d.identity.timeZone || browserTimeZone() };
   f.rules = {
     ruleset: d.rules.ruleset, ...d.rules.allowedRosters,
     maxRegistrations: d.rules.maxRegistrations === null ? "" : String(d.rules.maxRegistrations),
@@ -231,7 +234,7 @@ export function stepErrors(step: WizardStepId, f: WizardForm, created: boolean):
 export function stepPayload(step: WizardStepId, f: WizardForm): Record<string, unknown> {
   if (step === "identity") {
     const i = f.identity;
-    return { identity: { name: i.name.trim(), fullName: i.fullName.trim(), description: i.description.trim(), playOnFork: i.playOnFork } };
+    return { identity: { name: i.name.trim(), fullName: i.fullName.trim(), description: i.description.trim(), playOnFork: i.playOnFork, timeZone: i.timeZone } };
   }
   if (step === "rules") {
     const r = f.rules;
@@ -292,6 +295,7 @@ export function summaryGroups(f: WizardForm, draft: WizardDraft | null): Summary
       ...(i.fullName.trim() ? [{ k: "Full name", v: i.fullName.trim() }] : []),
       { k: "Address", v: `/leagues/${draft?.id ?? (i.slug.trim() || slugify(i.name) || "...")}` },
       { k: "Played on", v: i.playOnFork ? "Super FUMBBL" : "Tabletop" },
+      { k: "Time zone", v: i.timeZone || "UTC" },
     ] },
     { step: "rules", title: "Rules", rows: [
       { k: "Ruleset", v: rulesetLabel(r.rulesetPackage, r.ruleset) },

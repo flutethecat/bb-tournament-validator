@@ -1,11 +1,14 @@
 <script setup lang="ts">
 // League settings, External connections: the Weekly Digest (owner rounds 3-4). Day of the week + time in the league's
 // time zone + every 1 / 2 / 4 weeks, or "after each round"; Preview (read only) and Post now. A period with no games is
-// skipped. Server: PATCH /api/leagues/:id/discord { weekly, timeZone }, GET .../discord/weekly-digest, POST .../post.
+// skipped. The time zone is the league's (League settings, General). Server: PATCH /api/leagues/:id/discord { weekly },
+// GET .../discord/weekly-digest, POST .../post.
 import { computed, reactive, ref, watch, inject } from "vue";
 import { API_KEY } from "../app";
 import { api as defaultApi } from "../shared/api";
-import { timeZones, type CompetitionDiscordView, type DigestPreview, type WeeklySettings } from "../shared/discord";
+import { RouterLink } from "vue-router";
+import { type CompetitionDiscordView, type DigestPreview, type WeeklySettings } from "../shared/discord";
+import { TIME_ZONE_NOTE } from "../shared/timeZone";
 
 /** The app's fetcher (tests inject a mock); same-origin JSON with the CSRF header. */
 const api = inject(API_KEY, null) ?? defaultApi;
@@ -14,16 +17,17 @@ const props = defineProps<{ leagueId: string; view: CompetitionDiscordView }>();
 const emit = defineEmits<{ saved: [view: CompetitionDiscordView] }>();
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-const form = reactive<Omit<WeeklySettings, "weekdays">>({ enabled: true, trigger: "schedule", day: 0, time: "10:00", everyWeeks: 1, timeZone: "UTC" });
+const form = reactive<Omit<WeeklySettings, "weekdays" | "timeZone" | "timeZoneSet">>({ enabled: true, trigger: "schedule", day: 0, time: "10:00", everyWeeks: 1 });
 function adopt(w: WeeklySettings | undefined): void {
   if (!w) return;
-  Object.assign(form, { enabled: w.enabled, trigger: w.trigger, day: w.day, time: w.time, everyWeeks: w.everyWeeks, timeZone: w.timeZone });
+  Object.assign(form, { enabled: w.enabled, trigger: w.trigger, day: w.day, time: w.time, everyWeeks: w.everyWeeks });
 }
 watch(() => props.view.weekly, (w) => adopt(w), { immediate: true });
-const zones = computed(() => timeZones(form.timeZone));
+const zone = computed(() => props.view.weekly?.timeZone || "UTC");
+const zoneSet = computed(() => props.view.weekly?.timeZoneSet !== false);
 const dirty = computed(() => {
   const w = props.view.weekly;
-  return !w || w.enabled !== form.enabled || w.trigger !== form.trigger || w.day !== form.day || w.time !== form.time || w.everyWeeks !== form.everyWeeks || w.timeZone !== form.timeZone;
+  return !w || w.enabled !== form.enabled || w.trigger !== form.trigger || w.day !== form.day || w.time !== form.time || w.everyWeeks !== form.everyWeeks;
 });
 
 const busy = ref("");
@@ -38,8 +42,7 @@ async function run(what: string, fn: () => Promise<string>): Promise<void> {
   try { notice.value = await fn(); } catch (e) { error.value = e instanceof Error ? e.message : "Something went wrong."; } finally { busy.value = ""; }
 }
 const save = () => run("save", async () => {
-  const { timeZone, ...weekly } = form;
-  const r = await api<{ discord: CompetitionDiscordView }>(base.value, { method: "PATCH", body: { weekly, timeZone } });
+  const r = await api<{ discord: CompetitionDiscordView }>(base.value, { method: "PATCH", body: { weekly: { ...form } } });
   emit("saved", r.discord);
   return "Weekly Digest saved.";
 });
@@ -70,10 +73,9 @@ const canPost = computed(() => !props.view.draft && props.view.configured);
           <select v-model.number="form.everyWeeks" :disabled="!form.enabled"><option :value="1">week</option><option :value="2">2 weeks</option><option :value="4">4 weeks</option></select>
         </label>
       </template>
-      <label class="sf-field wd-field wd-wide"><span class="sf-k">League time zone</span>
-        <select v-model="form.timeZone"><option v-for="z in zones" :key="z" :value="z">{{ z }}</option></select>
-      </label>
     </div>
+    <p class="hm-small wd-zone" data-wd-zone>Times are in {{ zone }}. <RouterLink :to="{ name: 'league-settings', params: { id: leagueId }, query: { tab: 'information' } }">Change it in General</RouterLink>.</p>
+    <p v-if="!zoneSet" class="wd-tz-note" role="note">{{ TIME_ZONE_NOTE }}</p>
     <div class="sf-btn-row wd-actions">
       <button class="sf-btn primary" type="button" :disabled="!dirty || Boolean(busy)" @click="save">Save</button>
       <button class="sf-btn" type="button" :disabled="Boolean(busy)" data-preview @click="loadPreview">Preview</button>
@@ -104,9 +106,9 @@ const canPost = computed(() => !props.view.draft && props.view.configured);
 .wd-check { grid-column: 1 / -1; display: inline-flex; align-items: center; gap: 10px; min-height: 34px; }
 .wd-field { display: grid; gap: 4px; min-width: 0; }
 .wd-field select, .wd-field input { width: 100%; }
-.wd-wide { grid-column: span 2; }
-@media (max-width: 480px) { .wd-wide { grid-column: 1 / -1; } }
 .wd-actions { margin-top: 12px; }
+.wd-zone { margin-top: 8px; margin-bottom: 0; color: var(--ui-muted); }
+.wd-tz-note { margin-top: 6px; margin-bottom: 0; padding: 6px 10px; font-size: 14px; background: color-mix(in srgb, var(--ui-warn) 18%, var(--ui-surface-2)); border: 1px solid var(--ui-warn); border-left-width: 4px; border-radius: 2px; }
 .wd-panel .sf-error, .wd-panel .hm-notice { margin-top: 8px; }
 .wd-preview { margin-top: 12px; }
 .wd-embed { padding: 10px 12px; background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--ui-heading); border-radius: 2px; }

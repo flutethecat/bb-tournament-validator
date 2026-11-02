@@ -51,6 +51,20 @@ export const DISCORD_EVENT_LABEL: Record<string, string> = {
   redraftRolls: "Redraft rolls (each Rest & Relaxation roll)",
 };
 
+/** The Information section's PATCH body (General tab): the address only when any of it is filled, the time zone always
+ *  (a league without one preselects the browser zone, saved here). */
+export function informationPayload(f: {
+  name: string; fullName: string; description: string; ruleset: string; rulesetPackage: string; playOnFork: boolean; timeZone: string;
+  country: LeagueCountry; region: string; postcode: string; locality: string; street: string;
+}): Record<string, unknown> {
+  const hasAddress = Boolean(f.region || f.postcode.trim() || f.locality.trim() || f.street.trim());
+  return {
+    name: f.name, fullName: f.fullName, description: f.description, ruleset: f.ruleset, mode: "individual",
+    rulesetPackage: f.rulesetPackage || null, playOnFork: f.playOnFork, timeZone: f.timeZone,
+    address: hasAddress ? { country: f.country, region: f.region, postcode: f.postcode, locality: f.locality, street: f.street } : null,
+  };
+}
+
 /** "" for an integer in range, else the message. */
 export function rangeError(v: unknown, min: number, max: number, label: string): string {
   return typeof v === "number" && Number.isInteger(v) && v >= min && v <= max ? "" : `${label}: ${min} to ${max}.`;
