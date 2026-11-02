@@ -25,6 +25,7 @@ import { useInSection, useShellTitle } from "./shell/pageTitle";
 import { NOTIFICATIONS_KEY } from "./home/notifications";
 import type { AccountInfo } from "./shared/api";
 import { clearFlash, flash } from "./account/privacy";
+import { loadProfanitySetting } from "./shared/profanity";
 
 const session = inject(SESSION_KEY)!;
 const theme = inject(THEME_KEY)!;
@@ -50,6 +51,8 @@ const askToOrganise = computed(() => session.signedIn() && !canCreate.value && !
 const onboarding = inject(ONBOARDING_KEY, null);
 const onboardingOpen = computed(() => onboarding?.open() === true);
 onMounted(() => watch(() => session.coach(), (coach) => void onboarding?.load(coach), { immediate: true }));
+// "Filter profanity" (Account option, default on): read once per signed-in coach, in the browser only.
+onMounted(() => watch(() => session.coach(), () => void loadProfanitySetting(fetcher, true), { immediate: true }));
 // League data-sharing notice (owner 10-31): once onboarding is done, the leagues the coach has not answered show a
 // non-blocking notice above the page, one at a time.
 const leagueSharing = inject(LEAGUE_SHARING_KEY, null);

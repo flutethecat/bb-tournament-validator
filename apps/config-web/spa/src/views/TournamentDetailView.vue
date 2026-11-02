@@ -97,7 +97,7 @@ const sharedLines = (e: TournamentEntrant): string[] => {
 const nafLine = (e: TournamentEntrant): string => (e.notNafMember ? "Not a NAF member" : e.nafNumber ? `${e.nafName ?? ""} #${e.nafNumber}`.trim() : "");
 /** The management sub-panel's groups (the old Manage tab's panels), as jump links. */
 const MANAGE_GROUPS = [
-  { id: "tn-summary-h", label: "Summary" }, { id: "tn-edit-h", label: "Settings" }, { id: "tn-page-h", label: "Tournament page" },
+  { id: "tn-summary-h", label: "Summary" }, { id: "tn-edit-h", label: "Settings" }, { id: "tn-page-h", label: "Tournament page" }, { id: "tn-discord-h", label: "Discord" },
   { id: "tn-part-h", label: "Participants" }, { id: "tn-re-rounds-h", label: "Results" },
 ];
 const hashNow = computed(() => route.hash.replace(/^#/, ""));

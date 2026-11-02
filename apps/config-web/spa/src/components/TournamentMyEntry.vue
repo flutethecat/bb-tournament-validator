@@ -7,6 +7,7 @@
 // coach's profile are shared with the organiser (one read-only line, no typing), or a coach without them adds them here
 // (saved to the profile through the Account NAF link) or ticks "I am not a NAF member". The NAF answer form of an entry
 // that owes it (organiser-made, or the tournament became sanctioned) works the same way.
+import DiscordDmNotice from "./DiscordDmNotice.vue";
 import { computed, inject, onMounted, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 import TeamSelect from "./TeamSelect.vue";
@@ -141,6 +142,7 @@ async function doWithdraw() { await detail.withdraw(); }
               <ShareFieldsPicker v-model="share" :phone-on-file="sharing?.state.info?.phoneOnFile === true" legend="What the organisers of this tournament can see" />
               <small class="muted hm-small">Organisers always see your coach name and team. Nothing else unless you tick it; change it later under Account, Sharing.</small>
             </div>
+            <DiscordDmNotice />
             <div class="tn-actions">
               <button class="sf-btn primary" type="submit" :disabled="!teamId || busy || (nafTouched && Boolean(nafError))">{{ nafLinking ? "Saving NAF details..." : "Register" }}</button>
             </div>

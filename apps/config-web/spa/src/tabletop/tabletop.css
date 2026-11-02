@@ -1758,3 +1758,7 @@
 @media (max-width: 759px) {
   .tt-rec .tt-modal-box, .tt-rec .tt-sheet, .tt-rec .tt-other-box { border-left: 0; border-right: 0; border-bottom: 0; border-radius: 0; box-shadow: inset 0 1px 0 var(--sf-panel-hi), 0 -6px 18px color-mix(in srgb, var(--sf-panel-drop) 55%, transparent); }
 }
+
+/* game page: the coach's comments (src/discord/comments.ts) */
+.gm-comment { margin: 4px 0 0; overflow-wrap: anywhere; }
+.gm-comment-who { font-weight: 700; }

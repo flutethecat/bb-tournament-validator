@@ -17,6 +17,7 @@ import { routerPathOf } from "../home/shell";
 import { NO_LOG_NOTE, reporterModel } from "../games/reporter";
 import { editedLine, type GameDetail } from "../games/detail";
 import type { MatchContext, Side } from "../tabletop/recorder";
+import { shown } from "../shared/profanity";
 
 const props = defineProps<{ game: GameDetail; backTo: string }>();
 
@@ -86,6 +87,10 @@ function openRosters(side?: Side): void { rostersSide.value = side; rosters.valu
         <p class="tt-match-row" data-state="published" role="status">{{ model.finalLine }}</p>
         <TabletopMatchSummary v-for="s in model.summaries" :key="s.side" :heading="s.heading" :summary="s.summary" />
         <p v-if="sourceNote" class="muted tt-final-note">{{ sourceNote }}</p>
+        <section v-if="game.comments?.length" class="tt-panel gm-comments" aria-label="Coach's comments">
+          <h3>Coach's comments</h3>
+          <p v-for="c in game.comments" :key="c.side" class="gm-comment"><span class="gm-comment-who">{{ c.coach }}</span> <q>{{ shown(c.text) }}</q></p>
+        </section>
         <p v-if="game.summary.note" class="muted tt-final-note">{{ game.summary.note }}</p>
         <p v-if="game.summary.edited" class="tt-final-note gm-edited" role="note">
           <span class="sf-chip" data-tone="soon">Edited by organiser</span> {{ editedLine(game.summary.edited) }}

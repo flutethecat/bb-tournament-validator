@@ -26,6 +26,7 @@ import TabletopInducementEdit from "../components/TabletopInducementEdit.vue";
 import TabletopRail from "../components/TabletopRail.vue";
 import TabletopPlayerPicker from "../components/TabletopPlayerPicker.vue";
 import TabletopSheetHead from "../components/TabletopSheetHead.vue";
+import TabletopCoachComments from "../components/TabletopCoachComments.vue";
 import { assignTitle } from "../tabletop/confirm";
 import { useNewIds } from "../tabletop/newIds";
 import { useStickToBottom } from "../tabletop/stickBottom";
@@ -471,6 +472,11 @@ usePageTitle(() => (match.value ? `${match.value.home.teamName} vs ${match.value
           <button v-if="organiser && match.state === 'confirmed'" class="sf-btn tt-tap" type="button" :disabled="state.busy" @click="rec.undoRevision()">Undo revision (reopen match)</button>
           <p v-if="state.actionError" class="sf-error" role="alert">{{ state.actionError }}</p>
         </section>
+
+        <TabletopCoachComments
+          v-if="match.commentsEnabled !== false && !readOnly && (mySide || organiser)" :match="match" :my-side="mySide" :organiser="organiser"
+          @updated="(m) => (state.match = m)"
+        />
       </template>
 
       <p v-if="canEdit && editMode" class="tt-edit-bar" role="status">You are in edit mode.<template v-if="match.state === 'confirmed' || match.state === 'published'"> Reopen the match first to undo events.</template></p>

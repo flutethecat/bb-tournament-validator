@@ -79,7 +79,11 @@ export interface GameCard {
   context: string; home: RecentSide; away: RecentSide; playedAt: string | null; href: null;
   concede: "home" | "away" | null; suspended: boolean;
 }
-export interface GameDetail { source: GameSource; id: string; card: GameCard; summary: GameSummary; reporter?: GameReporter; replay?: ReplayState }
+export interface GameDetail {
+  source: GameSource; id: string; card: GameCard; summary: GameSummary; reporter?: GameReporter; replay?: ReplayState;
+  /** Recorder games: the coach's comments organisers have not hidden. */
+  comments?: Array<{ side: "home" | "away"; coach: string; text: string }>;
+}
 
 export const gameApiPath = (source: GameSource, id: string): string => `/api/games/${source}/${encodeURIComponent(id)}`;
 

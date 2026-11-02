@@ -394,8 +394,12 @@ describe("create views (server-rendered against a mocked API)", () => {
   it("wizard, step 3: registration window, places, waitlist, approval, roster later + deadline, check-in, entry fee and the NAF rule-23 note", async () => {
     const { html } = await renderWizard((w) => { w.pickPackage("nut-cup"); w.state.form.name = "Spike Open"; w.go("registration"); w.state.form.nafSanctioned = true; });
     expect(html).toMatch(/Step 4 of 5/);
-    expect(captions(html)).toEqual(["Opens (UTC)", "Closes (UTC)", "Places", "Roster deadline (UTC)", "Opens (UTC)", "Closes (UTC)", "Entry fee", "PayPal link (optional)", "Venmo username (optional)"]);
+    expect(captions(html)).toEqual(["Opens (UTC)", "Closes (UTC)", "Places", "Roster deadline (UTC)", "Opens (UTC)", "Closes (UTC)", "Entry fee", "PayPal link (optional)", "Venmo username (optional)", "Webhook URL (optional)"]);
     expect(html).toContain("Waitlist when full");
+    // Discord (end group): tournament mode ticks only the key events; the webhook is a password field and never saved in the draft
+    expect(html).toContain('data-group="discord"');
+    for (const k of ["published", "registrationClosing", "checkInOpen", "roundPosted", "matchResult", "roundStandings", "finalStandings"]) expect(html).toMatch(new RegExp(`checked[^>]*data-event="${k}"|data-event="${k}"[^>]*checked`));
+    for (const k of ["newRegistration", "matchStarted", "news"]) expect(html).not.toMatch(new RegExp(`checked[^>]*data-event="${k}"|data-event="${k}"[^>]*checked`));
     expect(html).toMatch(/aria-pressed="true">Automatic<\/button>/);
     // organiser approval waits for the approval flow (lane L4): offered disabled, with the reason beside it
     expect(html).toMatch(/aria-pressed="false" disabled aria-describedby="tw-approval-soon">Organisers approve<\/button>/);

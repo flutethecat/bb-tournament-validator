@@ -16,6 +16,7 @@ import SocialAvatar from "../components/SocialAvatar.vue";
 import SocialCoachRow, { type SocialAction } from "../components/SocialCoachRow.vue";
 import SocialBlockDialog from "../components/SocialBlockDialog.vue";
 import "../home/social.css";
+import { shown } from "../shared/profanity";
 
 const POLL_MS = 30_000;
 const fetcher = inject(API_KEY)!;
@@ -213,7 +214,7 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer); });
               <SocialAvatar :name="t.with" :avatar="t.avatar" :deleted="t.deleted" />
               <span class="so-who">
                 <strong>{{ t.with }}</strong>
-                <small class="so-sub">{{ t.lastFromMe ? "You: " : "" }}{{ t.preview }}</small>
+                <small class="so-sub">{{ t.lastFromMe ? "You: " : "" }}{{ shown(t.preview) }}</small>
               </span>
               <span class="so-meta">
                 <time :datetime="t.lastAt">{{ shortDate(t.lastAt) }}</time>
@@ -279,7 +280,7 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer); });
             :data-mine="m.mine ? 'true' : undefined" :data-organiser="m.organiser ? 'true' : undefined"
           >
             <span v-if="m.organiser" class="so-org">Organiser · {{ m.organiser.name }}</span>
-            <p class="so-text">{{ m.text }}</p>
+            <p class="so-text">{{ shown(m.text) }}</p>
             <time class="so-when" :datetime="m.at">{{ m.mine ? "You" : m.from }} · {{ shortDate(m.at) }}</time>
           </li>
         </ul>

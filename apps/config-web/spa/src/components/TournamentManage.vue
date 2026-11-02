@@ -4,6 +4,7 @@
 // the Edit Tournament pane (settings + roles), the Tournament page pane (banner, location, dates, summary, notes),
 // the Participants table and Rounds (recorded results with Edit result).
 import { computed, inject, nextTick, ref } from "vue";
+import CompetitionDiscordPanel from "./CompetitionDiscordPanel.vue";
 import TournamentPageForm from "./TournamentPageForm.vue";
 import TournamentParticipants from "./TournamentParticipants.vue";
 import TournamentResultsEditor from "./TournamentResultsEditor.vue";
@@ -88,6 +89,8 @@ async function editTournament() {
         <header class="hm-band" data-tone="admin"><h2 id="tn-page-h">Tournament page</h2></header>
         <div class="tn-panel-body"><TournamentPageForm /></div>
       </section>
+
+      <CompetitionDiscordPanel :base="`/api/tournaments/${encodeURIComponent(t.id)}`" title="Discord" heading-id="tn-discord-h" />
 
       <section class="hm-panel" aria-labelledby="tn-part-h">
         <header class="hm-band"><h2 id="tn-part-h">Participants</h2><span class="hm-cap">({{ field }})</span></header>

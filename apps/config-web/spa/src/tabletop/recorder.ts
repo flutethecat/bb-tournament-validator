@@ -52,6 +52,10 @@ export interface MatchView {
   /** "pregame:<step>" while the pre-game wizard runs (fans, weather, journeymen, inducements, prayers, coin). */
   phase?: string;
   pregame?: Record<string, unknown>;
+  /** Coach's comments as this viewer may see them (hidden ones only for organisers and their author). */
+  comments?: Partial<Record<Side, { text: string; at: string; hidden?: { by: string; at: string } }>>;
+  /** The competition has coach's comments on (absent = on). */
+  commentsEnabled?: boolean;
 }
 
 export interface RosterPlayerView {

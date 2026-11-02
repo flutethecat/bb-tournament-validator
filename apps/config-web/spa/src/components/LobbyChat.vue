@@ -3,6 +3,7 @@
 // quick chips and the composer. Kept with the fixture (privacy export / delete cover it). Text is plain: Vue escapes it.
 import { computed, inject, nextTick, ref, watch } from "vue";
 import { FIXTURE_LOBBY_KEY, QUICK_CHIPS, type LobbyView } from "../leagues/lobby";
+import { shown } from "../shared/profanity";
 
 const props = defineProps<{ view: LobbyView }>();
 const lobby = inject(FIXTURE_LOBBY_KEY)!;
@@ -36,7 +37,7 @@ watch(() => lines.value.length, () => { void nextTick(() => { if (log.value) log
       <li v-if="!lines.length" class="fl-sys">No messages yet. Say hello.</li>
       <template v-for="m in lines" :key="m.id">
         <li v-if="m.system" class="fl-sys">{{ m.text }}</li>
-        <li v-else class="fl-msg" :data-role="m.role ?? 'organiser'" :data-mine="mine(m.from) ? 'true' : 'false'"><b>{{ nameOf(m.from) }}{{ m.role === "organiser" ? " · organiser" : "" }}</b>{{ m.text }}</li>
+        <li v-else class="fl-msg" :data-role="m.role ?? 'organiser'" :data-mine="mine(m.from) ? 'true' : 'false'"><b>{{ nameOf(m.from) }}{{ m.role === "organiser" ? " · organiser" : "" }}</b>{{ shown(m.text) }}</li>
       </template>
     </ol>
     <div class="fl-quick" role="group" aria-label="Quick replies">

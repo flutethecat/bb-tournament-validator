@@ -14,13 +14,14 @@ import { canCreateTournament, createdLocation, FORMAT_OPTIONS, TOURNAMENT_CREATO
 import { PAIRING_LABEL, SEEDING_LABEL } from "../tournaments/detail";
 import {
   APPROVAL_LABEL, createTournamentWizard, DRAFT_NOTICE, PUBLISHED_NOTICE, summaryRows, TOURNAMENT_WIZARD_KEY,
-  TURN_TIMER_LABEL, WIZARD_STEPS, type WizardStep,
+  TOURNAMENT_DISCORD_EVENTS, TURN_TIMER_LABEL, WIZARD_STEPS, type WizardStep,
 } from "../tournaments/wizard";
 import CompetitionFormatFields from "../components/CompetitionFormatFields.vue";
 import HouseRulesFields from "../components/HouseRulesFields.vue";
 import PlayedOnToggle from "../components/PlayedOnToggle.vue";
 import RulesetCardPicker from "../components/RulesetCardPicker.vue";
 import { PAY_NOTE, payPalProblem, venmoProblem } from "../shared/payLinks";
+import { isDiscordWebhook } from "../shared/discord";
 import "../tournaments/wizard.css";
 
 const fetcher = inject(API_KEY)!;
@@ -42,6 +43,7 @@ const index = computed(() => WIZARD_STEPS.findIndex((s) => s.id === state.step))
 const stepTitle: Record<WizardStep, string> = { ruleset: "Pick a ruleset", general: "General", format: "Format", registration: "Registration", review: "Review" };
 const rows = computed(() => summaryRows(state.form, state.series));
 const payErrors = computed(() => ({ payPal: payPalProblem(state.form.payPal), venmo: venmoProblem(state.form.venmo) }));
+const webhookError = computed(() => (state.discord.webhook.trim() && !isDiscordWebhook(state.discord.webhook) ? "Paste the webhook URL from Discord (https://discord.com/api/webhooks/...)." : ""));
 const swiss = computed(() => state.form.format === "swiss");
 const seriesName = computed(() => state.series.find((s) => s.id === state.form.seriesId)?.name ?? "");
 const body = ref<HTMLElement | null>(null);
@@ -247,6 +249,17 @@ function startOver(): void {
               <p v-if="state.form.nafSanctioned" class="tw-help tw-wide" data-naf-note="true">
                 Coaches' NAF name and number come from their profile and go to the organisers with the entry. A coach without one adds it to their profile or says they're not a NAF member. Organisers can set NAF details only for their active entrants.
               </p>
+            </fieldset>
+
+            <fieldset class="tw-group tw-group-wide" data-group="discord">
+              <legend class="tw-legend">Discord</legend>
+              <label class="sf-field tw-wide" :data-invalid="webhookError ? 'true' : undefined">
+                <span class="sf-k">Webhook URL (optional)</span>
+                <input v-model="state.discord.webhook" type="password" autocomplete="off" spellcheck="false" maxlength="300" placeholder="https://discord.com/api/webhooks/..." />
+                <small v-if="webhookError" class="sf-error">{{ webhookError }}</small>
+              </label>
+              <label v-for="e in TOURNAMENT_DISCORD_EVENTS" :key="e.key" class="sf-check tw-check"><input v-model="state.discord.events[e.key]" type="checkbox" :data-event="e.key" /> {{ e.label }}</label>
+              <p class="tw-help tw-wide">Tournament mode: the key events start ticked. Nothing posts while the tournament is a draft. Every event, in-game posts and the digests are in Manage, Discord.</p>
             </fieldset>
           </div>
 

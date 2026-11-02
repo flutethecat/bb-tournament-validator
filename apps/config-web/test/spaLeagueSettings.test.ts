@@ -69,9 +69,35 @@ const season6 = (): SeasonRecord => ({
   fixtures: [fx("f1", false, { forkEnabled: true }), fx("f2", false), fx("f3", true)], participants: [], teams: [], honours: [], awards: [],
 });
 
+/** GET {base}/discord (src/discord/api.ts): the webhook only ever masked. */
+function discordView(kind: "league" | "season") {
+  return {
+    kind, type: "league", name: "TABBL", draft: false,
+    configured: kind === "league", maskedUrl: kind === "league" ? "https://discord.com/api/webhooks/…/•••" : "",
+    inherited: kind === "season", parentMaskedUrl: kind === "season" ? "https://discord.com/api/webhooks/…/•••" : "",
+    events: { news: true, fixtureCreated: true, matchStarted: true, matchResult: true, milestones: true, death: true, touchdown: true },
+    live: { touchdown: false, casualty: false, injury: false, death: true, foul: false, sentOff: true, mvp: false, hireFire: false },
+    endOfGameDigest: true, comments: true,
+    catalogue: [
+      { key: "news", label: "News", group: "competition" }, { key: "fixtureCreated", label: "Fixture created", group: "competition" },
+      { key: "matchStarted", label: "Match started", group: "competition" }, { key: "matchResult", label: "Match result", group: "competition" },
+      { key: "milestones", label: "Redraft and season milestones", group: "competition" },
+      { key: "touchdown", label: "Touchdown", group: "inGame" }, { key: "death", label: "Player death", group: "inGame" },
+    ],
+    ...(kind === "league" ? {
+      weekly: { enabled: true, trigger: "schedule", day: 0, time: "10:00", everyWeeks: 1, timeZone: "America/Vancouver", weekdays: [] },
+      botInviteUrl: "https://discord.com/oauth2/authorize?client_id=123456789012345678&scope=bot&permissions=19456",
+      seasons: [{ id: "season-5", name: "Season 5" }],
+    } : {}),
+  };
+}
+
 const API: Routes = {
   "/api/leagues/tabbl": { league: league(), seasons: [s5, s6] },
   "/api/leagues/tabbl/settings": { settings: view() },
+  "/api/leagues/tabbl/discord": { discord: discordView("league") },
+  "/api/leagues/tabbl/seasons/season-5/discord": { discord: discordView("season") },
+  "/api/leagues/tabbl/seasons/season-6/discord": { discord: discordView("season") },
   // fresh per call: a test that flips a fixture must not leak into the next render
   "/api/leagues/tabbl/seasons/season-6": () => ({ league: league(), season: season6() }),
   "/crests/manifest.json": { crests: {} },
@@ -358,7 +384,7 @@ describe("league settings routes (server-rendered)", () => {
     expect((await render("/leagues/tabbl?tab=fixtures", detail, COACH)).html).not.toContain("Fixtures editor");
   });
 
-  it("External connections: NAF disabled note, export link, masked webhook only (Played on moved to Information)", async () => {
+  it("External connections: NAF disabled note, export link, masked webhook only, Discord events, Weekly Digest, season webhooks, bot invite", async () => {
     const { html } = await render("/leagues/tabbl/settings?tab=connections", loaded(), ORGANISER);
     expect(html).toContain("NAF results report");
     expect(html).toContain("available for tournaments only");
@@ -366,7 +392,15 @@ describe("league settings routes (server-rendered)", () => {
     expect(html).toContain("https://discord.com/api/webhooks/…/•••");
     expect(html).toContain('type="password"');
     expect(html).toContain("Send test post");
-    for (const t of ["League news", "Fixture created", "Match started", "Match result", "Redraft and season milestones"]) expect(html).toContain(t);
+    expect(html).toContain("Send samples of every event");
+    for (const t of ["News", "Fixture created", "Match started", "Match result", "Redraft and season milestones", "Competition events", "In-game events (recorded games only)", "End-of-game digest", "Coach&#39;s comments"]) expect(html).toContain(t);
+    expect(html).toMatch(/data-live="death"[^>]*checked|checked[^>]*data-live="death"/);
+    expect(html).toContain("Weekly Digest");
+    expect(html).toContain("Season webhooks");
+    // the season's own panel: a blank webhook posts to the league's
+    expect(html).toContain("No webhook of its own: posts go to the league&#39;s webhook");
+    expect(html).toContain("Add the Super FUMBBL bot to your server");
+    expect(html).toContain('rel="noopener"');
     // creation wizards v2: Played on is a General (Information) setting
     expect(html).not.toContain("Let league games be played on Super FUMBBL");
     const info = await render("/leagues/tabbl/settings?tab=information", loaded(), ORGANISER);

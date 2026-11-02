@@ -1,11 +1,13 @@
 <script setup lang="ts">
 // NOTIFICATIONS panel (Account page): "Discord messages for actions I need to take" (owner 11-01, on by default for a
-// coach with Discord linked, saved on change) and what happens when a Discord message can't be delivered.
+// coach with Discord linked, saved on change) and what happens when a Discord message can't be delivered. Also "Filter
+// profanity" (owner 11-02, default on): rude words show as *** on the site; what anyone writes is stored as written.
 import { inject, onMounted, ref } from "vue";
 import "../account/onboarding.css";
 import { API_KEY } from "../app";
 import { ApiError } from "../shared/api";
 import { discordDmHelp, emailFallbackLine, loadNotificationSettings, saveDiscordDm, type NotificationSettings } from "../account/notificationSettings";
+import { loadProfanitySetting, PROFANITY_HINT, PROFANITY_LABEL, profanitySetting, saveProfanitySetting } from "../shared/profanity";
 
 const api = inject(API_KEY)!;
 const settings = ref<NotificationSettings | null>(null);
@@ -34,6 +36,24 @@ async function toggle(event: Event): Promise<void> {
   }
 }
 onMounted(load);
+
+const filterBusy = ref(false);
+const filterError = ref("");
+onMounted(() => { void loadProfanitySetting(api); });
+async function toggleFilter(event: Event): Promise<void> {
+  const on = (event.target as HTMLInputElement).checked;
+  if (filterBusy.value) return;
+  filterBusy.value = true;
+  filterError.value = "";
+  try {
+    await saveProfanitySetting(api, on);
+  } catch (e) {
+    filterError.value = e instanceof ApiError ? e.message : "Could not save that.";
+    (event.target as HTMLInputElement).checked = !on;
+  } finally {
+    filterBusy.value = false;
+  }
+}
 </script>
 
 <template>
@@ -56,6 +76,12 @@ onMounted(load);
     </template>
     <p v-if="error" class="sf-error hm-small" role="alert">{{ error }}</p>
     <p v-else-if="notice" class="sf-notice hm-small" role="status">{{ notice }}</p>
+    <label class="ob-check sf-check ac-notify-check ac-filter">
+      <input type="checkbox" data-testid="profanity-filter-toggle" :checked="profanitySetting.on" :disabled="filterBusy" aria-describedby="ac-filter-help" @change="toggleFilter" />
+      <span>{{ PROFANITY_LABEL }}</span>
+    </label>
+    <p id="ac-filter-help" class="hm-small hm-empty">{{ PROFANITY_HINT }}</p>
+    <p v-if="filterError" class="sf-error hm-small" role="alert">{{ filterError }}</p>
   </div>
 </template>
 
@@ -63,4 +89,5 @@ onMounted(load);
 .ac-notify { display: grid; gap: 8px; }
 .ac-notify p { margin: 0; }
 .ac-notify-check { font-size: 15px; }
+.ac-filter { margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--sf-panel-line); }
 </style>

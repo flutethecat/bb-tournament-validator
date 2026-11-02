@@ -1,85 +1,84 @@
 <script setup lang="ts">
-// League settings, External connections: NAF results report (tournaments only for now), Results export (CSV zip),
-// the Discord webhook (URL stored server-side and only ever shown masked; event toggles; Send test post) and the
-// Play on Super FUMBBL toggle (default off; admins then allow single fixtures on the Fixtures tab).
-import { computed, inject, reactive, ref, watch } from "vue";
-import { DISCORD_EVENT_LABEL, isWebhookUrl, LEAGUE_SETTINGS_KEY } from "../leagues/settings";
-import type { DiscordEventKey } from "../leagues/types";
+// League settings, External connections: NAF results report (tournaments only for now), Results export (CSV zip), the
+// league's Discord (webhook stored server-side and only ever shown masked; every event toggle; test post and samples;
+// CompetitionDiscordPanel), the Weekly Digest, each season's own webhook (blank = the league's) and the optional bot invite.
+import { computed, inject, onServerPrefetch, ref, watch } from "vue";
+import { API_KEY } from "../app";
+import { api as defaultApi } from "../shared/api";
+import CompetitionDiscordPanel from "./CompetitionDiscordPanel.vue";
+import LeagueWeeklyDigest from "./LeagueWeeklyDigest.vue";
+import { LEAGUE_SETTINGS_KEY } from "../leagues/settings";
+import type { CompetitionDiscordView } from "../shared/discord";
 
 const settings = inject(LEAGUE_SETTINGS_KEY)!;
 const { state } = settings;
 const c = computed(() => state.view!.connections);
-const busy = computed(() => Boolean(state.busy));
 
 const exportSeason = ref("");
 const exportHref = computed(() => settings.exportUrl(exportSeason.value || undefined));
 
-// Discord: the field starts empty every time; what is stored is only ever shown masked.
-const url = ref("");
-const urlError = computed(() => (url.value.trim() && !isWebhookUrl(url.value) ? "Paste the webhook URL from Discord (https://discord.com/api/webhooks/...)." : ""));
-async function saveUrl(): Promise<void> {
-  if (!url.value.trim() || urlError.value) return;
-  if (await settings.save("connections", { discord: { url: url.value.trim() } }, "discord", "Webhook saved.")) url.value = "";
-}
-const clearUrl = () => settings.save("connections", { discord: { url: null } }, "discord", "Webhook removed.");
-
-const events = reactive({ ...c.value.discord.events });
-watch(() => JSON.stringify(c.value.discord.events), () => Object.assign(events, c.value.discord.events));
-const eventKeys = computed(() => Object.keys(DISCORD_EVENT_LABEL) as DiscordEventKey[]);
-const eventsDirty = computed(() => eventKeys.value.some((k) => events[k] !== c.value.discord.events[k]));
-const saveEvents = () => settings.save("connections", { discord: { events: { ...events } } }, "discord-events", "Events saved.");
-
-// Play on Super FUMBBL moved to Information (Played on, creation wizards v2).
+const leagueBase = computed(() => `/api/leagues/${encodeURIComponent(state.id)}`);
+const leagueView = ref<CompetitionDiscordView | null>(null);
+// the Weekly Digest and bot invite read the league's Discord view (the panel keeps it fresh after a save)
+const api = inject(API_KEY, null) ?? defaultApi;
+const first = api<{ discord: CompetitionDiscordView }>(`${leagueBase.value}/discord`).then((r) => { leagueView.value = r.discord; }, () => undefined);
+onServerPrefetch(() => first);
+const seasonId = ref("");
+watch(() => state.seasons.map((s) => s.id).join(","), () => {
+  if (!state.seasons.some((s) => s.id === seasonId.value)) seasonId.value = state.seasons[0]?.id ?? "";
+}, { immediate: true });
+const seasonBase = computed(() => (seasonId.value ? `${leagueBase.value}/seasons/${encodeURIComponent(seasonId.value)}` : ""));
 </script>
 
 <template>
   <div class="ls-pair">
-    <section class="hm-panel ls-disabled" aria-labelledby="ls-naf-h" aria-disabled="true">
-      <header class="hm-band"><h2 id="ls-naf-h">NAF results report</h2><span class="hm-cap">Tournaments only</span></header>
-      <p>{{ c.naf.note }}</p>
-      <div class="ls-actions"><button class="sf-btn" type="button" disabled>Export NAF report</button></div>
-    </section>
+    <CompetitionDiscordPanel :base="leagueBase" title="Discord" @loaded="(v) => (leagueView = v)" />
 
-    <section class="hm-panel" aria-labelledby="ls-export-h">
-      <header class="hm-band"><h2 id="ls-export-h">Results export</h2><span class="hm-cap">CSV zip</span></header>
-      <p class="hm-small">Teams, fixtures, standings, participants, honours and awards, one CSV each.</p>
-      <div class="ls-inline">
-        <label class="ls-field">
-          <span>Seasons</span>
-          <select v-model="exportSeason">
-            <option value="">All seasons</option>
-            <option v-for="s in state.seasons" :key="s.id" :value="s.id">{{ s.name }}</option>
-          </select>
-        </label>
-        <a class="sf-btn primary" :href="exportHref" download>Download results</a>
-      </div>
-    </section>
+    <div class="ls-stack">
+      <LeagueWeeklyDigest v-if="leagueView" :league-id="state.id" :view="leagueView" @saved="(v) => (leagueView = v)" />
 
-    <section class="hm-panel" aria-labelledby="ls-discord-h">
-      <header class="hm-band"><h2 id="ls-discord-h">Discord webhook</h2><span class="hm-cap">{{ c.discord.configured ? "Connected" : "Not connected" }}</span></header>
-      <p v-if="c.discord.configured">Posting to <span class="ls-masked" data-masked>{{ c.discord.maskedUrl }}</span></p>
-      <p v-else class="hm-small">In Discord: channel settings, Integrations, Webhooks, New webhook, Copy webhook URL.</p>
-      <form class="ls-inline" novalidate @submit.prevent="saveUrl">
-        <label class="ls-field" :data-invalid="urlError ? 'true' : undefined">
-          <span>{{ c.discord.configured ? "Replace webhook URL" : "Webhook URL" }}</span>
-          <input v-model="url" type="password" autocomplete="off" spellcheck="false" maxlength="300" placeholder="https://discord.com/api/webhooks/..." />
-          <small v-if="urlError" class="ls-field-error">{{ urlError }}</small>
+      <section class="hm-panel" aria-labelledby="ls-seasonhook-h">
+        <header class="hm-band"><h2 id="ls-seasonhook-h">Season webhooks</h2><span class="hm-cap">Per season</span></header>
+        <p class="hm-small">Each season can post to its own channel. A new season starts with the league's webhook and events.</p>
+        <label class="ls-field ls-season-pick">
+          <span>Season</span>
+          <select v-model="seasonId"><option v-for="s in state.seasons" :key="s.id" :value="s.id">{{ s.name }}</option></select>
         </label>
-        <button class="sf-btn primary" type="submit" :disabled="!url.trim() || Boolean(urlError) || busy">Save webhook</button>
-        <button v-if="c.discord.configured" class="sf-btn danger" type="button" :disabled="busy" @click="clearUrl">Remove</button>
-      </form>
-      <p v-if="state.errors.discord" class="sf-error" role="alert">{{ state.errors.discord }}</p>
-      <p v-else-if="state.notices.discord" class="hm-notice" role="status">{{ state.notices.discord }}</p>
-      <fieldset class="ls-toggles">
-        <legend class="ls-k">Post when</legend>
-        <label v-for="k in eventKeys" :key="k" class="ls-check"><input v-model="events[k]" type="checkbox" /> {{ DISCORD_EVENT_LABEL[k] }}</label>
-      </fieldset>
-      <div class="ls-actions">
-        <button class="sf-btn" type="button" :disabled="!eventsDirty || busy" @click="saveEvents">Save events</button>
-        <button class="sf-btn" type="button" :disabled="!c.discord.configured || busy" @click="settings.testDiscord()">Send test post</button>
-      </div>
-      <p v-if="state.errors['discord-events'] || state.errors['discord-test']" class="sf-error" role="alert">{{ state.errors['discord-events'] || state.errors['discord-test'] }}</p>
-      <p v-else-if="state.notices['discord-events'] || state.notices['discord-test']" class="hm-notice" role="status">{{ state.notices['discord-events'] || state.notices['discord-test'] }}</p>
-    </section>
+      </section>
+      <CompetitionDiscordPanel v-if="seasonBase" :key="seasonBase" :base="seasonBase" :title="`${state.seasons.find((s) => s.id === seasonId)?.name ?? 'Season'} Discord`" compact />
+
+      <section v-if="leagueView?.botInviteUrl" class="hm-panel" aria-labelledby="ls-bot-h">
+        <header class="hm-band"><h2 id="ls-bot-h">Super FUMBBL bot</h2><span class="hm-cap">Optional</span></header>
+        <p class="hm-small">Add the bot to your Discord server. Coaches who share a server with it can get their messages there.</p>
+        <div class="ls-actions"><a class="sf-btn ls-bot-btn" :href="leagueView.botInviteUrl" target="_blank" rel="noopener">Add the Super FUMBBL bot to your server</a></div>
+      </section>
+
+      <section class="hm-panel" aria-labelledby="ls-export-h">
+        <header class="hm-band"><h2 id="ls-export-h">Results export</h2><span class="hm-cap">CSV zip</span></header>
+        <p class="hm-small">Teams, fixtures, standings, participants, honours and awards, one CSV each.</p>
+        <div class="ls-inline">
+          <label class="ls-field">
+            <span>Seasons</span>
+            <select v-model="exportSeason">
+              <option value="">All seasons</option>
+              <option v-for="s in state.seasons" :key="s.id" :value="s.id">{{ s.name }}</option>
+            </select>
+          </label>
+          <a class="sf-btn primary" :href="exportHref" download>Download results</a>
+        </div>
+      </section>
+
+      <section class="hm-panel ls-disabled" aria-labelledby="ls-naf-h" aria-disabled="true">
+        <header class="hm-band"><h2 id="ls-naf-h">NAF results report</h2><span class="hm-cap">Tournaments only</span></header>
+        <p>{{ c.naf.note }}</p>
+        <div class="ls-actions"><button class="sf-btn" type="button" disabled>Export NAF report</button></div>
+      </section>
+    </div>
   </div>
 </template>
+
+<style scoped>
+.ls-stack { display: grid; gap: 16px; align-content: start; min-width: 0; }
+.ls-season-pick { max-width: 320px; }
+.ls-bot-btn { max-width: 100%; height: auto; min-height: 40px; white-space: normal; text-align: center; }
+</style>

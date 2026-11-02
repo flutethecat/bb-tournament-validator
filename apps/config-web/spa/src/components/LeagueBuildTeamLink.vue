@@ -6,6 +6,7 @@
 import { inject, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 import { API_KEY } from "../app";
+import DiscordDmNotice from "./DiscordDmNotice.vue";
 
 const props = defineProps<{ leagueId: string; seasonId: string }>();
 const api = inject(API_KEY)!;
@@ -28,4 +29,5 @@ watch(() => [props.leagueId, props.seasonId] as const, async ([id, sid]) => {
     <RouterLink class="sf-btn primary" :to="{ path: '/tournament-team-builder', query: { league: leagueId, season: seasonId } }">Build a team for this league</RouterLink>
     <span class="muted">Registration is open. Build your team under this season's rules and save it.</span>
   </p>
+  <DiscordDmNotice v-if="open" class="lg-build-team-dm" />
 </template>

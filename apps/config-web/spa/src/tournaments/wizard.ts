@@ -7,6 +7,7 @@
 // The form survives a trip to the Tournament Creator ("Create a new ruleset", ?return=wizard) in sessionStorage: a
 // per-viewer convenience only, read and written inside try/catch, and cleared once the tournament exists.
 
+import { isDiscordWebhook } from "../shared/discord";
 import { reactive, toRaw, type InjectionKey } from "vue";
 import { ApiError } from "../shared/api";
 import type { Fetcher } from "../session";
@@ -307,7 +308,26 @@ export interface WizardState {
   busy: "" | "draft" | "publish";
   error: string;
   signedOut: boolean;
+  /** Registration step, Discord group: a webhook (a secret: never saved in the browser draft) and the tournament-mode
+   *  events, sent to PATCH /api/tournaments/:id/discord right after the tournament is created. */
+  discord: { webhook: string; events: Record<string, boolean> };
 }
+
+/** Tournament mode (requirement 6): what a tournament's Discord setup starts with ticked; the rest starts off. */
+export const TOURNAMENT_DISCORD_EVENTS: ReadonlyArray<{ key: string; label: string; on: boolean }> = [
+  { key: "published", label: "Published", on: true },
+  { key: "registrationClosing", label: "Registration closing in 24 hours", on: true },
+  { key: "checkInOpen", label: "Check-in open", on: true },
+  { key: "roundPosted", label: "Pairings posted", on: true },
+  { key: "matchResult", label: "Match end", on: true },
+  { key: "roundStandings", label: "Round summary", on: true },
+  { key: "finalStandings", label: "Final standings and champion", on: true },
+  { key: "newRegistration", label: "New registration", on: false },
+  { key: "registrationOpened", label: "Registration opened", on: false },
+  { key: "matchStarted", label: "Match started", on: false },
+  { key: "news", label: "News", on: false },
+];
+export const tournamentModeEvents = (): Record<string, boolean> => Object.fromEntries(TOURNAMENT_DISCORD_EVENTS.map((e) => [e.key, e.on]));
 
 const NUMBER_OR_BLANK: ReadonlySet<keyof WizardForm> = new Set(["roundCount", "maxPlayers"]);
 
@@ -342,6 +362,7 @@ function writeDraft(value: { step: WizardStep; form: WizardForm } | null): void 
 export function createTournamentWizard(deps: { api: Fetcher; onSignedOut?: () => void; onCreated?: (id: string, published: boolean) => void }) {
   const state = reactive<WizardState>({
     step: "ruleset", form: blankWizardForm(), packages: [], packagesStatus: "idle", series: [], search: "", busy: "", error: "", signedOut: false,
+    discord: { webhook: "", events: tournamentModeEvents() },
   });
   const blank = blankWizardForm();
   const keys = Object.keys(blank) as Array<keyof WizardForm>;
@@ -427,6 +448,7 @@ export function createTournamentWizard(deps: { api: Fetcher; onSignedOut?: () =>
       if (state.busy) return undefined;
       const bad = firstProblemStep(state.form);
       if (bad) { state.error = bad.problem; state.step = bad.step; return undefined; }
+      if (state.discord.webhook.trim() && !isDiscordWebhook(state.discord.webhook)) { state.error = "That is not a Discord webhook URL (https://discord.com/api/webhooks/...)."; state.step = "registration"; return undefined; }
       state.busy = publish ? "publish" : "draft";
       state.error = "";
       state.signedOut = false;
@@ -434,6 +456,12 @@ export function createTournamentWizard(deps: { api: Fetcher; onSignedOut?: () =>
         const res = await deps.api<{ tournament?: { id?: unknown } }>("/api/tournaments", { method: "POST", body: wizardBody(state.form, publish) });
         const id = typeof res?.tournament?.id === "string" ? res.tournament.id : "";
         if (!id) { state.error = "The server did not return the new tournament."; return undefined; }
+        // Discord (Registration step): saved on the new tournament; a failure leaves it for Manage -> Discord.
+        const hook = state.discord.webhook.trim();
+        if (hook) {
+          try { await deps.api(`/api/tournaments/${encodeURIComponent(id)}/discord`, { method: "PATCH", body: { url: hook, events: { ...state.discord.events } } }); } catch { /* set it in Manage */ }
+          state.discord.webhook = "";
+        }
         writeDraft(null);
         deps.onCreated?.(id, publish);
         return id;
