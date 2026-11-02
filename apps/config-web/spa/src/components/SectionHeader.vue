@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // The shared section header (owner 11-02: "a standard Nav Header bar that is shared across all surfaces of the site when
-// inside of a section"). One slim band: up-link, crest, name, status chip (leagues: the season dropdown); the section's
-// tabs, scrolling sideways inside the band; the viewer's role chip, the Announcement megaphone (league organisers) and
-// the organiser cog (the management sub-panel). With a banner, pages other than Overview get a dimmed strip of it behind
+// inside of a section"). One band in two rows (owner 11-02): up-link, crest, name, status chip (leagues: the season
+// dropdown), then the viewer's role chip, the Announcement megaphone (league organisers) and the organiser cog (the
+// management sub-panel); the section's tabs on the second row, all visible on a desktop (phones scroll them). With a banner, pages other than Overview get a dimmed strip of it behind
 // the band. On a sub-page the breadcrumb sits under the band ("Participants › Grudge Rollers"). Presentational: the
 // League / Tournament / Series wrappers build the model (shell/sectionNav.ts).
 import { computed, nextTick, onMounted, ref, watch } from "vue";

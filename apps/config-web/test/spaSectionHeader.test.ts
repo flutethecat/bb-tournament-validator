@@ -498,9 +498,14 @@ describe("fit: section pages", () => {
     }
   });
 
-  it("section.css: tabs scroll sideways inside the band; the management panes scroll only inside the desktop fit query; tokens only", () => {
+  it("section.css: two rows, the tabs on the second (wrapping on a desktop, scrolling only on phones); management panes scroll only inside the desktop fit query; tokens only", () => {
     const css = src("shell/section.css");
-    expect(css).toMatch(/\.sh-tabs\.sf-tabs \{[^}]*overflow-x: auto;/);
+    const phone = css.indexOf("@media (max-width: 760px) {");
+    // owner 11-02: row 1 = identity + actions, row 2 = every tab; no sideways scroller at desktop widths
+    expect(css.slice(0, phone)).toMatch(/\.sh-row \{[^}]*grid-template-columns: minmax\(0, 1fr\) auto; grid-template-areas: "id act" "tabs tabs";/);
+    expect(css.slice(0, phone)).toMatch(/\.sh-tabs\.sf-tabs \{[^}]*flex-wrap: wrap;[^}]*overflow: visible;/);
+    expect(css.slice(0, phone)).not.toMatch(/\.sh-tabs[^{]*\{[^}]*overflow-x: auto/);
+    expect(css.slice(phone)).toMatch(/\.sh-tabs\.sf-tabs \{ flex-wrap: nowrap; overflow-x: auto;/);
     const fit = css.slice(css.indexOf(`@media ${FIT_QUERY} {`));
     expect(fit).toContain(".sh-manage.sf-fill > .sh-subnav, .sh-manage.sf-fill > .sh-manage-body");
     expect(css.slice(0, css.indexOf(`@media ${FIT_QUERY} {`))).not.toMatch(/overflow-y: auto/);

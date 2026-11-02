@@ -1,8 +1,9 @@
 /* Shared section header (owner 11-02, spec-section-header-2026-11-02): one slim band on every page inside a league,
-   tournament or series. Left: up-link, crest, name (Nuffle), status chip or season dropdown. Middle: the tabs, scrolling
-   sideways inside the band only. Right: role chip, Announcement, the organiser cog. Plain panel band without a banner;
-   with one, pages other than Overview get a slim dimmed strip of it behind the band. Phones: two rows (name; tabs).
-   Tokens only. The band is fixed chrome in the fitted shell (a flex: none child of .sf-fit). */
+   tournament or series. Two rows (owner 11-02): row 1 = up-link, crest, name (bold sans), status chip or season dropdown,
+   then the role chip, Announcement and the organiser cog at the right; row 2 = the tabs, every one visible on a desktop
+   (they wrap instead of scrolling sideways; phones scroll them inside the band). Plain panel band without a banner; with
+   one, pages other than Overview get a slim dimmed strip of it behind the band. Under 100 px tall at 1920. Tokens only.
+   The band is fixed chrome in the fitted shell (a flex: none child of .sf-fit). */
 .sh {
   position: relative; isolation: isolate; min-width: 0; color: var(--ui-text);
   background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface);
@@ -16,16 +17,16 @@
     var(--sh-banner) center / cover no-repeat, var(--ui-surface);
 }
 .sh-row {
-  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "id tabs act";
-  align-items: center; gap: 12px; min-height: 56px; box-sizing: border-box; padding: 5px 10px 5px 8px;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "id act" "tabs tabs";
+  align-items: center; gap: 4px 12px; box-sizing: border-box; padding: 4px 10px 5px 8px;
 }
-.sh-id { grid-area: id; display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 34vw; }
+.sh-id { grid-area: id; display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 40px; }
 .sh-up {
   flex: none; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 40px; margin-right: -2px;
   font: 22px/1 var(--sf-band-font); color: var(--ui-muted); text-decoration: none; border-radius: 2px;
 }
 .sh-up:hover { color: var(--ui-text); background: var(--ui-hover); }
-.sh-logo { flex: none; width: 40px; height: 40px; object-fit: contain; filter: drop-shadow(0 2px 0 var(--sf-panel-drop)); }
+.sh-logo { flex: none; width: 36px; height: 36px; object-fit: contain; filter: drop-shadow(0 2px 0 var(--sf-panel-drop)); }
 .sh-logo-blank {
   display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; font: 13px/1 var(--sf-band-font); color: var(--ui-text);
   background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-radius: 2px; filter: none;
@@ -43,9 +44,10 @@
 }
 .sh-season:focus-visible, .sh-up:focus-visible, .sh-btn:focus-visible, .sh-crumbs a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 
-/* the tabs: the shared joined strip (.sf-tabs / .sf-tab), compact, scrolling sideways inside the band */
-.sh-tabs.sf-tabs { grid-area: tabs; justify-self: start; min-width: 0; max-width: 100%; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: thin; }
-.sh-tabs .sf-tab { min-height: 38px; padding: 0 10px; font-size: 11px; letter-spacing: .06em; }
+/* the tabs: the shared joined strip (.sf-tabs / .sf-tab) on its own row; it wraps rather than scroll sideways on a
+   desktop, so every tab shows (phones scroll it, below) */
+.sh-tabs.sf-tabs { grid-area: tabs; justify-self: start; flex-wrap: wrap; min-width: 0; max-width: 100%; overflow: visible; }
+.sh-tabs .sf-tab { min-height: 32px; padding: 0 12px; font-size: 12px; letter-spacing: .06em; }
 .sh-tabs .sh-soon { color: var(--ui-text-dim); cursor: default; gap: 6px; }
 .sh-tabs .sh-soon:hover { color: var(--ui-text-dim); background: transparent; }
 .sh-soon small { font: 8px/1 var(--sf-band-font); letter-spacing: .06em; padding: 2px 3px; border: 1px solid var(--ui-text-dim); border-radius: 2px; }
@@ -93,15 +95,13 @@
   .sh-manage.sf-fill > .sh-subnav, .sh-manage.sf-fill > .sh-manage-body { position: relative; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 2px 6px 8px 2px; margin: -2px -6px 0 -2px; }
 }
 
-/* narrower desktops: the name gives way to the tabs */
-@media (max-width: 1200px) {
-  .sh-id { max-width: 28vw; }
-  .sh-role { display: none; }
-}
-/* phones and tablets: two rows (name with the actions; the tabs, scrolling) */
+/* phones and tablets: still two rows (name with the actions; the tabs, scrolling sideways inside the band) */
 @media (max-width: 760px) {
   .sh-row { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "id act" "tabs tabs"; gap: 6px 8px; padding: 6px 8px; }
-  .sh-id { max-width: none; flex-wrap: wrap; row-gap: 4px; }
+  .sh-tabs.sf-tabs { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: thin; }
+  .sh-tabs .sf-tab { min-height: 36px; font-size: 11px; }
+  .sh-id { flex-wrap: wrap; row-gap: 4px; }
+  .sh-role { display: none; } /* the name keeps the room on a phone */
   .sh-name { flex: 1 1 calc(100% - 80px); font-size: 1.1rem; }
   .sh-chips { flex-wrap: wrap; padding-left: 36px; }
   .sh-logo { width: 32px; height: 32px; }
