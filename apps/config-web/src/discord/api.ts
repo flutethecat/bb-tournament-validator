@@ -39,7 +39,7 @@ export interface DiscordApiDeps {
   leagues: LeagueStore;
   tournaments: Pick<TournamentStore, "tournament">;
   state: DiscordStateStore;
-  observer?: Pick<DiscordObserver, "digestFor" | "previewPeriod" | "markPosted">;
+  observer?: Pick<DiscordObserver, "digestFor" | "previewPeriod" | "claimPeriod">;
   poster?: WebhookPoster;
   /** DISCORD_CLIENT_ID: the bot invite link (hidden when unset). */
   clientId?: string;
@@ -338,10 +338,14 @@ export async function discordApi(method: string, path: string, auth: DiscordApiI
     if (!d.payload) return fail(409, d.reason ?? "Nothing to post.");
     const wait = limited(`digest:${r.target.key}`, DIGEST_POST_WINDOW_MS, now);
     if (wait) return { ...fail(429, "The digest was just posted. Try again in a minute."), headers: { ...NO_STORE, "retry-after": String(wait) } };
+    // The period is claimed BEFORE the send, so a scheduler tick while Discord answers never posts it again; a failed
+    // send gives the claim back.
+    const claim = deps.observer.claimPeriod(r.league, d.to);
     const out = await sendOne(poster, r.target.url, d.payload);
-    if (!out.ok) return fail(502, out.status ? `Discord did not accept the post (status ${out.status}).` : "Could not reach Discord.");
-    // The next digest (scheduled or previewed) starts after this one: no game is posted twice.
-    deps.observer.markPosted(r.league, d.to);
+    if (!out.ok) {
+      claim.release();
+      return fail(502, out.status ? `Discord did not accept the post (status ${out.status}).` : "Could not reach Discord.");
+    }
     return res(200, { ok: true });
   }
 
