@@ -107,8 +107,10 @@ messages for actions I need to take"): on by default for coaches with Discord li
 
 Behaviour: DMs ride the mail outbox (`<FORK_STATE_DIR>/mail/outbox/journal.jsonl`, channel `discord`) with the same
 retries, backoff and send-time re-checks as email (opt-out, Discord still linked, account not being deleted). Discord rate
-limits are honoured. A refused DM (DMs closed, no shared server) or one out of retries is dead-lettered and falls back to
-ONE email, only when the coach agreed to emails (league-contact consent) and has a confirmed address. The outbox never
+limits are honoured, and each message carries a nonce so a retry never posts twice. A DM Discord refuses for good (DMs
+closed, no shared server, unknown user) is dead-lettered and falls back to ONE email, only when the coach agreed to emails
+(league-contact consent) and has a confirmed address. A DM that runs out of retries (Discord down, bad token) is
+dead-lettered without email. Coach, team and competition names are Markdown-escaped, so the action link is the only link. The outbox never
 stores the coach's Discord id (it is looked up at send time), and logs never carry it or the token.
 
 **Test.** With two accounts that share a server with the bot, propose a time from one to the other; the second gets a DM

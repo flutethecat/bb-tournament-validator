@@ -319,7 +319,7 @@ export class MailWorker {
         let refused: Exclude<RecheckResult, { ok: true }> | undefined;
         const stillEligible = (): boolean => { const r = check(); if (!r.ok) refused = r; return r.ok; };
         try {
-          await transport.send(entry.message, { stillEligible, ...(entry.recipient ? { recipient: { coach: entry.recipient.coach } } : {}) });
+          await transport.send(entry.message, { stillEligible, idempotencyKey: entry.key, ...(entry.recipient ? { recipient: { coach: entry.recipient.coach } } : {}) });
           outbox.markSent(entry.id);
         } catch (e) {
           if (e instanceof MailSendAborted || refused) { drop(refused ?? { ok: false, reason: "noConsent" }, entry.attempts); continue; }

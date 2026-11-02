@@ -2,8 +2,8 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ACTION_DM, actionDmText } from "../src/mail/actionMessages";
-import { createDiscordDmTransport, DISCORD_API, discordDmConfigFromEnv } from "../src/mail/discord";
+import { ACTION_DM, actionDmText, escapeDiscordName } from "../src/mail/actionMessages";
+import { createDiscordDmTransport, DISCORD_API, discordDmConfigFromEnv, DiscordDmRefused, discordNonce } from "../src/mail/discord";
 import { retryDelayMs } from "../src/mail/outbox";
 import { createMailService, DISCORD_DM_TEXT, DISCORD_DM_VERSION } from "../src/mail/service";
 import { MailSendAborted, MailSendError, MemoryTransport, type MailMessage } from "../src/mail/transport";
@@ -135,8 +135,34 @@ describe("which notifications DM", () => {
   it("the table has exactly the proposal types, with short plain text and the link", () => {
     expect(Object.keys(ACTION_DM).sort()).toEqual(["proposal-accepted", "proposal-countered", "proposal-received"]);
     const text = actionDmText({ record: { type: "proposal-received", from: "Ann", title: "t", link: "/app/schedule" }, subject: "Round 1 vs Eve's Elves · Autumn Open", url: "https://site.example.test/app/schedule?proposal=p1" });
-    expect(text).toBe("Ann proposed times for Round 1 vs Eve's Elves · Autumn Open. Accept or decline: https://site.example.test/app/schedule?proposal=p1");
+    expect(text).toEqual({
+      text: "Ann proposed times for Round 1 vs Eve's Elves · Autumn Open. Accept or decline: https://site.example.test/app/schedule?proposal=p1",
+      plain: "Ann proposed times for Round 1 vs Eve's Elves · Autumn Open. Accept or decline: https://site.example.test/app/schedule?proposal=p1",
+    });
     expect(actionDmText({ record: { type: "award", from: "", title: "t", link: "/app/" }, url: "x" })).toBeUndefined();
+  });
+
+  it("names cannot inject Markdown links or URLs: the action link is the only link in the DM", () => {
+    const url = "https://site.example.test/app/schedule?proposal=p1";
+    const dm = actionDmText({
+      record: { type: "proposal-received", from: "**Admin** <@123>", title: "t", link: "/app/schedule" },
+      subject: "[Accept here](https://evil.example) · `x` ~~y~~ > z # www.evil.example _u_ |s| (p) -",
+      url,
+    })!;
+    // Only one URL: the action link at the end. The names part has every Markdown character escaped.
+    expect(dm.text.match(/https?:\/\//g)).toHaveLength(1);
+    expect(dm.text.endsWith(`Accept or decline: ${url}`)).toBe(true);
+    expect(dm.text).not.toContain("www.evil");
+    const names = dm.text.slice(0, dm.text.indexOf(". Accept or decline: "));
+    for (let i = 0; i < names.length; i += 1) {
+      const c = names[i]!;
+      if ("*_~`|>[]()#-<@:".includes(c)) expect(names[i - 1], `"${c}" at ${i} in ${names}`).toBe("\\");
+    }
+    expect(dm.text).toContain(String.raw`\[Accept here\]\(https //evil.example\)`);
+    expect(dm.text).toContain(String.raw`\*\*Admin\*\* \<\@123\>`);
+    // the email fallback gets the plain words
+    expect(dm.plain).toContain("[Accept here](https://evil.example)");
+    expect(escapeDiscordName(String.raw`a\b`)).toBe(String.raw`a\\b`);
   });
 
   it("only DISCORD_BOT_TOKEN is read from the env", () => {
@@ -226,6 +252,14 @@ describe("Account setting: Discord messages for actions I need to take", () => {
     expect(isStateChangingApiRequest("GET", "/api/me/notification-settings")).toBe(false);
     expect(h.svc.meRoute("GET", "/api/me/notification-settings", undefined, undefined)!.status).toBe(401);
     expect(h.me("Eve", "POST", { discordDm: true }).status).toBe(200);
+    // write-time checks: an account being deleted, or with no identity, never gets prefs (back)
+    fenceCoachHash(coachKeyHash("Eve"));
+    h.svc.prefs.remove("Eve");
+    expect(h.me("Eve", "POST", { discordDm: false }).status).toBe(410);
+    expect(h.svc.prefs.get("Eve")).toEqual({});
+    clearFences();
+    expect(h.me("Zed", "POST", { discordDm: false }).status).toBe(403);
+    expect(h.svc.prefs.get("Zed")).toEqual({});
     h.propose("Ann", [S2]);
     expect(h.discordRows()).toHaveLength(1);
     h.cleanup();
@@ -267,12 +301,36 @@ describe("Discord REST transport (mocked fetch)", () => {
     expect(JSON.parse(String(postInit.body))).toEqual({ content: msg.text, allowed_mentions: { parse: [] }, flags: 4 });
   });
 
+  it("re-checks eligibility right before the message POST (after the channel open): opted out meanwhile = no POST", async () => {
+    let eligible = true;
+    const f = discordFetch((u) => { if (u.endsWith("/users/@me/channels")) eligible = false; return undefined; });
+    const t = createDiscordDmTransport({ token: TOKEN, resolveUserId: (c) => IDS[c], fetch: f as unknown as typeof globalThis.fetch, sleep: async () => {} });
+    const msg: MailMessage = { to: "", subject: "s", text: "hi", html: "", template: "action-dm" };
+    await expect(t.send(msg, { recipient: { coach: "eve" }, stillEligible: () => eligible })).rejects.toBeInstanceOf(MailSendAborted);
+    expect(f).toHaveBeenCalledTimes(1);
+    expect(String(f.mock.calls[0]![0])).toMatch(/\/users\/@me\/channels$/);
+  });
+
+  it("every POST carries a nonce stable per outbox item with enforce_nonce, the same on a retry after a lost response", async () => {
+    const f = discordFetch((u, n) => (n === 2 ? jsonRes(502, {}) : undefined));
+    const t = createDiscordDmTransport({ token: TOKEN, resolveUserId: (c) => IDS[c], fetch: f as unknown as typeof globalThis.fetch, sleep: async () => {} });
+    const msg: MailMessage = { to: "", subject: "s", text: "hi", html: "", template: "action-dm" };
+    await t.send(msg, { recipient: { coach: "eve" }, idempotencyKey: "action:dm:eve:n1:x" });
+    const posts = f.mock.calls.filter((c) => String(c[0]).endsWith("/messages")).map((c) => JSON.parse(String(((c as unknown as [string, RequestInit])[1]).body)));
+    expect(posts).toHaveLength(2);
+    expect(posts[0].nonce).toBe(discordNonce("action:dm:eve:n1:x"));
+    expect(posts[0].nonce.length).toBeLessThanOrEqual(25);
+    expect(posts[0].enforce_nonce).toBe(true);
+    expect(posts[1].nonce).toBe(posts[0].nonce);
+    expect(discordNonce("action:dm:eve:n2:x")).not.toBe(posts[0].nonce);
+  });
+
   it("403 / 50007 is permanent and its error carries no id or token; 5xx and 401 are retryable; no id = abandoned", async () => {
     const refuse = discordFetch((u) => (u.endsWith("/messages") ? jsonRes(403, { code: 50007, message: "Cannot send messages to this user" }) : undefined));
     const t = createDiscordDmTransport({ token: TOKEN, resolveUserId: (c) => IDS[c], fetch: refuse as unknown as typeof globalThis.fetch, sleep: async () => {} });
     const msg: MailMessage = { to: "", subject: "s", text: "hi", html: "", template: "action-dm" };
     const err = await t.send(msg, { recipient: { coach: "eve" } }).then(() => undefined, (e: unknown) => e as MailSendError);
-    expect(err).toBeInstanceOf(MailSendError);
+    expect(err).toBeInstanceOf(DiscordDmRefused);
     expect(err!.retryable).toBe(false);
     expect(err!.status).toBe(403);
     noSecrets(err!.message);
@@ -383,7 +441,7 @@ describe("dead letters, email fallback and retries through the outbox", () => {
     h.cleanup();
   });
 
-  it("out of retries counts as a permanent failure: dead-lettered, then the email fallback", async () => {
+  it("out of retries (Discord down) is dead-lettered WITHOUT the email fallback", async () => {
     const fetch = discordFetch(() => jsonRes(503, {}));
     const h = setup({ discord: "real", fetch: fetch as unknown as typeof globalThis.fetch });
     h.propose("Ann");
@@ -392,7 +450,7 @@ describe("dead letters, email fallback and retries through the outbox", () => {
       await h.svc.worker.drain();
     }
     expect(h.discordRows()[0]).toMatchObject({ status: "dead", attempts: 6 });
-    expect(h.emailRows()).toHaveLength(1);
+    expect(h.emailRows()).toHaveLength(0);
     h.cleanup();
   });
 });

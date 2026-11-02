@@ -4,6 +4,9 @@
 //
 // `subject` is the short name of the thing (a fixture label such as "Round 2 vs Orcs · Spring League"), passed by the
 // emitter on NotificationInput.subject (never stored); `url` is the notification's absolute link.
+//
+// Names are user text (coach, team, competition names): in the Discord text every Markdown character is escaped and any
+// URL in a name is broken up, so the action link is the only link in the message (no masked-link phishing).
 
 import type { NotificationRecord, NotificationType } from "../notifications.js";
 import { oneLine } from "./templates.js";
@@ -25,11 +28,23 @@ export const ACTION_DM: Partial<Record<NotificationType, ActionMessageBuilder>> 
 
 export const isActionDmType = (type: NotificationType): boolean => Object.hasOwn(ACTION_DM, type);
 
-/** The DM text for a notification, or undefined when its type does not DM. */
-export function actionDmText(m: ActionMessageInput): string | undefined {
+/** Discord Markdown characters (and `<` / `@` / `:` that start autolinks, mentions and emoji). */
+const DISCORD_MARKDOWN = /[\\*_~`|>[\]()#\-<@:!]/g;
+
+/** A name made inert for Discord: URLs broken up (no autolink), every Markdown character backslash-escaped. */
+export function escapeDiscordName(name: string): string {
+  return name
+    .replace(/([a-z][a-z0-9+.-]*):\/\//gi, "$1 //")
+    .replace(/\bwww\./gi, "www .")
+    .replace(DISCORD_MARKDOWN, (c) => `\\${c}`);
+}
+
+/** The DM text for a notification (`text`, Discord-escaped) and the same words unescaped (`plain`, for the email
+ *  fallback), or undefined when its type does not DM. */
+export function actionDmText(m: ActionMessageInput): { text: string; plain: string } | undefined {
   const build = ACTION_DM[m.record.type];
   if (!build) return undefined;
   const from = oneLine(m.record.from) || "Someone";
   const subject = oneLine(m.subject ?? "") || "your fixture";
-  return build({ from, subject, url: m.url });
+  return { text: build({ from: escapeDiscordName(from), subject: escapeDiscordName(subject), url: m.url }), plain: build({ from, subject, url: m.url }) };
 }

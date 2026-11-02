@@ -17,15 +17,15 @@
 //
 // Discord DMs (owner 11-01, laws §E 23c): an actionable notification (src/mail/actionMessages.ts) also goes out as a bot
 // DM through the outbox's "discord" channel (src/mail/discord.ts) when DISCORD_BOT_TOKEN and a link origin are set, the
-// coach has Discord linked and has not opted out (on by default). If the DM fails for good (DMs closed, no shared server,
-// out of retries), it falls back to ONE email, only with the coach's email consent (league-contact consent, a confirmed
+// coach has Discord linked and has not opted out (on by default). If Discord refuses the DM for good (DMs closed, no
+// shared server, unknown user; NOT a retryable failure that ran out of retries), it falls back to ONE email, only with the coach's email consent (league-contact consent, a confirmed
 // address, no unsubscribe since, not suppressed), re-checked again at send time.
 
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { join } from "node:path";
 import { isEmailAddress, mailConfigFromEnv, type MailConfig } from "./config.js";
 import { actionDmText } from "./actionMessages.js";
-import { createDiscordDmTransport, discordDmConfigFromEnv } from "./discord.js";
+import { createDiscordDmTransport, discordDmConfigFromEnv, DiscordDmRefused } from "./discord.js";
 import { isCoachFenced } from "../privacy/fence.js";
 import type { NotificationInput, NotificationRecord } from "../notifications.js";
 import { MailWorker, Outbox, type OutboxEntry, type OutboxItem, type RecheckResult } from "./outbox.js";
@@ -199,14 +199,14 @@ export function createMailService(stateDir: string, env: Record<string, string |
     return coach ? { coach, leagueId } : undefined;
   }
 
-  /** A Discord DM that failed for good: ONE email instead, only with the coach's email consent (key-idempotent). */
+  /** A Discord DM the recipient cannot receive: ONE email instead, only with the coach's email consent (key-idempotent). */
   function discordFallback(entry: OutboxEntry): void {
     const coach = entry.recipient?.coach;
     if (entry.channel !== "discord" || !coach || !entry.message || !entry.key.startsWith("action:dm:") || !emailEnabled()) return;
     const check = actionEmailCheck(coach);
     if (!check.ok) return;
     const url = typeof entry.message.metadata?.url === "string" ? entry.message.metadata.url : absolute("/app/");
-    const rendered = renderActionEmail({ coach, title: entry.message.subject, text: entry.message.text, url, unsubscribeUrl: unsubscribeUrl(coach, undefined, check.address) });
+    const rendered = renderActionEmail({ coach, title: entry.message.subject, text: entry.message.metadata?.plain ?? entry.message.text, url, unsubscribeUrl: unsubscribeUrl(coach, undefined, check.address) });
     enqueue([{
       key: `action:email:${entry.key.slice("action:dm:".length)}`,
       message: { to: check.address, subject: rendered.subject, text: rendered.text, html: rendered.html, headers: rendered.headers, template: "action-email", stream: config.stream },
@@ -221,13 +221,13 @@ export function createMailService(stateDir: string, env: Record<string, string |
   function notifyAction(coach: string, record: NotificationRecord, input?: Pick<NotificationInput, "subject">): boolean {
     if (!discordEnabled() || !discordDmEligible(coach).ok) return false;
     const url = absolute(record.link.startsWith("/") ? record.link : "/app/");
-    const text = actionDmText({ record, ...(input?.subject ? { subject: input.subject } : {}), url });
-    if (!text) return false;
+    const dm = actionDmText({ record, ...(input?.subject ? { subject: input.subject } : {}), url });
+    if (!dm) return false;
     const r = enqueue([{
       key: `action:dm:${mailCoachKey(coach)}:${record.id}:${record.at}`,
       channel: "discord",
       // No address and no Discord id: the transport resolves the id from the recipient at send time.
-      message: { to: "", subject: record.title, text, html: "", template: "action-dm", metadata: { type: record.type, url } },
+      message: { to: "", subject: record.title, text: dm.text, html: "", template: "action-dm", metadata: { type: record.type, url, plain: dm.plain } },
       recipient: { coach },
     }]);
     return r.added > 0;
@@ -235,7 +235,9 @@ export function createMailService(stateDir: string, env: Record<string, string |
 
   const worker = new MailWorker({
     outbox, transports: { email: transport, ...(discordTransport ? { discord: discordTransport } : {}) }, now, log, recheck,
-    onFailed: (entry) => { if (entry.channel === "discord") discordFallback(entry); },
+    // Only a permanent RECIPIENT refusal (DMs closed, no shared server, unknown user) falls back to email; a retryable
+    // failure that ran out of retries (Discord down, bad token, rate limits) is dead-lettered without email.
+    onFailed: (entry, error) => { if (entry.channel === "discord" && error instanceof DiscordDmRefused) discordFallback(entry); },
     onDropped: (entry, reason) => {
       if (entry.auditId && entry.leagueId) audit.recordDrop({ id: entry.auditId, leagueId: entry.leagueId, at: new Date(now()).toISOString(), reason });
     },
@@ -518,6 +520,11 @@ export function createMailService(stateDir: string, env: Record<string, string |
       if (auth.test) return jsonErr(403, "Test sign-in sessions cannot change notification settings.");
       const input = body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : {};
       if (typeof input.discordDm !== "boolean") return jsonErr(400, "Send { discordDm: true } or { discordDm: false }.");
+      // Checked at write time (after the body was read): an account being deleted, or gone, never gets prefs back.
+      if (isCoachFenced(auth.coach)) return jsonErr(410, "This account is being deleted.");
+      let record: Record<string, unknown> | undefined;
+      try { record = objOf(deps.identity(auth.coach)); } catch { record = undefined; }
+      if (!record || record.banned === true) return jsonErr(403, "This account cannot change notification settings.");
       const on = input.discordDm;
       prefs.update(auth.coach, (p) => ({ ...p, discordDm: { on, at: new Date(now()).toISOString(), version: DISCORD_DM_VERSION } }));
       return notificationSettings(auth);

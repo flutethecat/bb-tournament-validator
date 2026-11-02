@@ -2002,6 +2002,12 @@ async function handleApi(
   if (mail.isMeMailPath(path)) {
     const testSession = getSession(sessionTokenFromRequest(req))?.test === true;
     const body = method === "POST" ? await readBody(req, 16 * 1024) : undefined;
+    // The session may have ended (sign-out, account deletion) while the body was read: writes need it still current.
+    if (method === "POST" && auth) {
+      if (isCoachFenced(auth.coach)) return sendJson(res, 410, { error: "This account is being deleted." });
+      const current = requestIdentity(req);
+      if (!current || normalizeFfbCoachId(current.coach) !== normalizeFfbCoachId(auth.coach)) return sendJson(res, 401, { error: "Authentication required." });
+    }
     const result = mail.meRoute(method, path, auth ? { coach: auth.coach, ...(testSession ? { test: true } : {}) } : undefined, body);
     if (result) return sendMailResult(res, method, result);
   }

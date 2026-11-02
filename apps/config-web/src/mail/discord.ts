@@ -7,14 +7,18 @@
 // `resolveUserId(coach)` and held only in memory (the DM channel cache).
 //
 // Errors:
-//   403 (DMs closed, no shared server: Discord codes 50007 / 50278), 404 / 10013 (unknown user), other 4xx except 401 and
-//   429: permanent (the worker dead-letters the row and the email fallback may run).
+//   403 (DMs closed, no shared server: Discord codes 50007 / 50278) and 10013 (unknown user): DiscordDmRefused, a
+//   permanent RECIPIENT failure (the worker dead-letters the row; only this kind may trigger the email fallback).
+//   Other 4xx except 401 and 429: permanent, no fallback.
 //   429: waits Discord's retry_after inside the send when it is short (re-checking eligibility before the next attempt);
 //   otherwise a retryable error so the outbox backs off. Bucket headers (X-RateLimit-Remaining 0 + Reset-After) hold the
 //   next request until the bucket resets.
 //   401 (bad token), 5xx, network errors and timeouts: retryable (a broken token must not dead-letter every DM into email).
+// Eligibility is re-checked right before the message POST (after the channel open and any bucket wait), and every POST
+// carries a nonce stable per outbox item with enforce_nonce, so a retry after a lost response does not post twice.
 // Error messages never carry the token, the Discord id, the channel id or the message text.
 
+import { createHash } from "node:crypto";
 import { MailSendAborted, MailSendError, type MailMessage, type MailSendResult, type MailTransport } from "./transport.js";
 
 export const DISCORD_API = "https://discord.com/api/v10";
@@ -43,6 +47,19 @@ export interface DiscordDmTransportOptions {
   now?: () => number;
 }
 
+/** Discord will not deliver a DM to this user (DMs closed, no shared server, unknown user): retrying cannot help. */
+export class DiscordDmRefused extends MailSendError {
+  constructor(label: string, status: number) {
+    super(`Discord DM refused (${label}): DMs closed or no shared server.`, false, status);
+    this.name = "DiscordDmRefused";
+  }
+}
+
+/** A Discord nonce (at most 25 characters) from the outbox item's stable key. */
+export function discordNonce(key: string): string {
+  return createHash("sha256").update(`dm:${key}`, "utf8").digest("base64url").slice(0, 25);
+}
+
 const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const SNOWFLAKE = /^\d{5,25}$/;
 
@@ -60,12 +77,14 @@ export function createDiscordDmTransport(opts: DiscordDmTransportOptions): MailT
   /** Route key -> epoch ms before which no request goes out (bucket exhausted). */
   const holdUntil = new Map<string, number>();
 
-  async function request(route: "open" | "post", url: string, body: unknown): Promise<unknown> {
+  async function request(route: "open" | "post", url: string, body: unknown, beforeSend?: () => void): Promise<unknown> {
     const hold = (holdUntil.get(route) ?? 0) - now();
     if (hold > 0) {
       if (hold > DISCORD_MAX_INLINE_WAIT_MS) throw new MailSendError("Discord rate limit: waiting for the bucket to reset.", true, 429);
       await sleep(hold);
     }
+    // After every await: the last chance to stop (eligibility may have changed during the open or the bucket wait).
+    beforeSend?.();
     let res: Response;
     try {
       res = await doFetch(url, {
@@ -93,12 +112,11 @@ export function createDiscordDmTransport(opts: DiscordDmTransportOptions): MailT
       throw new MailSendError(`Discord rate limit (${label}).`, true, 429);
     }
     if (res.status === 401 || res.status >= 500) throw new MailSendError(`Discord refused the request (${label}).`, true, res.status);
-    if (res.status === 403 || (code !== undefined && DM_REFUSED_CODES.has(code)))
-      throw new MailSendError(`Discord DM refused (${label}): DMs closed or no shared server.`, false, res.status);
+    if (res.status === 403 || (code !== undefined && DM_REFUSED_CODES.has(code))) throw new DiscordDmRefused(label, res.status);
     throw new MailSendError(`Discord refused the request (${label}).`, false, res.status);
   }
 
-  async function deliver(userId: string, content: string): Promise<MailSendResult> {
+  async function deliver(userId: string, content: string, nonce: string | undefined, beforeSend: () => void): Promise<MailSendResult> {
     let channelId = channels.get(userId);
     if (!channelId) {
       const opened = await request("open", `${DISCORD_API}/users/@me/channels`, { recipient_id: userId }) as { id?: unknown };
@@ -109,7 +127,8 @@ export function createDiscordDmTransport(opts: DiscordDmTransportOptions): MailT
     }
     try {
       // Plain text: mentions are never parsed (a coach name cannot ping anyone) and link previews are suppressed (flag 4).
-      const posted = await request("post", `${DISCORD_API}/channels/${channelId}/messages`, { content, allowed_mentions: { parse: [] }, flags: 4 }) as { id?: unknown };
+      const body = { content, allowed_mentions: { parse: [] }, flags: 4, ...(nonce ? { nonce, enforce_nonce: true } : {}) };
+      const posted = await request("post", `${DISCORD_API}/channels/${channelId}/messages`, body, beforeSend) as { id?: unknown };
       return typeof posted.id === "string" ? { providerId: posted.id } : {};
     } catch (e) {
       // A stale cached channel (deleted, or the user blocked the bot) is reopened on the next attempt.
@@ -122,6 +141,8 @@ export function createDiscordDmTransport(opts: DiscordDmTransportOptions): MailT
     name: "discord",
     async send(message: MailMessage, options) {
       const content = discordContent(message.text);
+      const nonce = options?.idempotencyKey ? discordNonce(options.idempotencyKey) : undefined;
+      const beforeSend = (): void => { if (options?.stillEligible && !options.stillEligible()) throw new MailSendAborted(); };
       for (let i = 0; ; i += 1) {
         // Eligibility (opt-out, unlinked Discord, deletion fence) is re-checked before every attempt, retries included.
         if (options?.stillEligible && !options.stillEligible()) throw new MailSendAborted();
@@ -129,8 +150,9 @@ export function createDiscordDmTransport(opts: DiscordDmTransportOptions): MailT
         const userId = coach ? opts.resolveUserId(coach) : undefined;
         if (!userId || !SNOWFLAKE.test(userId)) throw new MailSendAborted();
         try {
-          return await deliver(userId, content);
+          return await deliver(userId, content, nonce, beforeSend);
         } catch (e) {
+          if (e instanceof MailSendAborted) throw e;
           const err = e instanceof MailSendError ? e : new MailSendError("Discord send failed.", true);
           if (!err.retryable || i >= retries) throw err;
           const hold = Math.max(0, ...[...holdUntil.values()].map((t) => t - now()));

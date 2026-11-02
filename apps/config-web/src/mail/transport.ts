@@ -52,6 +52,8 @@ export interface MailSendOptions {
   /** Who the message is for (the Discord DM transport resolves the coach's Discord id from it at send time, so the id is
    *  never stored in the outbox). Email transports ignore it. */
   recipient?: { coach: string };
+  /** Stable per outbox item (its idempotency key): the Discord transport derives its message nonce from it. */
+  idempotencyKey?: string;
 }
 
 export interface MailTransport {
