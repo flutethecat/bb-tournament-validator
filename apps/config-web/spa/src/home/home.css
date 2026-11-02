@@ -147,6 +147,8 @@
   .sf-fit { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
   .sf-fit > * { flex: none; min-height: 0; }
   .sf-fit > .sf-fill, .sf-pane > .sf-fill { flex: 1 1 0; min-height: 0; }
+  /* a notice above the page can leave too little room: the pane keeps a usable height and the content area scrolls */
+  .sf-fit > .sf-fill { min-height: 280px; }
   .sf-pane { display: flex; flex-direction: column; min-height: 0; }
   .sf-pane > * { flex: none; }
   .sf-pane > .sf-pane-body { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; }

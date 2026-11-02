@@ -128,7 +128,7 @@ watch(() => route.fullPath, () => announce.moved(scopeKey.value));
 </script>
 
 <template>
-  <div class="hm-page lg-page">
+  <div class="hm-page lg-page sf-fit">
     <RouterLink class="tn-back lg-back" to="/leagues">All leagues</RouterLink>
     <p v-if="state.error" class="lobby-error" role="alert">{{ state.error }}</p>
     <p v-else-if="!state.loaded || !state.league" class="hm-empty" role="status">Loading league...</p>
@@ -163,6 +163,8 @@ watch(() => route.fullPath, () => announce.moved(scopeKey.value));
 
       <LeagueTabs :id="id" :active="tab" :query="tabQuery" :stats-query="statsQuery" :manage="manage" />
 
+      <!-- fit to 1920x1080 (owner 11-02): the front, season row and tabs stay; the tab content scrolls in this pane -->
+      <div class="lg-tab-body sf-fill sf-scroll sf-col">
       <p v-if="current && !season && state.seasonError" class="lobby-error" role="alert">{{ state.seasonError }}</p>
       <p v-else-if="current && !season" class="hm-empty" role="status">Loading {{ current.name }}...</p>
       <template v-else-if="season">
@@ -178,6 +180,7 @@ watch(() => route.fullPath, () => announce.moved(scopeKey.value));
         <LeagueParticipants v-else-if="tab === 'participants'" :league-id="id" :season-id="season.id" :season-name="season.name" />
         <LeagueHonours v-else :season="season" :seasons="state.seasons" :manage="manage" :crests="state.crests" />
       </template>
+      </div>
     </template>
   </div>
 </template>

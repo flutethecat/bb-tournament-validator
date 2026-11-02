@@ -644,3 +644,16 @@ button.lg-cog { margin: 0; padding: 0; font: inherit; color: inherit; cursor: po
 /* Registration spec 11-02 (lane L7): "Build a team for this league" under the Season panel. */
 .lg-build-team { margin: 0; }
 .lg-build-team .muted { font-size: 14px; }
+
+/* ---- Fit to 1920x1080 (owner 11-02, home.css "Fit to 1920x1080"): the league page's front, season row and tabs stay
+   while the tab body (.lg-tab-body) scrolls. A tab holding one table panel (Standings with one table, Participants, the
+   redraft board) fills the tab body instead, and its table scrolls under a sticky header. */
+.lg-tab-body { display: grid; gap: 16px; align-content: start; min-width: 0; }
+@media (min-width: 1367px) and (min-height: 700px) {
+  .lg-tab-body:has(> .lg-stack > .hm-panel:only-child > .lg-scroll), .lg-tab-body:has(> .lg-part) { display: flex; flex-direction: column; overflow: hidden; }
+  .lg-tab-body > .lg-stack:has(> .hm-panel:only-child > .lg-scroll) { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
+  .lg-tab-body > .lg-stack > .hm-panel:only-child:has(> .lg-scroll), .lg-tab-body > .lg-part { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
+  .lg-tab-body > .lg-stack > .hm-panel:only-child > *, .lg-tab-body > .lg-part > * { flex: none; }
+  .lg-tab-body > .lg-stack > .hm-panel:only-child > .lg-scroll, .lg-tab-body > .lg-part .lg-part-wrap { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  .lg-tab-body > .lg-stack > .hm-panel:only-child > .lg-scroll thead th, .lg-part-wrap thead th { position: sticky; top: 0; z-index: 1; background: var(--ui-surface); }
+}

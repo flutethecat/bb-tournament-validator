@@ -65,7 +65,7 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} statistics` : "")
 </script>
 
 <template>
-  <div class="hm-page lg-page">
+  <div class="hm-page lg-page sf-fit">
     <RouterLink class="tn-back lg-back" :to="{ name: 'league-detail', params: { id }, query: withSeason({}) }">{{ state.league?.name ?? "League" }}</RouterLink>
     <LeagueFront v-if="head.loaded && head.league && head.id === id" :id="id" :league="head.league" :seasons="head.seasons" />
     <LeagueTabs :id="id" active="stats" :query="tabQuery" :stats-query="withSeason({})" :manage="manage" />
@@ -76,6 +76,8 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} statistics` : "")
       >{{ s.label }}</button>
     </div>
 
+    <!-- fit to 1920x1080 (owner 11-02): the front, tabs and scope stay; the statistics scroll in this pane -->
+    <div class="lg-tab-body sf-fill sf-scroll sf-col">
     <p v-if="state.error && !stats" class="lobby-error" role="alert">{{ state.error }}</p>
     <p v-else-if="!stats" class="hm-empty" role="status">Loading statistics...</p>
     <template v-else>
@@ -198,5 +200,6 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} statistics` : "")
         </div>
       </template>
     </template>
+    </div>
   </div>
 </template>
