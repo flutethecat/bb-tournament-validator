@@ -735,3 +735,13 @@ button.lg-cog { margin: 0; padding: 0; font: inherit; color: inherit; cursor: po
 @media (min-width: 1100px) {
   .lg-ov { grid-template-columns: minmax(0, 1fr) 360px; grid-template-areas: "main side" "results side"; }
 }
+
+/* Fixtures: collapsible phase panels (owner 11-02). The band title is the toggle; a collapsed panel is the band alone. */
+.lg-fx-fold { display: inline-flex; align-items: center; gap: 8px; margin: 0; padding: 0; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; background: none; border: 0; cursor: pointer; text-align: left; }
+.lg-fx-fold:hover { color: var(--ui-text); }
+.lg-fx-fold:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.lg-fx-caret { display: inline-block; font-family: var(--font-heading, sans-serif); font-size: 14px; transition: transform .12s ease; }
+.lg-fx-fold[aria-expanded="true"] .lg-fx-caret { transform: rotate(90deg); }
+.lg-fx-phase[data-open="false"] { padding-bottom: 0; }
+.lg-fx-phase[data-open="false"] > .hm-band { margin-bottom: 0; border-bottom: 0; }
+@media (prefers-reduced-motion: reduce) { .lg-fx-caret { transition: none; } }

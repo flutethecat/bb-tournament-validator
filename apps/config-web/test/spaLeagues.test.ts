@@ -688,6 +688,16 @@ describe("league routes (server-rendered against a mocked API)", () => {
       const { html } = await render("/leagues/tabbl?tab=fixtures&round=all", loadedDetail());
       expect(html).toMatch(/aria-pressed="true"[^>]*>Table<\/button>/);
       expect(html).toMatch(/<th scope="col">Round<\/th><th scope="col">Date<\/th><th scope="col">Home<\/th><th scope="col" class="lg-fx-c">Score<\/th><th scope="col">Away<\/th><th scope="col">Status<\/th>/);
+      // owner 11-02: a completed phase starts collapsed (its one fixture hidden), the live phase stays open
+      expect(html.match(/class="lg-fx-row"/g)).toHaveLength(3);
+      expect(html).toMatch(/class="hm-panel lg-fx-phase"[^>]*data-phase="season-preseason" data-open="false" data-complete="true"/);
+      expect(html).toMatch(/class="hm-panel lg-fx-phase"[^>]*data-phase="season-regular" data-open="true"/);
+    } finally { delete g.localStorage; }
+    // the viewer opened the pre-season earlier (remembered per league): every row shows
+    store.set("sf-league-fixtures-phases:tabbl", JSON.stringify({ "season-6:season-preseason": true }));
+    g.localStorage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) };
+    try {
+      const { html } = await render("/leagues/tabbl?tab=fixtures&round=all", loadedDetail());
       expect(html.match(/class="lg-fx-row"/g)).toHaveLength(4);
       expect(html).toContain('class="lg-fx-crest" src="/crests/dwarf.png"');
       expect(html).toMatch(/<a[^>]*href="\/app\/leagues\/tabbl\?tab=fixtures&amp;fixture=f2"[^>]*lg-fx-score"/);

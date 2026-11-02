@@ -4,6 +4,8 @@
 // filters and the Cards | Table switch (remembered per viewer). Cards view: played games as result cards, unplayed ones
 // as a compact row. Table view: Round, Date, Home, Score, Away, Status; each row opens the fixture summary, and rows
 // become compact cards on narrow screens.
+// Phases (owner 11-02) collapse from their band: a completed phase (every fixture played) starts collapsed, the current
+// and coming ones open, and each viewer's own toggles are remembered per league (fixtureNav.ts readPhaseFolds).
 // Play on Super FUMBBL (league setting): every fixture an admin allowed carries a "Super FUMBBL" chip; league admins
 // (organisers, site admins) get the "Allow Super FUMBBL for this fixture" switch on each unplayed fixture, and the
 // fixtures editor (add fixtures, dates, results) under the list. Every fixture links to its summary (?fixture=<id>),
@@ -18,8 +20,8 @@ import { leagueFixtureRef, proposePath, whenIn } from "../schedule/schedule";
 import { SESSION_KEY } from "../session";
 import { fixtureOpenForLobby } from "../leagues/fixtureNav";
 import {
-  currentRound, filterFixtures, fixtureRounds, fixtureStatus, fixtureTeams, keepPhase, keepTeam, parseRound, readFixturesView, roundSteps, scoreLinkLabel, writeFixturesView,
-  type FixturesView, type RoundPick,
+  currentRound, filterFixtures, fixtureRounds, fixtureStatus, fixtureTeams, keepPhase, keepTeam, parseRound, phaseComplete, phaseFoldId, phaseOpen, readFixturesView,
+  readPhaseFolds, roundSteps, scoreLinkLabel, writeFixturesView, writePhaseFold, type FixturesView, type PhaseFolds, type RoundPick,
 } from "../leagues/fixtureNav";
 import LeagueDeadlinesEditor from "./LeagueDeadlinesEditor.vue";
 import LeagueFixturesEditor from "./LeagueFixturesEditor.vue";
@@ -66,6 +68,13 @@ const rounds = computed(() => fixtureRounds(phased.value));
 const pick = computed<RoundPick>(() => parseRound(route.query.round, rounds.value) ?? currentRound(phased.value));
 const steps = computed(() => roundSteps(rounds.value, pick.value));
 const shown = computed(() => filterFixtures(phased.value, pick.value, teamOn.value));
+// Collapse state: judged on the whole phase (every round), not the round or team on show.
+const folds = ref<PhaseFolds>(readPhaseFolds(props.league.id));
+watch(() => props.league.id, (id) => { folds.value = readPhaseFolds(id); });
+const wholePhase = (id: string) => groups.value.find((x) => x.phase.id === id) ?? { rounds: [] };
+const complete = (id: string): boolean => phaseComplete(wholePhase(id));
+const isOpen = (id: string): boolean => phaseOpen(folds.value, phaseFoldId(props.season.id, id), wholePhase(id));
+const toggle = (id: string): void => { folds.value = writePhaseFold(props.league.id, phaseFoldId(props.season.id, id), !isOpen(id)); };
 const tally = computed(() => {
   const all = shown.value.flatMap((g) => g.rounds);
   return { played: all.reduce((n, r) => n + r.played, 0), total: all.reduce((n, r) => n + r.fixtures.length, 0) };
@@ -148,9 +157,16 @@ watch(pick, placeStrip);
       <header class="hm-band"><h2 id="lg-fx-none">Fixtures</h2></header>
       <p class="hm-empty">{{ groups.length ? "No fixtures match." : "No fixtures recorded for this season." }}</p>
     </section>
-    <section v-for="g in shown" :key="g.phase.id" class="hm-panel" :aria-label="g.title">
-      <header class="hm-band"><h2>{{ g.title }}</h2><span class="hm-cap">{{ g.rounds.length }} {{ g.rounds.length === 1 ? "round" : "rounds" }}</span></header>
-      <template v-if="view === 'cards'">
+    <section
+      v-for="g in shown" :key="g.phase.id" class="hm-panel lg-fx-phase" :aria-label="g.title" :data-phase="g.phase.id"
+      :data-open="isOpen(g.phase.id) ? 'true' : 'false'" :data-complete="complete(g.phase.id) ? 'true' : undefined"
+    >
+      <header class="hm-band">
+        <h2><button type="button" class="lg-fx-fold" :aria-expanded="isOpen(g.phase.id) ? 'true' : 'false'" data-phase-toggle @click="toggle(g.phase.id)"><span class="lg-fx-caret" aria-hidden="true">▸</span>{{ g.title }}</button></h2>
+        <span class="hm-cap">{{ g.rounds.length }} {{ g.rounds.length === 1 ? "round" : "rounds" }}<template v-if="complete(g.phase.id)"> · Complete</template></span>
+      </header>
+      <template v-if="!isOpen(g.phase.id)" />
+      <template v-else-if="view === 'cards'">
         <div v-for="r in g.rounds" :key="r.round" class="lg-round">
           <h3 class="lg-round-h">Round {{ r.round }} <span class="hm-cap">{{ r.played }} of {{ r.fixtures.length }} played</span></h3>
           <ul class="lg-results">

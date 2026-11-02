@@ -95,3 +95,37 @@ export function fixtureOpenForLobby(f: LeagueFixture): boolean {
   if (f.deadlineOutcome && f.deadlineOutcome.outcome !== "review") return false;
   return Boolean(f.home.coachId && f.away.coachId);
 }
+
+// ---- Collapsible phase panels (owner 11-02): a completed phase (every fixture played) starts collapsed, the current and
+// coming ones open; each viewer's own toggles are remembered per league in localStorage (guarded: no storage = defaults).
+
+/** localStorage key holding one league's phase toggles: { "<seasonId>:<phaseId>": open }. */
+export const phaseFoldKey = (leagueId: string): string => `sf-league-fixtures-phases:${leagueId}`;
+/** The toggle id of a season's phase (phase ids repeat across seasons). */
+export const phaseFoldId = (seasonId: string, phaseId: string): string => `${seasonId}:${phaseId}`;
+
+/** Every fixture of the phase is played (a phase without fixtures is not complete). */
+export const phaseComplete = (g: Pick<PhaseGroup, "rounds">): boolean =>
+  g.rounds.length > 0 && g.rounds.every((r) => r.fixtures.length > 0 && r.played >= r.fixtures.length);
+
+export type PhaseFolds = Record<string, boolean>;
+
+/** A league's remembered toggles ({} when none, unreadable or no storage). */
+export function readPhaseFolds(leagueId: string): PhaseFolds {
+  try {
+    if (typeof localStorage === "undefined") return {};
+    const raw = JSON.parse(localStorage.getItem(phaseFoldKey(leagueId)) ?? "{}") as unknown;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+    return Object.fromEntries(Object.entries(raw as Record<string, unknown>).filter(([k, v]) => k.length <= 200 && typeof v === "boolean")) as PhaseFolds;
+  } catch { return {}; }
+}
+
+/** Remembers one toggle (best effort). */
+export function writePhaseFold(leagueId: string, id: string, open: boolean): PhaseFolds {
+  const next = { ...readPhaseFolds(leagueId), [id]: open };
+  try { if (typeof localStorage !== "undefined") localStorage.setItem(phaseFoldKey(leagueId), JSON.stringify(next)); } catch { /* no storage */ }
+  return next;
+}
+
+/** Open or collapsed: the viewer's toggle, else collapsed when the phase is complete. */
+export const phaseOpen = (folds: PhaseFolds, id: string, g: Pick<PhaseGroup, "rounds">): boolean => folds[id] ?? !phaseComplete(g);
