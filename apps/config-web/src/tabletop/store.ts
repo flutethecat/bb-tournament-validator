@@ -79,11 +79,21 @@ export interface MatchRecord {
   fixtureLink?: { id: string; priorStatus: string; expectedRevision: number; reportedAt: string; swapped: boolean; opId: string };
   /** Organiser note recorded when a match was reopened. */
   note?: string;
+  /** Coach's comments (end-game step, src/discord/comments.ts): one per seat, at most 120 characters, keyed by SIDE (the
+   *  coach is the seat's, so account deletion anonymises it with the seat). An organiser may hide one. */
+  comments?: Partial<Record<"home" | "away", MatchComment>>;
   publishedAt?: string;
   publishedBy?: string;
   /** Set on confirm: revisions this match wrote (absent when postMatch is "none"), and its results-store key. */
   wroteRevisions?: { home: number; away: number };
   resultGameId?: string;
+}
+
+export interface MatchComment {
+  text: string;
+  at: string;
+  /** Hidden by an organiser of the competition (or a site admin): never shown in the digest or on the match page. */
+  hidden?: { by: string; at: string };
 }
 
 export interface TeamRevision {

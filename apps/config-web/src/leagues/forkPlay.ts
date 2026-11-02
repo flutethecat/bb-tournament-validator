@@ -265,7 +265,7 @@ function send(deps: ForkRouteDeps, coach: string, input: NotificationInput): voi
  */
 async function fixtureEvent(deps: { store: LeagueStore; postWebhook?: WebhookPoster; notify?: ForkRouteDeps["notify"]; now?: () => Date }, leagueId: string, seasonId: string, fixtureId: string, kind: "started" | "result"): Promise<void> {
   try {
-    await recordLeagueFixtureEvent(leagueId, fixtureId, kind, { seasonId, by: "Super FUMBBL", where: "Super FUMBBL" },
+    await recordLeagueFixtureEvent(leagueId, fixtureId, kind, { seasonId, by: "Super FUMBBL", where: "Super FUMBBL", recorded: true },
       { store: deps.store, postWebhook: deps.postWebhook, notify: deps.notify, now: deps.now });
   } catch { /* best effort */ }
 }

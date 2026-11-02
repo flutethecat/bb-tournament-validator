@@ -18,7 +18,11 @@ import type { NotificationInput } from "../notifications.js";
 import { NEWS_MAX_POSTS, orderedNews, parseNewsInput } from "../tournaments/page.js";
 import { TournamentStoreError } from "../tournaments/store.js";
 import type { LeagueApiDeps, LeagueApiIdentity, LeagueApiResult } from "./api.js";
-import { discordEvents, postWebhook as defaultPoster, type DiscordPayload, type WebhookPoster } from "./discord.js";
+import { postWebhook as defaultPoster, type DiscordPayload, type WebhookPoster } from "./discord.js";
+import { forkGame } from "../discord/games.js";
+import { starProfanity } from "../discord/profanity.js";
+import { announceGame } from "../discord/games-post.js";
+import { leagueTarget, postTo, seasonTarget } from "../discord/targets.js";
 import { readJsonObject } from "./http.js";
 import { teamSeat } from "./identity.js";
 import { SettingsError } from "./settings.js";
@@ -27,7 +31,6 @@ import { fixturePlayed } from "./tourplay.js";
 import type {
   DiscordEventKey, FixtureSide, LeagueEventEntry, LeagueFixture, LeagueNewsPost, LeagueRecord, LeagueTeam, SeasonRecord,
 } from "./types.js";
-import { isDraftLeague } from "./lifecycle.js";
 import { fixtureRedraftBlock } from "./redraftWindow.js";
 
 export const EVENTS_MAX_BYTES = 64 * 1024;
@@ -62,7 +65,8 @@ function embed(title: string, description: string, color: number, footer?: strin
 
 /** League news posted on the league page. */
 export function buildNewsPost(league: LeagueName, season: SeasonName, post: Pick<LeagueNewsPost, "title" | "body" | "by">, test = false): DiscordPayload {
-  return embed(`${testTag(test)}${league.name}: ${post.title}`, post.body, GOLD, `${season.name} news by ${post.by}`);
+  // Discord always stars listed words (owner 11-02); the site keeps the post as written.
+  return embed(`${testTag(test)}${league.name}: ${starProfanity(post.title)}`, starProfanity(post.body), GOLD, `${season.name} news by ${post.by}`);
 }
 
 /** An organiser created a fixture. */
@@ -85,15 +89,18 @@ export function buildMatchResultPost(league: LeagueName, season: SeasonName, f: 
   return embed(`${testTag(opts.test || f.test)}${league.name}: result`, `${score}${cas}${conceded}${roundLabel(f) ? `\n${roundLabel(f)}` : ""}`, GOLD, season.name);
 }
 
-/** Posts the payload when the league has a webhook and the event's toggle is on. Best effort; never logs the URL. */
+/**
+ * Posts the payload when the competition has a webhook and the event's toggle is on. Best effort; never logs the URL.
+ * `opts.seasonId` posts to that season's own webhook and toggles (a blank season webhook falls back to the league's:
+ * src/discord/targets.ts); without it the league's own.
+ */
 export async function postLeagueEvent(
   store: LeagueStore, league: LeagueRecord, key: DiscordEventKey, payload: DiscordPayload, poster: WebhookPoster = defaultPoster,
+  opts: { seasonId?: string } = {},
 ): Promise<boolean> {
   // Lane L5: a draft league posts nothing to Discord (publishing never replays what happened while it was a draft).
-  if (isDraftLeague(store.league(league.id) ?? league)) return false;
-  const url = store.secrets(league.id).discordWebhookUrl;
-  if (!url || !discordEvents(league)[key]) return false;
-  try { return (await poster(url, payload)).ok; } catch { return false; }
+  const target = opts.seasonId ? seasonTarget(store, league, opts.seasonId) : leagueTarget(store, league);
+  return postTo(target, key, payload, poster);
 }
 
 // ---- season log -----------------------------------------------------------------------------------------------------
@@ -128,6 +135,10 @@ export interface FixtureEventPayload {
   test?: boolean;
   /** match started: where it is played ("Super FUMBBL", "the tabletop"). */
   where?: string;
+  /** result: the result comes from a recorded game (the fork, the recorder) even without a banked game record. */
+  recorded?: boolean;
+  /** result: an organiser or admin typed it in (logged, never announced). */
+  handEntered?: boolean;
 }
 
 export interface FixtureEventOutcome { ok: boolean; posted: boolean; reason?: string }
@@ -162,7 +173,7 @@ async function fixtureEvent(
     fixture.announced = { ...(fixture.announced ?? {}), started: at };
     addLog(season, { at, by, kind: "match-started", fixtureId: fixture.id, text: `${matchText(fixture)} started${payload.where ? ` on ${payload.where}` : ""}.` });
     deps.store.putSeason(season);
-    const posted = await postLeagueEvent(deps.store, league, "matchStarted", buildMatchStartedPost(league, season, fixture, payload), deps.postWebhook);
+    const posted = await postLeagueEvent(deps.store, league, "matchStarted", buildMatchStartedPost(league, season, fixture, payload), deps.postWebhook, { seasonId: season.id });
     return { ok: true, posted };
   }
   if (!fixturePlayed(fixture)) return { ok: false, posted: false, reason: "The fixture has no result yet." };
@@ -174,8 +185,15 @@ async function fixtureEvent(
   fixture.announced = { ...(fixture.announced ?? {}), result: sig };
   addLog(season, { at, by, kind: "match-result", fixtureId: fixture.id, sig, text: `${fixture.home.team} ${fixture.home.score ?? 0} - ${fixture.away.score ?? 0} ${fixture.away.team}` });
   deps.store.putSeason(season);
-  const posted = await postLeagueEvent(deps.store, league, "matchResult", buildMatchResultPost(league, season, fixture, payload), deps.postWebhook);
-  return { ok: true, posted };
+  // A recorded Super FUMBBL game gets the end-of-game digest (when on) and its live events; a result with no game record
+  // behind it (an organiser's or admin's hand entry) is logged above but never announced (owner round 3).
+  const game = forkGame(fixture);
+  if (payload.handEntered || (!game && !payload.recorded)) return { ok: true, posted: false, reason: "Hand-entered results are not announced." };
+  const outcome = await announceGame(seasonTarget(deps.store, league, season.id), game, deps.postWebhook ?? defaultPoster, {
+    round: roundLabel(fixture) || undefined,
+    plain: () => buildMatchResultPost(league, season, fixture, payload),
+  });
+  return { ok: true, posted: outcome.digest || outcome.plain };
 }
 
 // ---- routes ---------------------------------------------------------------------------------------------------------
@@ -263,7 +281,7 @@ async function newsRoute(
     for (const coach of seasonCoaches(season, who.coach)) {
       try { deps.notify?.(coach, { type: "league-broadcast", title: clip(`${league.name}: ${post.title}`, 120), body: clip(post.body, 300), link, from: who.coach }); } catch { /* fire-and-forget */ }
     }
-    await postLeagueEvent(deps.store, league, "news", buildNewsPost(league, season, post), deps.postWebhook);
+    await postLeagueEvent(deps.store, league, "news", buildNewsPost(league, season, post), deps.postWebhook, { seasonId: season.id });
     return res(201, { post, news: orderedNews(season.news), revision: season.revision });
   }
   const post = list.find((p) => p.id === newsId);
@@ -352,7 +370,7 @@ async function createFixture(league: LeagueRecord, season: SeasonRecord, who: Le
   const at = (deps.now?.() ?? new Date()).toISOString();
   addLog(season, { at, by: who.coach, kind: "fixture-created", fixtureId: id, text: `${who.coach} added ${matchText(fixture)} (Round ${p.round}${p.date ? `, ${p.date}` : ""}).` });
   deps.store.putSeason(season);
-  await postLeagueEvent(deps.store, league, "fixtureCreated", buildFixtureCreatedPost(league, season, fixture), deps.postWebhook);
+  await postLeagueEvent(deps.store, league, "fixtureCreated", buildFixtureCreatedPost(league, season, fixture), deps.postWebhook, { seasonId: season.id });
   return res(201, { ok: true, fixture: shown(fixture), revision: season.revision });
 }
 
@@ -427,7 +445,8 @@ export async function editFixture(
   // Standings are derived from the results (standings.ts); an imported season with a newer result is recomputed.
   if (result !== undefined) season.resultsChangedAt = (deps.now?.() ?? new Date()).toISOString();
   deps.store.putSeason(season);
-  if (announce) await fixtureEvent(league, season, fixture, "result", { by: who.coach }, { store: deps.store, postWebhook: deps.postWebhook, now: deps.now });
+  // Logged on the season; hand-entered results are never announced on Discord (owner round 3).
+  if (announce) await fixtureEvent(league, season, fixture, "result", { by: who.coach, handEntered: true }, { store: deps.store, postWebhook: deps.postWebhook, now: deps.now });
   return res(200, { ok: true, fixture: shown(fixture), revision: season.revision });
 }
 

@@ -19,6 +19,7 @@ import { createHash, randomBytes, randomInt } from "node:crypto";
 import { nafTimestamp } from "../tournaments/nafExport.js";
 import { BANNED_ACCOUNT_MESSAGE } from "../auth/access.js";
 import type { StoredTournamentResult } from "../tournamentResults.js";
+import { COMMENT_STATES, commentsFor, parseComment } from "../discord/comments.js";
 import {
   MAX_EVENTS_PER_BATCH, MAX_EVENTS_PER_MATCH, effectiveEvents, parseEvent, validateEvent, type Side, type TabletopEvent,
 } from "./events.js";
@@ -202,6 +203,12 @@ export interface TabletopApiDeps {
   titles?: CoachTitleStore;
   /** Coach notifications (src/notifications.ts): a result confirmed by both seats notifies both coaches. Fire-and-forget. */
   notify?: (coach: string, input: NotificationInput) => void;
+  /** Competition Discord (src/discord/hub.ts): newly recorded events (live posts). Fire-and-forget; never blocks the match. */
+  onEvents?: (match: MatchRecord, accepted: readonly TabletopEvent[], teams: Record<Side, TabletopTeamFile | undefined>) => void;
+  /** Competition Discord: the match was confirmed for good (end-of-game digest). Fire-and-forget. */
+  onResult?: (match: MatchRecord, events: readonly TabletopEvent[], teams: Record<Side, TabletopTeamFile | undefined>) => Promise<unknown> | void;
+  /** Coach's comments are on for this match's competition (src/discord/comments.ts). Absent = on. */
+  commentsEnabled?: (match: MatchRecord) => boolean;
 }
 
 /** After a finalising confirm committed: both coaches hear the result is confirmed (never for Testing Suite matches). */
@@ -310,7 +317,7 @@ export async function tabletopApi(
   }
   const captain = await tabletopCaptainApi(method, path, query, body, me, organiser, deps, dropAllSnapshots);
   if (captain) return captain;
-  const m = /^\/api\/tabletop\/matches\/([\w-]{1,64})(?:\/(events|submit|confirm|publish|undo-revision|resolve-conflict|pregame\/advance|pregame\/skip|seats\/swap|turn\/start|turn\/end|turn\/set|inducements))?$/.exec(path);
+  const m = /^\/api\/tabletop\/matches\/([\w-]{1,64})(?:\/(events|submit|confirm|publish|undo-revision|resolve-conflict|pregame\/advance|pregame\/skip|seats\/swap|turn\/start|turn\/end|turn\/set|inducements|comment|comment\/hide))?$/.exec(path);
   if (!m) return err(404, "Not found.");
   const id = m[1]!;
   const action = m[2];
@@ -333,7 +340,12 @@ export async function tabletopApi(
   }
   if (!action) {
     if (method !== "GET") return err(405, "Method not allowed.");
-    return matchView(match, role, deps);
+    return matchView(match, role, deps, manage);
+  }
+  // Coach's comments (end-game step): a seat writes its own; a manager of the competition hides one.
+  if (action === "comment" || action === "comment/hide") {
+    if (method !== "POST") return err(405, "Method not allowed.");
+    return serial(id, async () => commentAction((await repo.getMatch(id))!, action, me, role, manage, body, deps, now));
   }
   if (method !== "POST") return err(405, "Method not allowed.");
   // a spectator reads; every write (events, turns, pre-game, seats, submit, confirm, organiser tools) is refused here
@@ -368,6 +380,44 @@ export async function tabletopApi(
     if (action === "publish") return publish(fresh, me, deps, now);
     return undoRevision(fresh, deps, now, undefined, me);
   }, matchTeamKeys(match));
+}
+
+/** The match as this viewer sees its coach's comments (hidden ones only for managers and their author). */
+function withComments(match: MatchRecord, role: ViewerRole, manage: boolean, deps: TabletopApiDeps): MatchRecord & { commentsEnabled?: boolean } {
+  const { comments: _c, ...rest } = match;
+  const viewer = manage || role === "organiser" ? "manager" : role === "home" || role === "away" ? role : "other";
+  const comments = commentsFor(match, viewer);
+  const enabled = deps.commentsEnabled ? deps.commentsEnabled(match) : true;
+  return { ...rest, ...(comments ? { comments } : {}), commentsEnabled: enabled };
+}
+
+/** POST .../comment { text } (a seat, at the end-game step) and POST .../comment/hide { side, hidden } (a manager). */
+async function commentAction(match: MatchRecord, action: string, me: string, role: ViewerRole, manage: boolean, body: unknown, deps: TabletopApiDeps, now: () => Date): Promise<TabletopResult> {
+  const at = now().toISOString();
+  if (action === "comment/hide") {
+    if (!manage) return err(403, "Only an organiser of this league or tournament (or an admin) can hide a comment.");
+    const b = (body ?? {}) as { side?: unknown; hidden?: unknown };
+    if (b.side !== "home" && b.side !== "away") return err(400, "side must be home or away.");
+    if (typeof b.hidden !== "boolean") return err(400, "hidden must be true or false.");
+    const c = match.comments?.[b.side];
+    if (!c) return err(404, "That coach has not written a comment.");
+    const next: MatchRecord = { ...match, comments: { ...match.comments, [b.side]: b.hidden ? { ...c, hidden: { by: me, at } } : { text: c.text, at: c.at } }, updatedAt: at };
+    await deps.repo.updateMatch(next);
+    return { status: 200, body: { match: withComments(next, role, manage, deps) } };
+  }
+  if (role !== "home" && role !== "away") return err(403, "Only the two coaches of this match can write a comment.");
+  if (!COMMENT_STATES.has(match.state)) return err(409, "Comments open at the end of the match, once it is submitted.");
+  if (deps.commentsEnabled && !deps.commentsEnabled(match)) return err(409, "Coach's comments are turned off for this competition.");
+  const parsed = parseComment(body);
+  if (!parsed.ok) return err(400, parsed.error);
+  const comments = { ...(match.comments ?? {}) };
+  // one comment per coach per game: writing again replaces it (an organiser's hide stays); "" removes it
+  if (!parsed.text) delete comments[role];
+  else comments[role] = { text: parsed.text, at, ...(comments[role]?.hidden ? { hidden: comments[role]!.hidden } : {}) };
+  const { comments: _old, ...rest } = match;
+  const next: MatchRecord = { ...rest, ...(Object.keys(comments).length ? { comments } : {}), updatedAt: at };
+  await deps.repo.updateMatch(next);
+  return { status: 200, body: { match: withComments(next, role, manage, deps) } };
 }
 
 /** Who is looking at a match: a seat (home / away) first, then an organiser, else a spectator (read-only). */
@@ -456,11 +506,11 @@ async function buildSnapshot(match: MatchRecord, deps: TabletopApiDeps): Promise
 
 /** GET /api/tabletop/matches/:id: the whole match view for a seat or an organiser; a spectator gets the allowlisted
  *  public view model (spectatorView). The page hides every control for a spectator; the server refuses their writes. */
-async function matchView(match: MatchRecord, role: ViewerRole, deps: TabletopApiDeps): Promise<TabletopResult> {
+async function matchView(match: MatchRecord, role: ViewerRole, deps: TabletopApiDeps, manage = false): Promise<TabletopResult> {
   const now = deps.now?.() ?? new Date();
   const snap = await matchSnapshot(match, deps);
   const full = {
-    match, role, context: matchContext(match, deps), coachRating: coachRatings(match, deps), phase: match.phase ?? "playing", clock: clockView(match, snap.events, deps, now),
+    match: withComments(match, role, manage, deps), role, context: matchContext(match, deps), coachRating: coachRatings(match, deps), phase: match.phase ?? "playing", clock: clockView(match, snap.events, deps, now),
     pregame: snap.pregame,
     events: snap.viewEvents,
     effectiveEventIds: snap.effectiveEventIds,
@@ -609,6 +659,11 @@ async function listMatches(me: string, organiser: boolean, deps: TabletopApiDeps
       })),
     },
   };
+}
+
+/** A match's two team files as the recorder names its players (journeymen included): Discord digests read names from it. */
+export async function tabletopMatchTeams(repo: TabletopRepository, match: MatchRecord, events: readonly TabletopEvent[]): Promise<Record<Side, TabletopTeamFile | undefined>> {
+  return overlayRosters(await currentTeams(repo, match), events);
 }
 
 async function currentTeams(repo: TabletopRepository, match: MatchRecord): Promise<Record<Side, TabletopTeamFile | undefined>> {
@@ -937,6 +992,7 @@ async function postEvents(match: MatchRecord, me: string, organiser: boolean, bo
   }
   if (stored.length + accepted.length > MAX_EVENTS_PER_MATCH) return err(409, "This match has too many events.");
   await deps.repo.appendEvents(match.id, accepted);
+  if (accepted.length && deps.onEvents) { try { deps.onEvents(match, accepted, teams); } catch { /* Discord is best effort */ } }
   const result = {
     accepted: accepted.map((e) => e.id), duplicates, total: stored.length + accepted.length, tally: tallyView(running, teams),
     clock: clockView(match, running, deps, now()),
@@ -1010,10 +1066,13 @@ async function confirm(match: MatchRecord, me: string, organiser: boolean, deps:
  * results row. Best effort: nothing here can fail the confirmation.
  */
 async function announceResult(match: MatchRecord, deps: TabletopApiDeps): Promise<void> {
-  if (!deps.announce) return;
+  if (!deps.announce && !deps.onResult) return;
   try {
     const events = await deps.repo.readEvents(match.id);
-    announce(deps, ["result"], match, events, resultSummaryOf(events, overlayRosters(await currentTeams(deps.repo, match), events)));
+    const teams = overlayRosters(await currentTeams(deps.repo, match), events);
+    if (deps.announce) announce(deps, ["result"], match, events, resultSummaryOf(events, teams));
+    // the competition's own Discord (end-of-game digest): never awaited, never fails the confirmation
+    if (deps.onResult) void Promise.resolve().then(() => deps.onResult!(match, events, teams)).catch((e) => console.warn(`[discord] result post failed: ${(e as Error).message}`));
   } catch (e) {
     console.warn(`[recorder-webhook] result summary failed: ${(e as Error).message}`);
   }

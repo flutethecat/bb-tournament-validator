@@ -1,3 +1,4 @@
+import { DEFAULT_DISCORD_EVENTS } from "../src/leagues/discord";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -471,7 +472,7 @@ describe("Super FUMBBL fixture routes", () => {
 
   it("generate and launch announce \"Match started\" once through the league events hook (no duplicate fork embed)", async () => {
     store.setSecrets("tabbl", { discordWebhookUrl: "https://discord.com/api/webhooks/123456789012345678/abcdefghijklmnopqrstuvwxyz_ABCDEF-123" });
-    store.updateLeague("tabbl", (l) => { l.discordEvents = { news: true, fixtureCreated: true, matchStarted: true, matchResult: true, milestones: true }; });
+    store.updateLeague("tabbl", (l) => { l.discordEvents = { ...DEFAULT_DISCORD_EVENTS, news: true, fixtureCreated: true, matchStarted: true, matchResult: true, milestones: true }; });
     expect((await call("POST", `${base}/fork/generate`, ANN, {})).status).toBe(200);
     expect((await call("POST", `${base}/fork/generate`, BOB, {})).status).toBe(200);
     expect((await call("POST", `${base}/fork/launch`, ANN, {})).status).toBe(200);
@@ -597,8 +598,11 @@ describe("Super FUMBBL fixture routes", () => {
     expect(home.players[0]!.availableSpp).toBe(21);
     expect(one.applied.length + ((two.body as { applied: string[] }).applied.length)).toBe(1);
     expect(notes.filter((n) => n.title === "Super FUMBBL result recorded").map((n) => n.coach).sort()).toEqual(["Ann", "Bob"]);
-    // One "Match result" post, through the league events hook (events.ts).
-    expect(posts.filter((p) => p.embeds[0]!.title === "TABBL: result" && p.embeds[0]!.description.includes("2 - 1"))).toHaveLength(1);
+    // One match-end post through the league events hook (events.ts): a recorded Super FUMBBL game gets the end-of-game
+    // digest (on by default for leagues) built from the banked result, not the plain result line.
+    const ends = posts.filter((p) => / 2 - 1 /.test(p.embeds[0]!.title) || (p.embeds[0]!.title === "TABBL: result" && p.embeds[0]!.description.includes("2 - 1")));
+    expect(ends).toHaveLength(1);
+    expect(ends[0]!.embeds[0]!.footer?.text).toBe("Played on Super FUMBBL");
     // again: nothing more
     await syncLeagueForkResults({ store, fork, notify: deps().notify });
     expect(store.season("tabbl", "season-7")!.teams.find((t) => t.id === "grudge")!.players[0]!.availableSpp).toBe(21);

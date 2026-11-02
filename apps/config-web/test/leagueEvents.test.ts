@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { leagueApi, type LeagueApiDeps, type LeagueApiResult } from "../src/leagues/api";
-import type { DiscordPayload } from "../src/leagues/discord";
+import { DEFAULT_DISCORD_EVENTS, type DiscordPayload } from "../src/leagues/discord";
 import {
   buildFixtureCreatedPost, buildMatchResultPost, buildMatchStartedPost, buildNewsPost, parseFixtureDate, parseNewFixture, recordLeagueFixtureEvent, registerLeagueEvents,
   seasonCoaches,
@@ -147,12 +147,12 @@ describe("league event routes", () => {
   });
 
   it("news toggle off: stored and notified, no Discord post", async () => {
-    store.updateLeague("tabbl", (l) => { l.discordEvents = { news: false, fixtureCreated: true, matchStarted: false, matchResult: true, milestones: true }; });
+    store.updateLeague("tabbl", (l) => { l.discordEvents = { ...DEFAULT_DISCORD_EVENTS, news: false, fixtureCreated: true, matchStarted: false, matchResult: true, milestones: true }; });
     expect((await call("POST", `${BASE}/news`, JAY, { title: "Quiet", body: "No post." })).status).toBe(201);
     expect(posts).toHaveLength(0);
   });
 
-  it("fixtures editor: create (logged, fixtureCreated embed), edit date / result (matchResult once), delete guards", async () => {
+  it("fixtures editor: create (logged, fixtureCreated embed), edit date / result (logged, never announced: admin-entered), delete guards", async () => {
     expect((await call("POST", `${BASE}/fixtures`, BOB, { home: "orcs", away: "dwarfs", round: 2 })).status).toBe(403);
     expect((await call("POST", `${BASE}/fixtures`, JAY, { home: "orcs", away: "orcs", round: 2 })).status).toBe(400);
     const made = await call("POST", `${BASE}/fixtures`, JAY, { home: "orcs", away: "dwarfs", round: 2, date: "2026-11-05", test: true });
@@ -174,11 +174,12 @@ describe("league event routes", () => {
     expect((await call("PATCH", path, JAY, { result: { home: 2, away: -1 } })).status).toBe(400);
     const scored = await call("PATCH", path, JAY, { result: { home: 2, away: 1, homeCas: 1, awayCas: 0 } });
     expect(scored.status).toBe(200);
-    expect(posts).toHaveLength(n + 1);
-    expect(posts.at(-1)!.embeds[0]).toMatchObject({ title: "[Test] TABBL: result", description: "Orcs 2 - 1 Dwarfs\nCasualties 1 - 0\nRound 3" });
+    // Owner round 3: an organiser's hand-entered result is logged on the season but never announced on Discord.
+    expect(posts).toHaveLength(n);
+    expect(store.season("tabbl", "season-7")!.log![0]).toMatchObject({ kind: "match-result", fixtureId: f.id, by: "Jay" });
     expect(store.season("tabbl", "season-7")!.fixtures.find((x) => x.id === f.id)!.finishedAt).toBe("2026-11-01T12:00:00.000Z");
     await call("PATCH", path, JAY, { result: { home: 2, away: 1, homeCas: 1, awayCas: 0 } });
-    expect(posts).toHaveLength(n + 1); // same result: not announced again
+    expect(posts).toHaveLength(n);
     expect((await call("DELETE", path, JAY)).status).toBe(409);
     expect((await call("PATCH", path, JAY, { result: null })).status).toBe(200);
     expect((await call("DELETE", path, JAY)).status).toBe(200);
@@ -189,26 +190,26 @@ describe("league event routes", () => {
   });
 
   it("fixture created toggle off: the fixture is created without a post", async () => {
-    store.updateLeague("tabbl", (l) => { l.discordEvents = { news: true, fixtureCreated: false, matchStarted: false, matchResult: true, milestones: true }; });
+    store.updateLeague("tabbl", (l) => { l.discordEvents = { ...DEFAULT_DISCORD_EVENTS, news: true, fixtureCreated: false, matchStarted: false, matchResult: true, milestones: true }; });
     const made = await call("POST", `${BASE}/fixtures`, JAY, { home: "orcs", away: "elves", round: 1 });
     expect(made.status).toBe(201);
     expect(posts).toHaveLength(0);
   });
 
   it("[review P2] announcement markers live on the fixture: a pruned activity log never re-posts", async () => {
-    store.updateLeague("tabbl", (l) => { l.discordEvents = { news: true, fixtureCreated: true, matchStarted: true, matchResult: true, milestones: true }; });
+    store.updateLeague("tabbl", (l) => { l.discordEvents = { ...DEFAULT_DISCORD_EVENTS, news: true, fixtureCreated: true, matchStarted: true, matchResult: true, milestones: true }; });
     const ev = { store, postWebhook: async (_u: string, p: DiscordPayload) => { posts.push(p); return { ok: true, status: 204 }; } };
     const s = store.season("tabbl", "season-7")!;
     s.fixtures[0]!.home.score = 3;
     s.fixtures[0]!.away.score = 0;
     store.putSeason(s);
     expect((await recordLeagueFixtureEvent("tabbl", "f1", "started", {}, ev)).posted).toBe(true);
-    expect((await recordLeagueFixtureEvent("tabbl", "f1", "result", {}, ev)).posted).toBe(true);
+    expect((await recordLeagueFixtureEvent("tabbl", "f1", "result", { recorded: true }, ev)).posted).toBe(true);
     const pruned = store.season("tabbl", "season-7")!;
     pruned.log = Array.from({ length: 200 }, (_, i) => ({ at: "2026-11-01T00:00:00.000Z", by: "Jay", kind: "fixture-created" as const, fixtureId: `x${i}`, text: "filler" }));
     store.putSeason(pruned);
     expect(await recordLeagueFixtureEvent("tabbl", "f1", "started", {}, ev)).toMatchObject({ posted: false, reason: "Already announced." });
-    expect(await recordLeagueFixtureEvent("tabbl", "f1", "result", {}, ev)).toMatchObject({ posted: false, reason: "Already announced." });
+    expect(await recordLeagueFixtureEvent("tabbl", "f1", "result", { recorded: true }, ev)).toMatchObject({ posted: false, reason: "Already announced." });
     expect(posts).toHaveLength(2);
   });
 
@@ -227,10 +228,11 @@ describe("league event routes", () => {
     const ev = { store, postWebhook: async (_u: string, p: DiscordPayload) => { posts.push(p); return { ok: true, status: 204 }; }, now: () => new Date("2026-11-02T10:00:00.000Z") };
     expect(await recordLeagueFixtureEvent("tabbl", "f1", "started", {}, undefined)).toMatchObject({ ok: false });
     expect(await recordLeagueFixtureEvent("tabbl", "nope", "started", {}, ev)).toMatchObject({ ok: false, reason: "Fixture not found." });
-    // matchStarted is off by default: logged and stamped, not posted.
+    // matchStarted is ON by default for leagues (owner round 2b); switched off: logged and stamped, not posted.
+    store.updateLeague("tabbl", (l) => { l.discordEvents = { ...DEFAULT_DISCORD_EVENTS, matchStarted: false }; });
     expect(await recordLeagueFixtureEvent("tabbl", "f1", "started", { where: "Super FUMBBL", by: "Super FUMBBL" }, ev)).toEqual({ ok: true, posted: false });
     expect(store.season("tabbl", "season-7")!.fixtures[0]!.startedAt).toBe("2026-11-02T10:00:00.000Z");
-    store.updateLeague("tabbl", (l) => { l.discordEvents = { news: true, fixtureCreated: true, matchStarted: true, matchResult: true, milestones: true }; });
+    store.updateLeague("tabbl", (l) => { l.discordEvents = { ...DEFAULT_DISCORD_EVENTS, matchStarted: true }; });
     expect(await recordLeagueFixtureEvent("tabbl", "f1", "started", {}, ev)).toMatchObject({ ok: true, posted: false, reason: "Already announced." });
     store.putSeason(season(8, [fx("g1")]));
     registerLeagueEvents(ev);
@@ -241,9 +243,17 @@ describe("league event routes", () => {
     s7.fixtures[0]!.home.score = 1;
     s7.fixtures[0]!.away.score = 1;
     store.putSeason(s7);
-    expect(await recordLeagueFixtureEvent("tabbl", "f1", "result", { seasonId: "season-7" })).toEqual({ ok: true, posted: true });
+    // A result with no recorded game behind it (no recorder, no Super FUMBBL game) is never announced.
+    expect(await recordLeagueFixtureEvent("tabbl", "f1", "result", { seasonId: "season-7", handEntered: true })).toMatchObject({ ok: true, posted: false });
+    s7.fixtures = store.season("tabbl", "season-7")!.fixtures;
+    const again = store.season("tabbl", "season-7")!;
+    delete again.fixtures[0]!.announced;
+    again.log = (again.log ?? []).filter((e) => e.kind !== "match-result");
+    store.putSeason(again);
+    // League defaults: the end-of-game digest is on, but a result without a game record gets the plain result post.
+    expect(await recordLeagueFixtureEvent("tabbl", "f1", "result", { seasonId: "season-7", recorded: true })).toEqual({ ok: true, posted: true });
     expect(posts.at(-1)!.embeds[0]!.description).toBe("Orcs 1 - 1 Elves\nRound 1");
-    expect(await recordLeagueFixtureEvent("tabbl", "f1", "result")).toMatchObject({ posted: false, reason: "Already announced." });
+    expect(await recordLeagueFixtureEvent("tabbl", "f1", "result", { recorded: true })).toMatchObject({ posted: false, reason: "Already announced." });
     expect(store.season("tabbl", "season-7")!.log!.map((e) => e.kind)).toEqual(["match-result", "match-started"]);
   });
 });
