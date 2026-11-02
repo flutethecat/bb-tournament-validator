@@ -20,7 +20,9 @@ import {
   ACTIVE_ENTRY_STATES, RegistrationError, type CompetitionSnapshot, type EntryState, type RegistrationActor,
   type RegistrationAdapter, type RegistrationChange, type RegistrationEntry, type RegistrationResult, type TransitionAction,
 } from "./types.js";
-import { checkInWindow, isCheckInOpen, organiserMayAdd, roomFor, waitlistOrder, waitlistPosition, windowStatus } from "./window.js";
+import {
+  checkInWindow, isCheckInOpen, nextWaitlistSeq, organiserMayAdd, roomFor, waitlistOrder, waitlistPosition, windowStatus,
+} from "./window.js";
 
 export const SYSTEM_ACTOR = "system";
 const REASON_MAX = 500;
@@ -79,13 +81,13 @@ export function createRegistrationService(deps: RegistrationServiceDeps) {
   }
 
   /** A changed copy of `entry` with the audited transition appended. */
-  function transition(entry: RegistrationEntry, to: EntryState, action: TransitionAction, by: string, at: string, reason?: string): RegistrationChange {
+  function transition(entry: RegistrationEntry, to: EntryState, action: TransitionAction, by: string, at: string, reason?: string, entries: readonly RegistrationEntry[] = []): RegistrationChange {
     const before = structuredClone(entry);
     const r = cleanReason(reason);
     const t = { action, from: entry.state, to, by, at, ...(r ? { reason: r } : {}) };
     const after: RegistrationEntry = { ...structuredClone(entry), state: to, log: [...entry.log, t] };
-    if (to === "waitlisted" && entry.state !== "waitlisted") after.waitlistAt = at;
-    if (to !== "waitlisted") delete after.waitlistAt;
+    if (to === "waitlisted" && entry.state !== "waitlisted") { after.waitlistAt = at; after.waitlistSeq = nextWaitlistSeq(entries); }
+    if (to !== "waitlisted") { delete after.waitlistAt; delete after.waitlistSeq; }
     if (action === "accept" || action === "promote" || action === "waitlist" || action === "decline" || action === "drop")
       after.decided = { by, at, ...(r ? { reason: r } : {}) };
     return { before, after, transition: t };
@@ -98,9 +100,11 @@ export function createRegistrationService(deps: RegistrationServiceDeps) {
     else entries[i] = entry;
   };
 
-  /** Auto mode: promote waitlisted entries, first in line first, while each fits. Organiser mode: nothing. */
+  /** Auto mode: promote waitlisted entries, first in line first, while each fits. Organiser mode: nothing. Never once
+   *  the competition can't take entries (finished, rosters locked, play started without mid-season joining): the same
+   *  lifecycle check as an organiser accept. */
   function autoPromote(c: CompetitionSnapshot, entries: RegistrationEntry[], at: string): RegistrationChange[] {
-    if (c.window.approval !== "auto") return [];
+    if (c.window.approval !== "auto" || !organiserMayAdd(c).open) return [];
     const out: RegistrationChange[] = [];
     for (const next of waitlistOrder(entries)) {
       if (!roomFor(c.window, entries, next).ok) continue;
@@ -196,7 +200,8 @@ export function createRegistrationService(deps: RegistrationServiceDeps) {
         }
         const t = { action, from, to, by: actor.coach, at };
         const after: RegistrationEntry = { ...base, state: to, log: [...base.log, t] };
-        if (to === "waitlisted") after.waitlistAt = at;
+        delete after.waitlistSeq;
+        if (to === "waitlisted") { after.waitlistAt = at; after.waitlistSeq = nextWaitlistSeq(entries); }
         else delete after.waitlistAt;
         delete after.decided;
         if (!self && to === "accepted") after.decided = { by: actor.coach, at };
@@ -244,7 +249,7 @@ export function createRegistrationService(deps: RegistrationServiceDeps) {
         const entry = entryById(entries, entryId);
         if (entry.state === "waitlisted") return result(entry, false);
         if (entry.state !== "pending") throw invalid(entry.state, "waitlisted");
-        const change = transition(entry, "waitlisted", "waitlist", actor.coach, now().toISOString(), reason);
+        const change = transition(entry, "waitlisted", "waitlist", actor.coach, now().toISOString(), reason, entries);
         put(entries, change.after);
         await commit(c, [change]);
         const position = waitlistPosition(entries, change.after.id);
@@ -336,17 +341,21 @@ export function createRegistrationService(deps: RegistrationServiceDeps) {
     },
 
     /**
-     * Send the check-in-open notice to every accepted entrant once the window opens. Idempotent (the adapter records it).
-     * Returns how many coaches were told (0 when not open yet, already sent, or no accepted entries).
+     * While check-in is open, send the check-in-open notice (actionable: DM) to every accepted entry not yet told for
+     * this window: once per entry per window, so a coach promoted during check-in gets it on the next call and a moved
+     * window starts over. Returns how many coaches were told.
      */
     async sendCheckInNotices(competitionId: string): Promise<number> {
       return lock.run(lockKey(competitionId), async () => {
         const c = await adapter.competition(competitionId);
-        if (!c || c.checkInNoticeAt || !isCheckInOpen(c, now())) return 0;
-        const entries = await adapter.entries(competitionId);
-        const at = now().toISOString();
-        await adapter.markCheckInNotice(c.id, at);
-        return notifyCheckInOpen(notifyCtx(c), entries, checkInWindow(c.window, c.startAt)?.closesAt);
+        if (!c || !isCheckInOpen(c, now())) return 0;
+        const w = checkInWindow(c.window, c.startAt);
+        const windowKey = `${w?.opensAt ?? ""}|${w?.closesAt ?? ""}`;
+        const told = new Set(c.checkInNotice?.window === windowKey ? c.checkInNotice.entryIds : []);
+        const due = (await adapter.entries(competitionId)).filter((e) => e.state === "accepted" && !told.has(e.id));
+        if (!due.length) return 0;
+        await adapter.markCheckInNotice(c.id, { window: windowKey, entryIds: [...told, ...due.map((e) => e.id)], at: now().toISOString() });
+        return notifyCheckInOpen(notifyCtx(c), due, w?.closesAt);
       });
     },
 

@@ -98,11 +98,18 @@ export function roomFor(window: RegistrationWindow, entries: readonly Registrati
   return { ok: true };
 }
 
-/** The waitlist in order (joined first = first in line; ties by id). */
+/** The waitlist in order: joined first = first in line; same instant -> the lower waitlistSeq (assigned when it joined).
+ *  Never by id (a re-entering coach keeps an older id). Entries without a seq keep their stored order (stable sort). */
 export function waitlistOrder(entries: readonly RegistrationEntry[]): RegistrationEntry[] {
+  const seq = (e: RegistrationEntry) => e.waitlistSeq ?? Number.MAX_SAFE_INTEGER;
   return entries
     .filter((e) => e.state === "waitlisted")
-    .sort((a, b) => (ms(a.waitlistAt) ?? 0) - (ms(b.waitlistAt) ?? 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    .sort((a, b) => (ms(a.waitlistAt) ?? 0) - (ms(b.waitlistAt) ?? 0) || seq(a) - seq(b));
+}
+
+/** The next waitlistSeq for a competition (one more than any seq ever given, whatever the entry's state now). */
+export function nextWaitlistSeq(entries: readonly RegistrationEntry[]): number {
+  return entries.reduce((m, e) => Math.max(m, e.waitlistSeq ?? 0), 0) + 1;
 }
 
 /** The coach's place in line (1 = next), or undefined when the entry is not waitlisted. */

@@ -3,7 +3,7 @@
 // interleave concurrent actions between the read and the write.
 
 import type {
-  CompetitionKind, CompetitionSnapshot, RegistrationAdapter, RegistrationChange, RegistrationEntry,
+  CheckInNoticeRecord, CompetitionKind, CompetitionSnapshot, RegistrationAdapter, RegistrationChange, RegistrationEntry,
 } from "./types.js";
 
 export interface MemoryAdapterOptions {
@@ -63,8 +63,8 @@ export class MemoryRegistrationAdapter implements RegistrationAdapter {
     this.commits.push({ id, changes: structuredClone([...changes]) });
   }
 
-  markCheckInNotice(id: string, at: string): void {
-    this.update(id, { checkInNoticeAt: at });
+  markCheckInNotice(id: string, notice: CheckInNoticeRecord): void {
+    this.update(id, { checkInNotice: notice });
   }
 
   link(id: string, audience: "coach" | "organiser"): string {

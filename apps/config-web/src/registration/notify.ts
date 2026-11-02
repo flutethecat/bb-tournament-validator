@@ -103,7 +103,7 @@ export function notifyWithdrawal(ctx: NotifyContext, entry: RegistrationEntry, a
   });
 }
 
-/** Check-in opened: every accepted entrant (no DM in this lane; Q18 lists outcome DMs only). */
+/** Check-in opened: every accepted entrant given (actionable: the coach checks in; spec §7 / §8.3 DM). */
 export function notifyCheckInOpen(ctx: NotifyContext, entries: readonly RegistrationEntry[], closesAt?: string): number {
   let sent = 0;
   const seen = new Set<string>();
@@ -116,6 +116,7 @@ export function notifyCheckInOpen(ctx: NotifyContext, entries: readonly Registra
       body: closesAt ? `Check in before ${closesAt.slice(0, 16).replace("T", " ")} UTC.` : "Check in before play starts.",
       link: ctx.link("coach"),
       subject: ctx.competition.name,
+      action: true,
     });
     sent += 1;
   }

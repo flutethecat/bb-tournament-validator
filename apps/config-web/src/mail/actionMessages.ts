@@ -31,11 +31,13 @@ export const ACTION_DM: Partial<Record<NotificationType, ActionMessageBuilder>> 
   // organisers' registrations that wait for their decision (approval mode, or a place freed with a waitlist).
   "registration-outcome": ({ title, url }) => `${title}. See your entry: ${url}`,
   registration: ({ title, url }) => `${title}. Review registrations: ${url}`,
+  // Check-in opened for an accepted entrant (spec §7 / §8.3; once per entry per window, src/registration/service.ts).
+  "check-in": ({ subject, url }) => `Check-in is open for ${subject}. Check in here: ${url}`,
 };
 
 /** Types that DM only when the emitter marks the row actionable (NotificationInput.action). Every other emitter of these
  *  types (today's tournament registration notices) stays bell-only. */
-export const ACTION_DM_WHEN_FLAGGED: ReadonlySet<NotificationType> = new Set<NotificationType>(["registration-outcome", "registration"]);
+export const ACTION_DM_WHEN_FLAGGED: ReadonlySet<NotificationType> = new Set<NotificationType>(["registration-outcome", "registration", "check-in"]);
 
 export const isActionDmType = (type: NotificationType): boolean => Object.hasOwn(ACTION_DM, type);
 

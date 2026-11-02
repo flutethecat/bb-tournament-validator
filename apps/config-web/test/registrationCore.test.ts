@@ -92,6 +92,13 @@ describe("registration window", () => {
     expect(roomFor({ ...w, cap: null, perRace: null }, rows, { id: "x", race: "Orc" })).toEqual({ ok: true });
     expect(waitlistPosition(rows, "d")).toBe(1);
     expect(waitlistPosition(rows, "c")).toBe(2);
+    // same instant: the waitlist sequence decides, never the id
+    const tie = [
+      { ...e("t:entry:1", "waitlisted", undefined, "2026-11-03T00:00:00Z"), waitlistSeq: 7 },
+      { ...e("t:entry:9", "waitlisted", undefined, "2026-11-03T00:00:00Z"), waitlistSeq: 6 },
+    ];
+    expect(waitlistPosition(tie, "t:entry:9")).toBe(1);
+    expect(waitlistPosition(tie, "t:entry:1")).toBe(2);
     expect(waitlistPosition(rows, "a")).toBeUndefined();
     expect(registrationCounts(w, rows)).toEqual({ accepted: 2, pending: 1, waitlisted: 2, cap: 3, placesLeft: 1 });
   });
@@ -332,6 +339,55 @@ describe("waitlist promotion", () => {
   });
 });
 
+describe("waitlist order and lifecycle (Sol review)", () => {
+  it("a re-entering coach (older id) never jumps a coach who joined the waitlist in the same millisecond", async () => {
+    const h = setup("tournament", {}, { cap: 1 });
+    const a = (await h.svc.submit("c1", "Ann", me("Ann"))).entry; // id :1, accepted
+    await h.svc.submit("c1", "Bob", me("Bob")); // id :2, waitlisted -> promoted when Ann leaves
+    await h.svc.withdraw("c1", a.id, me("Ann"));
+    h.tick();
+    // same instant: Cy (new, higher id) joins first, then Ann re-enters with her older id
+    expect((await h.svc.submit("c1", "Cy", me("Cy"))).entry.state).toBe("waitlisted");
+    const back = await h.svc.submit("c1", "Ann", me("Ann"));
+    expect(back.entry).toMatchObject({ id: a.id, state: "waitlisted" });
+    expect(h.byCoach("Cy").waitlistAt).toBe(back.entry.waitlistAt);
+    expect(await h.svc.position("c1", h.byCoach("Cy").id)).toBe(1);
+    expect(await h.svc.position("c1", a.id)).toBe(2);
+    expect(h.byCoach("Ann").waitlistSeq!).toBeGreaterThan(h.byCoach("Cy").waitlistSeq!);
+    // a freed place goes to Cy, not Ann
+    await h.svc.drop("c1", h.byCoach("Bob").id, ORG);
+    expect(h.byCoach("Cy").state).toBe("accepted");
+    expect(h.byCoach("Cy").waitlistSeq).toBeUndefined();
+    expect(h.byCoach("Ann").state).toBe("waitlisted");
+  });
+
+  it("auto promotion never runs once play started, rosters are locked or the competition finished", async () => {
+    for (const lifecycle of [{ started: true }, { locked: true }, { finished: true }] as const) {
+      const h = setup("tournament", {}, { cap: 1 });
+      const a = (await h.svc.submit("c1", "Ann", me("Ann"))).entry;
+      await h.svc.submit("c1", "Bob", me("Bob"));
+      h.adapter.update("c1", lifecycle);
+      const w = await h.svc.withdraw("c1", a.id, ORG); // organisers may still withdraw an entry
+      expect(w.promoted).toEqual([]);
+      expect(h.byCoach("Bob").state).toBe("waitlisted");
+      h.adapter.update("c1", { window: defaultRegistrationWindow("tournament", 4) });
+      expect(await h.svc.promoteWaitlist("c1", ORG)).toEqual([]);
+      expect(h.sent.some((s) => s.input.body === "A place opened and your entry moved off the waitlist.")).toBe(false);
+    }
+  });
+
+  it("a league season with mid-season joining keeps promoting while active, never after it finished", async () => {
+    const h = setup("league", { started: true }, { approval: "auto", cap: 1, allowMidSeason: true });
+    const a = (await h.svc.submit("c1", "Ann", me("Ann"))).entry;
+    await h.svc.submit("c1", "Bob", me("Bob"));
+    expect((await h.svc.drop("c1", a.id, ORG)).promoted.map((e) => e.coach)).toEqual(["Bob"]);
+    await h.svc.submit("c1", "Cy", me("Cy"));
+    h.adapter.update("c1", { finished: true });
+    expect((await h.svc.drop("c1", h.byCoach("Bob").id, ORG)).promoted).toEqual([]);
+    expect(h.byCoach("Cy").state).toBe("waitlisted");
+  });
+});
+
 describe("concurrency", () => {
   it("parallel registrations at the cap: exactly cap accepted, the rest waitlisted, ids unique", async () => {
     const h = setup("tournament", {}, { cap: 3 }, { yieldEveryRead: true });
@@ -460,7 +516,23 @@ describe("notifications", () => {
     expect(h.sent.map((s) => [s.coach, s.input.type, s.input.body])).toEqual([
       ["Ann", "check-in", "Check in before 2026-11-12 10:00 UTC."], ["Bob", "check-in", "Check in before 2026-11-12 10:00 UTC."],
     ]);
-    expect(h.adapter.competition("c1")!.checkInNoticeAt).toBe("2026-11-11T10:00:00.000Z");
+    expect(h.sent.every((s) => s.input.action === true)).toBe(true);
+    expect(h.adapter.competition("c1")!.checkInNotice).toEqual({
+      window: "2026-11-11T10:00:00.000Z|2026-11-12T10:00:00.000Z", entryIds: [h.byCoach("Ann").id, h.byCoach("Bob").id], at: "2026-11-11T10:00:00.000Z",
+    });
+    // a coach promoted during check-in gets it once on the next pass; the others are not told again
+    h.sent.length = 0;
+    await h.svc.withdraw("c1", h.byCoach("Ann").id, me("Ann"));
+    h.sent.length = 0;
+    expect(await h.svc.sendCheckInNotices("c1")).toBe(1);
+    expect(h.sent.map((s) => s.coach)).toEqual(["Cy"]);
+    expect(await h.svc.sendCheckInNotices("c1")).toBe(0);
+    // the start moved: a new window, everyone accepted is told again once it opens
+    h.adapter.update("c1", { startAt: "2026-11-12T12:00:00.000Z" });
+    h.clock.t = Date.parse("2026-11-11T12:00:00.000Z");
+    h.sent.length = 0;
+    expect(await h.svc.sendCheckInNotices("c1")).toBe(2);
+    expect(await h.svc.sendCheckInNotices("c1")).toBe(0);
   });
 });
 
@@ -477,7 +549,7 @@ describe("notification types and Discord DM rows (Q18)", () => {
   });
 
   it("registration rows DM only when flagged: outcomes accepted/declined/promoted and approval-needed organiser rows", () => {
-    expect([...ACTION_DM_WHEN_FLAGGED].sort()).toEqual(["registration", "registration-outcome"]);
+    expect([...ACTION_DM_WHEN_FLAGGED].sort()).toEqual(["check-in", "registration", "registration-outcome"]);
     const url = "https://site.example.test/app/tournaments/c1";
     const outcome = { type: "registration-outcome" as const, from: "", title: "You're in: Autumn Open", link: "/app/tournaments/c1" };
     expect(actionDmText({ record: outcome, url })).toBeUndefined();
@@ -491,8 +563,10 @@ describe("notification types and Discord DM rows (Q18)", () => {
     // names in the title can't inject links
     const evil = actionDmText({ record: { ...outcome, title: "You're in: [x](https://evil.example)" }, url, action: true })!;
     expect(evil.text.match(/https?:\/\//g)).toHaveLength(1);
-    // check-in and organiser-request have no DM row in this lane
-    expect(actionDmText({ record: { ...outcome, type: "check-in" }, url, action: true })).toBeUndefined();
+    // check-in DMs when flagged (the core flags every check-in-open row); organiser-request has no DM row in this lane
+    const checkIn = { type: "check-in" as const, from: "", title: "Check-in is open: Autumn Open", link: "/app/tournaments/c1" };
+    expect(actionDmText({ record: checkIn, subject: "Autumn Open", url })).toBeUndefined();
+    expect(actionDmText({ record: checkIn, subject: "Autumn Open", url, action: true })!.plain).toBe(`Check-in is open for Autumn Open. Check in here: ${url}`);
     expect(actionDmText({ record: { ...outcome, type: "organiser-request" }, url, action: true })).toBeUndefined();
   });
 

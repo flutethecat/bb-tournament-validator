@@ -74,6 +74,9 @@ export interface RegistrationEntry {
   enteredAt: string;
   /** When the entry joined the waitlist (its place in line). */
   waitlistAt?: string;
+  /** Monotonic per competition, assigned when the entry joins the waitlist: breaks waitlistAt ties (never the id, which
+   *  a re-entering coach keeps from an older submission). */
+  waitlistSeq?: number;
   decided?: RegistrationDecision;
   /** Leagues: the team's race, for the per-race limit. */
   race?: string;
@@ -103,8 +106,15 @@ export interface CompetitionSnapshot {
   managers: readonly string[];
   /** Start of play (tournament start date + time), for the default check-in window. */
   startAt?: string;
-  /** When the check-in-open notice went out (the core sends it once). */
-  checkInNoticeAt?: string;
+  /** Which entries were sent the check-in-open notice, for which check-in window (`opensAt|closesAt`): once per entry
+   *  per window; a moved window starts over. */
+  checkInNotice?: CheckInNoticeRecord;
+}
+
+export interface CheckInNoticeRecord {
+  window: string;
+  entryIds: string[];
+  at: string;
 }
 
 /** One entry change the adapter persists. `before` is absent for a brand new entry. */
@@ -132,15 +142,15 @@ export interface RegistrationAdapter {
   newEntryId(id: string, existing: readonly RegistrationEntry[]): string;
   /** Persist the changes atomically. */
   commit(id: string, changes: readonly RegistrationChange[]): MaybePromise<void>;
-  /** Record that the check-in-open notice went out (CompetitionSnapshot.checkInNoticeAt). */
-  markCheckInNotice(id: string, at: string): MaybePromise<void>;
+  /** Record who got the check-in-open notice for the current window (CompetitionSnapshot.checkInNotice). */
+  markCheckInNotice(id: string, notice: CheckInNoticeRecord): MaybePromise<void>;
   /** The SPA path a notification opens: the coach's entry, or the organisers' registrations list. */
   link(id: string, audience: "coach" | "organiser"): string;
 }
 
 /**
  * How an adapter maps its stored record type R to an entry and back (a guide for L4/L6; the core never calls it).
- * Tournaments: R = TournamentEntrantRecord (entryState? absent = accepted, waitlistAt?, decided?, registrationLog?).
+ * Tournaments: R = TournamentEntrantRecord (entryState? absent = accepted, waitlistAt?, waitlistSeq?, decided?, registrationLog?).
  * Leagues: R = LeagueRegistration (spec §5).
  */
 export interface RegistrationRecordMapper<R> {
