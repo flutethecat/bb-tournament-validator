@@ -35,6 +35,16 @@ export interface LeagueRecord {
   registrations?: LeagueRegistrations;
   /** Discord webhook event toggles; the URL itself lives in secrets.json, never here. */
   discordEvents?: Partial<DiscordEvents>;
+  /** League-level Discord options beyond the toggles (src/discord/catalogue.ts): live in-game events, end-of-game digest,
+   *  coach's comments. Absent = the defaults. */
+  discord?: Omit<import("../discord/catalogue.js").CompetitionDiscordConfig, "events">;
+  /** Per-competition Discord options of its seasons / ladders, keyed "season:<seasonId>" (auto-populated from the league
+   *  when the season is made). Absent = the league's. */
+  competitionDiscord?: Record<string, import("../discord/catalogue.js").CompetitionDiscordConfig>;
+  /** Weekly Digest schedule (src/discord/weekly.ts). Absent = on by default (weekly, Sunday 10:00) once a webhook exists. */
+  weeklyDigest?: import("../discord/weekly.js").WeeklyDigestSettings;
+  /** IANA time zone the league's schedules use (Weekly Digest). Absent = UTC. */
+  timeZone?: string;
   /** Play on Super FUMBBL (default off): fixtures an admin allows can then be generated on the fork (later lane). */
   playOnFork?: boolean;
   /** A test competition (registration spec Q13): the only kind a test sign-in may write in (src/registration/testSession.ts). */
@@ -131,13 +141,21 @@ export interface LeagueRegistrations {
   venmo?: string;
 }
 
-export const DISCORD_EVENT_KEYS = ["news", "fixtureCreated", "matchStarted", "matchResult", "milestones", "redraftRolls"] as const;
+export const DISCORD_EVENT_KEYS = [
+  "news", "fixtureCreated", "matchStarted", "matchResult", "milestones", "redraftRolls",
+  // Discord events overhaul (src/discord/catalogue.ts holds who each applies to and its defaults).
+  "published", "registrationOpened", "newRegistration", "registrationClosing", "checkInOpen", "roundPosted", "fixtureStart",
+  "roundStandings", "finalStandings", "awards", "seasonStarted", "seasonFinished",
+  "touchdown", "casualty", "injury", "death", "foul", "sentOff", "mvp", "hireFire",
+] as const;
 export type DiscordEventKey = (typeof DISCORD_EVENT_KEYS)[number];
 export type DiscordEvents = Record<DiscordEventKey, boolean>;
 
 /** <leagueDir>/secrets.json: server-side only, masked in every read model, never logged. */
 export interface LeagueSecrets {
   discordWebhookUrl?: string;
+  /** Per-competition webhooks of this league: "season:<seasonId>" (and later "ladder:<ladderId>"). Blank = the league's. */
+  competitionWebhooks?: Record<string, string>;
 }
 
 /**

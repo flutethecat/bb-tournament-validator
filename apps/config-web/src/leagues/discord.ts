@@ -3,21 +3,43 @@
  * league's secrets.json, masked in every read model (maskWebhookUrl), never logged and never put in an error message.
  * Posts are small embeds with mentions disabled; delivery is best effort.
  */
+import { defaultEvents } from "../discord/catalogue.js";
 import { DISCORD_EVENT_KEYS, type DiscordEventKey, type DiscordEvents, type LeagueRecord } from "./types.js";
 
 /** https://discord.com/api/webhooks/<id>/<token> (also discordapp.com and the ptb / canary hosts). */
 export const DISCORD_WEBHOOK_URL = /^https:\/\/(?:(?:ptb|canary)\.)?(?:discord|discordapp)\.com\/api(?:\/v\d{1,2})?\/webhooks\/\d{5,25}\/[A-Za-z0-9_-]{20,120}$/;
 export const DISCORD_URL_MAX = 300;
 
-export const DEFAULT_DISCORD_EVENTS: DiscordEvents = { news: true, fixtureCreated: true, matchStarted: false, matchResult: true, milestones: true, redraftRolls: false };
+/** League defaults (src/discord/catalogue.ts): match started is ON for leagues (owner round 2b). */
+export const DEFAULT_DISCORD_EVENTS: DiscordEvents = defaultEvents("league");
 
 export const DISCORD_EVENT_LABEL: Record<DiscordEventKey, string> = {
-  news: "League news",
+  news: "News",
   fixtureCreated: "Fixture created",
   matchStarted: "Match started",
   matchResult: "Match result",
   milestones: "Redraft and season milestones",
   redraftRolls: "Redraft rolls (each Rest & Relaxation roll)",
+  published: "Published",
+  registrationOpened: "Registration opened",
+  newRegistration: "New registration",
+  registrationClosing: "Registration closing in 24 hours",
+  checkInOpen: "Check-in open",
+  roundPosted: "Round / pairings posted",
+  fixtureStart: "Fixture start notification",
+  roundStandings: "Standings after each round",
+  finalStandings: "Final standings and champion",
+  awards: "Awards and honours",
+  seasonStarted: "Season started",
+  seasonFinished: "Season finished",
+  touchdown: "Touchdown",
+  casualty: "Casualty",
+  injury: "Injury",
+  death: "Player death",
+  foul: "Foul",
+  sentOff: "Sent off",
+  mvp: "MVP",
+  hireFire: "Hire / fire",
 };
 
 export function isDiscordWebhookUrl(url: unknown): url is string {
@@ -37,7 +59,7 @@ export function discordEvents(league: Pick<LeagueRecord, "discordEvents">): Disc
   return out;
 }
 
-export interface DiscordEmbed { title: string; description: string; color: number; url?: string; footer?: { text: string } }
+export interface DiscordEmbed { title: string; description: string; color: number; url?: string; footer?: { text: string }; fields?: Array<{ name: string; value: string; inline?: boolean }> }
 export interface DiscordPayload { username: string; content?: string; embeds: DiscordEmbed[]; allowed_mentions: { parse: never[] } }
 
 const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);

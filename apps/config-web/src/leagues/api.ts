@@ -61,7 +61,8 @@ import { join } from "node:path";
 import { AVATAR_CONTENT_TYPE, avatarRateLimit, sniffImage, type AvatarExt, type SniffedImage } from "../teamAvatars.js";
 import type { NotificationInput } from "../notifications.js";
 import { buildMilestonePost, buildTestPost, discordEvents, postWebhook as defaultPoster, type DiscordPayload, type WebhookPoster } from "./discord.js";
-import { editFixture, leagueEventRoutes } from "./events.js";
+import { editFixture, leagueEventRoutes, postLeagueEvent } from "./events.js";
+import { populateSeasonDiscord } from "../discord/api.js";
 import { leagueCsvFiles, zipFiles } from "./exportZip.js";
 import { readJsonObject, requestRevision } from "./http.js";
 import { applyForkSettings, leagueForkRoutes, publicForkState, updateForkSettings, type LeagueForkClient } from "./forkPlay.js";
@@ -792,12 +793,10 @@ function patchSettings(league: LeagueRecord, who: LeagueApiIdentity, input: Reco
   return { status: 200, body: { ok: true, settings: view(updated, who, deps, team?.seasonId) } };
 }
 
-/** Discord post for a season milestone the league enabled. Best effort; the URL is never logged. */
-async function postMilestone(league: LeagueRecord, deps: LeagueApiDeps, payload: DiscordPayload): Promise<void> {
-  if (isDraftLeague(deps.store.league(league.id) ?? league)) return; // lane L5: drafts post nothing to Discord
-  const url = deps.store.secrets(league.id).discordWebhookUrl;
-  if (!url || !discordEvents(league).milestones) return;
-  try { await (deps.postWebhook ?? defaultPoster)(url, payload); } catch { /* best effort */ }
+/** Discord post for a season started / finished, to the season's webhook when its toggle is on. Best effort; the URL is never logged. */
+async function postMilestone(league: LeagueRecord, deps: LeagueApiDeps, payload: DiscordPayload, seasonId: string, key: "seasonStarted" | "seasonFinished"): Promise<void> {
+  // lane L5: drafts post nothing to Discord (targets.ts)
+  await postLeagueEvent(deps.store, league, key, payload, deps.postWebhook ?? defaultPoster, { seasonId });
 }
 
 async function createSeason(league: LeagueRecord, who: LeagueApiIdentity, input: Record<string, unknown>, deps: LeagueApiDeps): Promise<LeagueApiResult> {
@@ -841,7 +840,9 @@ async function createSeason(league: LeagueRecord, who: LeagueApiIdentity, input:
   if (!season.teams.length) season.stage = "setup";
   deps.store.putSeason(season);
   for (const s of redrafted) deps.store.putSeason(s);
-  await postMilestone(league, deps, buildMilestonePost(league, "season-started", name, ruleset));
+  // Per-competition Discord: the new season starts with the league's webhook and options copied in.
+  populateSeasonDiscord(deps.store, league.id, season.id);
+  await postMilestone(league, deps, buildMilestonePost(league, "season-started", name, ruleset), season.id, "seasonStarted");
   return { status: 201, body: { ok: true, season: seasonSummary(season) } };
 }
 
@@ -901,7 +902,7 @@ async function finishSeason(league: LeagueRecord, seasonId: string, who: LeagueA
   season.stage = "active"; // lane L5: a stored registration stage never survives finishing (or a reopen)
   season.endedAt = at;
   deps.store.putSeason(season);
-  await postMilestone(league, deps, buildMilestonePost(league, "season-finished", season.name));
+  await postMilestone(league, deps, buildMilestonePost(league, "season-finished", season.name), season.id, "seasonFinished");
   return { status: 200, body: { ok: true, season: seasonSummary(season) } };
 }
 

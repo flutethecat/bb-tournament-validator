@@ -25,6 +25,7 @@ import { assertTestSessionMayWrite, RegistrationError, registrationCounts } from
 import { artUrl, assertRulesetPackage, leaguePath, seasonSummary, type LeagueApiDeps, type LeagueApiIdentity, type LeagueApiResult } from "./api.js";
 import { houseRulesOf, type HouseRules } from "../competition/houseRules.js";
 import { discordEvents, maskWebhookUrl } from "./discord.js";
+import { populateSeasonDiscord } from "../discord/api.js";
 import { readJsonObject, requestRevision } from "./http.js";
 import { fixturePlayed } from "./tourplay.js";
 import { canMoveStage, isDraftLeague, MIN_TEAMS_TO_START, leagueVisibility, managesLeague, SEASON_STAGE_LABEL, seasonStage, STAGE_ACTION_LABEL, type SeasonStage } from "./lifecycle.js";
@@ -383,6 +384,8 @@ function publish(league: LeagueRecord, who: LeagueApiIdentity, deps: LeagueApiDe
     if (l.wizard && !l.wizard.completedAt) l.wizard = { ...l.wizard, completedAt: now.toISOString() };
     l.revision = (l.revision ?? 0) + 1;
   }, now);
+  // The wizard's seasons take the league's webhook and Discord options now (they were made before Connections was set).
+  for (const s of deps.store.seasons(league.id)) populateSeasonDiscord(deps.store, league.id, s.id);
   void who;
   return res(200, { ok: true, changed: true, visibility: leagueVisibility(updated), publishedAt: updated.publishedAt, revision: updated.revision });
 }
