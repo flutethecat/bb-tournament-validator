@@ -16,6 +16,7 @@
  */
 import { buildCoachAliases, fixtureOutcome, seasonCoachFacets, type CoachAliases, type SideOutcome } from "./identity.js";
 import { nameKey } from "./tourplay.js";
+import { rankCoachRecords } from "./coachRanking.js";
 import { EMPTY_PLAYER_STATS, type LeagueFixture, type LeagueRuleset, type PlayerSeasonStats, type SeasonRecord } from "./types.js";
 
 export type StatsScope = "bb2020" | "bb2025" | "all";
@@ -424,14 +425,12 @@ function ironManCard(careers: Career[], teamGames: Map<string, number>): StatsCa
 
 /**
  * Best coach record: the best win % (draw = half a win) among coaches with at least half the games of the busiest
- * coach (one lucky game does not top the card), then more games, then more points.
+ * coach (one lucky game does not top the card), then more games, then more points (coachRanking.ts, shared with the
+ * SPA's Honours Coach view).
  */
 function bestCoachCard(coaches: CoachRecord[]): StatsCard | undefined {
-  const most = coaches.reduce((m, c) => Math.max(m, c.games), 0);
-  if (!most) return undefined;
-  const min = Math.max(1, Math.ceil(most / 2));
-  const ranked = coaches.filter((c) => c.games >= min)
-    .sort((a, b) => b.winPct - a.winPct || b.games - a.games || b.points - a.points || a.coach.localeCompare(b.coach));
+  const { min, ranked } = rankCoachRecords(coaches);
+  if (!min) return undefined;
   const top = ranked[0];
   if (!top || !top.latest) return undefined;
   return {

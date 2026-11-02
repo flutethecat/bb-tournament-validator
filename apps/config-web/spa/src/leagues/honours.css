@@ -149,3 +149,5 @@
 .aw-sort:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .aw-sort-mark { font-size: 9px; }
 .aw-table th[aria-sort="ascending"], .aw-table th[aria-sort="descending"] { color: var(--ui-text); }
+
+.hof-sub-note { text-transform: none; letter-spacing: 0; font-family: var(--font-body); }

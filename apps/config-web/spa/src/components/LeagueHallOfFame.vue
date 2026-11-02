@@ -12,6 +12,7 @@ import { API_KEY } from "../app";
 import LeaguePinDialog from "./LeaguePinDialog.vue";
 import { createLeagueStats, crestFor, initials, LEAGUE_STATS_KEY, pct } from "../leagues/league";
 import { awardIcon, hallDates, LEAGUE_HONOURS_KEY, type HallPin, type HallSeason } from "../leagues/honours";
+import { rankCoachRecords } from "../../../src/leagues/coachRanking";
 import { coachTitles, HONOURS_VIEWS, playerLeaderBoards, type HonoursView as ViewKind } from "../leagues/hallViews";
 import "../leagues/honours.css";
 
@@ -43,7 +44,9 @@ const all = computed(() => (stats && stats.state.id === leagueId.value ? stats.s
 watch(() => [props.view, leagueId.value] as const, ([v, id]) => { if (v !== "team" && id && stats && !all.value) void stats.load(id, "all"); }, { immediate: true });
 const leaders = computed(() => playerLeaderBoards(all.value));
 const titles = computed(() => coachTitles(cards.value));
-const bestCoaches = computed(() => (all.value?.coaches ?? []).filter((c) => c.games >= 5).slice(0, 5));
+// The Statistics "Best coach record" ranking (win %, at least half the busiest coach's games), top five.
+const bestRanking = computed(() => rankCoachRecords(all.value?.coaches ?? []));
+const bestCoaches = computed(() => bestRanking.value.ranked.slice(0, 5));
 const cap = computed(() => (props.view === "team" ? `${cards.value.length} ${cards.value.length === 1 ? "season" : "seasons"}`
   : props.view === "coach" ? `${titles.value.length} ${titles.value.length === 1 ? "champion" : "champions"}` : "All time"));
 </script>
@@ -140,7 +143,7 @@ const cap = computed(() => (props.view === "team" ? `${cards.value.length} ${car
         </li>
       </ul>
       <template v-if="bestCoaches.length">
-        <h3 class="hof-sub">Best records</h3>
+        <h3 class="hof-sub">Best records <span class="hof-sub-note">(win %, min. {{ bestRanking.min }} {{ bestRanking.min === 1 ? "game" : "games" }})</span></h3>
         <ol class="hof-records" aria-label="Best coach records">
           <li v-for="(c, i) in bestCoaches" :key="c.coach" data-hof="coach-record">
             <span class="hof-rank">{{ i + 1 }}</span><strong>{{ c.coach }}</strong>
