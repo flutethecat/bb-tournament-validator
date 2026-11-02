@@ -4,6 +4,7 @@
  * Posts are small embeds with mentions disabled; delivery is best effort.
  */
 import { defaultEvents } from "../discord/catalogue.js";
+import { cleanPayload } from "../discord/clean.js";
 import { DISCORD_EVENT_KEYS, type DiscordEventKey, type DiscordEvents, type LeagueRecord } from "./types.js";
 
 /** https://discord.com/api/webhooks/<id>/<token> (also discordapp.com and the ptb / canary hosts). */
@@ -101,7 +102,9 @@ export function buildFixturePost(league: Pick<LeagueRecord, "name">, title: stri
 export type WebhookPoster = (url: string, payload: DiscordPayload) => Promise<{ ok: boolean; status: number }>;
 
 /** POST the payload (5 s timeout). Never logs; the caller reports only the status. */
-export const postWebhook: WebhookPoster = async (url, payload) => {
+export const postWebhook: WebhookPoster = async (url, raw) => {
+  // Every post through the default poster is cleaned here as well (src/discord/clean.ts), whoever built it.
+  const payload = cleanPayload(raw);
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 5000);
   try {

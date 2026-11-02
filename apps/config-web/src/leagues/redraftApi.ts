@@ -119,10 +119,9 @@ function checkRevision(input: Record<string, unknown>, current: number, ifMatch:
 }
 
 async function discord(league: LeagueRecord, deps: LeagueApiDeps, key: "news" | "milestones", payload: DiscordPayload): Promise<void> {
-  if (isDraftLeague(deps.store.league(league.id) ?? league)) return; // lane L5: drafts post nothing
-  const url = deps.store.secrets(league.id).discordWebhookUrl;
-  if (!url || !discordEvents(league)[key]) return;
-  try { await (deps.postWebhook ?? defaultPoster)(url, payload); } catch { /* best effort; the URL is never logged */ }
+  // Through the one cleaned sender (src/discord/targets.ts postTo): drafts post nothing, the toggle and webhook are checked,
+  // listed words are starred; best effort, the URL is never logged.
+  await postLeagueEvent(deps.store, league, key, payload, deps.postWebhook ?? defaultPoster);
 }
 
 function notifyAll(deps: LeagueApiDeps, list: Array<{ coach: string; input: NotificationInput }>): void {

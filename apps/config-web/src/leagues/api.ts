@@ -63,6 +63,7 @@ import type { NotificationInput } from "../notifications.js";
 import { buildMilestonePost, buildTestPost, discordEvents, postWebhook as defaultPoster, type DiscordPayload, type WebhookPoster } from "./discord.js";
 import { editFixture, leagueEventRoutes, postLeagueEvent } from "./events.js";
 import { populateSeasonDiscord } from "../discord/api.js";
+import { cleanPayload } from "../discord/clean.js";
 import { leagueCsvFiles, zipFiles } from "./exportZip.js";
 import { readJsonObject, requestRevision } from "./http.js";
 import { applyForkSettings, leagueForkRoutes, publicForkState, updateForkSettings, type LeagueForkClient } from "./forkPlay.js";
@@ -633,7 +634,7 @@ async function settingsRoute(
       if (!url) return { status: 409, body: { error: "Set a Discord webhook URL first." } };
       const wait = avatarRateLimit(`league-discord:${who.coach.trim().toLowerCase()}`);
       if (wait > 0) return { status: 429, headers: { "retry-after": String(wait) }, body: { error: "Too many test posts. Try again in a minute." } };
-      const res = await (deps.postWebhook ?? defaultPoster)(url, buildTestPost(lg, who.coach));
+      const res = await (deps.postWebhook ?? defaultPoster)(url, cleanPayload(buildTestPost(lg, who.coach)));
       if (res.ok) return { status: 200, body: { ok: true } };
       return { status: 502, body: { error: res.status ? `Discord did not accept the test post (status ${res.status}).` : "Could not reach Discord." } };
     }

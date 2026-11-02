@@ -12,6 +12,7 @@
  */
 
 import type { Side, TabletopEvent } from "./events.js";
+import { cleanPayload } from "../discord/clean.js";
 
 export type AnnouncementKind = "fans" | "weather" | "inducements" | "prayers" | "coin" | "skip" | "result";
 /** One side of the final result, server-tallied (api.ts resultSummaryOf). */
@@ -226,7 +227,7 @@ export function createRecorderWebhook(opts: {
   return {
     post(body) {
       try {
-        queue.push(body);
+        queue.push(cleanPayload(body)); // listed words starred like every other Discord post (src/discord/clean.ts)
         while (queue.length > maxQueue) queue.shift(); // drop the oldest when Discord is slow
         running ??= drain().finally(() => { running = undefined; });
       } catch { /* never reaches the match */ }

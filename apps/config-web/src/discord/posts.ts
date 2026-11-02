@@ -29,18 +29,7 @@ export interface PostField { name: string; value: string; inline?: boolean }
  * posts): listed words left in any text (a title, a description, a field, a footer) are starred, escaped so the stars
  * show as stars. Builders still run each user string through safe(); this is the net under them.
  */
-export function cleanPayload(p: DiscordPayload): DiscordPayload {
-  const star = (s: string): string => starProfanity(s, "\\*\\*\\*");
-  return {
-    ...p,
-    ...(p.content ? { content: star(p.content) } : {}),
-    embeds: p.embeds.map((e) => ({
-      ...e, title: star(e.title), description: star(e.description),
-      ...(e.footer ? { footer: { text: star(e.footer.text) } } : {}),
-      ...(e.fields ? { fields: e.fields.map((f) => ({ ...f, name: star(f.name), value: star(f.value) })) } : {}),
-    })),
-  };
-}
+export { cleanPayload } from "./clean.js";
 
 export function post(title: string, description: string, color = GOLD, opts: { fields?: PostField[]; footer?: string; url?: string } = {}): DiscordPayload {
   const fields = (opts.fields ?? []).filter((f) => f.value.trim()).slice(0, 25).map((f) => ({ name: clip(f.name, 256), value: clip(f.value, 1024), ...(f.inline ? { inline: true } : {}) }));
