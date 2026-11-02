@@ -122,6 +122,11 @@ export function hitSnippet(hit: SearchHit, room = 48): SearchHit {
   return { ...hit, value, start: hit.start - from + lead.length, end: hit.end - from + lead.length };
 }
 
+/** The ?q= value as the search field takes it ("" when absent or repeated), capped at 200 characters. */
+export const routeQuery = (raw: unknown): string => (typeof raw === "string" ? raw.slice(0, 200) : "");
+/** A ?q= change the field must follow (a query-only navigation), not the echo of the field's own write. */
+export const followsRouteQuery = (next: string, field: string): boolean => next.trim() !== field.trim();
+
 // ---- filters ----
 
 export interface BrowseFilters { statuses: LeagueBrowseStatus[]; playedOn: PlayedOn[]; registrationOpen: boolean }
@@ -165,7 +170,7 @@ function sortValue(l: LeagueSummary, key: SortKey): string | number | null {
     case "name": return l.name;
     case "fullName": return l.fullName || null;
     case "status": return BROWSE_STATUSES.indexOf(browseStatus(l));
-    case "season": return l.currentSeason ? l.currentSeason.number : null;
+    case "season": return l.currentSeason ? l.currentSeason.name : null;
     case "ruleset": return rulesetText(l) || null;
     case "teams": return teamCount(l);
     case "region": return leagueRegion(l) || null;
@@ -186,6 +191,8 @@ export function sortRows<T extends { l: LeagueSummary }>(rows: readonly T[], key
     if (vb === null && va !== null) return -1;
     let c = 0;
     if (va !== null && vb !== null) c = typeof va === "number" && typeof vb === "number" ? va - vb : collator.compare(String(va), String(vb));
+    // Current season: the shown name decides; the season number breaks ties between equal names.
+    if (c === 0 && key === "season") c = (a.l.currentSeason?.number ?? 0) - (b.l.currentSeason?.number ?? 0);
     return c !== 0 ? c * sign : collator.compare(a.l.name, b.l.name);
   });
 }

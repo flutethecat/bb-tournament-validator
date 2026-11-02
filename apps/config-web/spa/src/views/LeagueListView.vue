@@ -10,7 +10,7 @@ import { canCreateLeague } from "../leagues/lifecycle";
 import { createLeagueList, initials, LEAGUE_LIST_KEY, RULESET_TONE, safeArtUrl } from "../leagues/league";
 import {
   BROWSE_STATUS_LABEL, BROWSE_STATUS_TONE, BROWSE_STATUSES, browseRows, browseStatus, dateText, emptyFilters, filtersActive, highlightParts, hitSnippet,
-  leagueRegion, PLAYED_ON_LABEL, playedOn, placeholderTone, readBrowseView, rulesetText, SORT_COLUMNS, sortRows, teamCount, writeBrowseView,
+  leagueRegion, PLAYED_ON_LABEL, playedOn, placeholderTone, readBrowseView, routeQuery, followsRouteQuery, rulesetText, SORT_COLUMNS, sortRows, teamCount, writeBrowseView,
   type BrowseView, type PlayedOn, type SearchHit, type SortDir, type SortKey,
 } from "../leagues/browse";
 import type { LeagueBrowseStatus, LeagueSummary } from "../leagues/types";
@@ -30,7 +30,7 @@ const broken = ref<Record<string, boolean>>({});
 // Search: the field updates at once, the list follows after a short pause. ?q= opens a search (and keeps it on reload).
 const route = useRoute();
 const router = useRouter();
-const asked = typeof route.query.q === "string" ? route.query.q.slice(0, 200) : "";
+const asked = routeQuery(route.query.q);
 const query = ref(asked);
 const q = ref(asked);
 let timer: ReturnType<typeof setTimeout> | undefined;
@@ -43,6 +43,15 @@ watch(query, (v) => {
   }, 200);
 });
 onBeforeUnmount(() => { if (timer) clearTimeout(timer); });
+// A query-only navigation (?q=grudge -> ?q=mud, Back, a link) keeps this view mounted: follow it. Our own replace() above
+// writes the trimmed field, which already matches, so it does not loop.
+watch(() => route.query.q, (raw) => {
+  const next = routeQuery(raw);
+  if (!followsRouteQuery(next, query.value)) return;
+  if (timer) clearTimeout(timer);
+  query.value = next;
+  q.value = next;
+});
 function clearSearch(): void { query.value = ""; q.value = ""; }
 
 const filters = ref(emptyFilters());

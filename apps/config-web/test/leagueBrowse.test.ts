@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import type { IncomingMessage } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,7 +8,7 @@ import { leagueBrowseInfo, leagueBrowseStatus } from "../src/leagues/browse";
 import { LeagueStore } from "../src/leagues/store";
 import type { LeagueRecord, LeagueTeam, SeasonRecord } from "../src/leagues/types";
 import { requireSession } from "../src/auth/requireSession";
-import { DEMO_LEAGUES, isLiveStateDir, main, MARKER_FILE, removeDemoLeagues, seedDemoLeagues } from "../scripts/seed-demo-leagues";
+import { DEMO_LEAGUES, isLiveStateDir, main, MARKER_FILE, realPath, removeDemoLeagues, seedDemoLeagues } from "../scripts/seed-demo-leagues";
 
 // Browse leagues (owner 11-02): the list rows' public search index (src/leagues/browse.ts), drafts never listed, the
 // public gates, and the demo seed script against a temp state dir.
@@ -171,6 +171,81 @@ describe("seed-demo-leagues script", () => {
     expect(lines.some((l) => l.startsWith("demo-harbour-league: skipped"))).toBe(true);
     removeDemoLeagues({ stateDir: dir });
     expect(store.league("demo-harbour-league")?.name).toBe("Someone's League");
+  });
+
+  it("seeds a state dir that does not exist yet (made first)", async () => {
+    const fresh = join(dir, "not", "yet", "there");
+    expect(await seedDemoLeagues({ stateDir: fresh, now: NOW })).toHaveLength(12);
+    expect(new LeagueStore(fresh).list()).toHaveLength(12);
+    expect(existsSync(join(fresh, MARKER_FILE))).toBe(true);
+    expect(removeDemoLeagues({ stateDir: join(dir, "never-made") })).toEqual([]);
+  });
+
+  it("stamps every seeded record with its provenance and the marker's run id; the read model never shows it", async () => {
+    await seedDemoLeagues({ stateDir: dir, now: NOW });
+    const marker = JSON.parse(readFileSync(join(dir, MARKER_FILE), "utf8"));
+    expect(marker.run).toMatch(/^[a-f0-9-]{36}$/);
+    for (const d of DEMO_LEAGUES) expect(store.league(d.id)?.seededBy).toEqual({ script: "seed-demo-leagues", run: marker.run });
+    // a re-run keeps the same run id
+    await seedDemoLeagues({ stateDir: dir, now: NOW });
+    expect(JSON.parse(readFileSync(join(dir, MARKER_FILE), "utf8")).run).toBe(marker.run);
+    expect(JSON.stringify((await list()).body)).not.toContain("seededBy");
+  });
+
+  it("a forged or stale marker deletes nothing it does not own: ids off the demo list, unstamped records, another run's records", async () => {
+    // an unrelated test league, and a hand-made test league that borrows a demo id and name but carries no stamp
+    addLeague("other-test", { name: "Demo Other", test: true });
+    addLeague("demo-river-cup", { name: "Demo River Cup", test: true });
+    await seedDemoLeagues({ stateDir: dir, now: NOW });
+    expect(store.league("demo-river-cup")?.seededBy).toBeUndefined(); // never overwritten
+    const real = JSON.parse(readFileSync(join(dir, MARKER_FILE), "utf8"));
+    // forge: list the unrelated ids too
+    writeFileSync(join(dir, MARKER_FILE), JSON.stringify({ ...real, ids: [...real.ids, "other-test", "demo-river-cup"] }));
+    const removed = removeDemoLeagues({ stateDir: dir, now: NOW });
+    expect(removed).toHaveLength(11);
+    store.invalidate();
+    expect(store.list().map((l) => l.id).sort()).toEqual(["demo-river-cup", "other-test"]);
+
+    // stale: re-seed, then a marker naming a different run removes nothing
+    await seedDemoLeagues({ stateDir: dir, now: NOW });
+    const again = JSON.parse(readFileSync(join(dir, MARKER_FILE), "utf8"));
+    writeFileSync(join(dir, MARKER_FILE), JSON.stringify({ ...again, run: "0123456789abcdef0123" }));
+    expect(removeDemoLeagues({ stateDir: dir, now: NOW })).toEqual([]);
+    store.invalidate();
+    expect(store.list()).toHaveLength(13);
+    // a marker without a run id is not this script's: refused outright
+    writeFileSync(join(dir, MARKER_FILE), JSON.stringify({ script: "seed-demo-leagues", ids: again.ids }));
+    expect(() => removeDemoLeagues({ stateDir: dir })).toThrow(/not this script's marker/);
+    await expect(seedDemoLeagues({ stateDir: dir })).rejects.toThrow(/not this script's marker/);
+  });
+
+  it("a stamped record from this run that someone renamed or un-flagged is kept", async () => {
+    await seedDemoLeagues({ stateDir: dir, now: NOW });
+    store.updateLeague("demo-metro-league", (l) => { l.name = "Metro League"; });
+    store.updateLeague("demo-desert-dust", (l) => { delete l.test; });
+    expect(removeDemoLeagues({ stateDir: dir, now: NOW })).toHaveLength(10);
+    store.invalidate();
+    expect(store.list().map((l) => l.id).sort()).toEqual(["demo-desert-dust", "demo-metro-league"]);
+  });
+
+  it("the live-dir check follows links and junctions to the live dir (real paths compared)", () => {
+    const live = join(dir, "live-store");
+    mkdirSync(live);
+    const link = join(dir, "innocent-name");
+    symlinkSync(live, link, "junction");
+    expect(isLiveStateDir(link, { FORK_STATE_DIR: live })).toBe(true);
+    expect(isLiveStateDir(join(link, "."), { FORK_STATE_DIR: live })).toBe(true);
+    // a link whose real target is named data-store, and a link TO a linked live dir
+    const named = join(dir, "data-store");
+    mkdirSync(named);
+    const link2 = join(dir, "harmless");
+    symlinkSync(named, link2, "junction");
+    expect(isLiveStateDir(link2, {})).toBe(true);
+    const viaLink = join(dir, "via-link");
+    symlinkSync(link, viaLink, "junction");
+    expect(isLiveStateDir(viaLink, { FORK_STATE_DIR: link })).toBe(true);
+    expect(realPath(join(link, "sub", "dir")).toLowerCase()).toBe(join(realPath(live), "sub", "dir").toLowerCase()); // not-yet-made folder under a link
+    expect(isLiveStateDir(join(dir, "elsewhere"), { FORK_STATE_DIR: live })).toBe(false);
   });
 
   it("refuses the live data dir without --live --yes, and needs a target", async () => {

@@ -56,6 +56,8 @@ export interface LeagueRecord {
   regions?: string[];
   /** Site-authorised (owner round 3: every competition run on the site is, for now). Absent = true. */
   authorised?: boolean;
+  /** Written only by scripts/seed-demo-leagues.ts (demo data): which script and run created it. --remove needs it. Never in a read model. */
+  seededBy?: { script: string; run: string };
   /** Redraft budget cap the board starts from (default on, 1,300,000); remembered from the last confirmed redraft. */
   redraftCap?: { enabled: boolean; cap: number };
   /** Redraft budget formula and options (League settings -> Redraft; redraftRules.ts). Unset keys take the defaults; unset

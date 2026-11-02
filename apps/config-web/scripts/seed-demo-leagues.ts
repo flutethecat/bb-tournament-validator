@@ -9,14 +9,17 @@
  * dir (the server's default apps/config-web/data-store, the FORK_STATE_DIR of this shell, or any folder named data-store)
  * unless it is given both --live and --yes.
  *
- * Every league it writes is flagged test: true and named "Demo ...", and its id is recorded in
- * <state dir>/demo-leagues.seed.json. --remove deletes only leagues listed there that are still test leagues named
- * "Demo ..."; every other league is left alone. A league id that already exists and is not one of the script's own is
- * never overwritten.
+ * Every league it writes is flagged test: true, named "Demo ...", and stamped seededBy { script, run }; the run id and the
+ * league ids are recorded in <state dir>/demo-leagues.seed.json. --remove deletes a league only when its id is on the
+ * script's fixed demo list, the marker lists it, and the record still carries this script's stamp with the marker's run
+ * id (and is still a test league named "Demo ..."); every other league is left alone. A league id that already exists and
+ * is not one of the script's own stamped records is never overwritten. The live-dir check compares real paths (links and
+ * junctions followed).
  *
  * Artwork comes from art already in the repo (public/crests, public/assets): nothing is downloaded.
  */
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkLeagueArt, storeLeagueArt, type ArtKind } from "../src/leagues/api.js";
@@ -160,28 +163,62 @@ function demoSeason(league: DemoLeague, index: number, now: Date): SeasonRecord 
 
 // ---- live-dir guard and the marker ----
 
-/** True for a folder that is (or may be) the live data dir. */
+/**
+ * The real path of `p` (symlinks and junctions followed, native case). A path that does not exist yet resolves its
+ * nearest existing parent and appends the rest, so a not-yet-created folder under a linked live dir is still caught.
+ */
+export function realPath(p: string): string {
+  const abs = resolve(p);
+  const rest: string[] = [];
+  let cur = abs;
+  for (;;) {
+    try {
+      return join(realpathSync.native(cur), ...rest);
+    } catch {
+      const up = dirname(cur);
+      if (up === cur) return abs;
+      rest.unshift(basename(cur));
+      cur = up;
+    }
+  }
+}
+
+const samePath = (a: string, b: string) => (process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b);
+
+/** True for a folder that is (or may be) the live data dir: compared by real path, so a link or junction to it counts. */
 export function isLiveStateDir(dir: string, env: NodeJS.ProcessEnv = process.env): boolean {
-  const target = resolve(dir).toLowerCase();
-  const live = [resolve(APP, "data-store"), ...(env.FORK_STATE_DIR ? [resolve(env.FORK_STATE_DIR)] : [])].map((p) => p.toLowerCase());
-  return live.includes(target) || basename(target) === "data-store";
+  const target = realPath(dir);
+  const live = [join(APP, "data-store"), ...(env.FORK_STATE_DIR ? [env.FORK_STATE_DIR] : [])].map(realPath);
+  return live.some((l) => samePath(l, target)) || basename(target).toLowerCase() === "data-store" || basename(resolve(dir)).toLowerCase() === "data-store";
 }
 
-interface Marker { script: string; ids: string[]; updatedAt: string }
+interface Marker { script: string; run: string; ids: string[]; updatedAt: string }
 
-function readMarker(stateDir: string): Marker {
+const DEMO_IDS: ReadonlySet<string> = new Set(DEMO_LEAGUES.map((d) => d.id));
+
+/** The marker, or undefined when there is none. A file that is not this script's marker (no run id) is refused. */
+function readMarker(stateDir: string): Marker | undefined {
   const file = join(stateDir, MARKER_FILE);
-  if (!existsSync(file)) return { script: MARKER_SCRIPT, ids: [], updatedAt: "" };
+  if (!existsSync(file)) return undefined;
   const raw = JSON.parse(readFileSync(file, "utf8")) as Partial<Marker>;
-  if (raw.script !== MARKER_SCRIPT || !Array.isArray(raw.ids)) throw new Error(`${file} is not this script's marker; refusing to touch it.`);
-  return { script: MARKER_SCRIPT, ids: raw.ids.filter((id): id is string => typeof id === "string"), updatedAt: String(raw.updatedAt ?? "") };
+  if (raw.script !== MARKER_SCRIPT || typeof raw.run !== "string" || !/^[a-f0-9-]{16,64}$/.test(raw.run) || !Array.isArray(raw.ids)) {
+    throw new Error(`${file} is not this script's marker; refusing to touch it.`);
+  }
+  return { script: MARKER_SCRIPT, run: raw.run, ids: raw.ids.filter((id): id is string => typeof id === "string" && DEMO_IDS.has(id)), updatedAt: String(raw.updatedAt ?? "") };
 }
 
-function writeMarker(stateDir: string, ids: string[], now: Date): void {
-  writeFileSync(join(stateDir, MARKER_FILE), `${JSON.stringify({ script: MARKER_SCRIPT, ids, updatedAt: now.toISOString() }, null, 2)}\n`);
+function writeMarker(stateDir: string, run: string, ids: string[], now: Date): void {
+  writeFileSync(join(stateDir, MARKER_FILE), `${JSON.stringify({ script: MARKER_SCRIPT, run, ids, updatedAt: now.toISOString() }, null, 2)}\n`);
 }
 
-const isOwnDemo = (league: LeagueRecord | undefined): league is LeagueRecord => Boolean(league && league.test === true && league.name.startsWith("Demo "));
+/**
+ * One of this script's own records: an id from the fixed demo list, still a test league named "Demo ...", and stamped
+ * with this script's provenance and the marker's run id. Nothing is overwritten or deleted without all of it.
+ */
+function isOwnDemo(league: LeagueRecord | undefined, run: string | undefined): league is LeagueRecord {
+  return Boolean(league && run && DEMO_IDS.has(league.id) && league.test === true && league.name.startsWith("Demo ")
+    && league.seededBy?.script === MARKER_SCRIPT && league.seededBy.run === run);
+}
 
 function openStore(stateDir: string): LeagueStore {
   // The demo seasons carry no coach accounts, so the roster-exit hook never fires; the file named here is never the live one.
@@ -193,19 +230,22 @@ export interface SeedOptions { stateDir: string; now?: Date; log?: (line: string
 export async function seedDemoLeagues(opts: SeedOptions): Promise<string[]> {
   const log = opts.log ?? (() => undefined);
   const now = opts.now ?? new Date();
+  mkdirSync(opts.stateDir, { recursive: true });
   const store = openStore(opts.stateDir);
   const marker = readMarker(opts.stateDir);
-  const ids = new Set(marker.ids);
+  const run = marker?.run ?? randomUUID();
+  const ids = new Set(marker?.ids ?? []);
   for (const demo of DEMO_LEAGUES) {
     const existing = store.league(demo.id);
-    if (existing && !(ids.has(demo.id) && isOwnDemo(existing))) { log(`${demo.id}: skipped (a league with this id exists and is not a demo league from this script)`); continue; }
+    if (existing && !(ids.has(demo.id) && isOwnDemo(existing, run))) { log(`${demo.id}: skipped (a league with this id exists and is not a demo league from this script)`); continue; }
     // Record the id first: a run that stops half way can still be removed.
     ids.add(demo.id);
-    writeMarker(opts.stateDir, [...ids], now);
+    writeMarker(opts.stateDir, run, [...ids], now);
     store.upsertLeague({
       id: demo.id, name: demo.name, fullName: demo.fullName, slug: demo.id, description: demo.description, organisers: demo.organisers, owner: demo.organisers[0],
       test: true, mode: "individual", ruleset: demo.seasons.at(-1)?.ruleset ?? "BB2025", playOnFork: demo.playOnFork === true, authorised: true,
       registrations: { ...DEFAULT_REGISTRATIONS, allowRegistration: true },
+      seededBy: { script: MARKER_SCRIPT, run },
       ...(demo.place ? { address: { ...demo.place, postcode: "", street: "" } } : {}),
       ...(demo.regions ? { regions: demo.regions } : {}),
       ...(demo.rulesetPackage ? { rulesetPackage: demo.rulesetPackage } : {}),
@@ -226,21 +266,24 @@ export async function seedDemoLeagues(opts: SeedOptions): Promise<string[]> {
 
 export function removeDemoLeagues(opts: SeedOptions): string[] {
   const log = opts.log ?? (() => undefined);
+  if (!existsSync(opts.stateDir)) return [];
   const store = openStore(opts.stateDir);
   const marker = readMarker(opts.stateDir);
+  if (!marker) { log("No demo-league marker here: nothing to remove."); return []; }
   const removed: string[] = [];
   const kept: string[] = [];
+  // Only ids from the fixed demo list (readMarker drops any other) whose record carries this run's provenance stamp.
   for (const id of marker.ids) {
     const league = store.league(id);
     if (!league) { log(`${id}: already gone`); continue; }
-    if (!isOwnDemo(league)) { log(`${id}: kept (no longer a test league named "Demo ...")`); kept.push(id); continue; }
+    if (!isOwnDemo(league, marker.run)) { log(`${id}: kept (not a demo league stamped by this script's run)`); kept.push(id); continue; }
     for (const s of store.seasons(id)) store.removeSeason(id, s.id);
     rmSync(store.leagueDir(id), { recursive: true, force: true });
     store.invalidate();
     removed.push(id);
     log(`${id}: removed`);
   }
-  if (kept.length) writeMarker(opts.stateDir, kept, opts.now ?? new Date());
+  if (kept.length) writeMarker(opts.stateDir, marker.run, kept, opts.now ?? new Date());
   else rmSync(join(opts.stateDir, MARKER_FILE), { force: true });
   return removed;
 }

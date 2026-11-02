@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  BROWSE_VIEW_KEY, browseRows, browseStatus, emptyFilters, fold, highlightParts, hitSnippet, leagueRegion, matchLeague, readBrowseView, rulesetText,
+  BROWSE_VIEW_KEY, browseRows, followsRouteQuery, routeQuery, browseStatus, emptyFilters, fold, highlightParts, hitSnippet, leagueRegion, matchLeague, readBrowseView, rulesetText,
   sortRows, writeBrowseView,
 } from "../spa/src/leagues/browse";
 import type { LeagueSummary, SeasonSummary } from "../spa/src/leagues/types";
@@ -118,6 +118,32 @@ describe("table sorting", () => {
     expect(order("playedOn", "asc")).toEqual(["demo-harbour", "done", "quiet", "river"]);
     expect(order("season", "asc")).toEqual(["demo-harbour", "done", "river", "quiet"]);
     expect(order("fullName", "asc")).toEqual(["demo-harbour", "river", "done", "quiet"]);
+  });
+});
+
+describe("current season sort and the ?q= follow rule", () => {
+  it("Current season sorts by the shown name (numbers in names compare as numbers); equal names fall back to the season number", () => {
+    const at = (id: string, name: string, number: number) => ({ l: league({ id, name: id, currentSeason: season({ name, number }) }) });
+    const rows = [at("a", "Season 10", 10), at("b", "Season 2", 2), at("c", "Autumn Cup", 7), at("d", "Season 2", 1), at("e", "Spring", 3)];
+    expect(sortRows(rows, "season", "asc").map((r) => r.l.id)).toEqual(["c", "d", "b", "a", "e"]);
+    expect(sortRows(rows, "season", "desc").map((r) => r.l.id)).toEqual(["e", "a", "b", "d", "c"]);
+  });
+
+  it("a query-only navigation is followed; the echo of the field's own write is not", () => {
+    expect(routeQuery("mud")).toBe("mud");
+    expect(routeQuery(["a", "b"])).toBe("");
+    expect(routeQuery(undefined)).toBe("");
+    expect(routeQuery("x".repeat(300))).toHaveLength(200);
+    expect(followsRouteQuery("mud", "grudge")).toBe(true); // ?q=grudge -> ?q=mud
+    expect(followsRouteQuery("", "grudge")).toBe(true); // Back to the plain list
+    expect(followsRouteQuery("grudge", " grudge ")).toBe(false); // our own replace() of the trimmed field
+  });
+
+  it("the view watches route.query.q", async () => {
+    const { readFileSync } = await import("node:fs");
+    const view = readFileSync(new URL("../spa/src/views/LeagueListView.vue", import.meta.url), "utf8");
+    expect(view).toMatch(/watch\(\(\) => route\.query\.q,/);
+    expect(view).toContain("followsRouteQuery(next, query.value)");
   });
 });
 

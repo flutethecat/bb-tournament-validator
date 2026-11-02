@@ -136,6 +136,10 @@ pnpm --filter config-web exec tsx scripts/seed-demo-leagues.ts <state dir> --rem
 - The script refuses the live data dir (the server's default `apps/config-web/data-store`, the shell's `FORK_STATE_DIR`,
   or any folder named `data-store`) unless both `--live` and `--yes` are given. Don't seed the live site without the
   owner's go-ahead.
-- The ids it created are recorded in `<state dir>/demo-leagues.seed.json`. `--remove` deletes only those, and only while
-  they are still test leagues named "Demo ..."; every other league is left alone. An existing league with a demo id that
-  is not the script's own is never overwritten.
+- The check compares real paths, so a link or junction to the live dir is refused too. A state dir that does not exist
+  yet is created.
+- Each league it writes is stamped `seededBy: { script: "seed-demo-leagues", run }`, and the run id and league ids go in
+  `<state dir>/demo-leagues.seed.json`. `--remove` deletes a league only when its id is on the script's fixed demo list,
+  the marker lists it, its stamp matches the marker's run, and it is still a test league named "Demo ..."; every other
+  league is left alone. An existing league with a demo id that is not the script's own stamped record is never
+  overwritten.
