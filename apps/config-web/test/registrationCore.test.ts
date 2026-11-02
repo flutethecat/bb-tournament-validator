@@ -563,11 +563,11 @@ describe("notification types and Discord DM rows (Q18)", () => {
     // names in the title can't inject links
     const evil = actionDmText({ record: { ...outcome, title: "You're in: [x](https://evil.example)" }, url, action: true })!;
     expect(evil.text.match(/https?:\/\//g)).toHaveLength(1);
-    // check-in DMs when flagged (the core flags every check-in-open row); organiser-request has no DM row in this lane
+    // check-in DMs when flagged (the core flags every check-in-open row); organiser-request (lane L2) always DMs, flag or not
     const checkIn = { type: "check-in" as const, from: "", title: "Check-in is open: Autumn Open", link: "/app/tournaments/c1" };
     expect(actionDmText({ record: checkIn, subject: "Autumn Open", url })).toBeUndefined();
     expect(actionDmText({ record: checkIn, subject: "Autumn Open", url, action: true })!.plain).toBe(`Check-in is open for Autumn Open. Check in here: ${url}`);
-    expect(actionDmText({ record: { ...outcome, type: "organiser-request" }, url, action: true })).toBeUndefined();
+    expect(actionDmText({ record: { ...outcome, type: "organiser-request" }, subject: "Your organiser request was approved.", url })!.plain).toBe(`Your organiser request was approved. Open it: ${url}`);
   });
 
   it("end to end through the notification store and the mail service (memory transport): one DM per actionable row, opt-out respected", async () => {

@@ -146,7 +146,7 @@ export const routes: RouteRecordRaw[] = [
   // Redraft: the organisers' board; a coach's own redraft (?team= opens the dialog from the notification link).
   { path: "/leagues/:id([a-z0-9-]{1,64})/redraft", name: "league-redraft", component: LeagueRedraftView, props: true, meta: { requiresAuth: true, title: "League redraft" } },
   { path: "/admin/tournaments", name: "admin-tournaments", component: AdminTournamentsView, meta: { requiresAuth: true, title: "Tournaments admin" } },
-  // Organiser requests (registration spec 2026-11-02 ง3): coaches ask here; site admins answer in the queue.
+  // Organiser requests (registration spec 2026-11-02 ยง3): coaches ask here; site admins answer in the queue.
   { path: "/organiser/request", name: "organiser-request", component: OrganiserRequestView, meta: { requiresAuth: true, title: "Become an organiser" } },
   { path: "/admin/organiser-requests", name: "admin-organiser-requests", component: AdminOrganiserRequestsView, meta: { requiresAuth: true, title: "Organiser requests" } },
   {
