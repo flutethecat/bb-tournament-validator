@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { atomicWriteTextFile } from "@bb/fork-ops";
 import { calculateStandings, generateTournamentPairings, knockoutWinner, stableTieFlip } from "./pairing.js";
 import { DEFAULT_ENTRANT_FLAGS, SERIES_SEEDING_PAIRING, TOURNAMENT_PAIRING_SYSTEMS, TOURNAMENT_SEEDING_MODES } from "./types.js";
+import { pairingClash, type ChainTiebreaker, type PairingAvoid, type PointsScheme } from "../competition/format.js";
+import type { HouseRules } from "../competition/houseRules.js";
 import type { NewsInput, TournamentPagePatch } from "./page.js";
 import type {
   ScheduledMatchRecord,
@@ -41,6 +43,13 @@ const tiebreakerLadder = (primary: TournamentPrimaryTiebreaker): TournamentRecor
 
 export type TournamentUpdate = Partial<Pick<TournamentRecord, "maxPlayers" | "format" | "packageName" | "startsAt" | "endsAt" | "roundCount" | "organizerCoachId" | "turnTimer" | "inducementOptIns" | "pairingSystem" | "seedingMode" | "nafSanctioned" | "playOnFork">> & {
   primaryTiebreaker?: TournamentPrimaryTiebreaker;
+  /** Creation wizards v2 (validated by the caller with src/competition): the whole tiebreaker chain (points rank first). */
+  tiebreakerChain?: ChainTiebreaker[];
+  /** W/D/L points; a bye scores a win. */
+  pointsScheme?: PointsScheme;
+  houseRules?: HouseRules;
+  pairingAvoid?: PairingAvoid;
+  regions?: string[];
 };
 
 type LegacyTournamentRecord = Omit<TournamentRecord, "format" | "packageName" | "maxPlayers"> &
@@ -231,7 +240,7 @@ function invalidateRosterChecks(data: TournamentDataFileV4, tournamentId: string
 interface RoundPlan {
   number: number;
   seeds: Record<string, number>;
-  pairings: Array<{ homeEntrantId: string; awayEntrantId?: string }>;
+  pairings: Array<{ homeEntrantId: string; awayEntrantId?: string; clash?: Array<"club" | "region"> }>;
   roundCount: number;
 }
 
@@ -294,6 +303,10 @@ function planRound(
     {
       system: options.pairingSystem ?? tournament.pairingSystem ?? "eloSeeded",
       eligible: (entrant) => entrant.flags?.active !== false,
+      // Pairing avoidance (Swiss): same club / same region, from the entries' nullable clubId and region.
+      ...(tournament.pairingAvoid && tournament.pairingAvoid !== "none"
+        ? { clash: (left: TournamentEntrantRecord, right: TournamentEntrantRecord) => pairingClash(tournament.pairingAvoid, left, right) }
+        : {}),
     },
   );
   return { number, seeds, pairings, roundCount };
@@ -396,7 +409,7 @@ function logActivity(data: TournamentDataFileV4, tournamentId: string, entry: To
 function applyTournamentUpdate(data: TournamentDataFileV4, tournamentId: string, patch: TournamentUpdate, now: Date): TournamentRecord {
   const tournament = data.tournaments[tournamentId];
   if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
-  if (patch.primaryTiebreaker !== undefined && tournament.status === "completed")
+  if ((patch.primaryTiebreaker !== undefined || patch.tiebreakerChain !== undefined || patch.pointsScheme !== undefined) && tournament.status === "completed")
     throw new TournamentStoreError(400, "Ranking is locked once the tournament is completed.");
   const entrantCount = Object.values(data.entrants)
     .filter((entrant) => entrant.tournamentId === tournamentId && entrant.droppedAt === undefined).length;
@@ -456,6 +469,19 @@ function applyTournamentUpdate(data: TournamentDataFileV4, tournamentId: string,
     tournament.tiebreakers = tiebreakerLadder(patch.primaryTiebreaker);
     delete data.standings[tournamentId];
   }
+  // The chain wins over the old single field when a request sends both.
+  if (patch.tiebreakerChain !== undefined) {
+    tournament.tiebreakers = [...patch.tiebreakerChain];
+    delete data.standings[tournamentId];
+  }
+  if (patch.pointsScheme !== undefined) {
+    const p = patch.pointsScheme;
+    tournament.points = { win: p.win, draw: p.draw, loss: p.loss, bye: p.win };
+    delete data.standings[tournamentId];
+  }
+  if (patch.houseRules !== undefined) tournament.houseRules = structuredClone(patch.houseRules);
+  if (patch.pairingAvoid !== undefined) { if (patch.pairingAvoid === "none") delete tournament.pairingAvoid; else tournament.pairingAvoid = patch.pairingAvoid; }
+  if (patch.regions !== undefined) { if (patch.regions.length) tournament.regions = [...patch.regions]; else delete tournament.regions; }
   if (patch.startsAt === "") delete tournament.startsAt;
   else if (patch.startsAt !== undefined) tournament.startsAt = patch.startsAt;
   if (patch.endsAt === "") delete tournament.endsAt;
@@ -605,6 +631,7 @@ export class TournamentStore {
         organizerCoachIds: [],
         pairingSystem: "dutch",
         seedingMode: "elo",
+        authorised: true,
         ...(input.nafSanctioned ? { nafSanctioned: true } : {}),
         ...(input.test ? { test: true as const } : {}),
         ...(input.publication === "draft" ? { unpublished: true as const } : {}),
@@ -968,6 +995,10 @@ export class TournamentStore {
         scheduledMatchIds,
         createdAt: timestamp,
       };
+      const clashes = pairings.flatMap((pairing) => (pairing.clash?.length && pairing.awayEntrantId
+        ? [{ homeEntrantId: pairing.homeEntrantId, awayEntrantId: pairing.awayEntrantId, kinds: [...pairing.clash] }]
+        : []));
+      if (clashes.length) round.clashes = clashes;
       data.rounds[roundId] = round;
       data.tournaments[tournamentId] = { ...tournament, currentRound: number, updatedAt: timestamp };
       return round;
@@ -1159,7 +1190,7 @@ export class TournamentStore {
     tournamentId: string,
     options: { pairingSystem?: TournamentPairingSystem; seedingMode?: TournamentSeedingMode } = {},
     coachRating: (coach: string) => number | undefined = () => undefined,
-  ): { roundNumber: number; pairings: Array<{ homeEntrantId: string; awayEntrantId?: string }>; seeds: Record<string, number> } {
+  ): { roundNumber: number; pairings: Array<{ homeEntrantId: string; awayEntrantId?: string; clash?: Array<"club" | "region"> }>; seeds: Record<string, number> } {
     const data = this.snapshot();
     const plan = planRound(data, tournamentId, options, coachRating);
     return { roundNumber: plan.number, pairings: plan.pairings, seeds: plan.seeds };

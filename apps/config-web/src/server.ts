@@ -357,6 +357,7 @@ import { syncLeagueForkResults } from "./leagues/forkPlay.js";
 import { registerLeagueEvents } from "./leagues/events.js";
 import type { TournamentSubmission } from "./tournaments/types.js";
 import { checkTournamentSubmission, type SubmissionCheckDeps } from "./tournaments/submissionCheck.js";
+import { applyHouseRulesToPackage } from "./competition/packageOverlay.js";
 
 /**
  * Endpoints reachable without ADMIN_PASSWORD even when it's set, AND always sent
@@ -1418,13 +1419,15 @@ const submissionCheckDeps = (): SubmissionCheckDeps => ({
   libraryTeam: (teamId) => libraryTeamForId(teamId),
   packageRevision: (name) => { try { return packages.getRaw(name)?.revision; } catch { return undefined; } },
   isSecretLeague: isSlRosterId,
-  validateBody: (body, packageName) => {
+  validateBody: (body, packageName, houseRules) => {
     const cfg = forkConfigFromEnv();
     if (!cfg) return undefined;
     const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, packageName);
     if ("error" in resolvedPkg) return { ok: false, problems: [resolvedPkg.error] };
-    const composed = composeFromBody(cfg.teamsDir, body as TeamBuilderBody, undefined, resolvedPkg.pkg);
-    const result = validate(composed.roster, resolvedPkg.pkg, bb2025);
+    // The tournament's house rules on a copy of the package (PtN ban, stat caps); the shared package is never changed.
+    const pkg = applyHouseRulesToPackage(resolvedPkg.pkg, houseRules);
+    const composed = composeFromBody(cfg.teamsDir, body as TeamBuilderBody, undefined, pkg);
+    const result = validate(composed.roster, pkg, bb2025);
     return { ok: result.valid, problems: result.errors.map((finding) => finding.message) };
   },
 });
@@ -2194,6 +2197,7 @@ async function handleApi(
       ifMatch: typeof req.headers["if-match"] === "string" ? req.headers["if-match"] : undefined,
       lobby: fixtureLobbyDeps(),
       tabletop: tabletopUsageSource,
+      packageExists: (name) => packages.get(name) !== undefined,
     });
     if (league) {
       for (const [name, value] of Object.entries(league.headers ?? {})) res.setHeader(name, value);
@@ -2305,7 +2309,7 @@ async function handleApi(
       identityRecords: (coachIds) => { const all = readIdentities().coaches; return coachIds.map((c) => all[normalizeFfbCoachId(c)]); },
       packageExists: (packageName) => packages.get(packageName) !== undefined,
       teamOwner: (teamId) => libraryOwnerForTeam(teamId),
-      validateSubmission: (coach, ref, packageName, at) => checkTournamentSubmission(submissionCheckDeps(), coach, ref, packageName, at),
+      validateSubmission: (coach, ref, packageName, at, houseRules) => checkTournamentSubmission(submissionCheckDeps(), coach, ref, packageName, at, houseRules),
       packageRevision: (name) => { try { return packages.getRaw(name)?.revision; } catch { return undefined; } },
       submissionTeamView: (coach, submission, packageName) => tournamentSubmissionView(coach, submission, packageName),
       notify: tournamentNotifier,

@@ -22,7 +22,8 @@
  */
 import { existsSync } from "node:fs";
 import { assertTestSessionMayWrite, RegistrationError, registrationCounts } from "../registration/index.js";
-import { artUrl, leaguePath, seasonSummary, type LeagueApiDeps, type LeagueApiIdentity, type LeagueApiResult } from "./api.js";
+import { artUrl, assertRulesetPackage, leaguePath, seasonSummary, type LeagueApiDeps, type LeagueApiIdentity, type LeagueApiResult } from "./api.js";
+import { houseRulesOf, type HouseRules } from "../competition/houseRules.js";
 import { discordEvents, maskWebhookUrl } from "./discord.js";
 import { readJsonObject, requestRevision } from "./http.js";
 import { fixturePlayed } from "./tourplay.js";
@@ -31,7 +32,7 @@ import { seasonTeamEntries } from "./registrationCheck.js";
 import { LEAGUE_FIXTURE_REF } from "./tabletopFixtures.js";
 import { defaultSeasonRegistration, parseSeasonRegistration, seasonRegistrationOf, seasonWindow, seasonWindowStatus, type SeasonRegistration } from "./seasonRegistration.js";
 import {
-  DEFAULT_REGISTRATIONS, parseConnections, parseInformation, parseRegistrations, parseTeamBuilding, registrationsOf, SettingsError, teamBuildingTable,
+  DEFAULT_REGISTRATIONS, parseConnections, parseInformation, parseLeagueHouseRules, parseLeagueRegions, parseRegistrations, parseTeamBuilding, registrationsOf, SettingsError, teamBuildingTable,
 } from "./settings.js";
 import { LEAGUE_ID, leagueOwner, LeagueStoreError } from "./store.js";
 import type { LeaguePhase, LeagueRecord, LeagueRegistrations, SeasonRecord } from "./types.js";
@@ -108,9 +109,13 @@ export interface WizardView {
   step: number;
   completedAt?: string;
   test: boolean;
-  identity: { name: string; fullName: string; slug: string; description: string; address: LeagueRecord["address"] | null; logoUrl?: string; bannerUrl?: string };
+  /** General (step 1): `playOnFork` is the Played on setting (creation wizards v2 moved it out of Connections). */
+  identity: { name: string; fullName: string; slug: string; description: string; address: LeagueRecord["address"] | null; logoUrl?: string; bannerUrl?: string; playOnFork: boolean };
   rules: {
     ruleset: "BB2020" | "BB2025";
+    /** The ruleset card: a saved package name, or null = the plain base ruleset. */
+    rulesetPackage: string | null;
+    houseRules: HouseRules;
     allowedRosters: LeagueRegistrations["allowedRosters"];
     maxRegistrations: number | null;
     maxPerRace: number | null;
@@ -119,6 +124,8 @@ export interface WizardView {
   season: {
     id: string; name: string; number: number; startedAt?: string; stage: SeasonStage; divisions: string[]; playoffs: boolean;
     registration: SeasonRegistration; revision: number;
+    /** The organiser's regions (kept on the league; coaches pick one at join, a later lane). */
+    regions: string[];
   } | null;
   connections: { playOnFork: boolean; discord: { configured: boolean; maskedUrl: string; events: ReturnType<typeof discordEvents> } };
 }
@@ -139,9 +146,12 @@ export function wizardView(league: LeagueRecord, seasons: SeasonRecord[], webhoo
     identity: {
       name: league.name, fullName: league.fullName, slug: league.slug || league.id, description: league.description, address: league.address ?? null,
       ...(logo ? { logoUrl: logo } : {}), ...(banner ? { bannerUrl: banner } : {}),
+      playOnFork: league.playOnFork === true,
     },
     rules: {
       ruleset: league.ruleset ?? "BB2025",
+      rulesetPackage: league.rulesetPackage ?? null,
+      houseRules: houseRulesOf(league, "league"),
       allowedRosters: { ...regs.allowedRosters },
       maxRegistrations: regs.maxRegistrations,
       maxPerRace: regs.maxPerRace,
@@ -151,6 +161,7 @@ export function wizardView(league: LeagueRecord, seasons: SeasonRecord[], webhoo
       id: season.id, name: season.name, number: season.number, ...(season.startedAt ? { startedAt: season.startedAt } : {}), stage: seasonStage(season),
       divisions: (regular?.groups ?? [""]).filter((g) => g !== ""), playoffs: season.phases.some((p) => p.id === PLAYOFF_PHASE_ID),
       registration: seasonRegistrationOf(league, season), revision: season.revision ?? 0,
+      regions: league.regions ?? [],
     } : null,
     connections: { playOnFork: league.playOnFork === true, discord: { configured: Boolean(webhook), maskedUrl: maskWebhookUrl(webhook), events: discordEvents(league) } },
   };
@@ -180,7 +191,7 @@ export async function createLeagueRoute(auth: LeagueApiIdentity | undefined, dep
   if (!b.ok) return b.result;
   const input = b.value;
   try {
-    const info = parseInformation({ name: input.name ?? "", fullName: input.fullName, description: input.description, address: input.address });
+    const info = parseInformation({ name: input.name ?? "", fullName: input.fullName, description: input.description, address: input.address, playOnFork: input.playOnFork });
     const name = info.name!;
     const id = parseSlug(input.slug, name);
     const { store } = deps;
@@ -196,7 +207,8 @@ export async function createLeagueRoute(auth: LeagueApiIdentity | undefined, dep
       organisers: [auth.coach], owner: auth.coach, ruleset: "BB2025", mode: "individual",
       ...(info.address ? { address: info.address } : {}),
       registrations: structuredClone(DEFAULT_REGISTRATIONS),
-      visibility: "draft", wizard: { step: 2, createdBy: auth.coach }, revision: 0,
+      visibility: "draft", wizard: { step: 2, createdBy: auth.coach }, revision: 0, authorised: true,
+      ...(info.playOnFork ? { playOnFork: true } : {}),
       // Q13: what a test sign-in makes is a test league, the only kind it may change afterwards.
       ...(auth.test ? { test: true as const } : {}),
     }, now);
@@ -227,6 +239,10 @@ interface DraftPlan {
   /** Season 1's payment links, also kept as the league defaults a later season copies. */
   payDefaults?: { payPal?: string; venmo?: string };
   connections?: ReturnType<typeof parseConnections>;
+  playOnFork?: boolean;
+  rulesetPackage?: string | null;
+  houseRules?: HouseRules;
+  regions?: string[];
 }
 
 /** PATCH /api/leagues/:id/draft: synchronous from validation to the last write, like the settings PATCH. */
@@ -252,12 +268,19 @@ function patchDraft(league: LeagueRecord, who: LeagueApiIdentity, input: Record<
     const i = obj(input.identity, "identity");
     if (i.slug !== undefined && i.slug !== league.id) throw new SettingsError(400, "The league address is set when the league is created.", "slug");
     plan.info = parseInformation({ name: i.name, fullName: i.fullName, description: i.description, address: i.address });
+    // Played on lives in General (creation wizards v2).
+    if (i.playOnFork !== undefined) plan.playOnFork = parseInformation({ playOnFork: i.playOnFork }).playOnFork;
   }
   if (input.rules !== undefined) {
     const r = obj(input.rules, "rules");
     if (r.ruleset !== undefined) plan.info = { ...(plan.info ?? {}), ...parseInformation({ ruleset: r.ruleset }) };
     plan.regs = parseRegistrations({ allowedRosters: r.allowedRosters, maxRegistrations: r.maxRegistrations, maxPerRace: r.maxPerRace }, registrationsOf(league));
     if (r.teamBuilding !== undefined) plan.team = parseTeamBuilding({ ...obj(r.teamBuilding, "teamBuilding"), seasonId: season.id }).rosters;
+    if (r.rulesetPackage !== undefined) {
+      plan.rulesetPackage = parseInformation({ rulesetPackage: r.rulesetPackage }).rulesetPackage;
+      assertRulesetPackage(plan.rulesetPackage, deps);
+    }
+    if (r.houseRules !== undefined) plan.houseRules = parseLeagueHouseRules(r.houseRules, league);
   }
   if (input.season !== undefined) {
     const s = obj(input.season, "season");
@@ -274,6 +297,7 @@ function patchDraft(league: LeagueRecord, who: LeagueApiIdentity, input: Record<
       }
     }
     if (s.divisions !== undefined) plan.divisions = parseDivisions(s.divisions);
+    if (s.regions !== undefined) plan.regions = parseLeagueRegions(s.regions);
     if (s.playoffs !== undefined) {
       if (typeof s.playoffs !== "boolean") throw new SettingsError(400, "playoffs must be true or false.", "season.playoffs");
       plan.playoffs = s.playoffs;
@@ -335,6 +359,10 @@ function patchDraft(league: LeagueRecord, who: LeagueApiIdentity, input: Record<
       l.registrations = regs;
     }
     if (plan.connections?.playOnFork !== undefined) l.playOnFork = plan.connections.playOnFork;
+    if (plan.playOnFork !== undefined) l.playOnFork = plan.playOnFork;
+    if (plan.rulesetPackage !== undefined) { if (plan.rulesetPackage === null) delete l.rulesetPackage; else { l.rulesetPackage = plan.rulesetPackage; l.ruleset = "BB2025"; } }
+    if (plan.houseRules) l.houseRules = plan.houseRules;
+    if (plan.regions) { if (plan.regions.length) l.regions = plan.regions; else delete l.regions; }
     if (plan.connections?.discordEvents) l.discordEvents = plan.connections.discordEvents;
     const w = l.wizard ?? { step: 1, createdBy: who.coach };
     l.wizard = { ...w, step: Math.max(w.step, step ?? w.step), ...(input.complete === true ? { completedAt: w.completedAt ?? at } : {}) };

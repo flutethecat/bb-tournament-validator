@@ -12,6 +12,8 @@
  */
 import { bb2025 } from "@bb/validator/dataset";
 import { parsePayField } from "../payments/links.js";
+import { FormatError, parseRegions } from "../competition/format.js";
+import { HouseRulesError, houseRulesOf, parseHouseRules, type HouseRules } from "../competition/houseRules.js";
 import { discordEvents, isDiscordWebhookUrl, maskWebhookUrl } from "./discord.js";
 import { leagueOwner } from "./store.js";
 import {
@@ -156,6 +158,28 @@ export interface InformationPatch {
   ruleset?: LeagueRuleset;
   mode?: "individual";
   address?: LeagueAddress | null;
+  /** Played on (creation wizards v2: a General setting): true = Super FUMBBL, false = tabletop. */
+  playOnFork?: boolean;
+  /** The ruleset card: a saved package name, or null = the plain base ruleset. Existence is checked by the caller. */
+  rulesetPackage?: string | null;
+}
+
+export const RULESET_PACKAGE_MAX = 120;
+
+/** House rules for a league from a request body, merged over the stored ones (a SettingsError on a bad value). */
+export function parseLeagueHouseRules(raw: unknown, league: Pick<LeagueRecord, "houseRules">): HouseRules {
+  try { return parseHouseRules(raw, "league", houseRulesOf(league, "league")); } catch (e) {
+    if (e instanceof HouseRulesError) throw new SettingsError(400, e.message, e.field);
+    throw e;
+  }
+}
+
+/** The league's regions from a request body (a SettingsError on a bad value). */
+export function parseLeagueRegions(raw: unknown): string[] {
+  try { return parseRegions(raw); } catch (e) {
+    if (e instanceof FormatError) throw new SettingsError(400, e.message, e.field);
+    throw e;
+  }
 }
 
 export function parseInformation(raw: unknown): InformationPatch {
@@ -173,6 +197,13 @@ export function parseInformation(raw: unknown): InformationPatch {
     out.mode = "individual";
   }
   if (i.address !== undefined) out.address = i.address === null ? null : parseAddress(i.address) ?? null;
+  if (i.playOnFork !== undefined) out.playOnFork = bool(i.playOnFork, "playOnFork");
+  if (i.rulesetPackage !== undefined) {
+    if (i.rulesetPackage === null || i.rulesetPackage === "") out.rulesetPackage = null;
+    else if (typeof i.rulesetPackage !== "string" || !i.rulesetPackage.trim() || i.rulesetPackage.trim().length > RULESET_PACKAGE_MAX)
+      throw new SettingsError(400, "Pick a ruleset from the list.", "rulesetPackage");
+    else out.rulesetPackage = i.rulesetPackage.trim();
+  }
   return out;
 }
 
@@ -277,7 +308,17 @@ export interface PermissionsView {
 export interface LeagueSettingsView {
   id: string;
   revision: number;
-  information: { name: string; fullName: string; description: string; ruleset: LeagueRuleset; mode: "individual"; address: LeagueAddress | null };
+  information: {
+    name: string; fullName: string; description: string; ruleset: LeagueRuleset; mode: "individual"; address: LeagueAddress | null;
+    /** Played on (a General setting since creation wizards v2). */
+    playOnFork: boolean;
+    rulesetPackage: string | null;
+  };
+  houseRules: HouseRules;
+  /** The organiser's regions for pairing / join (not the US/CA address regions below). */
+  competitionRegions: string[];
+  /** Site-authorised (shown read-only to site admins). */
+  authorised: boolean;
   permissions: PermissionsView;
   registrations: LeagueRegistrations;
   connections: {
@@ -310,7 +351,11 @@ export function settingsView(
     information: {
       name: league.name, fullName: league.fullName, description: league.description,
       ruleset: league.ruleset ?? "BB2025", mode: "individual", address: league.address ?? null,
+      playOnFork: league.playOnFork === true, rulesetPackage: league.rulesetPackage ?? null,
     },
+    houseRules: houseRulesOf(league, "league"),
+    competitionRegions: league.regions ?? [],
+    authorised: league.authorised !== false,
     permissions: {
       owner,
       organisers: league.organisers.filter((o) => o.trim().toLowerCase() !== owner.toLowerCase()),

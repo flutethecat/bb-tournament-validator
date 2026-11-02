@@ -1,3 +1,6 @@
+import type { PairingAvoid } from "../competition/format.js";
+import type { HouseRules } from "../competition/houseRules.js";
+
 export type TournamentStatus = "draft" | "active" | "completed" | "cancelled";
 export type RoundStatus = "pending" | "active" | "completed";
 export type ScheduledMatchStatus =
@@ -119,6 +122,16 @@ export interface TournamentRecord {
   awardsRevision?: number;
   /** Organiser result edits and clears, newest first, capped (TOURNAMENT_ACTIVITY_CAP). Stamped admin. */
   activity?: TournamentActivityEntry[];
+  /** House rules (creation wizards v2): stored here, never on the shared package. Absent = every setting "as the ruleset
+   *  says" (src/competition/houseRules.ts houseRulesOf derives it on read). */
+  houseRules?: HouseRules;
+  /** Swiss pairing avoidance (same club / same region). Absent = none. */
+  pairingAvoid?: PairingAvoid;
+  /** The organiser's regions; coaches pick one when they join (a later lane). Absent = none. */
+  regions?: string[];
+  /** Site-authorised event (owner round 3: every event run on the site is authorised for now). Absent = true (records
+   *  written before the flag existed); the read model always carries the derived boolean. */
+  authorised?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -247,6 +260,10 @@ export interface TournamentEntrantRecord {
    *  the profile's name and number then, else the number stored with the entry. Used only by the NAF report, so the
    *  games the coach played are reported; never shown elsewhere (a withdrawn entry shows no live profile NAF). */
   nafSnapshot?: { nafName?: string; nafNumber: string; at: string };
+  /** The region the coach picked from the tournament's list when joining (a later lane sets it). Absent/null = none. */
+  region?: string | null;
+  /** The club the coach represents in this tournament (clubs lane). Absent/null = none. */
+  clubId?: string | null;
 }
 
 export interface TournamentRoundRecord {
@@ -257,6 +274,9 @@ export interface TournamentRoundRecord {
   scheduledMatchIds: string[];
   createdAt: string;
   completedAt?: string;
+  /** Pairing avoidance: pairs drawn although they share a club or region (no clash-free draw existed). Shown to the
+   *  organisers on the round. Absent = none. */
+  clashes?: Array<{ homeEntrantId: string; awayEntrantId: string; kinds: Array<"club" | "region"> }>;
 }
 
 export interface ScheduledMatchResult {

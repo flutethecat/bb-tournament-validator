@@ -8,6 +8,7 @@
  */
 
 import type { SeasonInducements } from "./inducementRules.js";
+import type { HouseRules } from "../competition/houseRules.js";
 
 export type LeagueRuleset = "BB2020" | "BB2025";
 export const LEAGUE_RULESETS: readonly LeagueRuleset[] = ["BB2020", "BB2025"];
@@ -45,6 +46,16 @@ export interface LeagueRecord {
   wizard?: { step: number; createdBy: string; completedAt?: string };
   /** First published (Publish in League settings). */
   publishedAt?: string;
+  /** House rules (creation wizards v2), stored on the league, never on a shared package. Absent = all "as the ruleset says". */
+  houseRules?: HouseRules;
+  /** The ruleset card picked in the wizard / settings: a saved package name (e.g. "EuroBowl 2026"). Absent = the plain
+   *  base ruleset (`ruleset`, BB2025 by default). Shown on the league; the league Roster Builder still builds from the base
+   *  ruleset and the season's team building table (package rules in league mode are a later lane). */
+  rulesetPackage?: string;
+  /** The organiser's regions (Season step); coaches pick one at join (a later lane). */
+  regions?: string[];
+  /** Site-authorised (owner round 3: every competition run on the site is, for now). Absent = true. */
+  authorised?: boolean;
   /** Redraft budget cap the board starts from (default on, 1,300,000); remembered from the last confirmed redraft. */
   redraftCap?: { enabled: boolean; cap: number };
   /** Settings revision: every settings write bumps it; a PATCH naming an older revision is refused (409). */

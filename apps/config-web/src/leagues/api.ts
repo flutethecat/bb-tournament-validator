@@ -11,7 +11,7 @@
  *
  * League settings (organisers of the league and site admins; anonymous 401, other coaches 403): see settingsRoutes.
  *   GET    /api/leagues/:id/settings[?season=]                    settings read model (webhook URL masked)
- *   PATCH  /api/leagues/:id/settings                              { revision, administration?, information?, registrations?, teamBuilding?, connections? }
+ *   PATCH  /api/leagues/:id/settings                              { revision, administration?, information?, registrations?, teamBuilding?, connections?, houseRules?, regions? }
  *   GET    /api/leagues/:id/coaches?q=                            coach-name lookup against the identities (add organiser)
  *   POST   /api/leagues/:id/seasons                               { name?, ruleset? } start the next season
  *   GET    /api/leagues/:id/seasons/:seasonId/podium              the podium Finish season proposes (standings.ts) + candidates
@@ -49,6 +49,7 @@
  * Image guards reuse the team-avatar helpers (magic-byte sniff with header-parsed dimensions, the per-coach rate
  * limit) as the tournament banner does; files are stored under the league's own directory with a hashed name.
  */
+import { houseRulesOf, type HouseRules } from "../competition/houseRules.js";
 import { createHash, randomBytes } from "node:crypto";
 import { leagueHonoursRoutes, myAwards } from "./awards.js";
 import { leagueInducementRoutes } from "./inducements.js";
@@ -69,7 +70,7 @@ import { assignTeamCoach } from "./teamCoach.js";
 import { myRedraftTasks, redraftRoutes } from "./redraftApi.js";
 import { leagueParticipantRoutes, myPaymentStatus, participantsForPublic } from "./participants.js";
 import {
-  parseConnections, parseInformation, parseRegistrations, parseTeamBuilding, registrationsOf, settingsView, SettingsError, teamBuildingTable,
+  parseConnections, parseInformation, parseLeagueHouseRules, parseLeagueRegions, parseRegistrations, parseTeamBuilding, registrationsOf, settingsView, SettingsError, teamBuildingTable,
 } from "./settings.js";
 import { leagueStats, isStatsScope, type LeagueStats, type StatsScope } from "./stats.js";
 import { clearStandingsCache, podiumAwards, PODIUM_SLOTS, proposePodium, withStandings, type PodiumPlace } from "./standings.js";
@@ -108,6 +109,10 @@ export interface LeagueSummary {
   currentSeason?: SeasonSummary;
   /** Lane L5: "draft" only for a draft (seen by its organisers and admins); absent = published. */
   visibility?: "draft";
+  /** Creation wizards v2: the league's house rules (defaults derived on read), the ruleset card, and the authorised flag. */
+  houseRules: HouseRules;
+  rulesetPackage?: string;
+  authorised: boolean;
 }
 
 export interface SeasonSummary {
@@ -165,6 +170,13 @@ export interface LeagueApiDeps {
   lobby?: LeagueLobbyDeps;
   /** The tabletop recorder's matches, read only (inducement usage, inducementUsage.ts); unset = no recorder data. */
   tabletop?: import("./inducementUsage.js").InducementUsageSource;
+  /** A saved ruleset package exists (the ruleset card the wizard / settings pick); unset = names are only syntax-checked. */
+  packageExists?: (name: string) => boolean;
+}
+
+/** Refuses a ruleset card that is not a saved package (null = the plain base ruleset). */
+export function assertRulesetPackage(name: string | null | undefined, deps: Pick<LeagueApiDeps, "packageExists">): void {
+  if (name && deps.packageExists && !deps.packageExists(name)) throw new SettingsError(400, "That ruleset is not on the list.", "rulesetPackage");
 }
 
 export interface LeagueApiResult {
@@ -221,6 +233,9 @@ export function leagueSummary(league: LeagueRecord, seasons: SeasonRecord[]): Le
     seasonCount: seasons.length,
     ...(newest ? { currentSeason: seasonSummary(newest) } : {}),
     ...(isDraftLeague(league) ? { visibility: "draft" as const } : {}),
+    houseRules: houseRulesOf(league, "league"),
+    ...(league.rulesetPackage ? { rulesetPackage: league.rulesetPackage } : {}),
+    authorised: league.authorised !== false,
   };
 }
 
@@ -711,6 +726,9 @@ function patchSettings(league: LeagueRecord, who: LeagueApiIdentity, input: Reco
     }
   }
   const info = input.information !== undefined ? parseInformation(input.information) : undefined;
+  assertRulesetPackage(info?.rulesetPackage, deps);
+  const houseRules = input.houseRules !== undefined ? parseLeagueHouseRules(input.houseRules, league) : undefined;
+  const regions = input.regions !== undefined ? parseLeagueRegions(input.regions) : undefined;
   const registrations = input.registrations !== undefined ? parseRegistrations(input.registrations, registrationsOf(league)) : undefined;
   const connections = input.connections !== undefined ? parseConnections(input.connections, discordEvents(league)) : undefined;
   const team = input.teamBuilding !== undefined ? parseTeamBuilding(input.teamBuilding) : undefined;
@@ -742,7 +760,11 @@ function patchSettings(league: LeagueRecord, who: LeagueApiIdentity, input: Reco
       if (info.ruleset !== undefined) l.ruleset = info.ruleset;
       if (info.mode !== undefined) l.mode = info.mode;
       if (info.address !== undefined) { if (info.address === null) delete l.address; else l.address = info.address; }
+      if (info.playOnFork !== undefined) l.playOnFork = info.playOnFork;
+      if (info.rulesetPackage !== undefined) { if (info.rulesetPackage === null) delete l.rulesetPackage; else { l.rulesetPackage = info.rulesetPackage; l.ruleset = "BB2025"; } }
     }
+    if (houseRules) l.houseRules = houseRules;
+    if (regions) { if (regions.length) l.regions = regions; else delete l.regions; }
     if (registrations) l.registrations = registrations;
     if (connections?.playOnFork !== undefined) l.playOnFork = connections.playOnFork;
     if (connections?.discordEvents) l.discordEvents = connections.discordEvents;

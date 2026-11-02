@@ -11,6 +11,7 @@
 
 import { readSaves, type TeamBuilderSave } from "../teamBuilderSaves.js";
 import type { TournamentSubmission, TournamentSubmissionValidation } from "./types.js";
+import type { HouseRules } from "../competition/houseRules.js";
 
 export interface SubmissionCheckDeps {
   savesDir: string;
@@ -21,7 +22,7 @@ export interface SubmissionCheckDeps {
   isSecretLeague(rosterId: string): boolean;
   /** Compose a base-roster builder body and validate it against the named package; throws a client-safe message on
    *  bad input; undefined when this host cannot compose (no fork teams directory). */
-  validateBody(body: Record<string, unknown>, packageName: string): { ok: boolean; problems: string[] } | undefined;
+  validateBody(body: Record<string, unknown>, packageName: string, houseRules?: HouseRules): { ok: boolean; problems: string[] } | undefined;
 }
 
 export type SubmissionCheckResult = TournamentSubmission | { error: string; status?: 400 | 404 | 409 };
@@ -38,6 +39,8 @@ export function checkTournamentSubmission(
   ref: string,
   packageName: string,
   now: Date,
+  /** The tournament's house rules (src/competition/packageOverlay.ts applies the enforceable ones to a package copy). */
+  houseRules?: HouseRules,
 ): SubmissionCheckResult {
   const checkedAt = now.toISOString();
   const packageRevision = (() => { try { return deps.packageRevision(packageName); } catch { return undefined; } })();
@@ -76,7 +79,7 @@ export function checkTournamentSubmission(
   if (rosterId && deps.isSecretLeague(rosterId)) return { ...base, validation: validation(false, [UNCHECKABLE_SECRET_LEAGUE]) };
   try {
     const body = { ...save.body, coach, teamName: String(save.body.teamName || save.name), packageName };
-    const result = deps.validateBody(body, packageName);
+    const result = deps.validateBody(body, packageName, houseRules);
     if (!result) return { ...base, validation: validation(false, [UNCHECKABLE_HOST]) };
     return { ...base, validation: validation(result.ok && result.problems.length === 0, result.problems) };
   } catch (e) {

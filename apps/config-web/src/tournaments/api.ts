@@ -22,6 +22,8 @@ import type {
 } from "./types.js";
 import { tournamentLink, type TournamentNotify } from "../notifications.js";
 import { paymentLinksView } from "../payments/links.js";
+import { FormatError, parsePairingAvoid, parsePointsScheme, parseRegions, parseTiebreakerChain, tiebreakerChainOf } from "../competition/format.js";
+import { HouseRulesError, houseRulesOf, parseHouseRules, type HouseRules } from "../competition/houseRules.js";
 import { myTournamentAwards, tournamentHonoursRoutes } from "./honours.js";
 import type { StoredTournamentResult } from "../tournamentResults.js";
 import { canonicalNafId } from "../auth/identitiesStore.js";
@@ -47,7 +49,7 @@ export interface TournamentApiDeps {
   teamOwner?(teamId: string): string | undefined;
   coachRating?(coach: string): number | undefined;
   /** v4: snapshot + validate a coach's Team Builder save (`save:<id>`) or library team (`library:<teamId>`) against a package. */
-  validateSubmission?(coach: string, ref: string, packageName: string, now: Date): TournamentSubmission | { error: string; status?: 400 | 404 | 409 };
+  validateSubmission?(coach: string, ref: string, packageName: string, now: Date, houseRules?: HouseRules): TournamentSubmission | { error: string; status?: 400 | 404 | 409 };
   /** v4: the stored spelling of a registered coach id (identities store), or undefined when nobody has that id. */
   registeredCoach?(coachId: string): string | undefined;
   /** v4: the package file's current revision; Start refuses rosters checked against another revision. */
@@ -111,6 +113,24 @@ function primaryTiebreaker(value: unknown): TournamentPrimaryTiebreaker {
   if (!(value === "buchholz" || value === "sonnebornBerger"))
     throw new TournamentStoreError(400, "primaryTiebreaker must be buchholz or sonnebornBerger.");
   return value;
+}
+
+/**
+ * Creation wizards v2 fields on a create or settings PATCH body, validated into `patch` before anything is written:
+ * `tiebreakers` (the chain after points, up to 4), `points` ({ win, draw, loss }), `houseRules` (merged over the stored
+ * ones), `pairingAvoid` and `regions`. A bad value is a 400 with the parser's message.
+ */
+function competitionFields(input: Record<string, unknown>, patch: TournamentUpdate, prior?: TournamentRecord): void {
+  try {
+    if (input.tiebreakers !== undefined) patch.tiebreakerChain = parseTiebreakerChain(input.tiebreakers);
+    if (input.points !== undefined) patch.pointsScheme = parsePointsScheme(input.points);
+    if (input.houseRules !== undefined) patch.houseRules = parseHouseRules(input.houseRules, "tournament", prior ? houseRulesOf(prior, "tournament") : undefined);
+    if (input.pairingAvoid !== undefined) patch.pairingAvoid = parsePairingAvoid(input.pairingAvoid);
+    if (input.regions !== undefined) patch.regions = parseRegions(input.regions);
+  } catch (error) {
+    if (error instanceof FormatError || error instanceof HouseRulesError) throw new TournamentStoreError(400, error.message);
+    throw error;
+  }
 }
 
 function requestedRoundCount(value: unknown): number {
@@ -200,7 +220,7 @@ function rosterChecks(
     const ref = entrant.submission?.saveId ?? `library:${entrant.teamId}`;
     let check: ReturnType<NonNullable<TournamentApiDeps["validateSubmission"]>>;
     try {
-      check = deps.validateSubmission(entrant.coach.ffbCoachId, ref, tournament.packageName, now);
+      check = deps.validateSubmission(entrant.coach.ffbCoachId, ref, tournament.packageName, now, houseRulesOf(tournament, "tournament"));
     } catch {
       throw new TournamentStoreError(503, "Team validation failed on this host; nothing was locked. Try again.");
     }
@@ -383,6 +403,12 @@ function clientTournament(
     ...record,
     turnTimer: tournament.turnTimer ?? DEFAULT_TOURNAMENT_TURN_TIMER,
     inducementOptIns: tournament.inducementOptIns ?? [],
+    // Creation wizards v2: derived on read so records written before these settings existed read as the defaults.
+    houseRules: houseRulesOf(tournament, "tournament"),
+    tiebreakerChain: tiebreakerChainOf(tournament.tiebreakers),
+    pairingAvoid: tournament.pairingAvoid ?? "none",
+    regions: tournament.regions ?? [],
+    authorised: tournament.authorised !== false,
     ...(startsAt === undefined ? {} : { startsAt }),
     ...(endsAt === undefined ? {} : { endsAt }),
     ...(banner ? { bannerUrl: banner } : {}),
@@ -822,6 +848,7 @@ function wizardCreateFields(input: Record<string, unknown>):
       if (typeof input.playOnFork !== "boolean") return { error: "playOnFork must be true or false." };
       if (input.playOnFork) settings.playOnFork = true;
     }
+    competitionFields(input, settings);
     if (input.turnTimer !== undefined) {
       const t = jsonObject(input.turnTimer);
       const enforced = t.enforced === undefined ? DEFAULT_TOURNAMENT_TURN_TIMER.enforced : t.enforced;
@@ -1024,7 +1051,7 @@ export async function tournamentApi(
       if (tournament.rostersLockedAt || entrant.flags?.frozen)
         return { status: 409, body: { error: "Rosters are locked; ask an organiser to unlock them before resubmitting." } };
       if (!deps.validateSubmission) return { status: 503, body: { error: "Team validation is unavailable on this host." } };
-      const check = deps.validateSubmission(entrant.coach.ffbCoachId, saveId, tournament.packageName, now);
+      const check = deps.validateSubmission(entrant.coach.ffbCoachId, saveId, tournament.packageName, now, houseRulesOf(tournament, "tournament"));
       if ("error" in check) return { status: check.status ?? 400, body: { error: check.error } };
       const updated = deps.store.submitTeam(tournament.id, entrant.id, check, now);
       return {
@@ -1326,6 +1353,7 @@ export async function tournamentApi(
       }
       if (input.primaryTiebreaker !== undefined)
         patch.primaryTiebreaker = primaryTiebreaker(input.primaryTiebreaker);
+      competitionFields(input, patch, existing);
       if (input.nafSanctioned !== undefined) {
         if (typeof input.nafSanctioned !== "boolean")
           return { status: 400, body: { error: "nafSanctioned must be true or false." } };
