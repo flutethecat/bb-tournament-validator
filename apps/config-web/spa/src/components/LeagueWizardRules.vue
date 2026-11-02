@@ -1,17 +1,27 @@
 <script setup lang="ts">
-// Create a league, step 2 Rules: the default ruleset (BB2025 / BB2020 cards), the allowed roster classes (Q10), max teams
+// Create a league, step 2 Rules: the ruleset cards (the tournament wizard's picker: Featured first with BB2025 preselected,
+// then every saved ruleset and BB2020, plus "Create a new ruleset"), the house rules group, the allowed roster classes (Q10), max teams
 // and max per race (the league defaults each season copies, Q7), the inducement table (standard; edit later) and the
 // Team building table (tier, initial treasury, starting skills), with the settings tab's "Apply to all rosters in this
 // tier" fill. Saved on Season 1's rules, read by the Roster Builder's league mode.
-import { computed, inject, ref } from "vue";
+import { computed, inject, onMounted, ref } from "vue";
+import { useRouter } from "vue-router";
 import { applyTierFill } from "../leagues/settings";
-import { LEAGUE_WIZARD_KEY } from "../leagues/wizard";
+import { BB2020_CARD, LEAGUE_WIZARD_KEY, selectedCardKey } from "../leagues/wizard";
+import HouseRulesFields from "./HouseRulesFields.vue";
+import RulesetCardPicker from "./RulesetCardPicker.vue";
 
 const wizard = inject(LEAGUE_WIZARD_KEY)!;
 const { state } = wizard;
 const r = computed(() => state.form.rules);
 const TIERS = [1, 2, 3, 4, 5, 6];
-const RULESETS = [{ id: "BB2025", line: "The 2025 edition." }, { id: "BB2020", line: "The 2020 edition." }] as const;
+const router = useRouter();
+onMounted(() => { if (state.packagesStatus === "idle") void wizard.loadPackages(); });
+// "Create a new ruleset": the Tournament Creator, then back to this draft league with the new ruleset picked.
+function newRuleset(): void {
+  if (!state.draft) return;
+  void router.push({ name: "tournament-creator", query: { new: "1", return: "league", draft: state.draft.id } });
+}
 const fillNotice = ref("");
 function fill(roster: string): void {
   const n = applyTierFill(r.value.rosters, roster);
@@ -22,17 +32,17 @@ const elite = computed(() => state.draft?.rules.teamBuilding.eliteSkills.join(",
 </script>
 
 <template>
+  <fieldset class="lw-group lw-ruleset" data-group="ruleset">
+    <legend class="sf-k">Ruleset</legend>
+    <RulesetCardPicker
+      kind="league" :packages="state.packages" :status="state.packagesStatus" :selected="selectedCardKey(r)" :extra="[BB2020_CARD]"
+      @pick="wizard.pickRuleset" @create="newRuleset" @retry="wizard.loadPackages()"
+    />
+  </fieldset>
   <div class="lw-cols lw-cols-rules">
     <div class="lw-col">
-      <fieldset class="lw-group">
-        <legend class="sf-k">Default ruleset</legend>
-        <div class="lw-cards" role="radiogroup" aria-label="Default ruleset">
-          <button
-            v-for="x in RULESETS" :key="x.id" type="button" role="radio" class="lw-card" :aria-checked="r.ruleset === x.id ? 'true' : 'false'"
-            @click="r.ruleset = x.id"
-          ><strong>{{ x.id }}</strong><small>{{ x.line }}</small></button>
-        </div>
-      </fieldset>
+      <HouseRulesFields v-model="r.houseRules" kind="league" id-prefix="lw" />
+      <small v-if="state.errors.houseRules" class="sf-error">{{ state.errors.houseRules }}</small>
       <fieldset class="lw-group">
         <legend class="sf-k">Allowed rosters</legend>
         <label class="sf-check lw-check"><input v-model="r.official" type="checkbox" /> Official</label>

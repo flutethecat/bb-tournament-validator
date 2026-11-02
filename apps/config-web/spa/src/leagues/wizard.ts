@@ -1,19 +1,24 @@
-// League creation wizard (/app/leagues/new, registration spec 11-02 §4 (b), lane L5): five steps, Identity -> Rules ->
-// Season 1 -> Connections -> Review. A controller over POST /api/leagues (the first Next makes the DRAFT league) and
+// League creation wizard (/app/leagues/new, registration spec 11-02 §4 (b), lane L5; creation wizards v2): five steps,
+// General -> Rules (+ house rules) -> Season 1 -> Connections (Discord only) -> Review. The first step keeps its id
+// "identity" (the draft's saved step numbers never changed). A controller over POST /api/leagues (the first Next makes the DRAFT league) and
 // PATCH /api/leagues/:id/draft (every later Next saves its step), plus the pure helpers the step components use. The
 // server validates with the League settings parsers, so the messages here only mirror what it will say. No DOM.
 
-import { reactive, type InjectionKey } from "vue";
+import { reactive, toRaw, type InjectionKey } from "vue";
 import { ApiError } from "../shared/api";
 import { normalisePayPal, normaliseVenmo, payPalProblem, venmoProblem } from "../shared/payLinks";
 import type { Fetcher } from "../session";
 import { fetchUpload, type RawUploader } from "./league";
 import { isWebhookUrl, teamBuildingError } from "./settings";
 import type { LeagueAddress, TeamBuildingRosterRule } from "./types";
+import {
+  cardKey, defaultHouseRules, FormatError, houseRulesRows, HouseRulesError, parseHouseRules, parseRegions, rulesetLabel, type HouseRules,
+  type PackageListItem, type RulesetCard,
+} from "../shared/competition";
 
 export type WizardStepId = "identity" | "rules" | "season" | "connections" | "review";
 export const WIZARD_STEPS: ReadonlyArray<{ id: WizardStepId; n: number; label: string }> = [
-  { id: "identity", n: 1, label: "Identity" },
+  { id: "identity", n: 1, label: "General" },
   { id: "rules", n: 2, label: "Rules" },
   { id: "season", n: 3, label: "Season 1" },
   { id: "connections", n: 4, label: "Connections" },
@@ -30,9 +35,11 @@ export interface WizardDraft {
   step: number;
   completedAt?: string;
   test: boolean;
-  identity: { name: string; fullName: string; slug: string; description: string; address: LeagueAddress | null; logoUrl?: string; bannerUrl?: string };
+  identity: { name: string; fullName: string; slug: string; description: string; address: LeagueAddress | null; logoUrl?: string; bannerUrl?: string; playOnFork?: boolean };
   rules: {
     ruleset: "BB2020" | "BB2025";
+    rulesetPackage?: string | null;
+    houseRules?: HouseRules;
     allowedRosters: { official: boolean; nafApproved: boolean; unofficial: boolean };
     maxRegistrations: number | null;
     maxPerRace: number | null;
@@ -44,6 +51,7 @@ export interface WizardDraft {
       opensAt?: string; closesAt?: string; approval: "auto" | "organiser"; waitlist: boolean; allowExistingTeams: boolean; allowMidSeason: boolean; entryFee: string;
       payPal?: string; venmo?: string;
     };
+    regions?: string[];
   } | null;
   connections: { playOnFork: boolean; discord: { configured: boolean; maskedUrl: string; events: Record<string, boolean> } };
 }
@@ -53,15 +61,25 @@ export const DISCORD_EVENTS = ["news", "fixtureCreated", "matchStarted", "matchR
 export interface WizardForm {
   identity: {
     name: string; fullName: string; slug: string; slugEdited: boolean; description: string;
+    /** Played on (a General setting since creation wizards v2): true = Super FUMBBL, false = tabletop. */
+    playOnFork: boolean;
   };
-  rules: { ruleset: "BB2020" | "BB2025"; official: boolean; nafApproved: boolean; unofficial: boolean; maxRegistrations: string; maxPerRace: string; rosters: TeamBuildingRosterRule[] };
+  rules: {
+    ruleset: "BB2020" | "BB2025"; official: boolean; nafApproved: boolean; unofficial: boolean; maxRegistrations: string; maxPerRace: string; rosters: TeamBuildingRosterRule[];
+    /** The ruleset card: a saved package name, "" = the plain base ruleset. */
+    rulesetPackage: string;
+    houseRules: HouseRules;
+  };
   season: {
     name: string; startsAt: string; divisions: string[]; playoffs: boolean; opensAt: string; closesAt: string;
     approval: "auto" | "organiser"; waitlist: boolean; allowExistingTeams: boolean; allowMidSeason: boolean; entryFee: string;
     /** Payment links (optional): a PayPal.Me link and a Venmo username. */
     payPal: string; venmo: string;
+    /** The organiser's regions (one per line in the form; blank lines dropped on save). */
+    regions: string[];
   };
-  connections: { playOnFork: boolean; webhook: string; clearWebhook: boolean; events: Record<string, boolean> };
+  /** Discord only (Played on moved to General). */
+  connections: { webhook: string; clearWebhook: boolean; events: Record<string, boolean> };
 }
 
 export const NAME_MAX = 40;
@@ -78,13 +96,16 @@ export function slugify(name: string): string {
 
 export function emptyForm(): WizardForm {
   return {
-    identity: { name: "", fullName: "", slug: "", slugEdited: false, description: "" },
-    rules: { ruleset: "BB2025", official: true, nafApproved: true, unofficial: false, maxRegistrations: "", maxPerRace: "", rosters: [] },
+    identity: { name: "", fullName: "", slug: "", slugEdited: false, description: "", playOnFork: false },
+    rules: {
+      ruleset: "BB2025", official: true, nafApproved: true, unofficial: false, maxRegistrations: "", maxPerRace: "", rosters: [],
+      rulesetPackage: "", houseRules: defaultHouseRules("league"),
+    },
     season: {
       name: "Season 1", startsAt: "", divisions: [], playoffs: false, opensAt: "", closesAt: "",
-      approval: "organiser", waitlist: true, allowExistingTeams: false, allowMidSeason: false, entryFee: "", payPal: "", venmo: "",
+      approval: "organiser", waitlist: true, allowExistingTeams: false, allowMidSeason: false, entryFee: "", payPal: "", venmo: "", regions: [],
     },
-    connections: { playOnFork: false, webhook: "", clearWebhook: false, events: { news: true, fixtureCreated: true, matchStarted: true, matchResult: true, milestones: true } },
+    connections: { webhook: "", clearWebhook: false, events: { news: true, fixtureCreated: true, matchStarted: true, matchResult: true, milestones: true } },
   };
 }
 
@@ -109,12 +130,16 @@ export const isoDay = (iso: string | undefined): string => (iso && /^\d{4}-\d{2}
 /** The form a saved draft fills in (a resumed draft opens where it was left). */
 export function formFromDraft(d: WizardDraft): WizardForm {
   const f = emptyForm();
-  f.identity = { name: d.identity.name, fullName: d.identity.fullName, slug: d.identity.slug, slugEdited: true, description: d.identity.description };
+  // Older servers sent Played on under connections only.
+  const played = d.identity.playOnFork ?? d.connections.playOnFork;
+  f.identity = { name: d.identity.name, fullName: d.identity.fullName, slug: d.identity.slug, slugEdited: true, description: d.identity.description, playOnFork: played === true };
   f.rules = {
     ruleset: d.rules.ruleset, ...d.rules.allowedRosters,
     maxRegistrations: d.rules.maxRegistrations === null ? "" : String(d.rules.maxRegistrations),
     maxPerRace: d.rules.maxPerRace === null ? "" : String(d.rules.maxPerRace),
     rosters: structuredClone(d.rules.teamBuilding.rosters),
+    rulesetPackage: d.rules.rulesetPackage ?? "",
+    houseRules: d.rules.houseRules ? structuredClone(d.rules.houseRules) : defaultHouseRules("league"),
   };
   if (d.season) {
     const r = d.season.registration;
@@ -122,10 +147,10 @@ export function formFromDraft(d: WizardDraft): WizardForm {
       name: d.season.name, startsAt: isoDay(d.season.startedAt), divisions: [...d.season.divisions], playoffs: d.season.playoffs,
       opensAt: toLocalInput(r.opensAt), closesAt: toLocalInput(r.closesAt), approval: r.approval, waitlist: r.waitlist,
       allowExistingTeams: r.allowExistingTeams, allowMidSeason: r.allowMidSeason, entryFee: r.entryFee,
-      payPal: r.payPal ?? "", venmo: r.venmo ?? "",
+      payPal: r.payPal ?? "", venmo: r.venmo ?? "", regions: [...(d.season.regions ?? [])],
     };
   }
-  f.connections = { playOnFork: d.connections.playOnFork, webhook: "", clearWebhook: false, events: { ...d.connections.discord.events } };
+  f.connections = { webhook: "", clearWebhook: false, events: { ...d.connections.discord.events } };
   return f;
 }
 
@@ -164,6 +189,7 @@ export function rulesErrors(f: WizardForm): StepErrors {
   else if (typeof maxRace === "number" && typeof maxReg === "number" && maxRace > maxReg) e.maxPerRace = "Cannot be more than max teams.";
   const tb = teamBuildingError(r.rosters);
   if (tb) e.teamBuilding = tb;
+  try { parseHouseRules(r.houseRules, "league"); } catch (err) { if (err instanceof HouseRulesError) e.houseRules = err.message; }
   return e;
 }
 
@@ -184,6 +210,7 @@ export function seasonErrors(f: WizardForm): StepErrors {
   if (payPal) e.payPal = payPal;
   const venmo = venmoProblem(s.venmo);
   if (venmo) e.venmo = venmo;
+  try { parseRegions(s.regions); } catch (err) { if (err instanceof FormatError) e.regions = err.message; }
   return e;
 }
 
@@ -204,13 +231,15 @@ export function stepErrors(step: WizardStepId, f: WizardForm, created: boolean):
 export function stepPayload(step: WizardStepId, f: WizardForm): Record<string, unknown> {
   if (step === "identity") {
     const i = f.identity;
-    return { identity: { name: i.name.trim(), fullName: i.fullName.trim(), description: i.description.trim() } };
+    return { identity: { name: i.name.trim(), fullName: i.fullName.trim(), description: i.description.trim(), playOnFork: i.playOnFork } };
   }
   if (step === "rules") {
     const r = f.rules;
     const n = (v: string) => { const x = limit(v, 512); return typeof x === "number" ? x : null; };
     return { rules: {
-      ruleset: r.ruleset, allowedRosters: { official: r.official, nafApproved: r.nafApproved, unofficial: r.unofficial },
+      // A package card is a BB2025 pack: the base ruleset follows it.
+      ruleset: r.rulesetPackage ? "BB2025" : r.ruleset, rulesetPackage: r.rulesetPackage || null, houseRules: structuredClone(toRaw(r.houseRules)),
+      allowedRosters: { official: r.official, nafApproved: r.nafApproved, unofficial: r.unofficial },
       maxRegistrations: n(r.maxRegistrations), maxPerRace: n(r.maxPerRace),
       ...(r.rosters.length ? { teamBuilding: { rosters: r.rosters } } : {}),
     } };
@@ -219,6 +248,7 @@ export function stepPayload(step: WizardStepId, f: WizardForm): Record<string, u
     const s = f.season;
     return { season: {
       name: s.name.trim(), startsAt: startDateIso(s.startsAt), divisions: s.divisions.map((d) => d.trim()).filter(Boolean), playoffs: s.playoffs,
+      regions: s.regions.map((x) => x.trim()).filter(Boolean),
       registration: {
         opensAt: fromLocalInput(s.opensAt), closesAt: fromLocalInput(s.closesAt), approval: s.approval, waitlist: s.waitlist,
         allowExistingTeams: s.allowExistingTeams, allowMidSeason: s.allowMidSeason, entryFee: s.entryFee.trim(),
@@ -230,7 +260,7 @@ export function stepPayload(step: WizardStepId, f: WizardForm): Record<string, u
   if (step === "connections") {
     const c = f.connections;
     const url = c.clearWebhook ? null : c.webhook.trim() || undefined;
-    return { connections: { playOnFork: c.playOnFork, discord: { ...(url !== undefined ? { url } : {}), events: { ...c.events } } } };
+    return { connections: { discord: { ...(url !== undefined ? { url } : {}), events: { ...c.events } } } };
   }
   return {};
 }
@@ -255,19 +285,22 @@ export function summaryGroups(f: WizardForm, draft: WizardDraft | null): Summary
   const divisions = s.divisions.map((d) => d.trim()).filter(Boolean);
   const window = s.opensAt || s.closesAt ? `${when(s.opensAt) || "When opened"} to ${when(s.closesAt) || "season start"}` : "Opens when you open it";
   const discord = c.clearWebhook ? "Removed" : c.webhook.trim() ? "New webhook" : draft?.connections.discord.configured ? "Connected" : "Not set";
+  const regions = s.regions.map((x) => x.trim()).filter(Boolean);
   return [
-    { step: "identity", title: "Identity", rows: [
+    { step: "identity", title: "General", rows: [
       { k: "Name", v: i.name.trim() || "-" },
       ...(i.fullName.trim() ? [{ k: "Full name", v: i.fullName.trim() }] : []),
       { k: "Address", v: `/leagues/${draft?.id ?? (i.slug.trim() || slugify(i.name) || "...")}` },
+      { k: "Played on", v: i.playOnFork ? "Super FUMBBL" : "Tabletop" },
     ] },
     { step: "rules", title: "Rules", rows: [
-      { k: "Ruleset", v: r.ruleset },
+      { k: "Ruleset", v: rulesetLabel(r.rulesetPackage, r.ruleset) },
       { k: "Rosters", v: rosters },
       { k: "Max teams", v: r.maxRegistrations.trim() || "No limit" },
       { k: "Max per race", v: r.maxPerRace.trim() || "No limit" },
       { k: "Team building", v: changed ? `${changed} roster${changed === 1 ? "" : "s"} changed` : "Defaults" },
       { k: "Inducements", v: "Standard table" },
+      ...houseRulesRows(r.houseRules, "league"),
     ] },
     { step: "season", title: s.name.trim() || "Season 1", rows: [
       ...(s.startsAt ? [{ k: "Starts", v: s.startsAt }] : []),
@@ -281,10 +314,10 @@ export function summaryGroups(f: WizardForm, draft: WizardDraft | null): Summary
       ...(s.entryFee.trim() ? [{ k: "Entry fee", v: s.entryFee.trim() }] : []),
       ...(s.payPal.trim() ? [{ k: "PayPal", v: normalisePayPal(s.payPal).ok ? "Link set" : "Check the link" }] : []),
       ...(s.venmo.trim() ? [{ k: "Venmo", v: `@${s.venmo.trim().replace(/^@/, "")}` }] : []),
+      ...(regions.length ? [{ k: "Regions", v: regions.join(", ") }] : []),
     ] },
     { step: "connections", title: "Connections", rows: [
       { k: "Discord", v: discord },
-      { k: "Super FUMBBL", v: c.playOnFork ? "On" : "Off" },
     ] },
   ];
 }
@@ -305,11 +338,20 @@ export interface WizardState {
   loaded: boolean;
   logo: File | null;
   banner: File | null;
+  /** The ruleset cards (GET /api/packages). */
+  packages: PackageListItem[];
+  packagesStatus: "idle" | "loading" | "ready" | "error";
 }
+
+/** The league's extra card: the BB2020 base ruleset (leagues only). */
+export const BB2020_CARD: RulesetCard = { packageName: "", ruleset: "BB2020", label: "BB2020", line: "The 2020 edition." };
+/** The picked card's key (RulesetCardPicker `selected`). */
+export const selectedCardKey = (r: Pick<WizardForm["rules"], "rulesetPackage" | "ruleset">): string => cardKey({ packageName: r.rulesetPackage, ruleset: r.ruleset });
 
 export function createLeagueWizard(deps: { api: Fetcher; upload?: RawUploader }) {
   const state = reactive<WizardState>({
     step: "identity", form: emptyForm(), draft: null, reached: 0, busy: "", error: "", notice: "", errors: {}, loaded: false, logo: null, banner: null,
+    packages: [], packagesStatus: "idle",
   });
   const base = (): string => `/api/leagues/${encodeURIComponent(state.draft!.id)}`;
 
@@ -321,7 +363,7 @@ export function createLeagueWizard(deps: { api: Fetcher; upload?: RawUploader })
   }
 
   /** A fresh wizard, or a draft picked back up (?draft=<id>). */
-  async function start(draftId?: string): Promise<void> {
+  async function start(draftId?: string, opts: { packageName?: string } = {}): Promise<void> {
     state.error = "";
     state.loaded = false;
     try {
@@ -329,6 +371,8 @@ export function createLeagueWizard(deps: { api: Fetcher; upload?: RawUploader })
         const d = (await deps.api<{ draft: WizardDraft }>(`/api/leagues/${encodeURIComponent(draftId)}/draft`)).draft;
         take(d, true);
         state.step = WIZARD_STEPS[Math.min(WIZARD_STEPS.length, Math.max(1, d.step)) - 1]!.id;
+        // Back from "Create a new ruleset" (Tournament Creator, ?package=): the new ruleset is picked on the Rules step.
+        if (opts.packageName) { state.form.rules.rulesetPackage = opts.packageName; state.form.rules.ruleset = "BB2025"; state.step = "rules"; }
       } else {
         state.form = emptyForm();
         state.draft = null;
@@ -357,6 +401,28 @@ export function createLeagueWizard(deps: { api: Fetcher; upload?: RawUploader })
     const msg = errorText(err, "That did not save.");
     if (data?.field) state.errors = { ...state.errors, [data.field.replace(/^(identity|rules|season|connections)\./, "")]: msg };
     state.error = msg;
+  }
+
+  async function loadPackages(): Promise<void> {
+    state.packagesStatus = "loading";
+    try {
+      const list = await deps.api<unknown>("/api/packages");
+      state.packages = (Array.isArray(list) ? list : [])
+        .filter((e): e is { name: string; description?: unknown; format?: unknown } => Boolean(e) && typeof e === "object" && typeof (e as { name?: unknown }).name === "string")
+        .map((e) => ({ name: e.name, ...(typeof e.description === "string" && e.description ? { description: e.description } : {}), ...(typeof e.format === "string" ? { format: e.format } : {}) }));
+      state.packagesStatus = "ready";
+    } catch {
+      state.packagesStatus = state.packages.length ? "ready" : "error";
+    }
+  }
+
+  /** The first step (before Review) with a problem, checked as its Next would. */
+  function firstProblem(): WizardStepId | undefined {
+    for (const s of WIZARD_STEPS) {
+      if (s.id === "review") break;
+      if (Object.keys(stepErrors(s.id, state.form, Boolean(state.draft))).length) return s.id;
+    }
+    return undefined;
   }
 
   /** Saves the current step (creating the draft on the first one); false when it was refused. */
@@ -412,11 +478,42 @@ export function createLeagueWizard(deps: { api: Fetcher; upload?: RawUploader })
       if (stepIndex(id) <= state.reached || id === state.step) { state.step = id; state.error = ""; state.errors = {}; }
     },
     canGo: (id: WizardStepId): boolean => stepIndex(id) <= state.reached || id === state.step,
-    /** Review: finish the wizard (the league stays a draft until Publish in League settings). */
-    async create(): Promise<boolean> {
-      if (!state.draft) return false;
-      return saveStep({ complete: true });
+    loadPackages,
+    /** Pick a ruleset card ("" package = a plain base ruleset). */
+    pickRuleset(card: RulesetCard): void {
+      state.form.rules.rulesetPackage = card.packageName;
+      state.form.rules.ruleset = card.packageName ? "BB2025" : card.ruleset ?? "BB2025";
     },
+    /**
+     * Review: Save as draft (`publish` false) or Publish now (true). Both check the whole form first (the first step with
+     * a problem opens with its fields marked) and finish the wizard; Publish now then publishes the league.
+     * PAYMENT SLOT (owner 11-02: "the review page is where payment would go"): a future charge-at-publish step runs here,
+     * before the publish POST. Nothing is charged today.
+     */
+    async finish(publish: boolean): Promise<boolean> {
+      if (!state.draft || state.busy) return false;
+      const bad = firstProblem();
+      if (bad) {
+        state.step = bad;
+        state.errors = stepErrors(bad, state.form, true);
+        state.error = "Check the highlighted fields.";
+        return false;
+      }
+      if (!(await saveStep({ complete: true }))) return false;
+      if (!publish) return true;
+      state.busy = "publish";
+      try {
+        await deps.api(`${base()}/publish`, { method: "POST", body: {} });
+        return true;
+      } catch (err) {
+        state.error = errorText(err, "The league did not publish. It is saved as a draft: publish it from League settings.");
+        return false;
+      } finally {
+        state.busy = "";
+      }
+    },
+    /** The old single finish (kept for callers): save as a draft. */
+    async create(): Promise<boolean> { return this.finish(false); },
     testDiscord: async (): Promise<void> => {
       if (!state.draft) return;
       state.busy = "discord-test";

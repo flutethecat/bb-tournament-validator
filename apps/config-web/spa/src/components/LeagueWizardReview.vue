@@ -1,7 +1,7 @@
 <script setup lang="ts">
-// Create a league, step 5 Review: every choice as key/value panels with Edit links back to each step. Create league
-// finishes the wizard; the league stays a DRAFT (only its organisers and site admins see it) until Publish in League
-// settings, Administration.
+// Create a league, step 5 Review: every choice as key/value panels with Edit links back to each step (the Roster Builder
+// summary layout). Save as draft finishes the wizard and keeps the league a DRAFT (only its organisers and site admins see
+// it); Publish now also publishes it. Both check every step first.
 import { computed, inject } from "vue";
 import { LEAGUE_WIZARD_KEY } from "../leagues/wizard";
 
@@ -12,8 +12,9 @@ const groups = computed(() => wizard.summary());
 <template>
   <div class="lw-review">
     <p class="lw-help lw-review-lead">
-      Create league saves it as a draft: only you, its other organisers and site admins can see it. Publish it from League
-      settings, Administration, when it is ready; then open registration there.
+      <strong>Save as draft</strong> keeps it hidden: only you, its other organisers and site admins can see it.
+      <strong>Publish now</strong> makes it public. Both check every step first. You can also publish later from League
+      settings, Administration; open registration there when it is ready.
     </p>
     <div class="lw-review-grid">
       <section v-for="g in groups" :key="g.step" class="lw-group lw-review-card" :aria-labelledby="`lw-r-${g.step}`">

@@ -1,10 +1,10 @@
 <script setup lang="ts">
 // Create a league (/app/leagues/new[?draft=<id>], registration spec 11-02 §4 (b), lane L5). Site organisers and admins
 // (Q1); anyone else gets the "organisers only" note with the way to ask. Five steps in the Roster Builder's header-tab
-// pattern (teleported into #sf-header-slot from 640 px): Identity, Rules, Season 1, Connections, Review. The step pane
+// pattern (teleported into #sf-header-slot from 640 px): General, Rules, Season 1, Connections, Review. The step pane
 // sits left, the LEAGUE SUMMARY side panel right; at 1920x1080 the page never scrolls (design.md §6), the panes do.
-// Every Next saves its step to the server (the first one creates the draft league); Create league finishes the wizard and
-// the league stays a draft until Publish in League settings.
+// Every Next saves its step to the server (the first one creates the draft league). Review: Save as draft finishes the
+// wizard (the league stays a draft); Publish now also publishes it. Both check every step first.
 import { computed, inject, onBeforeUnmount, onMounted, provide, ref } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { API_KEY } from "../app";
@@ -46,7 +46,9 @@ onMounted(async () => {
     placeTabs();
   }
   await session.load();
-  if (!state.loaded || (draftId.value && state.draft?.id !== draftId.value)) await wizard.start(draftId.value || undefined);
+  const pkg = typeof route.query.package === "string" && route.query.package.length <= 120 ? route.query.package : undefined;
+  if (!state.loaded || (draftId.value && state.draft?.id !== draftId.value)) await wizard.start(draftId.value || undefined, { packageName: pkg });
+  if (pkg && state.draft) void router.replace({ query: { draft: state.draft.id } });
 });
 onBeforeUnmount(() => { narrowMq?.removeEventListener?.("change", placeTabs); narrowMq = null; });
 usePageTitle(() => "Create a league");
@@ -57,10 +59,9 @@ async function next(): Promise<void> {
   // The draft has an address now: a refresh or a later visit picks it back up.
   if (firstSave && state.draft) void router.replace({ query: { draft: state.draft.id } });
 }
-async function create(): Promise<void> {
-  if (await wizard.create()) void router.push({ name: "league-detail", params: { id: state.draft!.id } });
+async function finish(publish: boolean): Promise<void> {
+  if (await wizard.finish(publish)) void router.push({ name: "league-detail", params: { id: state.draft!.id } });
 }
-const leave = (): void => { if (state.draft) void router.push({ name: "league-detail", params: { id: state.draft.id } }); };
 </script>
 
 <template>
@@ -103,8 +104,9 @@ const leave = (): void => { if (state.draft) void router.push({ name: "league-de
             <p v-else-if="state.notice" class="sf-notice lw-msg" role="status">{{ state.notice }}</p>
             <span v-else class="lw-msg"></span>
             <template v-if="last">
-              <button class="sf-btn" type="button" :disabled="!state.draft || Boolean(state.busy)" @click="leave">Save draft</button>
-              <button class="sf-btn primary" type="button" :disabled="!state.draft || Boolean(state.busy)" @click="create">Create league</button>
+              <!-- Payment at Publish (owner 11-02) will slot in before Publish now: see leagues/wizard.ts finish, PAYMENT SLOT. -->
+              <button class="sf-btn" type="button" data-action="draft" :disabled="!state.draft || Boolean(state.busy)" @click="finish(false)">Save as draft</button>
+              <button class="sf-btn primary" type="button" data-action="publish" :disabled="!state.draft || Boolean(state.busy)" @click="finish(true)">{{ state.busy === "publish" ? "Publishing..." : "Publish now" }}</button>
             </template>
             <button v-else class="sf-btn primary" type="button" :disabled="Boolean(state.busy)" @click="next">{{ state.busy ? "Saving..." : "Next" }}</button>
           </footer>

@@ -2,7 +2,8 @@
 // Create a tournament (/app/tournaments/new; registration spec 2026-11-02 §6, lane L3): the step tabs sit in the shell
 // header from 640 px (the Roster Builder pattern), the step pane on the left scrolls inside itself, the Tournament
 // summary fills in on the right, and the step's actions stay at the foot of the pane (fits 1920x1080, design.md §6).
-// Ruleset -> Details -> Registration -> Review, then Save draft (unpublished: only its organisers see it) or Publish.
+// Ruleset (+ house rules) -> General -> Format -> Registration -> Review, then Save as draft (unpublished: only its
+// organisers see it) or Publish now.
 // Server: POST /api/tournaments (src/tournaments/api.ts wizardCreateFields). Controller: tournaments/wizard.ts.
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
@@ -10,11 +11,15 @@ import DiscordLoginButton from "../components/DiscordLoginButton.vue";
 import { API_KEY } from "../app";
 import { appPath, discordLoginUrl, SESSION_KEY } from "../session";
 import { canCreateTournament, createdLocation, FORMAT_OPTIONS, TOURNAMENT_CREATOR_KEY } from "../tournaments/create";
-import { PAIRING_LABEL, SEEDING_LABEL, TIEBREAKER_LABEL } from "../tournaments/detail";
+import { PAIRING_LABEL, SEEDING_LABEL } from "../tournaments/detail";
 import {
-  APPROVAL_LABEL, createTournamentWizard, DRAFT_NOTICE, filterPackages, PUBLISHED_NOTICE, summaryRows, TOURNAMENT_WIZARD_KEY,
+  APPROVAL_LABEL, createTournamentWizard, DRAFT_NOTICE, PUBLISHED_NOTICE, summaryRows, TOURNAMENT_WIZARD_KEY,
   TURN_TIMER_LABEL, WIZARD_STEPS, type WizardStep,
 } from "../tournaments/wizard";
+import CompetitionFormatFields from "../components/CompetitionFormatFields.vue";
+import HouseRulesFields from "../components/HouseRulesFields.vue";
+import PlayedOnToggle from "../components/PlayedOnToggle.vue";
+import RulesetCardPicker from "../components/RulesetCardPicker.vue";
 import { PAY_NOTE, payPalProblem, venmoProblem } from "../shared/payLinks";
 import "../tournaments/wizard.css";
 
@@ -34,8 +39,7 @@ const { state } = wizard;
 const allowed = computed(() => canCreateTournament(session));
 const loginHref = computed(() => discordLoginUrl(appPath(route.fullPath)));
 const index = computed(() => WIZARD_STEPS.findIndex((s) => s.id === state.step));
-const stepTitle: Record<WizardStep, string> = { ruleset: "Pick a ruleset", details: "Details", registration: "Registration", review: "Review" };
-const cards = computed(() => filterPackages(state.packages, state.search));
+const stepTitle: Record<WizardStep, string> = { ruleset: "Pick a ruleset", general: "General", format: "Format", registration: "Registration", review: "Review" };
 const rows = computed(() => summaryRows(state.form, state.series));
 const payErrors = computed(() => ({ payPal: payPalProblem(state.form.payPal), venmo: venmoProblem(state.form.venmo) }));
 const swiss = computed(() => state.form.format === "swiss");
@@ -116,32 +120,17 @@ function startOver(): void {
         <header class="hm-band"><h2 id="tw-step-h">{{ stepTitle[state.step] }}</h2><span class="hm-cap">Step {{ index + 1 }} of {{ WIZARD_STEPS.length }}</span></header>
 
         <div ref="body" class="tw-body" tabindex="-1">
-          <!-- 1. Ruleset: package cards (Roster Builder ruleset-card language) with a search, or make a new one -->
-          <template v-if="state.step === 'ruleset'">
-            <div class="tw-toolbar">
-              <label class="sf-field tw-search"><span class="sf-k">Search rulesets</span><input v-model="state.search" type="search" autocomplete="off" placeholder="Name or description" /></label>
-              <button type="button" class="sf-btn" @click="newRuleset">Create a new ruleset</button>
-            </div>
-            <p v-if="state.packagesStatus === 'loading' || state.packagesStatus === 'idle'" class="hm-empty" role="status">Loading rulesets...</p>
-            <p v-else-if="state.packagesStatus === 'error'" class="sf-error" role="alert">
-              Can't load the rulesets. <button class="sf-btn small" type="button" @click="wizard.loadPackages()">Try again</button>
-            </p>
-            <p v-else-if="!state.packages.length" class="hm-empty">No saved rulesets yet. Create one in the Tournament Creator.</p>
-            <p v-else-if="!cards.length" class="hm-empty">No ruleset matches "{{ state.search }}".</p>
-            <div v-else class="tw-cards" role="group" aria-label="Rulesets">
-              <button
-                v-for="p in cards" :key="p.name" type="button" class="tw-card" :data-package="p.name"
-                :aria-pressed="state.form.packageName === p.name ? 'true' : 'false'" @click="pick(p.name)"
-              >
-                <strong>{{ p.name }}</strong>
-                <span v-if="p.description" class="tw-card-desc">{{ p.description }}</span>
-                <span v-if="p.format === 'sevens'" class="sf-chip" data-tone="info">Sevens</span>
-              </button>
-            </div>
-          </template>
+          <!-- 1. Ruleset: the shared card picker (Featured first, BB2025 preselected) and the house rules group -->
+          <div v-if="state.step === 'ruleset'" class="tw-stack">
+            <RulesetCardPicker
+              kind="tournament" :packages="state.packages" :status="state.packagesStatus" :selected="state.form.packageName"
+              @pick="(c) => pick(c.packageName)" @create="newRuleset" @retry="wizard.loadPackages()"
+            />
+            <HouseRulesFields v-model="state.form.houseRules" kind="tournament" id-prefix="tw" />
+          </div>
 
-          <!-- 2. Details -->
-          <div v-else-if="state.step === 'details'" class="tw-groups">
+          <!-- 2. General: the event, where it is played -->
+          <div v-else-if="state.step === 'general'" class="tw-groups">
             <fieldset class="tw-group">
               <legend class="tw-legend">Event</legend>
               <label class="sf-field tw-wide"><span class="sf-k">Name</span><input v-model="state.form.name" type="text" maxlength="100" autocomplete="off" required /></label>
@@ -160,10 +149,7 @@ function startOver(): void {
 
             <fieldset class="tw-group">
               <legend class="tw-legend">Played on</legend>
-              <div class="sf-tabs small tw-wide" role="group" aria-label="Played on">
-                <button type="button" class="sf-tab" :aria-pressed="!state.form.playOnFork ? 'true' : 'false'" @click="state.form.playOnFork = false">Tabletop</button>
-                <button type="button" class="sf-tab" :aria-pressed="state.form.playOnFork ? 'true' : 'false'" @click="state.form.playOnFork = true">Super FUMBBL</button>
-              </div>
+              <PlayedOnToggle v-model="state.form.playOnFork" class="tw-wide" />
               <template v-if="!state.form.playOnFork">
                 <label class="sf-field tw-wide"><span class="sf-k">Venue</span><input v-model="state.form.venue" type="text" maxlength="120" autocomplete="off" /></label>
                 <label class="sf-field tw-wide"><span class="sf-k">Address</span><input v-model="state.form.address" type="text" maxlength="200" autocomplete="off" /></label>
@@ -172,7 +158,10 @@ function startOver(): void {
               </template>
               <p v-else class="tw-help tw-wide">Fixtures are played online: the fixture lobby launches each game.</p>
             </fieldset>
+          </div>
 
+          <!-- 3. Format: format, rounds, pairing, seeding, timer; points, the tiebreaker chain, avoidance, regions -->
+          <div v-else-if="state.step === 'format'" class="tw-stack">
             <fieldset class="tw-group tw-group-wide">
               <legend class="tw-legend">Format</legend>
               <label class="sf-field">
@@ -192,17 +181,17 @@ function startOver(): void {
                 <select v-model="state.form.seedingMode"><option v-for="(label, key) in SEEDING_LABEL" :key="key" :value="key">{{ label }}</option></select>
               </label>
               <label class="sf-field">
-                <span class="sf-k">First tiebreaker</span>
-                <select v-model="state.form.primaryTiebreaker"><option v-for="(label, key) in TIEBREAKER_LABEL" :key="key" :value="key">{{ label }}</option></select>
-              </label>
-              <label class="sf-field">
                 <span class="sf-k">Turn timer</span>
                 <select v-model="state.form.turnTimer"><option v-for="(label, key) in TURN_TIMER_LABEL" :key="key" :value="key">{{ label }}</option></select>
               </label>
             </fieldset>
+            <CompetitionFormatFields
+              v-model:points="state.form.points" v-model:chain="state.form.tiebreakerChain" v-model:avoid="state.form.pairingAvoid" v-model:regions="state.form.regions"
+              id-prefix="tw" :swiss="swiss"
+            />
           </div>
 
-          <!-- 3. Registration -->
+          <!-- 4. Registration -->
           <div v-else-if="state.step === 'registration'" class="tw-groups">
             <fieldset class="tw-group">
               <legend class="tw-legend">Window</legend>
@@ -261,9 +250,9 @@ function startOver(): void {
             </fieldset>
           </div>
 
-          <!-- 4. Review -->
-          <div v-else class="tw-review">
-            <section v-for="s in WIZARD_STEPS.slice(0, 3)" :key="s.id" class="tw-review-block" :aria-labelledby="`tw-rev-${s.id}`">
+          <!-- 5. Review: every step grouped (the Roster Builder summary layout) with Edit links -->
+          <div v-else class="tw-review" data-review>
+            <section v-for="s in WIZARD_STEPS.slice(0, 4)" :key="s.id" class="tw-review-block" :aria-labelledby="`tw-rev-${s.id}`">
               <header class="tw-review-head">
                 <h3 :id="`tw-rev-${s.id}`" class="tw-legend">{{ s.label }}</h3>
                 <button type="button" class="sf-btn small" :aria-label="`Edit ${s.label.toLowerCase()}`" @click="show(s.id)">Edit</button>
@@ -273,7 +262,7 @@ function startOver(): void {
               </dl>
             </section>
             <p class="tw-help tw-review-note">
-              <strong>Save draft</strong> keeps it hidden: only you and its organisers see it, and nobody can register. <strong>Publish</strong> makes it public, and registration opens per its window.
+              <strong>Save as draft</strong> keeps it hidden: only you and its organisers see it, and nobody can register. <strong>Publish now</strong> makes it public, and registration opens per its window. Both check every step first. You can also publish later from Manage.
             </p>
           </div>
         </div>
@@ -290,8 +279,9 @@ function startOver(): void {
               <button type="button" class="sf-btn primary" @click="next">Next</button>
             </template>
             <template v-else>
-              <button type="button" class="sf-btn" :disabled="Boolean(state.busy)" @click="create(false)">{{ state.busy === "draft" ? "Saving..." : "Save draft" }}</button>
-              <button type="button" class="sf-btn primary" :disabled="Boolean(state.busy)" @click="create(true)">{{ state.busy === "publish" ? "Publishing..." : "Publish" }}</button>
+              <!-- Payment at Publish (owner 11-02) will slot in before Publish now: see wizard.ts submit, PAYMENT SLOT. -->
+              <button type="button" class="sf-btn" data-action="draft" :disabled="Boolean(state.busy)" @click="create(false)">{{ state.busy === "draft" ? "Saving..." : "Save as draft" }}</button>
+              <button type="button" class="sf-btn primary" data-action="publish" :disabled="Boolean(state.busy)" @click="create(true)">{{ state.busy === "publish" ? "Publishing..." : "Publish now" }}</button>
             </template>
           </div>
         </footer>
@@ -300,7 +290,7 @@ function startOver(): void {
       <aside class="hm-panel tw-side" aria-labelledby="tw-sum-h">
         <header class="hm-band" data-tone="info"><h2 id="tw-sum-h">Tournament summary</h2><span class="hm-cap">{{ state.form.packageName ? "In progress" : "Step 1" }}</span></header>
         <div class="tw-side-body">
-          <template v-for="s in WIZARD_STEPS.slice(0, 3)" :key="s.id">
+          <template v-for="s in WIZARD_STEPS.slice(0, 4)" :key="s.id">
             <h3 class="tw-legend tw-side-k">{{ s.label }}</h3>
             <dl class="tw-facts">
               <div v-for="r in rows[s.id]" :key="r.k"><dt>{{ r.k }}</dt><dd>{{ r.v }}</dd></div>

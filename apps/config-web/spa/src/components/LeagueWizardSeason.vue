@@ -7,6 +7,7 @@
 import { computed, inject } from "vue";
 import { ENTRY_FEE_MAX, LEAGUE_WIZARD_KEY } from "../leagues/wizard";
 import { PAY_NOTE } from "../shared/payLinks";
+import CompetitionFormatFields from "./CompetitionFormatFields.vue";
 
 const wizard = inject(LEAGUE_WIZARD_KEY)!;
 const { state } = wizard;
@@ -49,6 +50,8 @@ const dropDivision = (i: number): void => { s.value.divisions.splice(i, 1); };
         <button class="sf-btn small" type="button" :disabled="s.divisions.length >= 16" @click="addDivision">Add a division</button>
         <small v-if="state.errors.divisions" class="sf-error">{{ state.errors.divisions }}</small>
       </fieldset>
+      <CompetitionFormatFields v-model:regions="s.regions" id-prefix="lw" :show="['regions']" />
+      <small v-if="state.errors.regions" class="sf-error">{{ state.errors.regions }}</small>
     </div>
     <div class="lw-col">
       <div class="lw-two">

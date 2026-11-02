@@ -1,10 +1,11 @@
 <script setup lang="ts">
-// Create a league, step 1 Identity: name (the short name, e.g. "TABBL"), full name, the league address (derived from the
+// Create a league, step 1 General (Played on lives here since creation wizards v2): name (the short name, e.g. "TABBL"), full name, the league address (derived from the
 // name, editable until the draft exists), description, logo and header bar (the settings tab's upload rules, sent after
 // the draft is made). Site admins also see "Import from TourPlay" (Q16; the upload itself is a later lane).
 import { computed, inject, watch } from "vue";
 import { SESSION_KEY } from "../session";
 import { DESCRIPTION_MAX, FULL_NAME_MAX, LEAGUE_WIZARD_KEY, NAME_MAX, slugify } from "../leagues/wizard";
+import PlayedOnToggle from "./PlayedOnToggle.vue";
 
 const wizard = inject(LEAGUE_WIZARD_KEY)!;
 const session = inject(SESSION_KEY)!;
@@ -46,6 +47,11 @@ const bannerUrl = computed(() => state.draft?.identity.bannerUrl);
       </label>
     </div>
     <div class="lw-col">
+      <fieldset class="lw-group" data-group="played-on">
+        <legend class="sf-k">Played on</legend>
+        <PlayedOnToggle v-model="f.playOnFork" />
+        <p class="lw-help">{{ f.playOnFork ? "Super FUMBBL: a site admin can allow single fixtures to be played online." : "Tabletop: games are played in person and reported here." }}</p>
+      </fieldset>
       <fieldset class="lw-group">
         <legend class="sf-k">Artwork</legend>
         <label class="sf-field lw-field">

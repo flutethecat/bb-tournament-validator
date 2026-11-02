@@ -1,23 +1,37 @@
-// Tournament creation wizard (/app/tournaments/new; registration spec 2026-11-02 §6, lane L3): Ruleset -> Details ->
-// Registration -> Review, then "Save draft" (unpublished: only the organisers see it) or "Publish". One POST
+// Tournament creation wizard (/app/tournaments/new; registration spec 2026-11-02 §6, lane L3; creation wizards v2):
+// Ruleset (+ house rules) -> General -> Format -> Registration -> Review, then "Save as draft" (unpublished: only the
+// organisers see it) or "Publish now". Older saved drafts used a single "details" step: it opens as General. One POST
 // /api/tournaments carries the old dialog's body (create.ts createBody) plus `publish`, the details, the page fields and the
 // registration settings; the server validates everything before it writes (src/tournaments/api.ts wizardCreateFields).
 //
 // The form survives a trip to the Tournament Creator ("Create a new ruleset", ?return=wizard) in sessionStorage: a
 // per-viewer convenience only, read and written inside try/catch, and cleared once the tournament exists.
 
-import { reactive, type InjectionKey } from "vue";
+import { reactive, toRaw, type InjectionKey } from "vue";
 import { ApiError } from "../shared/api";
 import type { Fetcher } from "../session";
 import { createBody, type CreateTournamentBody, type TournamentFormat } from "./create";
-import { fromLocalInput, PAIRING_LABEL, SEEDING_LABEL, TIEBREAKER_LABEL, type TournamentPrimaryTiebreaker } from "./detail";
+import { fromLocalInput, PAIRING_LABEL, SEEDING_LABEL, type TournamentPrimaryTiebreaker } from "./detail";
 import type { TournamentPairingSystem, TournamentSeedingMode } from "../shared/api";
 import { normalisePayPal, normaliseVenmo } from "../shared/payLinks";
+import {
+  chainFromPrimary, chainText, DEFAULT_POINTS, DEFAULT_RULESET_PACKAGE, DEFAULT_TIEBREAKER_CHAIN, defaultHouseRules, FormatError, houseRulesRows,
+  HouseRulesError, PAIRING_AVOID_LABEL, parseHouseRules, parsePointsScheme, parseRegions, parseTiebreakerChain, pointsText, rulesetLabel,
+  type ChainTiebreaker, type HouseRules, type PairingAvoid, type PointsScheme,
+} from "../shared/competition";
 
-export type WizardStep = "ruleset" | "details" | "registration" | "review";
+export type WizardStep = "ruleset" | "general" | "format" | "registration" | "review";
 export const WIZARD_STEPS: ReadonlyArray<{ id: WizardStep; label: string }> = [
-  { id: "ruleset", label: "Ruleset" }, { id: "details", label: "Details" }, { id: "registration", label: "Registration" }, { id: "review", label: "Review" },
+  { id: "ruleset", label: "Ruleset" }, { id: "general", label: "General" }, { id: "format", label: "Format" }, { id: "registration", label: "Registration" }, { id: "review", label: "Review" },
 ];
+/** Step ids an older saved draft may carry (the v1 wizard's single "details" step held what General now starts with). */
+export const LEGACY_STEP: Readonly<Record<string, WizardStep>> = { details: "general" };
+/** A saved step id as a v2 step (unknown = undefined). */
+export function migrateStep(step: unknown): WizardStep | undefined {
+  if (typeof step !== "string") return undefined;
+  if (WIZARD_STEPS.some((s) => s.id === step)) return step as WizardStep;
+  return LEGACY_STEP[step];
+}
 export const DRAFT_KEY = "sf.tournamentWizard";
 export const PUBLISHED_NOTICE = "Tournament published.";
 export const DRAFT_NOTICE = "Tournament saved as an unpublished draft. Only its organisers can see it until you publish it.";
@@ -46,6 +60,12 @@ export interface WizardForm {
   primaryTiebreaker: TournamentPrimaryTiebreaker;
   turnTimer: TurnTimerMode;
   summary: string;
+  /** Creation wizards v2: W/D/L, the tiebreaker chain after points, Swiss avoidance, regions, house rules. */
+  points: PointsScheme;
+  tiebreakerChain: ChainTiebreaker[];
+  pairingAvoid: PairingAvoid;
+  regions: string[];
+  houseRules: HouseRules;
   // registration
   opensAt: string;
   closesAt: string;
@@ -67,8 +87,10 @@ export interface WizardForm {
 /** The owner's defaults (11-02): auto-accept (Q5), waitlist on (Q6), roster later on (Q4), self check-in on (Q11). */
 export function blankWizardForm(): WizardForm {
   return {
-    packageName: "", name: "", seriesId: "", startsAt: "", endsAt: "", playOnFork: false, venue: "", address: "", mapUrl: "", startTime: "",
+    // BB2025 is preselected (owner 11-02); the wizard clears it if this server has no such package.
+    packageName: DEFAULT_RULESET_PACKAGE, name: "", seriesId: "", startsAt: "", endsAt: "", playOnFork: false, venue: "", address: "", mapUrl: "", startTime: "",
     format: "swiss", roundCount: "", pairingSystem: "", seedingMode: "elo", primaryTiebreaker: "buchholz", turnTimer: "optional", summary: "",
+    points: { ...DEFAULT_POINTS }, tiebreakerChain: [...DEFAULT_TIEBREAKER_CHAIN], pairingAvoid: "none", regions: [], houseRules: defaultHouseRules("tournament"),
     opensAt: "", closesAt: "", maxPlayers: 16, waitlist: true, approval: "auto", rosterLater: true, rosterBy: "", selfCheckIn: true,
     checkInOpensAt: "", checkInClosesAt: "", entryFee: "", payPal: "", venmo: "", nafSanctioned: false,
   };
@@ -88,6 +110,11 @@ export interface WizardBody extends CreateTournamentBody {
   payPal?: string;
   venmo?: string;
   summary?: string;
+  tiebreakers: ChainTiebreaker[];
+  points: PointsScheme;
+  houseRules: HouseRules;
+  pairingAvoid?: PairingAvoid;
+  regions?: string[];
   deadlines?: { registration?: string; checkIn?: string };
   registration: {
     opensAt?: string; approval: "auto" | "organiser"; waitlist: boolean; rosterLater: boolean; rosterBy?: string;
@@ -97,9 +124,11 @@ export interface WizardBody extends CreateTournamentBody {
 
 /** The POST /api/tournaments body: exactly the old dialog's (createBody) plus the wizard fields. */
 export function wizardBody(form: WizardForm, publish: boolean): WizardBody {
+  // The old single field still rides along (the server reads the chain over it); it mirrors chain[0] when it can.
+  const first = form.tiebreakerChain[0];
   const base = createBody({
     name: form.name, packageName: form.packageName, maxPlayers: form.maxPlayers, format: form.format, roundCount: form.roundCount,
-    primaryTiebreaker: form.primaryTiebreaker, nafSanctioned: form.nafSanctioned, ...(form.seriesId ? { seriesId: form.seriesId } : {}),
+    primaryTiebreaker: first === "buchholz" || first === "sonnebornBerger" ? first : form.primaryTiebreaker, nafSanctioned: form.nafSanctioned, ...(form.seriesId ? { seriesId: form.seriesId } : {}),
   });
   const iso = (v: string) => (v ? fromLocalInput(v) : "");
   const startsAt = iso(form.startsAt);
@@ -133,6 +162,11 @@ export function wizardBody(form: WizardForm, publish: boolean): WizardBody {
     ...(form.payPal.trim() ? { payPal: payPal.ok ? payPal.value : form.payPal.trim() } : {}),
     ...(form.venmo.trim() ? { venmo: venmo.ok ? venmo.value : form.venmo.trim() } : {}),
     ...(form.summary.trim() ? { summary: form.summary.trim() } : {}),
+    tiebreakers: [...form.tiebreakerChain],
+    points: { win: Number(form.points.win), draw: Number(form.points.draw), loss: Number(form.points.loss) },
+    houseRules: structuredClone(toRaw(form.houseRules)),
+    ...(form.format === "swiss" && form.pairingAvoid !== "none" ? { pairingAvoid: form.pairingAvoid } : {}),
+    ...(regionList(form).length ? { regions: regionList(form) } : {}),
     ...(Object.keys(deadlines).length ? { deadlines } : {}),
     registration: {
       ...(opensAt ? { opensAt } : {}),
@@ -146,18 +180,28 @@ export function wizardBody(form: WizardForm, publish: boolean): WizardBody {
 }
 
 const before = (a: string, b: string) => Boolean(a && b) && a >= b;
+const regionList = (form: Pick<WizardForm, "regions">): string[] => form.regions.map((r) => r.trim()).filter(Boolean);
+const parsed = (check: () => unknown): string => {
+  try { check(); return ""; } catch (e) { return e instanceof FormatError || e instanceof HouseRulesError ? e.message : "Check this step."; }
+};
 
 /** The first problem with a step (the server's own checks; its message still wins when it refuses), or "". */
 export function stepProblem(step: WizardStep, form: WizardForm): string {
-  if (step === "ruleset") return form.packageName ? "" : "Choose a ruleset.";
-  if (step === "details") {
-    const name = form.name.trim();
-    if (!name) return "Enter a name.";
-    if (name.length > 100) return "The name can be at most 100 characters.";
+  if (step === "ruleset") {
+    if (!form.packageName) return "Choose a ruleset.";
+    return parsed(() => parseHouseRules(form.houseRules, "tournament"));
+  }
+  if (step === "format") {
     if (form.format === "swiss" && form.roundCount !== "") {
       const rounds = Number(form.roundCount);
       if (!Number.isSafeInteger(rounds) || rounds < 1 || rounds > 50) return "Rounds must be a whole number from 1 to 50 (or blank for Auto).";
     }
+    return parsed(() => parsePointsScheme(form.points)) || parsed(() => parseTiebreakerChain(form.tiebreakerChain)) || parsed(() => parseRegions(form.regions));
+  }
+  if (step === "general") {
+    const name = form.name.trim();
+    if (!name) return "Enter a name.";
+    if (name.length > 100) return "The name can be at most 100 characters.";
     if (form.startsAt && form.endsAt && form.startsAt > form.endsAt) return "The end must not be before the start.";
     if (!form.playOnFork && form.mapUrl.trim() && !/^https?:\/\/\S+$/i.test(form.mapUrl.trim())) return "The map link must start with http:// or https://.";
     if (form.summary.length > 4000) return "The summary can be at most 4000 characters.";
@@ -206,12 +250,16 @@ const when = (v: string) => (v ? `${v.replace("T", " ")} UTC` : "");
 
 /** Key/value rows for the summary panel and the review step (only what is set, in step order). */
 export function summaryRows(form: WizardForm, series: readonly WizardSeries[]): Record<WizardStep, Array<{ k: string; v: string }>> {
+  const regions = regionList(form);
   const s = series.find((x) => x.id === form.seriesId);
   const defaultPairing = s?.seeding ? SERIES_PAIRING[s.seeding] ?? "dutch" : "dutch";
   const rows = (list: Array<[string, string | false | undefined]>) => list.filter((r): r is [string, string] => Boolean(r[1])).map(([k, v]) => ({ k, v }));
   return {
-    ruleset: rows([["Ruleset", form.packageName || "Not chosen"]]),
-    details: rows([
+    ruleset: [
+      ...rows([["Ruleset", form.packageName ? rulesetLabel(form.packageName) : "Not chosen"]]),
+      ...houseRulesRows(form.houseRules, "tournament"),
+    ],
+    general: rows([
       ["Name", form.name.trim()],
       ["Series", s?.name],
       ["Starts", when(form.startsAt)],
@@ -220,11 +268,16 @@ export function summaryRows(form: WizardForm, series: readonly WizardSeries[]): 
       ["Venue", !form.playOnFork && form.venue.trim()],
       ["Address", !form.playOnFork && form.address.trim()],
       ["Local start", !form.playOnFork && form.startTime],
+    ]),
+    format: rows([
       ["Format", FORMAT_LABEL[form.format]],
       ["Rounds", form.format === "swiss" ? (form.roundCount === "" ? "Auto" : String(form.roundCount)) : undefined],
       ["Pairing", form.format === "swiss" ? PAIRING_LABEL[form.pairingSystem || defaultPairing] : undefined],
       ["Seeding", SEEDING_LABEL[form.seedingMode]],
-      ["Tiebreaker", TIEBREAKER_LABEL[form.primaryTiebreaker]],
+      ["Points (W/D/L)", pointsText(form.points)],
+      ["Ranking", chainText(form.tiebreakerChain)],
+      ["Avoid pairing", form.format === "swiss" ? PAIRING_AVOID_LABEL[form.pairingAvoid] : undefined],
+      ["Regions", regions.length ? regions.join(", ") : undefined],
       ["Turn timer", TURN_TIMER_LABEL[form.turnTimer]],
     ]),
     registration: rows([
@@ -258,12 +311,24 @@ export interface WizardState {
 
 const NUMBER_OR_BLANK: ReadonlySet<keyof WizardForm> = new Set(["roundCount", "maxPlayers"]);
 
-function readDraft(): { step?: WizardStep; form?: Partial<WizardForm> } | undefined {
+/** A saved form's object-valued fields, checked with the server's own parsers (a bad value keeps the default). */
+function restoreObject(k: keyof WizardForm, v: unknown): unknown {
+  try {
+    if (k === "houseRules") return parseHouseRules(v, "tournament");
+    if (k === "points") return parsePointsScheme(v);
+    if (k === "tiebreakerChain") return parseTiebreakerChain(v);
+    if (k === "regions") return Array.isArray(v) && v.every((r) => typeof r === "string") ? [...v] : undefined;
+  } catch { return undefined; }
+  return undefined;
+}
+const OBJECT_FIELDS: ReadonlySet<keyof WizardForm> = new Set(["houseRules", "points", "tiebreakerChain", "regions"]);
+
+function readDraft(): { step?: unknown; form?: Partial<WizardForm> } | undefined {
   try {
     const raw = typeof sessionStorage === "undefined" ? null : sessionStorage.getItem(DRAFT_KEY);
     if (!raw) return undefined;
     const parsed = JSON.parse(raw) as unknown;
-    return parsed && typeof parsed === "object" ? parsed as { step?: WizardStep; form?: Partial<WizardForm> } : undefined;
+    return parsed && typeof parsed === "object" ? parsed as { step?: unknown; form?: Partial<WizardForm> } : undefined;
   } catch { return undefined; }
 }
 function writeDraft(value: { step: WizardStep; form: WizardForm } | null): void {
@@ -290,15 +355,24 @@ export function createTournamentWizard(deps: { api: Fetcher; onSignedOut?: () =>
       if (saved?.form) {
         for (const k of keys) {
           const v = saved.form[k];
+          if (v === undefined) continue;
+          if (OBJECT_FIELDS.has(k)) {
+            const value = restoreObject(k, v);
+            if (value !== undefined) (form as unknown as Record<string, unknown>)[k] = value;
+            continue;
+          }
           const ok = typeof v === typeof blank[k] || (NUMBER_OR_BLANK.has(k) && (v === "" || typeof v === "number"));
-          if (v !== undefined && ok) (form as unknown as Record<string, unknown>)[k] = v;
+          if (ok) (form as unknown as Record<string, unknown>)[k] = v;
         }
+        // A v1 draft had one "first tiebreaker" and no chain: it becomes the chain's first entry (the old ladder).
+        if (saved.form.tiebreakerChain === undefined && (saved.form.primaryTiebreaker === "buchholz" || saved.form.primaryTiebreaker === "sonnebornBerger"))
+          form.tiebreakerChain = chainFromPrimary(saved.form.primaryTiebreaker);
       }
       if (form.approval !== "auto") form.approval = "auto"; // organiser approval waits for lane L4
       state.form = form;
-      state.step = saved?.step && WIZARD_STEPS.some((s) => s.id === saved.step) ? saved.step : "ruleset";
+      state.step = migrateStep(saved?.step) ?? "ruleset";
       if (opts.seriesId) state.form.seriesId = opts.seriesId;
-      if (opts.packageName) { state.form.packageName = opts.packageName; if (state.step === "ruleset") state.step = "details"; }
+      if (opts.packageName) { state.form.packageName = opts.packageName; if (state.step === "ruleset") state.step = "general"; }
       state.error = "";
       state.signedOut = false;
     },
@@ -318,6 +392,8 @@ export function createTournamentWizard(deps: { api: Fetcher; onSignedOut?: () =>
             ...(typeof e.format === "string" ? { format: e.format } : {}),
           }));
         state.packagesStatus = "ready";
+        // The preselected BB2025 card only stands when this server has that package.
+        if (state.form.packageName === DEFAULT_RULESET_PACKAGE && !state.packages.some((p) => p.name === DEFAULT_RULESET_PACKAGE)) state.form.packageName = "";
       } catch {
         state.packagesStatus = state.packages.length ? "ready" : "error";
       }
@@ -343,7 +419,10 @@ export function createTournamentWizard(deps: { api: Fetcher; onSignedOut?: () =>
       state.step = step;
       return true;
     },
-    /** POST /api/tournaments. Resolves to the new id, or undefined with `error` set. */
+    /** POST /api/tournaments. Resolves to the new id, or undefined with `error` set. Save as draft and Publish now both
+     *  check the whole form first (the first problem opens its step).
+     *  PAYMENT SLOT (owner 11-02: "the review page is where payment would go"): a future charge-at-publish step runs here,
+     *  before the POST, for `publish === true` only. Nothing is charged today. */
     async submit(publish: boolean): Promise<string | undefined> {
       if (state.busy) return undefined;
       const bad = firstProblemStep(state.form);

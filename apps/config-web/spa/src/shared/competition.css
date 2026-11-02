@@ -1,0 +1,66 @@
+/* Creation wizards v2 shared pieces (design.md §5): the ruleset card picker (Roster Builder .tb-card language), the House
+   rules group, the format fields (points, tiebreaker chain, avoidance, regions), the Played on strip and the overview's
+   HOUSE RULES panel. Panels, bands and controls come from home.css. Tokens only. */
+
+/* ruleset cards */
+.cf-picker { display: grid; gap: 8px; min-width: 0; }
+.cf-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; }
+.cf-search { display: grid; gap: 2px; flex: 1 1 240px; min-width: 0; }
+.cf-search input { width: 100%; }
+.cf-row-h { margin: 6px 0 0; font: 11px/1.4 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-heading); }
+.cf-cards { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr)); padding-bottom: 4px; }
+.cf-card {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-height: 64px; min-width: 0; margin: 0;
+  padding: 10px 12px; font: inherit; text-align: center; color: var(--ui-text); cursor: pointer;
+  background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface-2);
+  border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--sf-panel-line); border-radius: 2px;
+  box-shadow: inset 0 1px 0 var(--sf-panel-hi), 0 3px 0 var(--sf-panel-drop);
+}
+.cf-card strong { font: 500 17px/1.2 var(--font-heading, sans-serif); letter-spacing: .03em; overflow-wrap: anywhere; }
+.cf-card[data-featured="true"] { border-left-color: var(--sf-gold); }
+.cf-card:hover { border-color: var(--ui-heading); }
+.cf-card[aria-pressed="true"] { border-color: var(--ui-heading); border-left-color: var(--ui-heading); background: color-mix(in srgb, var(--ui-primary) 28%, var(--ui-surface-2)); }
+.cf-card:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.cf-card-desc { color: var(--ui-muted); font-size: 13px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.cf-card[aria-pressed="true"] .cf-card-desc { color: var(--ui-text); }
+
+/* house rules group and format groups */
+.cf-house, .cf-group {
+  display: grid; gap: 8px 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; min-width: 0; margin: 0; padding: 8px 12px 12px;
+  background: color-mix(in srgb, var(--ui-surface-2) 55%, transparent); border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--sf-panel-line);
+  border-radius: 2px; box-shadow: inset 0 1px 0 var(--sf-panel-hi);
+}
+.cf-house { border-left-color: var(--ui-heading); }
+.cf-legend { float: left; width: 100%; grid-column: 1 / -1; margin: 0 0 2px; padding: 0; font: 11px/1.4 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-heading); }
+.cf-house .sf-field, .cf-group .sf-field { display: grid; gap: 2px; min-width: 0; }
+.cf-house .sf-field :is(input, select, textarea), .cf-group .sf-field :is(input, select, textarea) { width: 100%; min-width: 0; }
+.cf-wide, .cf-group > .cf-help, .cf-group > .sf-btn-row, .cf-group > .cf-chain, .cf-group > .sf-field, .cf-group > [data-chain-add] { grid-column: 1 / -1; }
+.cf-group > [data-chain-add] { justify-self: start; }
+.cf-help { margin: 0; color: var(--ui-muted); font-size: 13px; line-height: 1.4; }
+.cf-progression { display: grid; gap: 6px; }
+.cf-carry { display: grid; gap: 4px; }
+.cf-carry .sf-check { display: flex; align-items: center; gap: 8px; min-height: 32px; }
+.cf-carry input { accent-color: var(--ui-primary); }
+.cf-format { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; min-width: 0; }
+.cf-points { grid-column: 1 / -1; display: grid; gap: 8px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.cf-points .sf-field { display: grid; gap: 2px; min-width: 0; }
+.cf-points input { width: 100%; min-width: 0; }
+.cf-chain { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.cf-chain > li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.cf-chain select { flex: 1 1 160px; min-width: 0; }
+.cf-chain-fixed { color: var(--ui-muted); min-height: 32px; }
+.cf-chain-n { display: inline-grid; place-items: center; min-width: 22px; height: 22px; font: 10px/1 var(--sf-band-font); border: 1px solid currentColor; border-radius: 2px; box-shadow: var(--sf-bevel); }
+.cf-group textarea { resize: vertical; min-height: 64px; }
+.cf-played-on { justify-self: start; }
+@media (max-width: 1100px) { .cf-format { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 520px) { .cf-house, .cf-group { grid-template-columns: minmax(0, 1fr); } .cf-points { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+/* overview HOUSE RULES panel */
+.cf-house-facts { display: grid; gap: 4px; margin: 0 0 6px; }
+.cf-house-facts > div { display: grid; grid-template-columns: minmax(110px, max-content) minmax(0, 1fr); gap: 10px; align-items: baseline; }
+.cf-house-facts dt { margin: 0; font: 10px/1.6 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
+.cf-house-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.cf-house-rest { margin: 0; color: var(--ui-muted); font-size: 14px; }
+
+/* tournament Manage (Edit Tournament): the format and house rules groups span the settings grid */
+.tn-form-grid > .tn-wide-field, .tn-form-grid > .tn-auth-line { grid-column: 1 / -1; margin: 0; }

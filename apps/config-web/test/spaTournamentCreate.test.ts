@@ -157,6 +157,9 @@ describe("wizard controller (lane L3)", () => {
     expect(body).toEqual({
       ...old, publish: false, seedingMode: "elo", turnTimer: { enforced: "optional" },
       registration: { approval: "auto", waitlist: true, rosterLater: true, checkIn: { self: true } },
+      // creation wizards v2: the chain after points, W/D/L and the house rules always ride along (defaults here)
+      tiebreakers: ["buchholz", "touchdownDifferential", "casualtyDifferential"], points: { win: 3, draw: 1, loss: 0 },
+      houseRules: { prayers: { mode: "ruleset" }, brawlingBrutes: "ruleset", maxStatIncreasesTeam: null, maxStatIncreasesPlayer: null, progression: { enabled: false, spp: true, injuries: true, treasury: true } },
     });
     const full = wizardBody({
       ...form, startsAt: "2026-12-05T09:00", endsAt: "2026-12-06T18:00", venue: " Example Hall ", address: "1 Example Street", mapUrl: "https://example.com/map", startTime: "09:00",
@@ -177,11 +180,15 @@ describe("wizard controller (lane L3)", () => {
   });
 
   it("step checks mirror the server; Next stops at the first problem", () => {
-    const form = blankWizardForm();
+    const form = { ...blankWizardForm(), packageName: "" };
     expect(stepProblem("ruleset", form)).toBe("Choose a ruleset.");
-    expect(stepProblem("details", { ...form, name: " " })).toBe("Enter a name.");
-    expect(stepProblem("details", { ...form, name: "A", startsAt: "2026-12-06T00:00", endsAt: "2026-12-05T00:00" })).toContain("end");
-    expect(stepProblem("details", { ...form, name: "A", mapUrl: "javascript:x" })).toContain("map link");
+    expect(stepProblem("general", { ...form, name: " " })).toBe("Enter a name.");
+    expect(stepProblem("general", { ...form, name: "A", startsAt: "2026-12-06T00:00", endsAt: "2026-12-05T00:00" })).toContain("end");
+    expect(stepProblem("general", { ...form, name: "A", mapUrl: "javascript:x" })).toContain("map link");
+    expect(stepProblem("format", { ...form, roundCount: 99 })).toContain("Rounds");
+    expect(stepProblem("format", { ...form, points: { win: 1, draw: 1, loss: 0 } })).toContain("more points than a draw");
+    expect(stepProblem("format", { ...form, tiebreakerChain: ["buchholz", "buchholz"] })).toContain("twice");
+    expect(stepProblem("ruleset", { ...form, packageName: "x", houseRules: { ...form.houseRules, maxStatIncreasesPlayer: 99 } })).toContain("0 to 10");
     expect(stepProblem("registration", { ...form, maxPlayers: 1 })).toContain("at least 2");
     expect(stepProblem("registration", { ...form, opensAt: "2026-12-02T00:00", closesAt: "2026-12-01T00:00" })).toBe("Registration must open before it closes.");
     expect(stepProblem("registration", { ...form, startsAt: "2026-12-01T00:00", closesAt: "2026-12-02T00:00" })).toBe("Registration must close by the start.");
@@ -189,11 +196,12 @@ describe("wizard controller (lane L3)", () => {
     expect(stepProblem("registration", form)).toBe("");
     const w = createTournamentWizard({ api: mockFetcher({}) });
     w.start({ restore: false });
+    w.pickPackage("");
     expect(w.go("registration")).toBe(false);
     expect(w.state).toMatchObject({ step: "ruleset", error: "Choose a ruleset." });
     w.pickPackage("nut-cup");
     expect(w.go("registration")).toBe(false);
-    expect(w.state).toMatchObject({ step: "details", error: "Enter a name." });
+    expect(w.state).toMatchObject({ step: "general", error: "Enter a name." });
     w.state.form.name = "Spike Open";
     expect(w.go("review")).toBe(true);
     expect(w.go("ruleset")).toBe(true);
@@ -236,7 +244,7 @@ describe("wizard controller (lane L3)", () => {
       const back = createTournamentWizard({ api: mockFetcher({}) });
       back.start({ packageName: "fresh-cup", seriesId: "s1" });
       expect(back.state.form).toMatchObject({ name: "Spike Open", maxPlayers: 24, packageName: "fresh-cup", seriesId: "s1" });
-      expect(back.state.step).toBe("details");
+      expect(back.state.step).toBe("general");
       back.forget();
       expect(store.has(DRAFT_KEY)).toBe(false);
       store.set(DRAFT_KEY, "{not json");
@@ -256,7 +264,9 @@ describe("wizard controller (lane L3)", () => {
     await w.loadSeries();
     expect(w.state.series).toEqual([{ id: "s1", name: "Mine", seeding: "elo" }]);
     const rows = summaryRows({ ...filled(), seriesId: "s1" }, w.state.series);
-    expect(rows.details).toEqual(expect.arrayContaining([{ k: "Series", v: "Mine" }, { k: "Pairing", v: "Elo-seeded" }, { k: "Played on", v: "Tabletop" }]));
+    expect(rows.general).toEqual(expect.arrayContaining([{ k: "Series", v: "Mine" }, { k: "Played on", v: "Tabletop" }]));
+    expect(rows.format).toEqual(expect.arrayContaining([{ k: "Pairing", v: "Elo-seeded" }, { k: "Points (W/D/L)", v: "3 / 1 / 0" }, { k: "Ranking", v: "Points, then Buchholz, then TD difference, then Casualty difference" }]));
+    expect(rows.ruleset).toEqual(expect.arrayContaining([{ k: "Prayers to Nuffle", v: "As the ruleset says" }, { k: "Progression", v: "Off (resurrection)" }]));
     expect(rows.registration).toEqual(expect.arrayContaining([{ k: "Opens", v: "When published" }, { k: "Places", v: "12" }, { k: "NAF", v: "Sanctioned" }]));
   });
 });
@@ -346,34 +356,44 @@ describe("create views (server-rendered against a mocked API)", () => {
   it("wizard, step 1: step tabs, band with STEP 1 OF 4, ruleset cards with a search and Create a new ruleset, the summary panel", async () => {
     const { html } = await renderWizard((w) => { w.pickPackage("small-gods"); });
     const steps = [...html.matchAll(/<button type="button" class="tl-seg-btn" data-step="(\w+)"[^>]*><b class="tw-num">(\d)<\/b>(\w+)<\/button>/g)].map((m) => `${m[2]}${m[3]}`);
-    expect(steps).toEqual(["1Ruleset", "2Details", "3Registration", "4Review"]);
+    expect(steps).toEqual(["1Ruleset", "2General", "3Format", "4Registration", "5Review"]);
     expect(html).toMatch(/data-step="ruleset" aria-current="step"/);
-    expect(html).toMatch(/<h2 id="tw-step-h">Pick a ruleset<\/h2><span class="hm-cap">Step 1 of 4<\/span>/);
-    expect(html).toContain('data-package="nut-cup" aria-pressed="false"');
-    expect(html).toContain('data-package="small-gods" aria-pressed="true"');
+    expect(html).toMatch(/<h2 id="tw-step-h">Pick a ruleset<\/h2><span class="hm-cap">Step 1 of 5<\/span>/);
+    expect(html).toMatch(/data-package="nut-cup" aria-pressed="false"/);
+    expect(html).toMatch(/data-package="small-gods" aria-pressed="true"/);
     expect(html).toContain(">Create a new ruleset</button>");
     expect(html).toContain('<h2 id="tw-sum-h">Tournament summary</h2>');
     expect(html).toMatch(/<dt>Ruleset<\/dt><dd>small-gods<\/dd>/);
+    // the house rules group sits under the cards
+    expect(html).toContain('data-house-rules data-kind="tournament"');
     expect(html).toContain(">Next</button>");
     expect(html).not.toContain(">Back</button>");
     expect(html).not.toContain("lobby-");
   });
 
   it("wizard, step 2: details in grouped panels; tabletop shows the venue fields, Super FUMBBL hides them; only the coach's own series", async () => {
-    const tabletop = await renderWizard((w) => { w.pickPackage("nut-cup"); w.go("details"); });
-    expect(tabletop.html).toMatch(/<h2 id="tw-step-h">Details<\/h2><span class="hm-cap">Step 2 of 4<\/span>/);
-    expect(captions(tabletop.html)).toEqual(["Name", "Series", "Starts (UTC)", "Ends (UTC)", "Summary", "Venue", "Address", "Map link", "Local start time", "Format", "Rounds", "Pairing", "Seeding", "First tiebreaker", "Turn timer"]);
+    const tabletop = await renderWizard((w) => { w.pickPackage("nut-cup"); w.go("general"); });
+    expect(tabletop.html).toMatch(/<h2 id="tw-step-h">General<\/h2><span class="hm-cap">Step 2 of 5<\/span>/);
+    expect(captions(tabletop.html)).toEqual(["Name", "Series", "Starts (UTC)", "Ends (UTC)", "Summary", "Venue", "Address", "Map link", "Local start time"]);
+    expect(tabletop.html).toContain("data-played-on");
     expect(tabletop.html).toContain('<option value="s1">Valley Series</option>');
     expect(tabletop.html).not.toContain("Other Series");
-    const online = await renderWizard((w) => { w.pickPackage("nut-cup"); w.go("details"); w.state.form.playOnFork = true; w.state.form.format = "knockout"; });
+    const online = await renderWizard((w) => { w.pickPackage("nut-cup"); w.go("general"); w.state.form.playOnFork = true; });
     expect(captions(online.html)).not.toContain("Venue");
-    expect(captions(online.html)).not.toContain("Rounds");
     expect(online.html).toContain("Fixtures are played online");
+    const format = await renderWizard((w) => { w.pickPackage("nut-cup"); w.state.form.name = "Spike Open"; w.go("format"); });
+    expect(format.html).toMatch(/<h2 id="tw-step-h">Format<\/h2><span class="hm-cap">Step 3 of 5<\/span>/);
+    expect(captions(format.html)).toEqual(["Format", "Rounds", "Pairing", "Seeding", "Turn timer", "Win", "Draw", "Loss", "Avoid pairing", "Regions (one per line)"]);
+    expect(format.html).toContain('data-preset="2000"');
+    expect(format.html).toContain('data-chain="buchholz"');
+    const knockout = await renderWizard((w) => { w.pickPackage("nut-cup"); w.state.form.name = "Spike Open"; w.go("format"); w.state.form.format = "knockout"; });
+    expect(captions(knockout.html)).not.toContain("Rounds");
+    expect(captions(knockout.html)).not.toContain("Avoid pairing");
   });
 
   it("wizard, step 3: registration window, places, waitlist, approval, roster later + deadline, check-in, entry fee and the NAF rule-23 note", async () => {
     const { html } = await renderWizard((w) => { w.pickPackage("nut-cup"); w.state.form.name = "Spike Open"; w.go("registration"); w.state.form.nafSanctioned = true; });
-    expect(html).toMatch(/Step 3 of 4/);
+    expect(html).toMatch(/Step 4 of 5/);
     expect(captions(html)).toEqual(["Opens (UTC)", "Closes (UTC)", "Places", "Roster deadline (UTC)", "Opens (UTC)", "Closes (UTC)", "Entry fee", "PayPal link (optional)", "Venmo username (optional)"]);
     expect(html).toContain("Waitlist when full");
     expect(html).toMatch(/aria-pressed="true">Automatic<\/button>/);
@@ -385,16 +405,17 @@ describe("create views (server-rendered against a mocked API)", () => {
     expect(html).toContain('data-naf-note="true"');
   });
 
-  it("wizard, step 4: the choices as key/value blocks with Edit links, then Save draft and Publish", async () => {
+  it("wizard, step 5: every step as key/value blocks with Edit links, then Save as draft and Publish now", async () => {
     const { html } = await renderWizard((w) => { w.pickPackage("nut-cup"); w.state.form.name = "Spike Open"; w.state.form.seriesId = "s1"; w.go("review"); });
-    expect(html).toMatch(/<h2 id="tw-step-h">Review<\/h2><span class="hm-cap">Step 4 of 4<\/span>/);
-    expect([...html.matchAll(/aria-label="Edit (\w+)"/g)].map((m) => m[1])).toEqual(["ruleset", "details", "registration"]);
+    expect(html).toMatch(/<h2 id="tw-step-h">Review<\/h2><span class="hm-cap">Step 5 of 5<\/span>/);
+    expect([...html.matchAll(/aria-label="Edit (\w+)"/g)].map((m) => m[1])).toEqual(["ruleset", "general", "format", "registration"]);
     expect(html).toMatch(/<dt>Name<\/dt><dd>Spike Open<\/dd>/);
     expect(html).toMatch(/<dt>Series<\/dt><dd>Valley Series<\/dd>/);
     expect(html).toMatch(/<dt>Pairing<\/dt><dd>Monrad<\/dd>/);
     expect(html).toMatch(/<dt>Approval<\/dt><dd>Automatic<\/dd>/);
-    expect(html).toContain(">Save draft</button>");
-    expect(html).toContain(">Publish</button>");
+    expect(html).toMatch(/<dt>Brawling Brutes<\/dt><dd>As the ruleset says<\/dd>/);
+    expect(html).toContain(">Save as draft</button>");
+    expect(html).toContain(">Publish now</button>");
     expect(html).not.toContain(">Next</button>");
   });
 

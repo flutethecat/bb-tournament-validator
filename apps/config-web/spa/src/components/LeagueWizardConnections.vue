@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// Create a league, step 4 Connections: the Discord webhook (a secret: never shown back, only "connected"; a test post once
-// it is saved) with the event toggles, and Play on Super FUMBBL (default off).
+// Create a league, step 4 Connections (Discord only since creation wizards v2; Played on moved to General): the Discord
+// webhook (a secret: never shown back, only "connected"; a test post once it is saved) with the event toggles.
 import { computed, inject } from "vue";
 import { DISCORD_EVENT_LABEL } from "../leagues/settings";
 import { DISCORD_EVENTS, LEAGUE_WIZARD_KEY } from "../leagues/wizard";
@@ -33,13 +33,6 @@ const configured = computed(() => Boolean(state.draft?.connections.discord.confi
       <fieldset class="lw-group">
         <legend class="sf-k">Post to Discord</legend>
         <label v-for="k in DISCORD_EVENTS" :key="k" class="sf-check lw-check"><input v-model="c.events[k]" type="checkbox" /> {{ DISCORD_EVENT_LABEL[k] }}</label>
-      </fieldset>
-    </div>
-    <div class="lw-col">
-      <fieldset class="lw-group">
-        <legend class="sf-k">Super FUMBBL</legend>
-        <label class="sf-check lw-check"><input v-model="c.playOnFork" type="checkbox" role="switch" /> Play on Super FUMBBL</label>
-        <p class="lw-help">Off by default. When on, a site admin can allow single fixtures to be played on Super FUMBBL.</p>
       </fieldset>
     </div>
   </div>

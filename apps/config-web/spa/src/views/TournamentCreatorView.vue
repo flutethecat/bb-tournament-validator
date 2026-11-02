@@ -66,8 +66,12 @@ function pickPreset(e: Event): void {
 // "Create a new ruleset" from the tournament wizard (lane L3, ?return=wizard): a clean save goes back to the wizard with
 // the package selected. Read once: later tab and package links drop the query.
 const returnToWizard = route.query.return === "wizard";
+// The league wizard's Rules step does the same (?return=league&draft=<id>): back to that draft league with the package.
+const leagueDraft = route.query.return === "league" && typeof route.query.draft === "string" && /^[a-z0-9][a-z0-9-]{0,63}$/.test(route.query.draft) ? route.query.draft : "";
+const backTo = leagueDraft ? { name: "league-new", query: { draft: leagueDraft } } : { name: "tournament-new" };
 async function save(): Promise<void> {
   await creator.save();
+  if (leagueDraft && state.saved && state.selected && !state.conflict) { await router.push({ name: "league-new", query: { draft: leagueDraft, package: state.selected } }); return; }
   if (returnToWizard && state.saved && state.selected && !state.conflict) { await router.push({ name: "tournament-new", query: { package: state.selected } }); return; }
   if (state.selected && state.selected !== route.query.package && !state.conflict) await router.replace(withTab({ package: state.selected }));
 }
@@ -77,7 +81,7 @@ usePageTitle(() => (allowed.value && state.pkg ? `Tournament Creator · ${title.
 
 <template>
   <div class="hm-page cr-page sf-fit" :class="{ 'cr-page-wide': tab === 'preview' }">
-    <RouterLink v-if="returnToWizard" class="tn-back" :to="{ name: 'tournament-new' }">Back to the new tournament</RouterLink>
+    <RouterLink v-if="returnToWizard || leagueDraft" class="tn-back" :to="backTo">{{ leagueDraft ? "Back to the new league" : "Back to the new tournament" }}</RouterLink>
     <RouterLink v-else class="tn-back" to="/tournaments">All tournaments</RouterLink>
 
     <section v-if="!allowed" class="hm-panel" aria-labelledby="cr-denied-h">

@@ -67,7 +67,7 @@ describe("wizard helpers", () => {
     f.connections.webhook = "https://discord.com/api/webhooks/123456789012345678/abcdefghijklmnopqrstuvwxyz_ABCDEF";
     expect(stepPayload("connections", f)).toMatchObject({ connections: { discord: { url: f.connections.webhook } } });
     f.connections.webhook = "";
-    expect(stepPayload("connections", f)).toEqual({ connections: { playOnFork: false, discord: { events: f.connections.events } } });
+    expect(stepPayload("connections", f)).toEqual({ connections: { discord: { events: f.connections.events } } });
     f.connections.clearWebhook = true;
     expect((stepPayload("connections", f).connections as any).discord.url).toBeNull();
     f.season.divisions = [" North ", "", "South"];
@@ -217,7 +217,7 @@ describe("league wizard pages (server-rendered)", () => {
 
   it("organisers get the five steps and the summary; a plain coach gets the way to ask", async () => {
     const html = await render("/leagues/new", ORGANISER, atStep("identity"));
-    for (const s of ["Identity", "Rules", "Season 1", "Connections", "Review"]) expect(html).toContain(`</span>${s}</button>`);
+    for (const s of ["General", "Rules", "Season 1", "Connections", "Review"]) expect(html).toContain(`</span>${s}</button>`);
     expect(html).toContain("Step 1 of 5");
     expect(html).toContain("League summary");
     expect(html).toContain("League address");
@@ -229,18 +229,19 @@ describe("league wizard pages (server-rendered)", () => {
     expect(coach).not.toContain("League summary");
   });
 
-  it("each later step renders its fields; the review has Save draft and Create league", async () => {
+  it("each later step renders its fields; the review has Save as draft and Publish now", async () => {
     const rules = await render("/leagues/new?draft=harbour-league", ORGANISER, atStep("rules"), DRAFT);
-    for (const t of ["Default ruleset", "Allowed rosters", "Max teams", "Max per race", "Inducements", "Team building", "Apply to tier"]) expect(rules).toContain(t);
+    for (const t of ["Featured", "House rules", "Allowed rosters", "Max teams", "Max per race", "Inducements", "Team building", "Apply to tier"]) expect(rules).toContain(t);
     expect(rules).toContain("Halfling");
     const season = await render("/leagues/new?draft=harbour-league", ORGANISER, atStep("season"), DRAFT);
     for (const t of ["Season name", "Play-offs (knockout)", "Divisions", "Registration opens", "Registration closes", "Organiser approval", "Waitlist when full", "Allow existing teams", "Allow joining mid-season", "Entry fee"]) expect(season).toContain(t);
     expect(season).toMatch(/role="radio"[^>]*aria-checked="true"[^>]*><strong>Organiser approval/);
     const conn = await render("/leagues/new?draft=harbour-league", ORGANISER, atStep("connections"), DRAFT);
-    for (const t of ["Discord", "Webhook URL", "Play on Super FUMBBL"]) expect(conn).toContain(t);
+    for (const t of ["Discord", "Webhook URL"]) expect(conn).toContain(t);
+    expect(conn).not.toContain("Play on Super FUMBBL");
     const review = await render("/leagues/new?draft=harbour-league", ORGANISER, atStep("review"), DRAFT);
-    expect(review).toContain(">Save draft</button>");
-    expect(review).toContain(">Create league</button>");
+    expect(review).toContain(">Save as draft</button>");
+    expect(review).toContain(">Publish now</button>");
     expect(review).toContain('aria-label="Edit Rules"');
     expect(review).toContain("only you, its other organisers and site admins can see it");
   });
