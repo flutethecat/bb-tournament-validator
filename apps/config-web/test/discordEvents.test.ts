@@ -198,7 +198,7 @@ describe("per-competition webhooks: fallback, auto-populate, masking", () => {
       expect(isStateChangingApiRequest("GET", p)).toBe(false);
     }
     leagues.setSecrets("lg", { discordWebhookUrl: HOOK });
-    leagues.putSeason(season("season-1", [fx("f1", { home: { ...fx("f1").home, score: 2, cas: 1 }, away: { ...fx("f1").away, score: 0, cas: 0 }, finishedAt: at(-2) })]));
+    leagues.putSeason(season("season-1", [fx("f1", { home: { ...fx("f1").home, score: 2, cas: 1 }, away: { ...fx("f1").away, score: 0, cas: 0 }, tabletop: { revision: 1, opId: "op" }, finishedAt: at(-2) })]));
     const observer = new DiscordObserver({ leagues, tournaments, state, poster, now: () => NOW });
     const deps: DiscordApiDeps = { leagues, tournaments, state, poster, observer };
     const before = existsSync(join(dir, "discord")) ? readdirSync(join(dir, "discord")) : [];
@@ -457,7 +457,7 @@ describe("Weekly Digest", () => {
   });
 
   it("a week with no games is skipped; content has standings, results and highlights from recorded data", () => {
-    const played = (id: string, h: number, a: number, when: string, extra: Partial<LeagueFixture> = {}) => fx(id, { home: { ...fx(id).home, score: h, cas: 2 }, away: { ...fx(id).away, score: a, cas: 0 }, finishedAt: when, ...extra });
+    const played = (id: string, h: number, a: number, when: string, extra: Partial<LeagueFixture> = {}) => fx(id, { home: { ...fx(id).home, score: h, cas: 2 }, away: { ...fx(id).away, score: a, cas: 0 }, tabletop: { revision: 1, opId: "op" }, finishedAt: when, ...extra });
     const s = season("season-1", [played("f1", 3, 0, at(-30)), played("f2", 1, 1, at(-200))]);
     expect(weeklyContent(s, NOW.getTime() - 10 * 3_600_000, NOW.getTime(), "UTC", [])).toBeUndefined();
     const c = weeklyContent(s, NOW.getTime() - 7 * 24 * 3_600_000, NOW.getTime(), "UTC", [])!;
@@ -469,7 +469,7 @@ describe("Weekly Digest", () => {
   it("the observer posts the digest at the slot once (the run survives a restart via the ledger), and never for a draft", async () => {
     leagues.setSecrets("lg", { discordWebhookUrl: HOOK });
     leagues.updateLeague("lg", (l) => { l.timeZone = "UTC"; l.weeklyDigest = { enabled: true, trigger: "schedule", day: 0, time: "10:00", everyWeeks: 1 }; });
-    leagues.putSeason(season("season-1", [fx("f1", { home: { ...fx("f1").home, score: 2, cas: 1 }, away: { ...fx("f1").away, score: 1, cas: 0 }, finishedAt: at(-5) })]));
+    leagues.putSeason(season("season-1", [fx("f1", { home: { ...fx("f1").home, score: 2, cas: 1 }, away: { ...fx("f1").away, score: 1, cas: 0 }, tabletop: { revision: 1, opId: "op" }, finishedAt: at(-5) })]));
     const make = () => new DiscordObserver({ leagues, tournaments, state, poster, now: () => NOW });
     await make().tick();
     expect(titles().filter((t) => t.endsWith("Weekly Digest"))).toHaveLength(1);
@@ -486,7 +486,7 @@ describe("Weekly Digest", () => {
     expect(empty!.body).toMatchObject({ preview: null, reason: "No games were played in this period, so the digest is skipped." });
     expect((await discordApi("POST", "/api/leagues/lg/discord/weekly-digest/post", { coach: "Org" }, {}, deps))!.status).toBe(409);
     expect((await discordApi("POST", "/api/leagues/lg/discord/weekly-digest/post", { coach: "Eve" }, {}, deps))!.status).toBe(403);
-    leagues.putSeason(season("season-1", [fx("f1", { home: { ...fx("f1").home, score: 2 }, away: { ...fx("f1").away, score: 1 }, finishedAt: at(-5) })]));
+    leagues.putSeason(season("season-1", [fx("f1", { home: { ...fx("f1").home, score: 2 }, away: { ...fx("f1").away, score: 1 }, tabletop: { revision: 1, opId: "op" }, finishedAt: at(-5) })]));
     expect((await discordApi("POST", "/api/leagues/lg/discord/weekly-digest/post", { coach: "Org" }, {}, deps))!.status).toBe(200);
     expect(titles()).toEqual(["Test League: Weekly Digest"]);
   });
@@ -725,7 +725,7 @@ describe("review fixes", () => {
 
   it("[8] after-round digests switched back on never replay rounds finished meanwhile", async () => {
     leagues.setSecrets("lg", { discordWebhookUrl: HOOK });
-    const played = (id: string, round: number) => fx(id, { round, home: { ...fx(id).home, score: 1 }, away: { ...fx(id).away, score: 0 }, finishedAt: at(-1) });
+    const played = (id: string, round: number) => fx(id, { round, home: { ...fx(id).home, score: 1 }, away: { ...fx(id).away, score: 0 }, tabletop: { revision: 1, opId: "op" }, finishedAt: at(-1) });
     leagues.updateLeague("lg", (l) => { l.weeklyDigest = { enabled: false, trigger: "afterRound", day: 0, time: "10:00", everyWeeks: 1 }; });
     leagues.putSeason(season("season-1", [played("f1", 1)]));
     const obs = new DiscordObserver({ leagues, tournaments, state, poster, now: () => NOW });
@@ -739,7 +739,7 @@ describe("review fixes", () => {
 
   it("[9] Post now moves the period on: the next preview starts after it", async () => {
     leagues.setSecrets("lg", { discordWebhookUrl: HOOK });
-    leagues.putSeason(season("season-1", [fx("f1", { home: { ...fx("f1").home, score: 2 }, away: { ...fx("f1").away, score: 1 }, finishedAt: at(-5) })]));
+    leagues.putSeason(season("season-1", [fx("f1", { home: { ...fx("f1").home, score: 2 }, away: { ...fx("f1").away, score: 1 }, tabletop: { revision: 1, opId: "op" }, finishedAt: at(-5) })]));
     const observer = new DiscordObserver({ leagues, tournaments, state, poster, now: () => NOW });
     const deps: DiscordApiDeps = { leagues, tournaments, state, poster, observer };
     expect((await discordApi("POST", "/api/leagues/lg/discord/weekly-digest/post", { coach: "Org" }, {}, deps))!.status).toBe(200);
@@ -751,8 +751,8 @@ describe("review fixes", () => {
   it("[10] highlights read only the period's games", async () => {
     const seen: string[][] = [];
     leagues.putSeason(season("season-1", [
-      fx("old", { home: { ...fx("old").home, score: 5 }, away: { ...fx("old").away, score: 0 }, finishedAt: at(-24 * 30) }),
-      fx("new", { home: { ...fx("new").home, score: 1 }, away: { ...fx("new").away, score: 0 }, finishedAt: at(-5) }),
+      fx("old", { home: { ...fx("old").home, score: 5 }, away: { ...fx("old").away, score: 0 }, tabletop: { revision: 1, opId: "op" }, finishedAt: at(-24 * 30) }),
+      fx("new", { home: { ...fx("new").home, score: 1 }, away: { ...fx("new").away, score: 0 }, tabletop: { revision: 1, opId: "op" }, finishedAt: at(-5) }),
     ]));
     const obs = new DiscordObserver({ leagues, tournaments, state, poster, now: () => NOW, gamesFor: async (_l, _s, fs) => { seen.push(fs.map((f) => f.id)); return []; } });
     await obs.digestFor(leagues.league("lg")!, NOW.getTime() - 7 * 24 * 3_600_000, NOW.getTime());
@@ -798,5 +798,70 @@ describe("review fixes", () => {
     setPublicPlayerNames(false);
     try { expect(JSON.stringify(forkGame(fixture))).not.toContain("Grukk"); } finally { setPublicPlayerNames(true); }
     expect(JSON.stringify(forkGame(fixture))).toContain("Grukk");
+  });
+});
+
+describe("re-review fixes", () => {
+  it("[1] a listed word joined to another word by punctuation is still starred (the joined form OR a piece)", () => {
+    expect(starProfanity(`${LISTED}-game`)).toBe("***-game");
+    expect(starProfanity(`what ${LISTED}.Next time`)).toBe("what ***.Next time");
+    expect(containsProfanity(`${LISTED}_play`)).toBe(true);
+    expect(starProfanity("pass-hit play, set.up")).toBe("pass-hit play, set.up");
+  });
+
+  it("[2] an organiser-entered score is left out of the round summary; hand-entered league results stay out of the digest", async () => {
+    state.setWebhook("tournament:t1", HOOK);
+    const obs = new DiscordObserver({ leagues, tournaments, state, poster, now: () => NOW });
+    await obs.tick();
+    seedTournaments({
+      entrants: { e1: entrant("e1", "Ann"), e2: entrant("e2", "Bob"), e3: entrant("e3", "Cat"), e4: entrant("e4", "Dee") },
+      rounds: { r1: { id: "r1", tournamentId: "t1", number: 1, status: "completed", scheduledMatchIds: ["M1", "M2"], createdAt: at(-3) } },
+      matches: {
+        M1: smatch("M1", { status: "completed", result: { homeScore: 2, awayScore: 1, reportedAt: at(-2) } }),
+        M2: smatch("M2", { home: side("e3", "Cat"), away: side("e4", "Dee"), status: "completed", result: { homeScore: 7, awayScore: 0, reportedAt: at(-2), manual: true } }),
+      },
+    });
+    await obs.tick();
+    const summary = posts.find((p) => p.payload.embeds[0]!.title.endsWith("Round 1 summary"))!;
+    expect(summary.payload.embeds[0]!.description).toContain("Ann 2 - 1 Bob");
+    expect(summary.payload.embeds[0]!.description).not.toContain("7 - 0");
+    expect(titles().filter((t) => t === "Autumn Open: result")).toHaveLength(1); // M1 only
+    // league: a hand-entered score is not in the Weekly Digest's results
+    const typed = fx("typed", { home: { ...fx("typed").home, score: 9 }, away: { ...fx("typed").away, score: 0 }, finishedAt: at(-3) });
+    leagues.putSeason(season("season-1", [typed]));
+    const d = await obs.digestFor(leagues.league("lg")!, NOW.getTime() - 7 * 24 * 3_600_000, NOW.getTime());
+    expect(d.payload).toBeUndefined();
+  });
+
+  it("[3] redraft posts and the league test post go through the cleaned sender", async () => {
+    const { postLeagueEvent } = await import("../src/leagues/events");
+    leagues.setSecrets("lg", { discordWebhookUrl: HOOK });
+    leagues.updateLeague("lg", (l) => { l.name = `The ${LISTED} League`; });
+    await postLeagueEvent(leagues, leagues.league("lg")!, "milestones", { username: "x", embeds: [{ title: `${LISTED} redraft`, description: LISTED, color: 1 }], allowed_mentions: { parse: [] } }, poster);
+    const { leagueApi } = await import("../src/leagues/api");
+    await leagueApi("POST", "/api/leagues/lg/discord/test", new URLSearchParams(), { coach: "Org", admin: false }, { store: leagues, postWebhook: poster, readBody: async () => Buffer.from("{}") } as never);
+    expect(posts).toHaveLength(2);
+    for (const p of posts) expect(JSON.stringify(p.payload)).not.toContain(LISTED);
+  });
+
+  it("[4] Post now claims the period before it sends: a tick while Discord answers posts nothing; a failed send gives it back", async () => {
+    leagues.setSecrets("lg", { discordWebhookUrl: HOOK });
+    leagues.updateLeague("lg", (l) => { l.timeZone = "UTC"; l.weeklyDigest = { enabled: true, trigger: "schedule", day: 0, time: "10:00", everyWeeks: 1 }; });
+    leagues.putSeason(season("season-1", [fx("f1", { home: { ...fx("f1").home, score: 2 }, away: { ...fx("f1").away, score: 1 }, tabletop: { revision: 1, opId: "op" }, finishedAt: at(-5) })]));
+    let release!: (v: { ok: boolean; status: number }) => void;
+    const slow = (url: string, payload: DiscordPayload) => { posts.push({ url, payload }); return new Promise<{ ok: boolean; status: number }>((r) => { release = r; }); };
+    const observer = new DiscordObserver({ leagues, tournaments, state, poster, now: () => NOW });
+    const pending = discordApi("POST", "/api/leagues/lg/discord/weekly-digest/post", { coach: "Org" }, {}, { leagues, tournaments, state, poster: slow, observer });
+    await new Promise((r) => setTimeout(r, 5));
+    await observer.tick(); // the scheduled slot (today 10:00) is due, but the period is claimed
+    expect(titles().filter((t) => t.endsWith("Weekly Digest"))).toHaveLength(1);
+    release({ ok: true, status: 204 });
+    expect((await pending)!.status).toBe(200);
+    // a failed send puts the previous run back
+    resetDiscordRateLimits();
+    state.setWeekly("lg", { lastRun: at(-48) });
+    const failing = async () => ({ ok: false, status: 500 });
+    expect((await discordApi("POST", "/api/leagues/lg/discord/weekly-digest/post", { coach: "Org" }, {}, { leagues, tournaments, state, poster: failing, observer }))!.status).toBe(502);
+    expect(state.weekly("lg").lastRun).toBe(at(-48));
   });
 });
