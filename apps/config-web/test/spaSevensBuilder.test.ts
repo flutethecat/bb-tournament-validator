@@ -52,6 +52,10 @@ const LEGAL = {
 };
 const LIMITS = effectiveRosterLimits(MATCHED, "Human", bb2025)!;
 const FREE_LIMITS = effectiveRosterLimits(SEVENS_FREE_CREATE_BUILD_PACKAGE, "Human", bb2025)!;
+/** Sol e887f533 P2: a Sevens package whose skills come from a skill pack only (no count knobs, no flat SP budget). */
+const PACK = { label: "Skills", gold: 600000, skillPointBudget: 0, maxSkills: 3, maxSecondary: 1 };
+const PACKS_DOC = { name: "Sevens Packs", format: "sevens", skillAllotment: {}, skillPackages: [PACK] };
+const PACKS = loadPackage(PACKS_DOC as DeepPartial<TournamentPackage>).pkg;
 const STANDARD_INDUCEMENTS = { inducements: [{ key: "bribes", label: "Bribes", price: 100000, max: 3, allowed: true }] };
 
 type Routes = Record<string, unknown | ((body: unknown) => unknown)>;
@@ -429,6 +433,38 @@ describe("standard packages are unchanged (regression)", () => {
   });
 });
 
+describe("Sevens: skill packs (Sol e887f533 P2)", () => {
+  it("a pack-only Sevens package offers skills through the chosen pack, as the validator counts it", async () => {
+    const E = encodeURIComponent("Sevens Packs");
+    const L = effectiveRosterLimits(PACKS, "Human", bb2025)!;
+    expect(L.skills.maxPrimary).toBeNull();
+    expect(L.skills.skillPointBudget).toBe(0);
+    const pkgDoc = { description: "", dataNote: "", eligibleRosters: PACKS.eligibleRosters, format: "sevens" };
+    const f = mockFetcher(routes({
+      "/api/packages": [{ name: "Sevens Packs", description: "", format: "sevens" }],
+      [`/api/packages/${E}`]: { pkg: pkgDoc, rules: packageRulesInfo(PACKS, null) },
+      [`/api/packages/${E}?roster=Human`]: { pkg: pkgDoc, rules: packageRulesInfo(PACKS, "Human") },
+      [`/api/fork/team-builder/tiers?packageName=${E}`]: { races: teamBuilderTierCatalog(PACKS, bb2025, true), tiers: builderTierRows(PACKS) },
+      [`/api/fork/team-builder/inducements?packageName=${E}`]: { inducements: teamBuilderInducementCatalog(PACKS, bb2025) },
+      [`/api/fork/team-builder/limits?packageName=${E}`]: { format: "sevens", eligibleRosters: PACKS.eligibleRosters },
+      [`/api/fork/team-builder/limits?packageName=${E}&roster=Human`]: { format: "sevens", eligibleRosters: PACKS.eligibleRosters, limits: L },
+    }));
+    const { b } = await sevensHuman("Sevens Packs", f);
+    expect(b.raceRules()!.packs.map((p) => p.label)).toEqual(["Skills"]);
+    hire(b, "Human Lineman", 4);
+    b.setSkillPack("Skills");
+    for (let i = 0; i < 4; i++) await b.openSkills(i);
+    expect(b.advanceLock(0).reason).toBe("");
+    expect(b.skillBlock(b.state.slots[0]!, "Block")).toBe("");
+    expect(b.addSkill(0, "Block")).toBe("");
+    expect(b.addSkill(1, "Wrestle")).toBe(""); // the pack's one secondary
+    expect(b.addSkill(2, "Tackle")).toBe("");
+    // The pack's own caps still gate (3 skills): the shared core's pack rules, not "no added skills".
+    expect(b.skillBlock(b.state.slots[3]!, "Dodge")).not.toMatch(/no added skills/);
+    expect(b.requestBody().skillPack).toBe("Skills");
+  });
+});
+
 describe("Tournament Creator: inherited format display", () => {
   const mock = (r: Routes): Fetcher => mockFetcher(r);
   const API: Routes = {
@@ -480,9 +516,13 @@ describe("server: GET /api/fork/team-builder/limits and the package list format"
     copyFileSync(new URL("tournament-packages/sevens-matched-play.json", REPO), join(root, "packages", "sevens-matched-play.json"));
     writeFileSync(join(root, "packages", "sevens-layer.json"), JSON.stringify({ name: "Sevens Layer", extends: NAME, skillAllotment: {} }), "utf8");
     writeFileSync(join(root, "packages", "plain.json"), JSON.stringify({ name: "Plain Cup", skillAllotment: {} }), "utf8");
+    writeFileSync(join(root, "packages", "sevens-packs.json"), JSON.stringify(PACKS_DOC), "utf8");
+    const nm = (t: string) => (/^(\d+)\+$/.exec(t)?.[1] ?? "0");
+    writeFileSync(join(root, "rosters", "human.xml"), `<roster id="human.bb2025"><name>Human</name><reRollCost>50000</reRollCost><maxReRolls>8</maxReRolls><apothecary>true</apothecary>${HUMAN_DS.positions
+      .map((p, i) => `<position id="h${i + 1}"><quantity>${p.max}</quantity><name>${p.name}</name><type>Regular</type><gender>male</gender><cost>${p.cost}</cost><movement>${p.MA}</movement><strength>${p.ST}</strength><agility>${nm(p.AG)}</agility><passing>${nm(p.PA)}</passing><armour>${nm(p.AV)}</armour><skillList>${p.skills.map((k) => `<skill>${k}</skill>`).join("")}</skillList></position>`)
+      .join("")}</roster>`, "utf8");
     writeFileSync(join(root, "identities.json"), JSON.stringify({ version: 1, coaches: onboardedCoaches("Alice") }), "utf8");
     writeFileSync(join(root, "organizers.json"), JSON.stringify({ organizers: [] }), "utf8");
-    void createSession;
     ({ server } = await import("../src/server.js"));
     if (!server.listening) await once(server, "listening");
     origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -512,6 +552,21 @@ describe("server: GET /api/fork/team-builder/limits and the package list format"
     expect(list.find((r) => r.name === NAME)?.format).toBe("sevens");
     expect(list.find((r) => r.name === "Sevens Layer")?.format).toBe("sevens");
     expect(list.find((r) => r.name === "Plain Cup")).not.toHaveProperty("format");
+  });
+
+  it("the server accepts a skill bought through a Sevens skill pack (the builder offers it too)", async () => {
+    const alice = createSession("Alice");
+    const r = await fetch(`${origin}/api/fork/team-builder/preview`, {
+      method: "POST", headers: { authorization: `Bearer ${alice.token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        rosterId: "human.bb2025", coach: "Alice", teamName: "Pack Seven", reRolls: 0, apothecary: false, dedicatedFans: 0, packageName: "Sevens Packs", skillPack: "Skills",
+        picks: [{ positionId: id("Human Lineman"), count: 1, veteran: true, chosenSkills: ["Block"] }, { positionId: id("Human Lineman"), count: 6 }],
+      }),
+    });
+    const body = (await r.json()) as any;
+    expect(r.status).toBe(200);
+    expect(body.errors).toEqual([]);
+    expect(body.valid).toBe(true);
   });
 
   it("the route is on the public-read lists (requireSession and the sidecar-off PUBLIC_PATHS)", () => {

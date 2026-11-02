@@ -803,6 +803,16 @@ export function createTournamentBuilder(deps: BuilderDeps) {
   function packageMoreReason(slot: Slot): string {
     const k = limits()?.skills;
     if (!k) return "";
+    // Skill packs (skillPackages) carry their own allowance, as in the validator's skill-packages rule: the chosen pack's
+    // knobs (maxSkills / SP) decide, and the package-level per-player cap doesn't apply to them (rules.ts skips it too);
+    // the shared core gates the pack's own caps.
+    const packs = raceRules()?.packs ?? [];
+    if (packs.length) {
+      const pack = packSummary();
+      if (!pack) return "";
+      const open = pack.skillPointBudget > 0 || pack.maxSkills == null || pack.maxSkills > 0;
+      return open ? "" : `The ${pack.label} pack has no added skills.`;
+    }
     if (k.maxPrimary == null && k.skillPointBudget <= 0) return sevensFree() ? "Sevens Free Create has no added skills." : "This ruleset has no added skills.";
     if (k.maxPerPlayer != null && slot.chosenSkills.length >= k.maxPerPlayer) {
       return k.maxPerPlayer === 1 ? "One added skill per player in Sevens." : `Max ${k.maxPerPlayer} added skills per player.`;
