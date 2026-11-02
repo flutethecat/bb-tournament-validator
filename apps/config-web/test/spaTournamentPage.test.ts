@@ -220,7 +220,8 @@ describe("tournament page views (server-rendered against a mocked API)", () => {
     const body = detailBody({ capabilities: { manage: true, assignRoles: true } });
     const html = await render("/tournaments/t1", { ...AS("Veers"), "/api/tournaments/t1": body });
     expect(html).toContain(">Edit</a>");
-    expect(html).toContain("tab=manage#tn-page-h");
+    expect(html).toContain('href="/app/tournaments/t1/manage#tn-page-h"'); // Edit opens the management sub-panel's page settings
+    expect(html).toMatch(/<a[^>]*data-cog[^>]*>/); // and the section header's cog
     expect(html).toContain('href="/app/tournament-creator?package=nut-cup"');
     expect(html).toContain("Post news");
     expect(html).toContain(">Unpin</button>");
@@ -267,7 +268,9 @@ describe("tournament page views (server-rendered against a mocked API)", () => {
       expect(src, file).not.toMatch(/class="tn-(panel|band|tab)"/);
     }
     const view = readFileSync(fileURLToPath(new URL("../spa/src/views/TournamentDetailView.vue", import.meta.url)), "utf8");
-    expect(view).toContain('class="sf-tabs tn-tabs"');
+    expect(view).toContain("<TournamentSectionHeader"); // the shared section header carries the tabs (.sf-tabs.sh-tabs)
+    const header = readFileSync(fileURLToPath(new URL("../spa/src/components/SectionHeader.vue", import.meta.url)), "utf8");
+    expect(header).toContain('class="sf-tabs sh-tabs"');
     const home = readFileSync(fileURLToPath(new URL("../spa/src/home/home.css", import.meta.url)), "utf8");
     for (const rule of [".sf-tabs, .lg-tabs {", ".sf-btn, .ob-btn {", ".sf-table, .lg-table {", ".sf-error {"]) expect(home, rule).toContain(rule);
   });

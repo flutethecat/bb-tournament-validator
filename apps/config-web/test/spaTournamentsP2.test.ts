@@ -415,7 +415,7 @@ describe("phase 2/3 views (server-rendered against a mocked API)", () => {
     expect(plain.html).toContain("Format");
     const body = detailBody({ capabilities: { manage: true, assignRoles: true }, entrants: [alice({ manualSeed: 4, flags: { ...FLAGS, paid: true }, nafName: "Alice Fake", nafNumber: "34116", nafChecked: true }), bob({ flags: { ...FLAGS, rosterVerified: true }, nafPending: true })] });
     const { html } = await render("/tournaments/t1?tab=manage", { ...AS("Veers"), "/api/tournaments/t1": body }, loaded("t1"));
-    expect(html).toContain(">Manage</a>");
+    expect(html).toMatch(/<a[^>]*data-cog[^>]*aria-current="page"|<a[^>]*aria-current="page"[^>]*data-cog/); // the cog, current
     expect(html).toContain(">Summary<");
     expect(html).toContain(">Start Tournament</button>");
     expect(html).toContain(">Lock rosters</button>");
@@ -530,7 +530,7 @@ describe("phase 2/3 views (server-rendered against a mocked API)", () => {
     expect(admin.html).toContain("Remove organiser Piett");
     expect(admin.html).toContain(">Set owner</button>");
     expect(admin.html).toContain(">Add organiser</button>");
-    expect(admin.html).toContain('href="/app/tournaments/t1?tab=manage"');
+    expect(admin.html).toContain('href="/app/tournaments/t1/manage"');
     const plain = await render("/admin/tournaments", { ...AS("Alice"), "/api/fork/tournaments?status=all": list }, prep);
     expect(plain.html).toContain("Admins only.");
     expect(plain.html).not.toContain("Spike Open");

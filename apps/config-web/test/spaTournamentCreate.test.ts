@@ -83,7 +83,7 @@ describe("create controller", () => {
     });
     expect(c.state.open).toBe(false);
     expect(created).toBe(1);
-    expect(createdLocation("t9")).toEqual({ name: "tournament-detail", params: { id: "t9" }, query: { tab: "manage" } });
+    expect(createdLocation("t9")).toEqual({ name: "tournament-manage", params: { id: "t9" } }); // the management sub-panel
     expect(c.takeNotice("other")).toBe("");
     expect(c.takeNotice("t9")).toBe(CREATED_NOTICE);
     expect(c.takeNotice("t9")).toBe("");
@@ -468,9 +468,9 @@ describe("create views (server-rendered against a mocked API)", () => {
       await d.load("t9");
       inject(mods.detail.TOURNAMENT_DETAIL_KEY, d);
     });
-    expect(spa.router.currentRoute.value.query.tab).toBe("manage");
-    // The dialog pushes createdLocation(id): the new draft's Manage tab.
-    expect(spa.router.resolve(mods.create.createdLocation("t9")).fullPath).toBe("/tournaments/t9?tab=manage");
+    expect(spa.router.currentRoute.value.name).toBe("tournament-manage"); // the old ?tab=manage link redirects
+    // The dialog pushes createdLocation(id): the new draft's management sub-panel.
+    expect(spa.router.resolve(mods.create.createdLocation("t9")).fullPath).toBe("/tournaments/t9/manage");
     expect(html).toContain('<p class="tn-notice" role="status">Tournament created as a draft.</p>');
     expect(creator!.state.created).toBeNull();
   });

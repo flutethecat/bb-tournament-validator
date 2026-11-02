@@ -233,3 +233,34 @@ export function eventDates(e: Pick<SeriesEvent, "startsAt" | "endsAt">): string 
   if (!start) return "Date not set";
   return end && end !== start ? `${start} to ${end}` : start;
 }
+
+// ---- schedule (the section header's Schedule tab; spec-section-header Q5: F1-calendar round cards) -----------------
+
+export type ScheduleState = "done" | "live" | "next" | "upcoming" | "cancelled";
+export interface SchedulePodium { rank: number; coach: string; teamName?: string; points: number }
+export interface ScheduleCard { event: SeriesEvent; no: number; state: ScheduleState; podium: SchedulePodium[] }
+
+/**
+ * The series' tournaments as round cards, in the order the server lists them: a finished one with its top three (from the
+ * standings the server computed), the ones in progress, the NEXT one (the first not started) and the rest upcoming.
+ */
+export function scheduleCards(standings: Pick<SeriesStandings, "events" | "rows"> | null | undefined): ScheduleCard[] {
+  if (!standings) return [];
+  let nextGiven = false;
+  return standings.events.map((event, i) => {
+    let state: ScheduleState;
+    if (event.status === "completed") state = "done";
+    else if (event.status === "cancelled") state = "cancelled";
+    else if (event.status === "active") state = "live";
+    else if (!nextGiven) { state = "next"; nextGiven = true; }
+    else state = "upcoming";
+    const podium = state === "done"
+      ? standings.rows
+        .flatMap((r) => r.results.filter((x) => x.tournamentId === event.id).map((x) => ({ rank: x.rank, coach: r.coach, teamName: x.teamName, points: x.points })))
+        .filter((p) => p.rank >= 1)
+        .sort((a, b) => a.rank - b.rank || a.coach.localeCompare(b.coach))
+        .slice(0, 3)
+      : [];
+    return { event, no: i + 1, state, podium };
+  });
+}

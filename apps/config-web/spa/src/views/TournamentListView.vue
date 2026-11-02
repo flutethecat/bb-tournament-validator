@@ -63,7 +63,7 @@ const broken = ref<Record<string, boolean>>({});
 const showBanner = (c: CardView): boolean => Boolean(c.banner) && !broken.value[c.t.id];
 const detailLink = (c: CardView) => {
   const params = { id: c.t.id };
-  if (c.action === "manage") return { name: "tournament-detail", params, query: { tab: "manage" } };
+  if (c.action === "manage") return { name: "tournament-manage", params };
   if (c.action === "entry" || c.action === "register") return { name: "tournament-detail", params, hash: "#tn-entry-h" };
   return { name: "tournament-detail", params };
 };

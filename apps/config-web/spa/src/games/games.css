@@ -25,3 +25,11 @@
 }
 /* the side that conceded, under its team name (server-reported) */
 .tt-rec--final .tt-conceded { display: block; font-family: var(--font-heading, sans-serif); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ui-danger, #ff4d4d); text-shadow: var(--tt-name-shadow); }
+
+/* A tournament's game (section header lane, 11-02): the reporter sits inline under the tournament's section header instead
+   of covering the screen. */
+.gs-section { display: grid; gap: 12px; min-width: 0; }
+.tt-rec.tt-rec--inline { position: relative; inset: auto; z-index: auto; min-height: min(80dvh, 860px); border: 2px solid var(--sf-panel-line); border-radius: 2px; }
+@media screen and (min-width: 1367px) and (min-height: 700px) {
+  .gs-section.sf-fit > .tt-rec--inline { min-height: 0; }
+}

@@ -176,5 +176,5 @@ export function createTournamentCreator(deps: { api: Fetcher; onSignedOut?: () =
 export type TournamentCreator = ReturnType<typeof createTournamentCreator>;
 export const TOURNAMENT_CREATOR_KEY: InjectionKey<TournamentCreator> = Symbol("tournament-creator");
 
-/** Where the new draft opens: its Manage tab. */
-export const createdLocation = (id: string) => ({ name: "tournament-detail", params: { id }, query: { tab: "manage" } });
+/** Where the new draft opens: its management sub-panel (the section header's cog; was the Manage tab). */
+export const createdLocation = (id: string) => ({ name: "tournament-manage", params: { id } });

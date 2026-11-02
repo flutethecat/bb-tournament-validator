@@ -327,13 +327,14 @@ describe("league routes (server-rendered against a mocked API)", () => {
     expect(spa.pageTitle.state.text).toBe("TABBL"); // the league's name is the header title now
     expect(html).not.toContain("lg-front-name");
     expect(html).toContain('role="radiogroup"');
-    const s6 = html.indexOf(">Season 6<");
-    const s1 = html.indexOf(">Season 1<");
+    const field = html.slice(html.indexOf('role="radiogroup"')); // the header's season dropdown lists newest first
+    const s6 = field.indexOf(">Season 6<");
+    const s1 = field.indexOf(">Season 1<");
     expect(s6).toBeGreaterThan(0);
     expect(s1).toBeLessThan(s6); // oldest first, left to right
     expect(html).toContain('data-ruleset="BB2020"');
     expect(html).toContain('data-ruleset="BB2025"');
-    for (const t of ["Overview", "Standings", "Fixtures", "Teams", "Honours"]) expect(html).toContain(`>${t}</a>`);
+    for (const t of ["Overview", "Fixtures", "Standings", "Honours", "Participants"]) expect(html).toContain(`>${t}</a>`); // the section header tabs
     expect(html).toContain("Latest results");
     expect(html.match(/class="rc-card"/g)).toHaveLength(3);
     expect(html).toContain('<span class="rc-comp">TABBL · Season 6</span>'); // league · season only, no phase, group or round
@@ -355,9 +356,10 @@ describe("league routes (server-rendered against a mocked API)", () => {
     expect(html).toContain(">Founded 05-29-2026</span>");
     expect(html).not.toContain("lg-stats-link");
     expect(html).not.toMatch(/tl-action[^>]*>Statistics/);
-    expect(html).toMatch(/<a[^>]*class="lg-tab lg-tab-stats"[^>]*href="\/app\/leagues\/tabbl\/stats"[^>]*>Statistics<\/a>|<a[^>]*href="\/app\/leagues\/tabbl\/stats"[^>]*class="lg-tab lg-tab-stats"[^>]*>Statistics<\/a>/);
-    expect(html).not.toMatch(/lg-tab-stats[^>]*aria-current/); // not active on the league page
-    expect(html.indexOf("lg-tab-stats")).toBeGreaterThan(html.indexOf(">Honours</a>"));
+    const statsTab = html.match(/<a[^>]*data-tab="statistics"[^>]*>Statistics<\/a>/)?.[0] ?? "";
+    expect(statsTab).toContain('href="/app/leagues/tabbl/stats"'); // the Statistics tab of the section header
+    expect(statsTab).not.toContain("aria-current"); // not active on the league page
+    expect(html.indexOf('data-tab="statistics"')).toBeGreaterThan(html.indexOf(">Honours</a>")); // TourPlay order
   });
 
   it("league strip: Founded hidden when no season has a start date; earliest start wins; singular season", () => {
@@ -376,7 +378,7 @@ describe("league routes (server-rendered against a mocked API)", () => {
       inject(mods.league.LEAGUE_DETAIL_KEY, d);
     });
     expect(html).toContain("Tahoma Area Blood Bowl League");
-    expect(html).toMatch(/aria-current="page"[^>]*lg-tab-stats/);
+    expect(html.match(/<a[^>]*data-tab="statistics"[^>]*>/)?.[0] ?? "").toContain('aria-current="page"');
     expect(html).toContain('href="/app/leagues/tabbl?tab=standings"');
     expect(html.match(/aria-current="page"/g)).toHaveLength(1);
     expect(html).toContain(">Overview</a>");
@@ -384,7 +386,8 @@ describe("league routes (server-rendered against a mocked API)", () => {
 
   it("season row: oldest first left to right, one nowrap scrolling row", async () => {
     const { html } = await render("/leagues/tabbl", loadedDetail());
-    expect(html.indexOf(">Season 1<")).toBeLessThan(html.indexOf(">Season 6<"));
+    const field = html.slice(html.indexOf('role="radiogroup"'));
+    expect(field.indexOf(">Season 1<")).toBeLessThan(field.indexOf(">Season 6<"));
     const css = (await import("node:fs")).readFileSync(fileURLToPath(new URL("../spa/src/leagues/leagues.css", import.meta.url)), "utf8");
     const rule = css.slice(css.indexOf(".lg-season-field {"), css.indexOf("}", css.indexOf(".lg-season-field {")));
     expect(rule).toContain("flex-wrap: nowrap");
@@ -424,7 +427,7 @@ describe("league routes (server-rendered against a mocked API)", () => {
     expect(mods.league.carriedSeason([s1sum, s6sum], "bogus")).toBe("");
   });
 
-  it("a league with no seasons still shows the tab bar (Statistics reachable)", async () => {
+  it("a league with no seasons still shows the section header (empty tabs, Statistics included, are hidden)", async () => {
     const { html } = await render("/leagues/tabbl", async (inject, f) => {
       const api = mockFetcher({ ...API, "/api/leagues/tabbl": { league, seasons: [] } });
       void f;
@@ -433,17 +436,18 @@ describe("league routes (server-rendered against a mocked API)", () => {
       inject(mods.league.LEAGUE_DETAIL_KEY, d);
     });
     expect(html).toContain("No seasons yet.");
-    expect(html).toContain('class="lg-tabs"');
-    expect(html).toMatch(/href="\/app\/leagues\/tabbl\/stats"[^>]*>Statistics<|>Statistics<\/a>/);
+    expect(html).toContain('class="sf-tabs sh-tabs"');
+    expect(html).toContain(">Overview</a>");
+    expect(html).not.toContain('data-tab="statistics"'); // nothing played yet: hidden until there is something to show
   });
 
-  it("league page: organisers see the artwork controls", async () => {
+  it("league page: organisers get the Announcement and the cog in the section header; the artwork moved to management", async () => {
     const { html } = await render("/leagues/tabbl", loadedDetail(), ORGANISER);
-    expect(html).toContain("League artwork");
-    expect(html).toContain("Upload header bar");
+    expect(html).not.toContain("League artwork"); // Management › Artwork now
+    expect(html).not.toContain("Upload header bar");
     // Announcement megaphone next to the cog (organisers only); no news composer or Message members panel on the page.
-    expect(html).toMatch(/<button[^>]*class="lg-cog lg-announce"[^>]*aria-label="Announcement"/);
-    expect(html.indexOf('aria-label="Announcement"')).toBeLessThan(html.indexOf('aria-label="League settings"'));
+    expect(html).toMatch(/<button[^>]*data-announce[^>]*aria-label="Announcement"/);
+    expect(html.indexOf('aria-label="Announcement"')).toBeLessThan(html.indexOf('aria-label="League management"'));
     expect(html).not.toContain("lg-message");
     expect(html).not.toContain("Pin to the top");
     expect(html).not.toContain('id="lg-news-h"'); // no news, no panel, organisers too
@@ -554,7 +558,8 @@ describe("league routes (server-rendered against a mocked API)", () => {
     const nobody = await render("/leagues/tabbl?tab=teams&team=Nobody", loadedDetail());
     expect(nobody.html).toContain("No team called");
     const hon = await render("/leagues/tabbl?tab=honours", loadedDetail());
-    expect(hon.html).toContain("Loading awards..."); // league-wide awards + Hall of Fame load on mount (spaLeagueAwards.test.ts)
+    expect(hon.html).not.toContain("Loading awards..."); // the awards have their own tab now
+    expect((await render("/leagues/tabbl?tab=awards", loadedDetail())).html).toContain("Loading awards..."); // league-wide, loaded on mount
     expect(hon.html).toContain("Most touchdowns");
     expect(hon.html).toContain('href="/app/leagues/tabbl?season=season-6&amp;tab=teams&amp;player=p-deth00000001"'); // a board row that is one player links by id
     expect(hon.html).toContain("10-1-0 · 22 pts");

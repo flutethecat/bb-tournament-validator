@@ -650,6 +650,8 @@ button.lg-cog { margin: 0; padding: 0; font: inherit; color: inherit; cursor: po
    redraft board) fills the tab body instead, and its table scrolls under a sticky header. The table keeps at least 160 px:
    when the panel's header, totals and controls leave less (a short window), the panel scrolls as a whole instead. */
 .lg-tab-body { display: grid; gap: 16px; align-content: start; min-width: 0; }
+/* the Overview hero (overflow: hidden) inside the fixed-height tab pane: an auto grid row would shrink it to its border */
+.lg-tab-body > .lg-front { min-height: max-content; }
 @media screen and (min-width: 1367px) and (min-height: 700px) {
   .lg-tab-body:has(> .lg-stack > .hm-panel:only-child > .lg-scroll), .lg-tab-body:has(> .lg-part) { display: flex; flex-direction: column; overflow-y: auto; }
   .lg-tab-body > .lg-stack:has(> .hm-panel:only-child > .lg-scroll) { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; }
@@ -658,3 +660,26 @@ button.lg-cog { margin: 0; padding: 0; font: inherit; color: inherit; cursor: po
   .lg-tab-body > .lg-stack > .hm-panel:only-child > .lg-scroll, .lg-tab-body > .lg-part .lg-part-wrap { position: relative; flex: 1 1 auto; min-height: 160px; overflow: auto; }
   .lg-tab-body > .lg-stack > .hm-panel:only-child > .lg-scroll thead th, .lg-part-wrap thead th { position: sticky; top: 0; z-index: 1; background: var(--ui-surface); }
 }
+
+/* ---- Participants tab (section header lane): the season's teams, public fields; organisers open a coach's profile */
+.lg-plist-manage { margin: 0 12px 10px; }
+.lg-plist-team { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.lg-plist-crest { flex: none; width: 32px; height: 32px; object-fit: contain; }
+.lg-plist-crest.lg-logo-blank { font-size: 11px; }
+.lg-plist-link { color: var(--ui-text); text-decoration: none; overflow-wrap: anywhere; }
+.lg-plist-link:hover { color: var(--ui-heading); text-decoration: underline; }
+.lg-plist-link:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+/* Calendar (fixtures by day) and Draws (pairings by round) */
+.lg-cal-days { list-style: none; margin: 0; padding: 0 12px; display: grid; gap: 0; }
+.lg-cal-day { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 12px; padding: 8px 0; border-top: 1px solid var(--sf-panel-line); }
+.lg-cal-day:first-child { border-top: 0; }
+.lg-cal-date { display: grid; justify-items: center; align-content: start; }
+.lg-cal-date b { font: 500 22px/1 var(--font-heading); color: var(--sf-gold); }
+.lg-cal-date small { font: 10px/1.4 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-muted); }
+.lg-cal-games { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.lg-cal-games li { display: grid; gap: 2px; }
+.lg-cal-game { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; color: var(--ui-text); text-decoration: none; overflow-wrap: anywhere; }
+.lg-cal-game:hover { color: var(--ui-heading); }
+.lg-cal-game:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.lg-cal-score { font: 13px/1 var(--sf-band-font); color: var(--sf-gold); }
+.lg-draw-vs { width: 24px; text-align: center; color: var(--ui-muted); }

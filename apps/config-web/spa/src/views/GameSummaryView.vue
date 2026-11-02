@@ -3,13 +3,16 @@
 // have but with a completed state"). Public. Every source renders the match reporter read-only in its finished state
 // (GameReporterView): online games log what the fork result recorded (no turn order), tabletop matches their recorded
 // moments with half and turn, and a tournament fixture without player data just the scoreboard with a note and its
-// Rounds-tab link. Loading, missing and failing games keep the plain page.
+// Rounds-tab link. Loading, missing and failing games keep the plain page. A tournament's game sits inside that tournament's
+// section: its section header (Fixtures highlighted, breadcrumb "Fixtures › <Home> vs <Away>") on top and the reporter
+// inline under it instead of full screen. Other games (online, tabletop) carry no section and stay full screen.
 import { computed, inject, onBeforeUnmount, onMounted, onServerPrefetch, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 import { API_KEY } from "../app";
 import { usePageTitle } from "../shell/pageTitle";
 import { SESSION_KEY } from "../session";
 import GameReporterView from "../components/GameReporterView.vue";
+import TournamentSectionHeader from "../components/TournamentSectionHeader.vue";
 import { isGameSource, loadGameDetail, type GameLoad } from "../games/detail";
 import { isReplayPending, startReplayPoll } from "../games/replayPoll";
 import "../games/games.css";
@@ -52,12 +55,19 @@ function pollReplay(): void {
 watch(() => [game.value?.source, game.value?.id, game.value?.replay], () => { if (!isReplayPending(game.value)) { stopPoll?.(); stopPoll = undefined; } else if (!stopPoll) pollReplay(); });
 watch(() => [props.source, props.id], () => { stopPoll?.(); stopPoll = undefined; });
 onBeforeUnmount(() => stopPoll?.());
+/** The tournament this game belongs to (server-sent), whose section header the page shows. */
+const sectionId = computed(() => game.value?.summary.tournament?.id ?? "");
+const matchTitle = computed(() => (game.value ? `${game.value.card.home.name} vs ${game.value.card.away.name}` : ""));
 // The header (and the tab) name the match ("<Home> vs <Away>") once it is known.
 usePageTitle(() => (game.value ? `${game.value.card.home.name} vs ${game.value.card.away.name}` : ""));
 </script>
 
 <template>
-  <GameReporterView v-if="game" :game="game" :back-to="backTo" />
+  <div v-if="game && sectionId" class="gs-section sf-fit">
+    <TournamentSectionHeader :id="sectionId" active="fixtures" :crumb="matchTitle" />
+    <GameReporterView class="tt-rec--inline sf-fill" :game="game" :back-to="backTo" />
+  </div>
+  <GameReporterView v-else-if="game" :game="game" :back-to="backTo" />
   <div v-else class="gs-page">
     <p class="gs-crumbs"><RouterLink :to="backTo">Past Games</RouterLink><span aria-hidden="true"> / </span><span>Game</span></p>
     <p v-if="!result" class="muted">Loading…</p>

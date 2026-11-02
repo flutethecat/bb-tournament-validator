@@ -1,0 +1,125 @@
+/* Shared section header (owner 11-02, spec-section-header-2026-11-02): one slim band on every page inside a league,
+   tournament or series. Left: up-link, crest, name (Nuffle), status chip or season dropdown. Middle: the tabs, scrolling
+   sideways inside the band only. Right: role chip, Announcement, the organiser cog. Plain panel band without a banner;
+   with one, pages other than Overview get a slim dimmed strip of it behind the band. Phones: two rows (name; tabs).
+   Tokens only. The band is fixed chrome in the fitted shell (a flex: none child of .sf-fit). */
+.sh {
+  position: relative; isolation: isolate; min-width: 0; color: var(--ui-text);
+  background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface);
+  border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--ui-heading); border-radius: 2px;
+  box-shadow: 0 3px 0 var(--sf-panel-drop), inset 0 1px 0 var(--sf-panel-hi);
+}
+/* Slim banner strip: the organiser's banner, cropped to the band and dimmed under a surface overlay for contrast. */
+.sh[data-strip="banner"] {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--ui-surface) 92%, transparent) 0%, color-mix(in srgb, var(--ui-surface) 74%, transparent) 45%, color-mix(in srgb, var(--ui-surface) 86%, transparent) 100%),
+    var(--sh-banner) center / cover no-repeat, var(--ui-surface);
+}
+.sh-row {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "id tabs act";
+  align-items: center; gap: 12px; min-height: 56px; box-sizing: border-box; padding: 5px 10px 5px 8px;
+}
+.sh-id { grid-area: id; display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 34vw; }
+.sh-up {
+  flex: none; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 40px; margin-right: -2px;
+  font: 22px/1 var(--sf-band-font); color: var(--ui-muted); text-decoration: none; border-radius: 2px;
+}
+.sh-up:hover { color: var(--ui-text); background: var(--ui-hover); }
+.sh-logo { flex: none; width: 40px; height: 40px; object-fit: contain; filter: drop-shadow(0 2px 0 var(--sf-panel-drop)); }
+.sh-logo-blank {
+  display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; font: 13px/1 var(--sf-band-font); color: var(--ui-text);
+  background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-radius: 2px; filter: none;
+}
+.sh-name {
+  min-width: 0; margin: 0; font-family: var(--font-heading, sans-serif); font-weight: 500; font-size: 1.25rem; line-height: 1.15; letter-spacing: .04em;
+  color: var(--ui-text); text-shadow: 0 2px 0 var(--sf-panel-drop); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sh-chips { flex: none; display: flex; align-items: center; gap: 6px; }
+.sh-chips a.sf-chip { text-decoration: none; }
+.sh-chips a.sf-chip:hover { border-color: var(--ui-heading); }
+.sh-season {
+  flex: none; max-width: 150px; min-height: 30px; padding: 2px 24px 2px 8px; font: 11px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .06em;
+  color: var(--ui-text); background-color: var(--ui-surface-2); border: 2px solid var(--sf-seat-home); border-radius: 2px; box-shadow: var(--sf-bevel); cursor: pointer;
+}
+.sh-season:focus-visible, .sh-up:focus-visible, .sh-btn:focus-visible, .sh-crumbs a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+
+/* the tabs: the shared joined strip (.sf-tabs / .sf-tab), compact, scrolling sideways inside the band */
+.sh-tabs.sf-tabs { grid-area: tabs; justify-self: start; min-width: 0; max-width: 100%; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: thin; }
+.sh-tabs .sf-tab { min-height: 38px; padding: 0 10px; font-size: 11px; letter-spacing: .06em; }
+.sh-tabs .sh-soon { color: var(--ui-text-dim); cursor: default; gap: 6px; }
+.sh-tabs .sh-soon:hover { color: var(--ui-text-dim); background: transparent; }
+.sh-soon small { font: 8px/1 var(--sf-band-font); letter-spacing: .06em; padding: 2px 3px; border: 1px solid var(--ui-text-dim); border-radius: 2px; }
+
+.sh-act { grid-area: act; display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.sh-btn {
+  flex: none; display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; margin: 0; padding: 0; box-sizing: border-box;
+  font: inherit; color: inherit; background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: var(--sf-bevel); cursor: pointer;
+}
+.sh-btn:hover { border-color: var(--ui-heading); }
+.sh-btn[aria-current="page"] { border-color: var(--sf-seat-home); background: color-mix(in srgb, var(--sf-seat-home) 22%, var(--ui-surface-2)); }
+.sh-btn img, .sh-btn svg { width: 26px; height: 26px; image-rendering: pixelated; }
+.sh-mg .mg-rear, .sh-mg .mg-wave { fill: var(--ui-heading); }
+.sh-mg .mg-cone { fill: var(--sf-gold); }
+.sh-mg .mg-shade { fill: color-mix(in srgb, var(--sf-gold) 62%, var(--sf-panel-drop)); }
+.sh-mg .mg-rim { fill: var(--ui-text); }
+.sh-mg .mg-grip { fill: var(--ui-muted); }
+
+/* breadcrumb under the band on sub-pages: "Participants › Grudge Rollers" */
+.sh-crumbs { min-width: 0; }
+.sh-crumbs ol { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0; padding: 0 2px; list-style: none; font: 11px/1.4 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
+.sh-crumbs li { min-width: 0; overflow-wrap: anywhere; }
+.sh-crumbs li + li::before { content: "›"; margin-right: 8px; color: var(--ui-text-dim); }
+.sh-crumbs a { color: var(--sf-gold); text-decoration: none; }
+.sh-crumbs a:hover { text-decoration: underline; }
+.sh-crumbs [aria-current="page"] { color: var(--ui-text); }
+
+/* management sub-panel (the cog): the existing groups as a left sub-nav beside a scrolling pane */
+.sh-manage { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 16px; align-items: start; min-width: 0; }
+.sh-subnav { display: grid; gap: 6px; align-content: start; }
+.sh-subnav-h { margin: 0 0 2px; font: 11px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .12em; color: var(--ui-muted); }
+.sh-subnav a {
+  display: flex; align-items: center; min-height: 40px; padding: 4px 10px; font: 11px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em;
+  color: var(--ui-text); text-decoration: none; background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface);
+  border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--sf-panel-line); border-radius: 2px; box-shadow: 0 2px 0 var(--sf-panel-drop);
+}
+.sh-subnav a:hover { border-left-color: var(--ui-heading); }
+.sh-subnav a[aria-current="page"], .sh-subnav a[aria-current="true"] { color: var(--sf-seat-home); border-left-color: var(--sf-seat-home); background: color-mix(in srgb, var(--sf-seat-home) 16%, var(--ui-surface)); }
+.sh-subnav a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.sh-manage-body { display: grid; gap: 16px; align-content: start; min-width: 0; }
+
+@media screen and (min-width: 1367px) and (min-height: 700px) {
+  .sh-manage.sf-fill { grid-template-rows: minmax(0, 1fr); align-items: stretch; }
+  .sh-manage.sf-fill > * { min-height: 0; }
+  .sh-manage.sf-fill > .sh-subnav, .sh-manage.sf-fill > .sh-manage-body { position: relative; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 2px 6px 8px 2px; margin: -2px -6px 0 -2px; }
+}
+
+/* narrower desktops: the name gives way to the tabs */
+@media (max-width: 1200px) {
+  .sh-id { max-width: 28vw; }
+  .sh-role { display: none; }
+}
+/* phones and tablets: two rows (name with the actions; the tabs, scrolling) */
+@media (max-width: 760px) {
+  .sh-row { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "id act" "tabs tabs"; gap: 6px 8px; padding: 6px 8px; }
+  .sh-id { max-width: none; flex-wrap: wrap; row-gap: 4px; }
+  .sh-name { flex: 1 1 calc(100% - 80px); font-size: 1.1rem; }
+  .sh-chips { flex-wrap: wrap; padding-left: 36px; }
+  .sh-logo { width: 32px; height: 32px; }
+  .sh-tabs.sf-tabs { justify-self: stretch; }
+  .sh-tabs .sf-tab { flex: 0 0 auto; }
+  .sh-manage { grid-template-columns: minmax(0, 1fr); }
+  .sh-subnav { display: flex; gap: 6px; overflow-x: auto; overscroll-behavior-x: contain; padding-bottom: 4px; }
+  .sh-subnav-h { display: none; }
+  .sh-subnav a { flex: 0 0 auto; white-space: nowrap; }
+}
+@media (max-width: 420px) {
+  .sh-chips .sh-extra { display: none; }
+  .sh-btn { width: 36px; height: 36px; }
+}
+
+/* Participants: a coach the organiser can open (their profile for this scope); plain text for everyone else */
+.sh-coach-btn {
+  margin: 0; padding: 0; font: inherit; color: var(--ui-accent); background: none; border: 0; text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
+}
+.sh-coach-btn:hover { color: var(--ui-heading); }
+.sh-coach-btn:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }

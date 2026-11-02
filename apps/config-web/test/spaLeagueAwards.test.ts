@@ -108,7 +108,8 @@ describe("SPA: league awards and Hall of Fame", () => {
   }
 
   it("public Honours tab: Hall of Fame card (crest, champion, runner-up, dates), resolved pins only, awards newest first, no organiser controls", async () => {
-    const html = await render("/leagues/tabbl?tab=honours", PUBLIC(), ANON);
+    // the Hall of Fame stays on Honours; the awards have their own tab (the section header's Awards)
+    const html = (await render("/leagues/tabbl?tab=honours", PUBLIC(), ANON)) + (await render("/leagues/tabbl?tab=awards", PUBLIC(), ANON));
     expect(html).toContain('aria-labelledby="hof-h"');
     expect(html).toMatch(/data-season="season-1"[^]*src="\/crests\/orc.png"[^]*Champion[^]*class="hof-team">Orcs<[^]*class="hof-coach">Ann<[^]*Runner-up<\/span> Elves/);
     expect(html).toContain("1 Jan 2025 – 1 Jun 2025");
@@ -120,7 +121,7 @@ describe("SPA: league awards and Hall of Fame", () => {
   });
 
   it("organiser Honours tab: Give award, Add a record, Pin, Up / Down / Unpin, Remove on given awards only; the stale pin shows", async () => {
-    const html = await render("/leagues/tabbl?tab=honours", HONOURS(), ORGANISER);
+    const html = (await render("/leagues/tabbl?tab=honours", HONOURS(), ORGANISER)) + (await render("/leagues/tabbl?tab=awards", HONOURS(), ORGANISER));
     expect(html).toContain(">Give award<");
     expect(html).toContain(">Add a record<");
     expect(html).toContain("No longer recorded");

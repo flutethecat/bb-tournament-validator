@@ -1,8 +1,9 @@
 <script setup lang="ts">
-// Tournament page front block (spec-main-landing-nav §3 items 1-2): the organiser's banner (fallback: the ruleset
-// crest on the recorder hero gradient) under the name, the Series and status chips, the viewer's registration
-// (Register / "Registered: <team>" with Change and Withdraw, reusing the My entry actions) and Edit for managers
-// (the Manage tab's Tournament page settings, plus "Edit ruleset" into the Tournament Creator).
+// Tournament Overview front block (spec-main-landing-nav §3 items 1-2; Overview only since the shared section header,
+// which carries the name, status and Series on every page): the organiser's full banner (fallback: the ruleset crest on
+// the recorder hero gradient), the Series and status chips, the viewer's registration (Register / "Registered: <team>"
+// with Change and Withdraw, reusing the My entry actions) and Edit for managers near the title like TourPlay (the
+// management sub-panel's Tournament page settings, plus "Edit ruleset" into the Tournament Creator).
 import { computed, inject, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 import { appPath, discordLoginUrl, SESSION_KEY, writesAllowed } from "../session";
@@ -28,7 +29,7 @@ const open = computed(() => registrationOpen(t.value, state.rounds));
 const closed = computed(() => t.value.status === "completed" || t.value.status === "cancelled");
 const team = computed(() => mine.value?.submission?.teamName || mine.value?.teamName || mine.value?.teamId || "");
 const entryLink = computed(() => ({ name: "tournament-detail", params: { id: t.value.id }, hash: "#tn-entry-h" }));
-const editLink = computed(() => ({ name: "tournament-detail", params: { id: t.value.id }, query: { tab: "manage" }, hash: "#tn-page-h" }));
+const editLink = computed(() => ({ name: "tournament-manage", params: { id: t.value.id }, hash: "#tn-page-h" }));
 const signIn = computed(() => discordLoginUrl(appPath(`/tournaments/${t.value.id}`)));
 </script>
 

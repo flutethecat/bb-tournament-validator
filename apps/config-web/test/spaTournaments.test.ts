@@ -553,7 +553,7 @@ describe("tournament routes (server-rendered against a mocked API)", () => {
     ];
     const signedIn = { "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" } };
     const { html } = await render("/tournaments", { ...signedIn, "/api/fork/tournaments": listPage(items) }, loadedList(items));
-    expect(html).toMatch(/href="\/app\/tournaments\/t1\?tab=manage"[^>]*data-action="manage"|data-action="manage"[^>]*href="\/app\/tournaments\/t1\?tab=manage"/);
+    expect(html).toMatch(/href="\/app\/tournaments\/t1\/manage"[^>]*data-action="manage"|data-action="manage"[^>]*href="\/app\/tournaments\/t1\/manage"/);
     expect(html.match(/data-action="manage"/g)).toHaveLength(2);
     expect(html).toContain('aria-label="Your entry: Entered"');
     expect(html).toContain('href="/app/tournaments/t3#tn-entry-h"');
@@ -597,7 +597,7 @@ describe("tournament routes (server-rendered against a mocked API)", () => {
     expect(html).toContain("Round 2 of 3");
     expect(html).toContain("2026-11-01");
     expect(html).toContain("2 of 8");
-    for (const label of ["Overview", "Entrants", "Rounds", "Standings"]) expect(html).toContain(`>${label}</a>`);
+    for (const label of ["Overview", "Fixtures", "Standings", "Participants"]) expect(html).toContain(`>${label}</a>`); // the section header tabs
     expect(html).toContain("tab=standings");
     expect(html).not.toMatch(/Register|Generate round|Finish tournament|Settings/);
   });

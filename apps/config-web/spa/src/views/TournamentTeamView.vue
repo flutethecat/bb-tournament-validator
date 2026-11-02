@@ -1,15 +1,16 @@
 <script setup lang="ts">
 // Opponent's team (/app/tournaments/:id/team/:eid): the submitted team as the shared Team Builder read-view model
 // describes it (players with printed and added skills and characteristic increases, sideline, inducements), its
-// validity, and the live library facts. Read-only. The problems list reaches only the coach and the managers.
+// validity, and the live library facts. Read-only. The problems list reaches only the coach and the managers. The
+// tournament's section header sits on top (Participants highlighted, breadcrumb "Participants › <team>").
 import { computed, inject, onMounted } from "vue";
 import { usePageTitle } from "../shell/pageTitle";
-import { RouterLink } from "vue-router";
 import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
 import { fmtK } from "../shared/format";
 import { createTournamentTeam, playerRows, sidelineLines, TOURNAMENT_TEAM_KEY } from "../tournaments/team";
 import { ROSTER_TONE } from "../tournaments/detail";
+import TournamentSectionHeader from "../components/TournamentSectionHeader.vue";
 
 const props = defineProps<{ id: string; eid: string }>();
 const fetcher = inject(API_KEY)!;
@@ -29,7 +30,7 @@ usePageTitle(() => (view.value || build.value ? name.value : ""));
 
 <template>
   <div class="hm-page tn-page">
-    <RouterLink class="tn-back" :to="{ name: 'tournament-detail', params: { id } }">Back to the tournament</RouterLink>
+    <TournamentSectionHeader :id="id" active="participants" :crumb="build ? name : 'Team'" />
     <p v-if="state.error" class="sf-error" role="alert">{{ state.error }}</p>
     <p v-else-if="!state.loaded || !build" class="hm-empty" role="status">Loading team...</p>
     <template v-else>

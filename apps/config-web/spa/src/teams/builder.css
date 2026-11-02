@@ -611,8 +611,6 @@
 .tv-totals.tb-value .tb-posbreak b { font: inherit; text-shadow: none; text-align: left; color: var(--ui-text); font-weight: 600; }
 /* Roster Builder league mode (lane L7): the league line over the pane, and the race picker (Free Create's race buttons with a
    terms line; a full race stays in the grid, disabled, with its reason). */
-.tb-league-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; padding: 6px 12px; font: 12px/1.4 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--sf-gold); background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--sf-gold); border-radius: 2px; overflow-wrap: anywhere; }
-.tb-league-line a { color: inherit; }
 .tb-league-races { grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr)); }
 .tb-league-race { align-items: flex-start; padding-top: 6px; padding-bottom: 6px; }
 .tb-league-race-text { display: grid; gap: 2px; min-width: 0; }

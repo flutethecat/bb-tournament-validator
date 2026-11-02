@@ -148,31 +148,40 @@ describe("series views (server-rendered against a mocked API)", () => {
     return (await mods.renderer.renderToString(spa.app)) as string;
   }
 
-  it("series page: header with scoring and seeding chips, tournaments with dates and status chips, the standings table", async () => {
-    const html = await render("/series/s1", { "/api/series/s1": DETAIL() });
-    expect(html).toContain('class="sr-name">Valley Series</h3>');
-    expect(html).toMatch(/data-scoring="true">Best 2 events</);
-    expect(html).toMatch(/data-seeding="true">Seeding: Elo seeded</);
-    expect(html).toContain("Veers, Piett");
-    expect(html).toContain('href="/app/tournaments/t1"');
-    expect(html).toContain("2026-07-01 to 2026-07-02");
-    expect(html).toContain("Date not set");
-    expect(html).toMatch(/data-status="active">Active</);
-    expect(html).toMatch(/data-status="draft">Upcoming</);
+  it("series pages: the section header, Overview (chips, organisers), Schedule round cards, the Standings table", async () => {
+    const overview = await render("/series/s1", { "/api/series/s1": DETAIL() });
+    expect(overview).toContain('<h2 class="sh-name" title="Valley Series">Valley Series</h2>'); // the shared section header
+    expect(overview).toMatch(/data-scoring="true">Best 2 events</);
+    expect(overview).toMatch(/data-seeding="true">Seeding: Elo seeded</);
+    expect(overview).toContain("Veers, Piett");
+    for (const t of ["Overview", "Schedule", "Standings"]) expect(overview).toContain(`>${t}</a>`);
+    const schedule = await render("/series/s1?tab=schedule", { "/api/series/s1": DETAIL() });
+    expect(schedule).toContain('href="/app/tournaments/t1"');
+    expect(schedule).toContain("2026-07-01 to 2026-07-02");
+    expect(schedule).toContain("Date not set");
+    expect(schedule).toMatch(/data-round-state="live">In progress</);
+    expect(schedule).toMatch(/data-round-state="next">Next</);
+    const html = await render("/series/s1?tab=standings", { "/api/series/s1": DETAIL() });
     expect(html).toContain('class="sf-table sr-table"');
     expect(html).toMatch(/<th scope="row" class="sr-coach">Alice<\/th>/);
     expect(html).toContain('title="Spring Open: place 1, Alice Orcs"');
     expect(html).toContain('data-provisional="true"');
     expect(html).toContain("Ties: total points, then best single result, then head-to-head wins, then name.");
-    // read-only for visitors
-    expect(html).not.toContain(">Edit</button>");
-    expect(html).not.toContain("Add a tournament");
-    expect(html).not.toContain("lobby-");
+    // read-only for visitors: no cog, no management
+    for (const page of [overview, schedule, html]) {
+      expect(page).not.toContain(">Edit</button>");
+      expect(page).not.toContain("Add a tournament");
+      expect(page).not.toContain("data-cog");
+      expect(page).not.toContain("lobby-");
+    }
   });
 
-  it("an editor gets Edit, Delete, Remove and Add a tournament (only the attachable ones)", async () => {
+  it("an editor gets the cog; its management sub-panel has Edit, Delete, Remove and Add a tournament (only the attachable ones)", async () => {
     const view = DETAIL({ series: SERIES({ canEdit: true }), attachable: [{ id: "t8", name: "Winter Clash", status: "draft" }] });
-    const html = await render("/series/s1", { ...AS("Veers", true), "/api/series/s1": view });
+    const page = await render("/series/s1", { ...AS("Veers", true), "/api/series/s1": view });
+    expect(page).toMatch(/<a[^>]*data-cog[^>]*href="\/app\/series\/s1\/manage"|<a[^>]*href="\/app\/series\/s1\/manage"[^>]*data-cog/);
+    expect(page).not.toContain(">Edit</button>"); // management lives behind the cog
+    const html = await render("/series/s1/manage", { ...AS("Veers", true), "/api/series/s1": view });
     expect(html).toContain(">Edit</button>");
     expect(html).toContain(">Delete</button>");
     expect(html).toContain(">New tournament</button>");

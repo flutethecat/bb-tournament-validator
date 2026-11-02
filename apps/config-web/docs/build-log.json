@@ -1,6 +1,21 @@
 [
   {
     "date": "2026-11-02",
+    "title": "One header for every league, tournament and series page",
+    "body": "Inside a league, tournament or series every page now shares one slim header: the logo, name and status (a season picker on leagues), the tabs in TourPlay's order (Overview, Fixtures, Standings, Board coming soon, Calendar, Honours, Statistics, Participants, Draws, Awards; tabs with nothing in them yet stay hidden), and your role. Organisers manage from the cog. Team pages, fixture lobbies and tournament games keep the header with a breadcrumb back. Participants is open to everyone with public details only, and organisers can open each coach to see what they shared. Series get Overview, a Schedule of event cards and Standings.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      },
+      {
+        "label": "Series",
+        "href": "/app/series"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-02",
     "title": "PayPal and Venmo links for entry fees",
     "body": "Organisers can add a PayPal.Me link and a Venmo username next to the entry fee, in the tournament and league creation steps and later in Manage or League settings. The overview then shows a Pay entry fee block with both buttons. Payment is made directly to the organiser; organisers tick Paid in Participants, and each coach sees only their own payment status.",
     "links": [

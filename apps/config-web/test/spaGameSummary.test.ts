@@ -91,7 +91,7 @@ describe("game page (SSR)", () => {
     await spa.router.isReady();
     return { html: await mods.renderToString(spa.app), f, spa };
   }
-  const page = (html: string) => html.slice(html.indexOf('class="tt-rec tt-rec--final"'));
+  const page = (html: string) => html.slice(html.indexOf('class="tt-rec tt-rec--final'));
   const plain = (html: string) => html.slice(html.indexOf('class="gs-page"'));
 
   it("online: the match reporter, completed and read-only: final scoreboard, result-only Match log, summaries, Rosters; no controls", async () => {
@@ -136,6 +136,9 @@ describe("game page (SSR)", () => {
     const fixture = { ...tournament, card: card("Spike Beta Test · Round 3", { concede: "away", away: side("Grinders", "Dwarf", "Bob", 1, null) }) };
     const { html } = await render("/games/tournament/m1", signedOut({ "/api/games/tournament/m1": fixture }));
     const p = page(html);
+    // a tournament's game sits inside its section: the reporter inline under the tournament's section header
+    expect(html).toContain('class="gs-section sf-fit"');
+    expect(html).toContain('class="tt-rec tt-rec--final tt-rec--inline sf-fill"');
     expect(p).toContain("Spike Beta Test · Round 3");
     expect(p).toContain("No match log for this fixture");
     expect(p).toContain("Per-player stats are recorded for games played through the site.");

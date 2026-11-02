@@ -1,17 +1,14 @@
 <script setup lang="ts">
 // League statistics (/app/leagues/:id/stats?scope=): the rules divider (BB2020 | BB2025 | All time) on top, then the
 // scope's spotlight cards (LeagueStatsCards), totals, champions, player leaders, coach and team records, race win
-// rates, biggest wins and most games.
-import { computed, inject, nextTick, onMounted, ref, watch } from "vue";
+// rates, biggest wins and most games. The league's section header (Statistics highlighted) sits on top.
+import { computed, inject, nextTick, onMounted, provide, ref, watch } from "vue";
 import { usePageTitle } from "../shell/pageTitle";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { API_KEY } from "../app";
-import LeagueTabs from "../components/LeagueTabs.vue";
-import LeagueFront from "../components/LeagueFront.vue";
+import LeagueSectionHeader from "../components/LeagueSectionHeader.vue";
 import LeagueStatsCards from "../components/LeagueStatsCards.vue";
-import { SESSION_KEY, writesAllowed } from "../session";
-import { canManageLeague, carriedSeason, createLeagueDetail, createLeagueStats, LEAGUE_DETAIL_KEY, isStatsScope, LEAGUE_STATS_KEY, pct, phaseLabel, playerQuery, RULESET_TONE, seasonsLine, STATS_SCOPES } from "../leagues/league";
-import type { LeagueTab } from "../leagues/league";
+import { carriedSeason, createLeagueDetail, createLeagueStats, LEAGUE_DETAIL_KEY, isStatsScope, LEAGUE_STATS_KEY, pct, phaseLabel, playerQuery, RULESET_TONE, seasonsLine, STATS_SCOPES } from "../leagues/league";
 import type { LeaderStat, StatsScope } from "../leagues/types";
 import "../leagues/leagues.css";
 
@@ -21,15 +18,13 @@ const route = useRoute();
 const router = useRouter();
 const ctl = inject(LEAGUE_STATS_KEY, null) ?? createLeagueStats({ api: fetcher });
 const { state } = ctl;
-// The league front and tab bar are the league page's own: the league and its seasons come from the detail controller.
+// The section header is the league page's own: the league and its seasons come from the detail controller.
 const detail = inject(LEAGUE_DETAIL_KEY, null) ?? createLeagueDetail({ api: fetcher });
+provide(LEAGUE_DETAIL_KEY, detail);
 const head = detail.state;
-const session = inject(SESSION_KEY, null);
-const manage = computed(() => Boolean(session && writesAllowed(session) && canManageLeague(head.league, session.coach(), session.state.info?.admin === true)));
 // The league page's season rides through every link (and the scope divider) so the round trip lands on the same season.
 const season = computed(() => carriedSeason(head.seasons, route.query.season));
 const withSeason = (q: Record<string, string>): Record<string, string> => (season.value ? { season: season.value, ...q } : q);
-const tabQuery = (t: LeagueTab): Record<string, string> => withSeason(t === "overview" ? {} : { tab: t });
 const scope = computed<StatsScope>(() => (isStatsScope(route.query.scope) ? route.query.scope : "all"));
 const stats = computed(() => state.byScope[scope.value]);
 const scopeLabel = computed(() => STATS_SCOPES.find((s) => s.id === scope.value)?.label ?? "");
@@ -66,9 +61,7 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} statistics` : "")
 
 <template>
   <div class="hm-page lg-page sf-fit">
-    <RouterLink class="tn-back lg-back" :to="{ name: 'league-detail', params: { id }, query: withSeason({}) }">{{ state.league?.name ?? "League" }}</RouterLink>
-    <LeagueFront v-if="head.loaded && head.league && head.id === id" :id="id" :league="head.league" :seasons="head.seasons" />
-    <LeagueTabs :id="id" active="stats" :query="tabQuery" :stats-query="withSeason({})" :manage="manage" />
+    <LeagueSectionHeader :id="id" active="statistics" />
     <div ref="seg" class="tl-seg lg-scope" role="radiogroup" aria-label="Rules edition" @keydown="onSegKey">
       <button
         v-for="s in STATS_SCOPES" :key="s.id" type="button" role="radio" class="tl-seg-btn"

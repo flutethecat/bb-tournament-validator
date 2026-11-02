@@ -266,8 +266,8 @@ describe("league settings routes (server-rendered)", () => {
     inject(mods.league.LEAGUE_DETAIL_KEY, d);
   };
 
-  it("cog on the league header strip: organisers and admins only", async () => {
-    const cog = 'aria-label="League settings"';
+  it("cog in the league's section header: organisers and admins only", async () => {
+    const cog = 'aria-label="League management"';
     expect((await render("/leagues/tabbl", detail, ORGANISER)).html).toContain(cog);
     const admin = await render("/leagues/tabbl", detail, ADMIN);
     expect(admin.html).toContain(cog);

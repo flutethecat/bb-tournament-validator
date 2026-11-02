@@ -61,3 +61,21 @@
 .sr-fieldset input[type="radio"] { accent-color: var(--ui-primary); }
 .sr-n.sf-input { width: 72px; }
 .sr-help { margin: 0; font-size: 13px; color: var(--ui-muted); }
+
+/* Section header pages (spec-section-header Q5): Overview panels side by side, Schedule round cards (F1 calendar), the
+   finished cards' top three. */
+.sr-grid.sr-overview { grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); }
+.sr-leader-name { font-size: 24px; }
+.sr-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); align-items: start; }
+.sr-card-round { padding-bottom: 12px; }
+.sr-card-round .sr-head-body { padding: 0 12px; }
+.sr-card-round[data-state="next"] { border-color: var(--ui-warn); }
+.sr-card-round[data-state="live"] { border-color: var(--ui-success); }
+.sr-card-round[data-state="cancelled"] .sr-round-name { text-decoration: line-through; }
+.sr-round-name { font: 500 18px/1.2 var(--font-heading); letter-spacing: .02em; }
+.sr-podium { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
+.sr-podium li { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 8px; align-items: baseline; padding: 4px 0; border-top: 1px solid var(--sf-panel-line); }
+.sr-podium-rank { font: 12px/1 var(--sf-band-font); color: var(--sf-gold); text-align: center; }
+.sr-podium-who { display: grid; min-width: 0; overflow-wrap: anywhere; }
+.sr-podium-who small { font-size: 13px; color: var(--ui-muted); }
+.sr-podium-pts { font: 13px/1 var(--sf-band-font); color: var(--ui-text); }

@@ -9,7 +9,8 @@ import HonourBoards from "./HonourBoards.vue";
 import LeagueAwards from "./LeagueAwards.vue";
 import LeagueHallOfFame from "./LeagueHallOfFame.vue";
 
-const props = withDefaults(defineProps<{ season: SeasonRecord; seasons?: SeasonSummary[]; manage?: boolean; crests?: Record<string, string> }>(), { seasons: () => [], manage: false, crests: () => ({}) });
+// `awards`: false when the page shows the awards on their own tab (the section header's Awards).
+const props = withDefaults(defineProps<{ season: SeasonRecord; seasons?: SeasonSummary[]; manage?: boolean; crests?: Record<string, string>; awards?: boolean }>(), { seasons: () => [], manage: false, crests: () => ({}), awards: true });
 const route = useRoute();
 // A board row that resolves to one player links to that player (?player=<playerId>) on this season's Teams tab.
 const playerTo = (playerId: string) => ({ name: "league-detail", params: { id: String(route.params.id ?? "") }, query: playerQuery(props.season.id, playerId) });
@@ -22,7 +23,7 @@ const groups = computed(() => boards.value.map((b) => ({ kind: b.kind, title: b.
 <template>
   <div class="lg-stack">
     <LeagueHallOfFame :manage="manage" :crests="crests" />
-    <LeagueAwards :manage="manage" :seasons="seasons" />
+    <LeagueAwards v-if="awards" :manage="manage" :seasons="seasons" />
     <HonourBoards :groups="groups" :value="(v) => honourValue(v as HonourValue)" :player-to="playerTo" />
   </div>
 </template>

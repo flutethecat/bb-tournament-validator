@@ -52,7 +52,7 @@ async function addOrganizer(id: string) {
         <li v-for="t in state.items" :key="t.id" class="ad-card">
           <div class="ad-head">
             <h3 class="ad-name">
-              <RouterLink :to="{ name: 'tournament-detail', params: { id: t.id }, query: { tab: 'manage' } }">{{ t.name }}</RouterLink>
+              <RouterLink :to="{ name: 'tournament-manage', params: { id: t.id } }">{{ t.name }}</RouterLink>
             </h3>
             <span class="sf-chip" :data-tone="STATUS_TONE[t.status] ?? 'muted'">{{ STATUS_LABEL[t.status] ?? t.status }}</span>
           </div>

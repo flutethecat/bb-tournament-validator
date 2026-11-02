@@ -27,7 +27,7 @@ function leaveHandoff(h: Handoff): void { handoff = h; }
 // ?league=<id>&season=<id>[&race=] builds under that league season's team-building rules (the Ruleset tab becomes the league's
 // rules and race picker; a save keeps the league season with the team).
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, provide, reactive, ref, watch } from "vue";
-import { RouterLink, useRoute, useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import "../../../public/team-view.css";
 import "../teams/teams.css";
 import "../teams/builder.css";
@@ -45,6 +45,7 @@ import TournamentBuilderTeam from "../components/TournamentBuilderTeam.vue";
 import TournamentBuilderValidator from "../components/TournamentBuilderValidator.vue";
 import TournamentBuilderSheet from "../components/TournamentBuilderSheet.vue";
 import TournamentBuilderLeague from "../components/TournamentBuilderLeague.vue";
+import LeagueSectionHeader from "../components/LeagueSectionHeader.vue";
 import { leaguePackageName, parseLeaguePackageName } from "../../../src/leagueBuilderMarker";
 
 const props = defineProps<{ saveId?: string }>();
@@ -204,12 +205,9 @@ async function pickPackage(name: string): Promise<void> {
       </div>
     </Teleport>
 
-    <!-- league mode: the full league line on the Ruleset tab; the Roster and Sheet tabs keep only the locked line (with a League chip) so
-         the Roster pane still fits 1920x1080 without page scroll (design.md §6) -->
-    <p v-if="leagueLine && (tab === 'ruleset' || !ready)" class="tb-league-line">
-      <span class="sf-chip" data-tone="info">League</span>
-      <RouterLink :to="`/leagues/${encodeURIComponent(leagueLine.league.id)}`">{{ leagueLine.label }} · rules</RouterLink>
-    </p>
+    <!-- league mode: inside the league section, so its section header (the season fixed, Participants highlighted, breadcrumb
+         "Participants › Roster Builder") replaces the old league line link-back; the locked line keeps its League chip -->
+    <LeagueSectionHeader v-if="leagueLine" :id="leagueLine.league.id" active="participants" crumb="Roster Builder" :locked-season="leagueLine.season.id" />
     <button v-if="ready && phone && tab !== 'ruleset'" type="button" class="tb-locked tb-locked-btn" aria-label="Change ruleset or race" @click="go('ruleset')">
       <img v-if="crest" class="tb-locked-crest" :src="crest" alt="" aria-hidden="true" />
       <span v-if="leagueLine" class="sf-chip" data-tone="info">League</span>

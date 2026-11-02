@@ -6,6 +6,7 @@ import { LOBBY_ID_PATTERN } from "./shared/format";
 import type { SessionStore } from "./session";
 import { contentArea, createHashReveal, createPaneScrollMemory, entryKey, fitMode, revealInPane, type ScrollNode } from "./shell/fit";
 import { hashId } from "./tournaments/scroll";
+import { legacyRedirect } from "./shell/sectionNav";
 import AccountView from "./views/AccountView.vue";
 import AdminOrganiserRequestsView from "./views/AdminOrganiserRequestsView.vue";
 import AdminTournamentsView from "./views/AdminTournamentsView.vue";
@@ -105,9 +106,20 @@ export const routes: RouteRecordRaw[] = [
     props: true,
     meta: { title: "Tournament" },
   },
+  // The tournament's management sub-panel (the section header's cog; was the Manage tab, ?tab=manage redirects here).
+  // The page answers "not one of yours" to anyone the server does not let manage the tournament.
+  {
+    path: "/tournaments/:id([\\w-]{1,64})/manage",
+    name: "tournament-manage",
+    component: TournamentDetailView,
+    props: (r) => ({ id: String(r.params.id), manage: true }),
+    meta: { title: "Tournament" },
+  },
   // Tournament Series (phase 5): public read; organisers and admins create, the series' organisers edit in place.
   { path: "/series", name: "series", component: SeriesListView, meta: { title: "Tournament series" } },
   { path: "/series/:id([\\w-]{1,64})", name: "series-detail", component: SeriesDetailView, props: true, meta: { title: "Series" } },
+  // The series' management sub-panel (the section header's cog): Edit, Delete, New / Add / Remove tournament.
+  { path: "/series/:id([\\w-]{1,64})/manage", name: "series-manage", component: SeriesDetailView, props: (r) => ({ id: String(r.params.id), manage: true }), meta: { title: "Series" } },
   // Opponent's team: the server answers the coach, their current-round opponent and the managers only.
   {
     path: "/tournaments/:id([\\w-]{1,64})/team/:eid([\\w:.-]{1,160})",
@@ -150,6 +162,8 @@ export const routes: RouteRecordRaw[] = [
   },
   // League settings (cog on the league page): organisers and site admins; others get the "not one of yours" note.
   { path: "/leagues/:id([a-z0-9-]{1,64})/settings", name: "league-settings", component: LeagueSettingsView, props: true, meta: { requiresAuth: true, title: "League settings" } },
+  // The management sub-panel keeps the League settings address; /manage (the tournament and series spelling) lands there.
+  { path: "/leagues/:id([a-z0-9-]{1,64})/manage", redirect: (to) => ({ name: "league-settings", params: { id: String(to.params.id) }, query: to.query, hash: to.hash }) },
   // Redraft: the organisers' board; a coach's own redraft (?team= opens the dialog from the notification link).
   { path: "/leagues/:id([a-z0-9-]{1,64})/redraft", name: "league-redraft", component: LeagueRedraftView, props: true, meta: { requiresAuth: true, title: "League redraft" } },
   { path: "/admin/tournaments", name: "admin-tournaments", component: AdminTournamentsView, meta: { requiresAuth: true, title: "Tournaments admin" } },
@@ -256,7 +270,10 @@ export function createAppRouter(history: RouterHistory, session: SessionStore) {
   });
   // Every navigation waits for the first session read, so a page never renders against an unknown identity. A
   // failed read does not block navigation: the shell shows the error with a retry.
-  router.beforeEach(async () => {
+  router.beforeEach(async (to) => {
+    // Old section tab links that moved (shell/sectionNav.ts): ?tab=manage, the old league Participants tab, new tab names.
+    const moved = legacyRedirect(to);
+    if (moved) return moved;
     panes?.pause();
     hashReveal?.cancel();
     await session.load();

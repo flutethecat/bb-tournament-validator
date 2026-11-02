@@ -1,12 +1,17 @@
 <script setup lang="ts">
-// League settings (/app/leagues/:id/settings?tab=), opened by the cog at the right end of the league header strip.
-// Organisers of the league and site admins; anyone else gets the friendly "not one of yours" note (the server answers
-// 403 and decides). Six tabs as a segmented control: Administration, Information, Registrations, Team building,
-// Inducements, External connections; each tab is panels with their own Save (PATCH /api/leagues/:id/settings sections).
+// League management sub-panel (/app/leagues/:id/settings?tab=; /manage lands here), opened by the cog in the league's
+// section header, which stays on top. Organisers of the league and site admins; anyone else gets the friendly "not one
+// of yours" note (the server answers 403 and decides). The groups are a left sub-nav: Administration, Information,
+// Registrations, Team building, Inducements, External connections (panels with their own Save, PATCH
+// /api/leagues/:id/settings sections), Participants (the season's participant flags, moved from the league page) and
+// Artwork (the league logo and header bar, moved from the league Overview).
 import { computed, inject, onMounted, provide } from "vue";
 import { usePageTitle } from "../shell/pageTitle";
 import { RouterLink, useRoute } from "vue-router";
 import { API_KEY } from "../app";
+import LeagueArtEdit from "../components/LeagueArtEdit.vue";
+import LeagueParticipants from "../components/LeagueParticipants.vue";
+import LeagueSectionHeader from "../components/LeagueSectionHeader.vue";
 import LeagueSettingsAdmin from "../components/LeagueSettingsAdmin.vue";
 import LeagueSettingsConnections from "../components/LeagueSettingsConnections.vue";
 import LeagueSettingsInducements from "../components/LeagueSettingsInducements.vue";
@@ -15,7 +20,7 @@ import LeagueSettingsLifecycle from "../components/LeagueSettingsLifecycle.vue";
 import LeagueSettingsSeasonRegistration from "../components/LeagueSettingsSeasonRegistration.vue";
 import LeagueSettingsRegistrations from "../components/LeagueSettingsRegistrations.vue";
 import LeagueSettingsTeamBuilding from "../components/LeagueSettingsTeamBuilding.vue";
-import { initials, safeArtUrl } from "../leagues/league";
+import { createLeagueDetail, LEAGUE_DETAIL_KEY, pickSeason } from "../leagues/league";
 import { createLeagueSettings, isSettingsTab, LEAGUE_SETTINGS_KEY, SETTINGS_TABS, type SettingsTab } from "../leagues/settings";
 import "../leagues/leagues.css";
 
@@ -25,26 +30,35 @@ const route = useRoute();
 const settings = inject(LEAGUE_SETTINGS_KEY, null) ?? createLeagueSettings({ api: fetcher });
 provide(LEAGUE_SETTINGS_KEY, settings);
 const { state } = settings;
+// The section header, the participant flags and the artwork read the league page's controller.
+const detail = inject(LEAGUE_DETAIL_KEY, null) ?? createLeagueDetail({ api: fetcher });
+provide(LEAGUE_DETAIL_KEY, detail);
 
-const tab = computed<SettingsTab>(() => (isSettingsTab(route.query.tab) ? route.query.tab : "administration"));
-const tabQuery = (t: SettingsTab): Record<string, string> => (t === "administration" ? {} : { tab: t });
-const logo = computed(() => safeArtUrl(state.league?.logoUrl));
+/** The management groups: the settings tabs, then the two that moved here from the league page. */
+type ManageGroup = SettingsTab | "participants" | "artwork";
+const GROUPS: ReadonlyArray<{ id: ManageGroup; label: string }> = [...SETTINGS_TABS, { id: "participants", label: "Participants" }, { id: "artwork", label: "Artwork" }];
+const tab = computed<ManageGroup>(() => {
+  const q = route.query.tab;
+  return isSettingsTab(q) ? q : q === "participants" || q === "artwork" ? q : "administration";
+});
+const tabQuery = (t: ManageGroup): Record<string, string> => {
+  const q: Record<string, string> = typeof route.query.season === "string" ? { season: route.query.season } : {};
+  if (t !== "administration") q.tab = t;
+  return q;
+};
+/** Participants: the season the header shows (?season=, else the newest). */
+const season = computed(() => pickSeason(detail.state.seasons, route.query.season));
 
-onMounted(() => { if (!state.loaded || state.id !== props.id) void settings.load(props.id); });
+onMounted(() => {
+  if (!state.loaded || state.id !== props.id) void settings.load(props.id);
+  if (!detail.state.loaded || detail.state.id !== props.id) void detail.load(props.id);
+});
 usePageTitle(() => (state.league?.name ? `${state.league.name} settings` : ""));
 </script>
 
 <template>
   <div class="hm-page lg-page ls-page sf-fit">
-    <RouterLink class="tn-back lg-back" :to="{ name: 'league-detail', params: { id } }">Back to the league</RouterLink>
-    <div v-if="state.league" class="ls-head">
-      <img v-if="logo" class="ls-head-logo" :src="logo" alt="" />
-      <span v-else class="ls-head-logo lg-logo-blank" aria-hidden="true">{{ initials(state.league.name) }}</span>
-      <div class="ls-head-text">
-        <p class="ls-head-name">{{ state.league.fullName || state.league.name }}</p>
-        <span class="ls-head-cap">Organiser tools</span>
-      </div>
-    </div>
+    <LeagueSectionHeader :id="id" active="manage" />
 
     <p v-if="state.error" class="sf-error" role="alert">{{ state.error }}</p>
     <section v-else-if="state.denied" class="hm-panel" aria-labelledby="ls-denied-h">
@@ -54,22 +68,28 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} settings` : ""));
       <p class="hm-links"><RouterLink :to="{ name: 'league-detail', params: { id } }">Back to the league page</RouterLink></p>
     </section>
     <p v-else-if="!state.loaded || !state.view" class="hm-empty" role="status">Loading league settings...</p>
-    <template v-else>
-      <nav class="lg-tabs ls-tabs" aria-label="Settings sections">
+    <!-- fit to 1920x1080 (owner 11-02): the header and the sub-nav stay; the group scrolls in its pane -->
+    <div v-else class="sh-manage sf-fill">
+      <nav class="sh-subnav" aria-label="Settings sections">
+        <p class="sh-subnav-h">League management</p>
         <RouterLink
-          v-for="t in SETTINGS_TABS" :key="t.id" class="lg-tab" :aria-current="tab === t.id ? 'page' : undefined"
+          v-for="t in GROUPS" :key="t.id" :aria-current="tab === t.id ? 'page' : undefined" :data-group="t.id"
           :to="{ name: 'league-settings', params: { id }, query: tabQuery(t.id) }" replace
         >{{ t.label }}</RouterLink>
       </nav>
-      <!-- fit to 1920x1080 (owner 11-02): the header and tabs stay; the section scrolls in this pane -->
-      <div class="lg-tab-body sf-fill sf-scroll sf-col">
+      <div class="sh-manage-body lg-tab-body">
       <template v-if="tab === 'administration'"><LeagueSettingsLifecycle /><LeagueSettingsAdmin /></template>
       <LeagueSettingsInfo v-else-if="tab === 'information'" />
       <template v-else-if="tab === 'registrations'"><LeagueSettingsRegistrations /><LeagueSettingsSeasonRegistration /></template>
       <LeagueSettingsTeamBuilding v-else-if="tab === 'team-building'" />
       <LeagueSettingsInducements v-else-if="tab === 'inducements'" />
+      <template v-else-if="tab === 'participants'">
+        <LeagueParticipants v-if="season" :league-id="id" :season-id="season.id" :season-name="season.name" />
+        <p v-else class="hm-empty" role="status">Loading the seasons...</p>
+      </template>
+      <LeagueArtEdit v-else-if="tab === 'artwork'" />
       <LeagueSettingsConnections v-else />
       </div>
-    </template>
+    </div>
   </div>
 </template>

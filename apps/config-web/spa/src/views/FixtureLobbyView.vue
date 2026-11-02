@@ -3,7 +3,8 @@
 // /app/tournaments/:id/fixtures/:fixtureId/lobby with source "tournament"; spec-landing-bubble-retro §8 layout v2):
 // one lobby per fixture where the two coaches chat, lock their rosters and pre-match inducements, press Ready and start
 // the game. Public read: anyone may watch (no chat, no unrevealed picks); the two coaches and the organisers act.
-// Layout: breadcrumb + Standings / Rules / Leave lobby, the recorder's hero split, then 300 / fluid / 300 columns
+// Layout: the competition's section header (Fixtures highlighted, breadcrumb "Fixtures › Round N · Table T"), then
+// Propose a time / Standings / Rules / Leave lobby, the recorder's hero split, then 300 / fluid / 300 columns
 // (YOU + your inducements | fixture, chat, start | opponent + their inducements); one column below 1100 px.
 import { computed, inject, onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
@@ -14,6 +15,8 @@ import LobbyCoachPanel from "../components/LobbyCoachPanel.vue";
 import LobbyFixtureCentre from "../components/LobbyFixtureCentre.vue";
 import LobbyInducements from "../components/LobbyInducements.vue";
 import LobbyStart from "../components/LobbyStart.vue";
+import LeagueSectionHeader from "../components/LeagueSectionHeader.vue";
+import TournamentSectionHeader from "../components/TournamentSectionHeader.vue";
 import { crestFor, day, initials } from "../leagues/league";
 import { createFixtureLobby, FIXTURE_LOBBY_KEY, kGold, mySide, otherSide, type LobbySide } from "../leagues/lobby";
 import { leagueFixtureRef, proposePath, tournamentFixtureRef } from "../schedule/schedule";
@@ -45,6 +48,8 @@ onBeforeUnmount(() => lobby.stop());
 const proposeTo = computed(() => (view.value?.open && (view.value.viewer.role === "home" || view.value.viewer.role === "away")
   ? proposePath(isTournament.value ? tournamentFixtureRef(props.fixtureId) : leagueFixtureRef(props.id, props.seasonId ?? "", props.fixtureId)) : ""));
 const competitionsTo = computed(() => (isTournament.value ? "/tournaments" : "/leagues"));
+/** The breadcrumb page under the section header. */
+const crumb = computed(() => (view.value ? `${roundText.value}${view.value.header.table ? ` · Table ${view.value.header.table}` : ""}` : "Fixture lobby"));
 const roundText = computed(() => (view.value ? `Round ${view.value.header.round}${view.value.header.rounds ? ` of ${view.value.header.rounds}` : ""}` : ""));
 const crest = (s: LobbySide): string => (view.value ? crestFor(crests.value, view.value.sides[s].team.race) : "");
 const midLine = computed(() => {
@@ -56,6 +61,8 @@ const midLine = computed(() => {
 
 <template>
   <div class="fl-page sf-fit">
+    <TournamentSectionHeader v-if="isTournament" :id="id" active="fixtures" :crumb="crumb" />
+    <LeagueSectionHeader v-else :id="id" active="fixtures" :crumb="crumb" :locked-season="seasonId" />
     <p v-if="!state.loaded" class="hm-empty">Loading the lobby…</p>
     <section v-else-if="!view" class="hm-panel" aria-labelledby="fl-err">
       <header class="hm-band"><h2 id="fl-err">Fixture lobby</h2></header>
@@ -64,11 +71,6 @@ const midLine = computed(() => {
     </section>
     <template v-else>
       <div class="fl-crumbs">
-        <nav aria-label="Breadcrumb">
-          <RouterLink :to="competitionsTo">{{ isTournament ? "Tournaments" : "Leagues" }}</RouterLink><span aria-hidden="true">/</span>
-          <RouterLink :to="view.links.competition">{{ view.header.competition }}</RouterLink><span aria-hidden="true">/</span>
-          <span>{{ roundText }}{{ view.header.table ? ` · Table ${view.header.table}` : "" }}</span>
-        </nav>
         <div class="sf-btn-row">
           <RouterLink v-if="proposeTo" class="sf-btn small primary" data-propose :to="proposeTo">Propose a time</RouterLink>
           <RouterLink class="sf-btn small" :to="view.links.standings">Standings</RouterLink>

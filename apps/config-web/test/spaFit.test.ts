@@ -86,7 +86,7 @@ describe("fit to 1920x1080: the pages that opted in", () => {
   const pages: Array<[string, string[]]> = [
     ["views/LeagueDetailView.vue", ["hm-page lg-page sf-fit", "lg-tab-body sf-fill sf-scroll sf-col"]],
     ["views/LeagueStatsView.vue", ["hm-page lg-page sf-fit", "lg-tab-body sf-fill sf-scroll sf-col"]],
-    ["views/LeagueSettingsView.vue", ["hm-page lg-page ls-page sf-fit", "lg-tab-body sf-fill sf-scroll sf-col"]],
+    ["views/LeagueSettingsView.vue", ["hm-page lg-page ls-page sf-fit", "sh-manage sf-fill"]],
     ["views/LeagueRedraftView.vue", ["hm-page lg-page ls-page sf-fit", 'class="sf-fill sf-scroll sf-col"']],
     ["views/TournamentDetailView.vue", ["hm-page tn-page sf-fit", "tn-tab-body sf-fill"]],
     ["views/TournamentCreatorView.vue", ["hm-page cr-page sf-fit", "cr-pane sf-fill", "cr-pane-fit"]],
@@ -103,7 +103,7 @@ describe("fit to 1920x1080: the pages that opted in", () => {
     ["views/TournamentListView.vue", ["hm-page tl-page sf-fit", "tl-cards sf-shrink sf-scroll sf-col"]],
     ["views/LeagueListView.vue", ["hm-page lg-page sf-fit", "tl-cards lg-cards sf-shrink sf-scroll sf-col"]],
     ["views/SeriesListView.vue", ["hm-page sr-page sf-fit", "tl-cards sf-shrink sf-scroll sf-col"]],
-    ["views/SeriesDetailView.vue", ["hm-page sr-page sf-fit", "sr-grid sf-shrink sf-scroll sf-col"]],
+    ["views/SeriesDetailView.vue", ["hm-page sr-page sf-fit", "sr-grid sr-overview sf-shrink sf-scroll sf-col", "sr-schedule sf-shrink sf-scroll sf-col", "sh-manage sf-fill"]],
     ["views/AdminTournamentsView.vue", ["hm-page sf-fit", "ad-list sf-shrink sf-scroll sf-col"]],
     ["views/PrivacyView.vue", ["hm-page pv-page sf-fit sf-scroll sf-col"]],
     ["views/HelpView.vue", ["hm-page sf-fit sf-scroll sf-col"]],

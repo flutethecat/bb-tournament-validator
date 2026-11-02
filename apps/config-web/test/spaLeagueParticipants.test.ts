@@ -4,11 +4,11 @@ import type { ViteDevServer } from "vite";
 import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
 import { contactLines, createLeagueParticipants, flagCount, keepRow, type ParticipantRow } from "../spa/src/leagues/participants";
-import { LEAGUE_TABS } from "../spa/src/leagues/league";
 
-// League Participants tab (SPA): the controller (single / bulk writes carry the season revision, a stale write re-reads),
-// the helpers, and the league page server-rendered: organisers and admins see the tab and the table; members and the
-// public see neither (?tab=participants falls back to Overview).
+// League participant flags (SPA): the controller (single / bulk writes carry the season revision, a stale write re-reads),
+// the helpers, and the pages server-rendered: the flags table lives in the management sub-panel (League settings ›
+// Participants) for organisers and admins; the league page's Participants tab is public (public fields only, coaches
+// inert for everyone but the organisers, who get a profile button).
 
 const SPA_CONFIG = fileURLToPath(new URL("../spa/vite.config.ts", import.meta.url));
 type Routes = Record<string, unknown>;
@@ -41,7 +41,6 @@ describe("participants helpers + controller", () => {
     expect(flagCount(ROWS, "paid")).toBe(1);
     expect(contactLines(ROWS[0]!)).toEqual(["bob@example.com", "+15555550100 (mobile)"]);
     expect(contactLines(ROWS[1]!)).toEqual([]);
-    expect(LEAGUE_TABS.find((t) => t.id === "participants")?.manage).toBe(true);
   });
 
   it("writes send the newer revision (page or ours), apply the rows and report the new revision", async () => {
@@ -119,7 +118,14 @@ describe("participants tab (server-rendered league page)", () => {
 
   const s6 = { id: "season-6", number: 6, name: "Season 6", ruleset: "BB2025", status: "active", teamCount: 2, fixtureCount: 0, playedCount: 0 };
   const leagueSummary = { id: "tabbl", name: "TABBL", fullName: "TABBL", slug: "tabbl", description: "", organisers: ["Jay"], playOnFork: false, createdAt: "2026-10-30T00:00:00.000Z", seasonCount: 1, currentSeason: s6 };
-  const season = { ...s6, leagueId: "tabbl", sourceSlug: "s6", phases: [], fixtures: [], participants: [], teams: [], honours: [], awards: [], unattributedStats: [], importedAt: "", source: "manual", revision: 3 };
+  const team = (id: string, name: string, race: string, coach: string, coachId: string) => ({
+    id, name, race, coach, coachId, teamValue: 1000000, treasury: 0, rerolls: 2, fans: 1, assistantCoaches: 0, cheerleaders: 0, apothecary: false, tier: "", raceLeague: "", players: [], formerPlayers: [],
+  });
+  const season = {
+    ...s6, leagueId: "tabbl", sourceSlug: "s6", phases: [], fixtures: [], participants: [], honours: [], awards: [], unattributedStats: [], importedAt: "", source: "manual", revision: 3,
+    teams: [team("elves", "Elves", "Wood Elf", "Bob", "Bob"), team("orcs", "Orcs", "Orc", "Dee Display", "Dee")],
+  };
+  const SETTINGS = { settings: { id: "tabbl", revision: 1 } };
   const API: Routes = {
     "/api/leagues/tabbl": { league: leagueSummary, seasons: [s6] },
     "/api/leagues/tabbl/seasons/season-6": { league: leagueSummary, season },
@@ -129,6 +135,23 @@ describe("participants tab (server-rendered league page)", () => {
   const session = (coach?: string, admin = false): Routes => ({
     "/api/auth/session": coach ? { authenticated: true, coach, authMethod: "discord", discordSsoEnabled: true, ...(admin ? { admin: true } : {}) } : { authenticated: false, discordSsoEnabled: true },
   });
+  async function renderManage(who: Routes): Promise<string> {
+    const settingsMod = await vite.ssrLoadModule("/src/leagues/settings.ts");
+    const f = mockFetcher({ ...API, "/api/leagues/tabbl/settings": SETTINGS, ...who });
+    const spa = mods.createSpa({ history: mods.createMemoryHistory("/app/"), ssr: true, fetcher: f });
+    const d = mods.league.createLeagueDetail({ api: f });
+    await d.load("tabbl");
+    spa.app.provide(mods.league.LEAGUE_DETAIL_KEY, d);
+    const s = settingsMod.createLeagueSettings({ api: f });
+    await s.load("tabbl");
+    spa.app.provide(settingsMod.LEAGUE_SETTINGS_KEY, s);
+    const p = mods.parts.createLeagueParticipants({ api: f });
+    await p.load("tabbl", "season-6");
+    spa.app.provide(mods.parts.LEAGUE_PARTICIPANTS_KEY, p);
+    await spa.router.push("/leagues/tabbl/settings?tab=participants");
+    await spa.router.isReady();
+    return mods.renderToString(spa.app);
+  }
   async function render(path: string, who: Routes): Promise<string> {
     const f = mockFetcher({ ...API, ...who });
     const spa = mods.createSpa({ history: mods.createMemoryHistory("/app/"), ssr: true, fetcher: f });
@@ -144,9 +167,9 @@ describe("participants tab (server-rendered league page)", () => {
     return mods.renderToString(spa.app);
   }
 
-  it("organisers see the tab, the bulk bar, the five flags and only shared contact", async () => {
-    const html = await render("/leagues/tabbl?tab=participants", session("Jay"));
-    expect(html).toMatch(/aria-current="page"[^>]*>Participants</);
+  it("management › Participants: organisers see the bulk bar, the five flags and only shared contact", async () => {
+    const html = await renderManage(session("Jay"));
+    expect(html.match(/<a[^>]*data-group="participants"[^>]*>/)?.[0] ?? "").toContain('aria-current="page"');
     expect(html).toContain('id="lg-part-h"');
     for (const t of ["Mark all paid", "Mark all verified", "Check in all", "Mark all active", "Clear...", "All 2 teams"]) expect(html).toContain(t);
     for (const t of [">Paid<", ">Verified<", ">Frozen<", ">Checked in<", ">Active<"]) expect(html).toContain(t);
@@ -155,13 +178,29 @@ describe("participants tab (server-rendered league page)", () => {
     expect(html).toContain('aria-label="Paid: Elves"');
   });
 
-  it("members and the public see no tab, and ?tab=participants shows Overview", async () => {
+  it("the public Participants tab: everyone sees public fields only; coaches are inert except for organisers (old ?tab=participants lands here)", async () => {
     for (const who of [session(), session("Bob")]) {
       const html = await render("/leagues/tabbl?tab=participants", who);
-      expect(html).not.toContain(">Participants<");
-      expect(html).not.toContain('id="lg-part-h"');
-      expect(html).not.toContain("bob@example.com");
-      expect(html).toMatch(/aria-current="page"[^>]*>Overview</);
+      expect(html).toContain('id="lg-plist-h"');
+      expect(html.match(/<a[^>]*data-tab="participants"[^>]*>/)?.[0] ?? "").toContain('aria-current="page"');
+      for (const t of ["Elves", "Wood Elf", "Bob", "Orcs", "Dee Display"]) expect(html).toContain(t);
+      expect(html).not.toContain('id="lg-part-h"'); // no flags table
+      expect(html).not.toContain("bob@example.com"); // no private field, ever
+      expect(html).not.toContain("+15555550100");
+      expect(html).not.toContain("data-coach-profile"); // inert text
+      expect(html).not.toContain("data-manage-participants");
+      expect(html).not.toContain("data-cog");
     }
+    const org = await render("/leagues/tabbl?tab=participants", session("Jay"));
+    expect(org.match(/data-coach-profile/g)).toHaveLength(2); // organisers open each coach's profile
+    expect(org).toContain("data-manage-participants");
+    expect(org).not.toContain("bob@example.com"); // contact only inside the profile, fetched for that coach and scope
+  });
+
+  it("management › Participants refuses members (the server's 403) and never shows contact", async () => {
+    const html = await renderManage({ ...session("Bob"), "/api/leagues/tabbl/settings": new ApiError(403, "Not yours."), [P]: new ApiError(403, "Not yours.") });
+    expect(html).toContain("Not one of yours");
+    expect(html).not.toContain("bob@example.com");
+    expect(html).not.toContain('id="lg-part-h"');
   });
 });
