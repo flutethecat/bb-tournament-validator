@@ -129,7 +129,7 @@ describe("SPA: league awards and Hall of Fame", () => {
     // owner 11-02: a pin icon at the top right of the card (aria-label Pin), no "Pin" text button
     expect(html).toMatch(/<button type="button" class="hof-pin" data-pinned="false"[^>]*aria-label="Pin" title="Pin the Season 1 champion"/);
     expect(html.slice(html.indexOf('aria-labelledby="hof-h"'), html.indexOf("</section>", html.indexOf('aria-labelledby="hof-h"')))).not.toContain(">Pin<");
-    const items = html.split('class="aw-item"').slice(1);
+    const items = html.split(/class="aw-(?:item|card)"/).slice(1); // Hall of Fame pins (aw-item) and the Awards cards (aw-card, owner 11-02)
     const custom = items.find((i) => i.includes('data-award-id="a-1"'))!;
     const podium = items.find((i) => i.includes('data-award-id="s-1"'))!;
     expect(custom).toContain(">Remove<");

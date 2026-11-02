@@ -110,3 +110,42 @@
 .hof-rec { flex-basis: 100%; color: var(--ui-muted); font-size: 14px; font-variant-numeric: tabular-nums; }
 /* the season's honour boards under the selector: larger rows */
 .lg-honours .lg-board-rows { font-size: 15px; }
+
+/* Awards tab (owner 11-02): Cards | Table switch; cards grouped by season under SNES header rows, 4-5 per row at 1920;
+   the sortable table under a sticky header. The pin icon (.hof-pin) and pin mark are the Hall of Fame ones. */
+.aw-layout { margin-left: auto; }
+.aw-layout + .sf-btn { margin-left: 0; }
+.aw-body { display: grid; gap: 14px; align-content: start; }
+.aw-group { display: grid; gap: 8px; min-width: 0; }
+.aw-group-h {
+  display: flex; align-items: baseline; gap: 10px; margin: 0; padding: 5px 10px; font: 18px/1.15 var(--sf-band-title-font); text-transform: uppercase; letter-spacing: .06em;
+  color: var(--ui-heading); border-left: 4px solid var(--ui-heading); border-bottom: 2px solid var(--sf-panel-line);
+}
+.aw-group-h .hm-cap { font-family: var(--sf-band-font); }
+.aw-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); }
+.aw-card {
+  position: relative; display: grid; grid-template-columns: 36px minmax(0, 1fr); align-items: start; gap: 10px; min-width: 0; padding: 10px 40px 10px 10px;
+  background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface-2);
+  border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--sf-seat-home); border-radius: 2px; box-shadow: inset 0 1px 0 var(--sf-panel-hi), 0 3px 0 var(--sf-panel-drop);
+}
+.aw-card[data-source="custom"] { border-left-color: var(--sf-gold); }
+.aw-card[data-pinned="true"] { border-color: color-mix(in srgb, var(--sf-gold) 60%, var(--sf-panel-line)); border-left-color: var(--sf-gold); }
+.aw-card .aw-icon { width: 36px; height: 36px; }
+.aw-card .aw-title { font-size: 16px; }
+.aw-card .aw-who { font-size: 14px; }
+.aw-card .aw-meta, .aw-card .aw-note { font-size: 13px; }
+.aw-chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 0; }
+.aw-remove { justify-self: start; margin-top: 4px; }
+.aw-table { font-size: 15px; }
+.aw-table .aw-icon { width: 28px; height: 28px; }
+.aw-c-icon { width: 36px; }
+.aw-table .aw-c-award { font-weight: 600; color: var(--ui-text); }
+.aw-c-nowrap { white-space: nowrap; }
+.aw-c-note { min-width: 180px; color: var(--ui-muted); font-style: italic; }
+.aw-c-act .hof-pin { position: static; width: 28px; height: 28px; }
+.aw-pinned-t { color: var(--sf-gold); font-weight: 400; font-size: 13px; }
+.aw-sort { display: inline-flex; align-items: center; gap: 4px; margin: 0; padding: 0; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+.aw-sort:hover { color: var(--ui-text); }
+.aw-sort:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.aw-sort-mark { font-size: 9px; }
+.aw-table th[aria-sort="ascending"], .aw-table th[aria-sort="descending"] { color: var(--ui-text); }

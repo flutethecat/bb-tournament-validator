@@ -6,6 +6,8 @@ import { createSSRApp } from "vue";
 import { phaseComplete, phaseFoldId, phaseFoldKey, phaseOpen, readPhaseFolds, writePhaseFold } from "../spa/src/leagues/fixtureNav";
 import { currentStandingsPhase, pickStandingsPhase, standingsPhaseOptions } from "../spa/src/leagues/standingsView";
 import { coachTitles, honoursView, playerLeaderBoards } from "../spa/src/leagues/hallViews";
+import { AWARDS_VIEW_KEY, awardWhen, groupAwardsBySeason, readAwardsLayout, sortAwards, writeAwardsLayout } from "../spa/src/leagues/awardsView";
+import type { AwardView } from "../spa/src/leagues/honours";
 import { coachAvatarSrc, coachSummaryOf, findCoachRecord, teamForRow, wdlLine } from "../spa/src/leagues/popups";
 import type { CoachRecord, LeagueTeam, SeasonRecord } from "../spa/src/leagues/types";
 
@@ -329,3 +331,59 @@ describe("honours: rendered", () => {
     expect(coach).not.toContain('data-kind="player"');
   });
 });
+
+// ---- awards tab: Cards (by season) | Table (sortable), remembered per viewer
+const aw = (id: string, seasonId: string | undefined, title: string, over: Partial<AwardView> = {}): AwardView => ({
+  id, source: "imported", title, icon: "star", toTeam: `Team ${id}`, toCoach: `Coach ${id}`, race: "Orc", seasonId, seasonName: seasonId ? `Season ${seasonId.slice(-1)}` : undefined,
+  note: "", at: "2026-01-01T00:00:00.000Z", star: false, ...over,
+});
+const SEASONS_NEWEST = [{ id: "season-6", name: "Season 6" }, { id: "season-5", name: "Season 5" }, { id: "season-4", name: "Season 4" }];
+
+describe("awards: cards by season, sortable table, remembered layout", () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("groups cards by season, newest first, league-wide last, pinned first within a season; empty seasons left out", () => {
+    const list = [aw("a", "season-4", "Old"), aw("b", "season-6", "New 1"), aw("c", "season-6", "New 2"), aw("d", undefined, "Founding"), aw("e", "season-6", "New 3")];
+    const g = groupAwardsBySeason(list, SEASONS_NEWEST, new Set(["e"]));
+    expect(g.map((x) => [x.key, x.title, x.awards.map((a) => a.id)])).toEqual([
+      ["season-6", "Season 6", ["e", "b", "c"]], ["season-4", "Season 4", ["a"]], ["league", "League-wide", ["d"]],
+    ]);
+    // one season picked (the page filters first): only that group shows
+    expect(groupAwardsBySeason(list.filter((a) => a.seasonId === "season-4"), SEASONS_NEWEST, new Set()).map((x) => x.key)).toEqual(["season-4"]);
+  });
+
+  it("sorts the flat table by any column, both ways, stable, empty values last", () => {
+    const list = [aw("a", "season-4", "Zeta", { at: "2024-01-01T00:00:00.000Z" }), aw("b", "season-6", "alpha", { at: "2026-01-01T00:00:00.000Z" }), aw("c", undefined, "Mid", { at: undefined })];
+    expect(sortAwards(list, "award", "asc", SEASONS_NEWEST).map((a) => a.id)).toEqual(["b", "c", "a"]);
+    expect(sortAwards(list, "season", "desc", SEASONS_NEWEST).map((a) => a.id)).toEqual(["b", "a", "c"]);
+    expect(sortAwards(list, "season", "asc", SEASONS_NEWEST).map((a) => a.id)).toEqual(["c", "a", "b"]);
+    expect(sortAwards(list, "date", "asc", SEASONS_NEWEST).map((a) => a.id)).toEqual(["a", "b", "c"]);
+    expect(sortAwards(list, "date", "desc", SEASONS_NEWEST).map((a) => a.id)).toEqual(["b", "a", "c"]); // no date stays last
+    expect(awardWhen(list[0]!)).toBe("Season 4 · 1 Jan 2024");
+    expect(awardWhen(list[2]!)).toBe("League-wide");
+  });
+
+  it("the Cards | Table choice is remembered in guarded localStorage", () => {
+    vi.stubGlobal("localStorage", memoryStorage());
+    expect(readAwardsLayout()).toBe("cards");
+    writeAwardsLayout("table");
+    expect(localStorage.getItem(AWARDS_VIEW_KEY)).toBe("table");
+    expect(readAwardsLayout()).toBe("table");
+    vi.stubGlobal("localStorage", { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); } });
+    expect(readAwardsLayout()).toBe("cards");
+    expect(() => writeAwardsLayout("table")).not.toThrow();
+  });
+
+  it("template: the toggle, season groups under SNES header rows, the organiser pin icon on cards, sortable headers with aria-sort, the table in the pane scroller", () => {
+    const vue = src("components/LeagueAwards.vue");
+    expect(vue).toContain('role="group" aria-label="Awards view"');
+    expect(vue).toMatch(/<h3 :id="`aw-g-\$\{g\.key\}`" class="aw-group-h">/);
+    expect(vue).toMatch(/v-if="manage" type="button" class="hof-pin"[^>]*:aria-label="pinnedIds\.has\(a\.id\) \? 'Unpin' : 'Pin'"/);
+    expect(vue).toMatch(/<span v-else-if="pinnedIds\.has\(a\.id\)" class="hof-pin-mark" role="img" aria-label="Pinned"/);
+    expect(vue).toContain(':aria-sort="ariaSort(c.key)"');
+    expect(vue).toContain('<div v-else class="lg-scroll aw-body">'); // the fitted pane's table scroller (sticky header)
+    expect(vue).not.toMatch(/>\s*Pin\s*</);
+    expect(src("leagues/honours.css")).toMatch(/\.aw-group-h \{[^}]*font: 18px\/1\.15 var\(--sf-band-title-font\);/);
+  });
+});
+
