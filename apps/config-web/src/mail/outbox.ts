@@ -248,12 +248,16 @@ export interface MailWorkerOptions {
    *  the eligibility re-check dropped. The Discord channel's email fallback hangs off it. */
   onFailed?: (entry: OutboxEntry, error: MailSendError) => void;
   ratePerSecond?: number;
+  /** Per-channel pace on top of the global rate (Discord DMs default to DISCORD_DM_RATE_PER_SECOND). */
+  channelRates?: Partial<Record<MailChannel, number>>;
   leagueDailyCap?: number;
   now?: () => number;
   log?: (line: string) => void;
 }
 
 export const DEFAULT_RATE_PER_SECOND = 10;
+/** Bot DMs go out a few per second (Discord's DM-open and message routes rate-limit per bot); 429s back off (discord.ts). */
+export const DISCORD_DM_RATE_PER_SECOND = 3;
 export const DEFAULT_LEAGUE_DAILY_CAP = 500;
 
 /** Backoff after the n-th failed attempt (1-based): 30 s, 2 min, 8 min, 32 min, then 1 h. */
@@ -261,6 +265,7 @@ export const retryDelayMs = (attempts: number): number => Math.min(3_600_000, 30
 
 export class MailWorker {
   private readonly starts: number[] = [];
+  private readonly channelStarts = new Map<MailChannel, number[]>();
   private running = false;
   private timer?: ReturnType<typeof setInterval>;
   readonly rate: number;
@@ -271,6 +276,11 @@ export class MailWorker {
   }
 
   private now(): number { return this.opts.now?.() ?? Date.now(); }
+
+  /** Sends per second on one channel (email: the global rate; discord: a few per second). */
+  channelRate(channel: MailChannel): number {
+    return this.opts.channelRates?.[channel] ?? (channel === "discord" ? DISCORD_DM_RATE_PER_SECOND : this.rate);
+  }
 
   private transportFor(channel: MailChannel): MailTransport | undefined {
     return this.opts.transports?.[channel] ?? (channel === "email" ? this.opts.transport : undefined);
@@ -288,6 +298,11 @@ export class MailWorker {
         const now = this.now();
         while (this.starts.length && now - this.starts[0]! >= 1000) this.starts.shift();
         if (this.starts.length >= this.rate) break;
+        // the channel's own pace: a busy channel waits for the next pass, other channels keep going
+        const chStarts = this.channelStarts.get(entry.channel) ?? [];
+        while (chStarts.length && now - chStarts[0]! >= 1000) chStarts.shift();
+        this.channelStarts.set(entry.channel, chStarts);
+        if (chStarts.length >= this.channelRate(entry.channel)) continue;
         if (!entry.message) { outbox.markDead(entry.id, entry.attempts, "no message"); continue; }
         if (entry.leagueId) {
           if (deferredLeagues.has(entry.leagueId)) continue;
@@ -313,6 +328,7 @@ export class MailWorker {
         const transport = this.transportFor(entry.channel);
         if (!transport) { outbox.markDead(entry.id, entry.attempts, `no transport for ${entry.channel}`); continue; }
         this.starts.push(now);
+        chStarts.push(now);
         attempted += 1;
         const attempts = entry.attempts + 1;
         // The transport re-runs the check before every provider attempt (its own retries included).
