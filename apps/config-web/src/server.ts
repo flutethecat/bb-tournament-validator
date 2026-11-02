@@ -333,7 +333,7 @@ import { setReplayCoachFilter } from "./replay/store.js";
 import { setNafIdFilter } from "./nafRecords.js";
 import { clearLeagueStatsCache } from "./leagues/api.js";
 import { assertNotFenced, DeletionFenceError, isCoachFenced, isReservedCoachName, RESERVED_NAME_MESSAGE, ReservedNameError } from "./privacy/fence.js";
-import { adoptLobbyMatch, dropAllSnapshots, clockView, createMatch, isTabletopApiPath, recoverTabletop, tabletopApi, type TabletopApiDeps } from "./tabletop/api.js";
+import { adoptLobbyMatch, dropAllSnapshots, clockView, createMatch, isTabletopApiPath, recoverTabletop, tabletopApi, tabletopMatchTeams, type TabletopApiDeps } from "./tabletop/api.js";
 import { FixtureLobbyStore } from "./fixtureLobby/store.js";
 import { LobbyPresence } from "./fixtureLobby/presence.js";
 import type { LeagueLobbyDeps } from "./fixtureLobby/league.js";
@@ -356,6 +356,15 @@ import { runRedraftWindowJob } from "./leagues/redraftWindow.js";
 import { createLeagueForkClient } from "./leagues/forkClient.js";
 import { syncLeagueForkResults } from "./leagues/forkPlay.js";
 import { registerLeagueEvents } from "./leagues/events.js";
+import { discordApi, discordApiPath } from "./discord/api.js";
+import { DiscordHub } from "./discord/hub.js";
+import { DiscordObserver, OBSERVER_TICK_MS } from "./discord/observer.js";
+import { createDiscordReach } from "./discord/reach.js";
+import { DISPLAY_SETTINGS_PATH, displaySettingsRoute } from "./discord/displaySettings.js";
+import { DiscordStateStore } from "./discord/store.js";
+import { forkGame, tabletopGame, type GameRecord } from "./discord/games.js";
+import { playerLabel, visibleComments } from "./discord/hub.js";
+import { leagueFixtureRef } from "./leagues/tabletopFixtures.js";
 import type { TournamentSubmission } from "./tournaments/types.js";
 import { checkTournamentSubmission, type SubmissionCheckDeps } from "./tournaments/submissionCheck.js";
 import { applyHouseRulesToPackage, houseRuleValidatorRules } from "./competition/packageOverlay.js";
@@ -896,6 +905,57 @@ const tabletopUsageSource = {
   readEvents: async (matchId: string) => (await tabletopDeps()).repo.readEvents(matchId),
 };
 
+// Competition Discord (src/discord/): per-competition webhooks, the recorder's live posts and end-of-game digests, the
+// observer that notices tournament / season events and runs the Weekly Digest. Webhook URLs are never logged.
+const discordState = new DiscordStateStore(join(FORK_STATE_DIR, "discord"));
+const DISCORD_PUBLIC_NAMES = publicPlayerLinesFromEnv(process.env.GAME_PAGES_PUBLIC_PLAYER_LINES);
+const discordHub = new DiscordHub({
+  leagues: leagueStore, tournaments: tournamentStore, state: discordState,
+  publicNames: DISCORD_PUBLIC_NAMES,
+  // a live post waits a little and is dropped when the event was undone meanwhile
+  stillEffective: async (matchId, eventId) => {
+    const repo = (await tabletopDeps()).repo;
+    const events = await repo.readEvents(matchId);
+    return !events.some((e) => e.type === "undo" && e.payload.target === eventId) && events.some((e) => e.id === eventId);
+  },
+});
+/** The recorded games of these league fixtures (Weekly Digest highlights): banked Super FUMBBL results and recorder matches. */
+async function leagueFixtureGames(leagueId: string, seasonId: string, fixtures: readonly import("./leagues/types.js").LeagueFixture[]): Promise<GameRecord[]> {
+  const out: GameRecord[] = [];
+  const wanted = new Map(fixtures.map((f) => [leagueFixtureRef(leagueId, seasonId, f.id), f]));
+  for (const f of fixtures) { const g = forkGame(f, DISCORD_PUBLIC_NAMES); if (g) out.push(g); }
+  if (!existsSync(TABLETOP_DIR)) return out;
+  const repo = (await tabletopDeps()).repo;
+  for (const m of await repo.listMatches()) {
+    if (!m.fixtureRef || !wanted.has(m.fixtureRef) || m.test || (m.state !== "confirmed" && m.state !== "published")) continue;
+    const events = await repo.readEvents(m.id);
+    const teams = await tabletopMatchTeams(repo, m, events);
+    out.push(tabletopGame({ matchId: m.id, home: { team: m.home.teamName, coach: m.home.coach }, away: { team: m.away.teamName, coach: m.away.coach }, events, label: playerLabel(teams, DISCORD_PUBLIC_NAMES), comments: visibleComments(m) }));
+  }
+  return out;
+}
+const discordObserver = new DiscordObserver({
+  leagues: leagueStore, tournaments: tournamentStore, state: discordState,
+  gamesFor: (league, season, fixtures) => leagueFixtureGames(league.id, season.id, fixtures),
+  log: (line) => console.error(line),
+});
+setTimeout(() => { void discordObserver.tick(); }, 20_000).unref();
+setInterval(() => { void discordObserver.tick(); }, OBSERVER_TICK_MS).unref();
+const discordReach = createDiscordReach({
+  token: process.env.DISCORD_BOT_TOKEN?.trim() || undefined,
+  inviteUrl: process.env.DISCORD_INVITE_URL,
+  discordUserId: (coach) => {
+    const record = readIdentities().coaches[normalizeFfbCoachId(coach)];
+    const id = record && !record.banned ? record.identities?.discordUserId : undefined;
+    return typeof id === "string" ? id : undefined;
+  },
+  dmOn: (coach) => mail.prefs.get(coach).discordDm?.on ?? true,
+  dmAvailable: () => mail.discordEnabled(),
+});
+function discordApiDeps() {
+  return { leagues: leagueStore, tournaments: tournamentStore, state: discordState, observer: discordObserver, clientId: process.env.DISCORD_CLIENT_ID };
+}
+
 async function tabletopDeps(): Promise<TabletopApiDeps> {
   const first = !tabletopRepo;
   tabletopRepo ??= new FileTabletopRepository(TABLETOP_DIR);
@@ -957,6 +1017,10 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
       const body = recorderAnnouncement(a, { baseUrl: PUBLIC_BASE_ORIGIN }); if (body) recorderWebhook.post(body);
     } } : {}),
     notify: (coach, input) => tournamentNotifier.coach(coach, input),
+    // the competition's own Discord: live in-game posts, the end-of-game digest, and the coach's comments switch
+    onEvents: (match, accepted, teams) => discordHub.onTabletopEvents(match, accepted, teams),
+    onResult: (match, events, teams) => discordHub.onTabletopResult(match, events, teams),
+    commentsEnabled: (match) => discordHub.targetForMatch({ fixtureRef: match.fixtureRef })?.target.config.comments ?? true,
     listSaves: (coach) => readSaves(BUILDER_SAVES_DIR, coach).map((s) => ({ id: s.id, name: s.name })),
     listTeams: (coach) => {
       const regs = teamRegistrations(coach);
@@ -1816,6 +1880,24 @@ function isOrganizerWrite(method: string, pathname: string): boolean {
   );
 }
 
+/** Competition Discord settings and organiser actions (src/discord/api.ts); writes re-check the session after the body. */
+async function handleDiscordApi(req: IncomingMessage, res: ServerResponse, method: string, path: string, auth: SessionIdentity | undefined): Promise<void> {
+  let body: unknown;
+  let who = auth;
+  if (WRITE_METHODS.has(method)) {
+    try { body = await readBody(req, 16 * 1024); } catch { return sendJson(res, 400, { error: "Invalid JSON request body." }); }
+    if (auth) {
+      const current = requestIdentity(req);
+      if (!current || normalizeFfbCoachId(current.coach) !== normalizeFfbCoachId(auth.coach)) return sendJson(res, 401, { error: "Authentication required." });
+      who = current;
+    }
+  }
+  const result = await discordApi(method, path, who ? { coach: who.coach, admin: who.admin === true } : undefined, body, discordApiDeps());
+  if (!result) return sendJson(res, 404, { error: "Not found." });
+  for (const [name, value] of Object.entries(result.headers ?? {})) res.setHeader(name, value);
+  return sendJson(res, result.status, result.body);
+}
+
 function libraryOwnerForTeam(teamId: string, options: { activeOnly?: boolean } = {}): string | undefined {
   try {
     for (const libraryCoach of libraryCoaches(LIBRARY_DIR)) {
@@ -2156,6 +2238,22 @@ async function handleApi(
   if (isSocialApiPath(path) && await handleSocialRequest(req, res, method, path, query, auth)) return;
   if (isScheduleApiPath(path) && await handleScheduleRequest(req, res, method, path, auth)) return;
 
+  if (path === DISPLAY_SETTINGS_PATH) {
+    const testSession = getSession(sessionTokenFromRequest(req))?.test === true;
+    let body: unknown;
+    if (method === "POST") { try { body = await readBody(req, 1024); } catch { return sendJson(res, 400, { error: "Invalid JSON request body." }); } }
+    res.setHeader("cache-control", "no-store");
+    const r = displaySettingsRoute(method, auth ? { coach: auth.coach, ...(testSession ? { test: true } : {}) } : undefined, body, mail.prefs);
+    return sendJson(res, r.status, r.body);
+  }
+
+  if (path === "/api/me/discord-reach") {
+    if (method !== "GET" && method !== "HEAD") return sendJson(res, 405, { error: "Use GET." });
+    if (!auth) return sendJson(res, 401, { error: "Authentication required." });
+    res.setHeader("cache-control", "no-store");
+    return sendJson(res, 200, { reach: await discordReach.status(auth.coach) });
+  }
+
   if (mail.isMeMailPath(path)) {
     const testSession = getSession(sessionTokenFromRequest(req))?.test === true;
     const body = method === "POST" ? await readBody(req, 16 * 1024) : undefined;
@@ -2174,6 +2272,7 @@ async function handleApi(
     const leagueTestSession = getSession(sessionTokenFromRequest(req))?.test === true;
     if (WRITE_METHODS.has(method) && leagueTestSession && !testSessionMayWriteLeaguePath(leagueStore, path))
       return sendJson(res, 403, { error: "Test sign-in sessions cannot change league data." });
+    if (discordApiPath(path)) return handleDiscordApi(req, res, method, path, auth);
     if (leagueMessagesPath(path) !== undefined) {
       // League "Message members" (src/mail/leagueMessages.ts): organiser-gated in-handler; counts only in the response.
       const body = method === "POST" ? await readBody(req, 64 * 1024) : undefined;
@@ -2260,6 +2359,7 @@ async function handleApi(
     }
     // An unpublished draft is seen only by its managers and admins: every route under it (banner, lobby, API) is a 404.
     if (hiddenTournamentPath(tournamentStore, path, auth)) return sendJson(res, 404, { error: "Tournament not found." });
+    if (discordApiPath(path)) return handleDiscordApi(req, res, method, path, auth);
     // Tournament banner (raw image body, managers; public read): src/tournaments/page.ts, guards shared with team avatars.
     if (tournamentBannerPath(path) !== undefined) {
       const banner = await tournamentBannerApi(method, path, auth, {
