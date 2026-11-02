@@ -117,6 +117,7 @@ export function createRedraftBoard(deps: { api: Fetcher }) {
 
   function take(view: RedraftBoardView): void {
     state.view = view;
+    // Before confirmation the cap and the window follow the league's saved settings (a settings save reloads the board).
     state.capEnabled = view.capEnabled;
     state.cap = view.cap;
     if (view.rules && !view.state) state.windowDays = view.rules.windowDays;
@@ -171,6 +172,7 @@ export function createRedraftBoard(deps: { api: Fetcher }) {
     async pickTarget(id: string): Promise<void> { state.targetPick = id; await load(state.id); },
     confirm: () => post("confirm", {
       action: "confirm", capEnabled: state.capEnabled, cap: state.cap, windowDays: state.windowDays,
+      ...(state.view?.settingsRevision !== undefined ? { settingsRevision: state.view.settingsRevision } : {}),
       ...(localToIso(state.opensAt) ? { opensAt: localToIso(state.opensAt) } : {}),
       ...(state.sourcePick && state.view?.source ? { sourceSeasonId: state.view.source.id } : {}),
       ...(state.targetPick && state.view?.target ? { targetSeasonId: state.view.target.id } : {}),
@@ -189,6 +191,21 @@ export function createRedraftBoard(deps: { api: Fetcher }) {
   };
 }
 export type RedraftBoard = ReturnType<typeof createRedraftBoard>;
+
+/**
+ * League settings -> Redraft, Save budget: saves the "redraft" settings section, then reloads the board beside it so its
+ * cap, window and settings revision follow the saved formula (Confirm would otherwise send the stale ones; the server
+ * refuses a stale settings revision with 409 either way).
+ */
+export async function saveRedraftRules(
+  settings: { save: (section: "redraft", payload: unknown, key: string, notice: string) => Promise<boolean> },
+  board: Pick<RedraftBoard, "load" | "state"> | null,
+  payload: Record<string, unknown>,
+): Promise<boolean> {
+  const ok = await settings.save("redraft", payload, "redraft", "Redraft budget saved. It applies to the next redraft you open.");
+  if (ok && board?.state.id) await board.load(board.state.id);
+  return ok;
+}
 export const REDRAFT_BOARD_KEY: InjectionKey<RedraftBoard> = Symbol("redraft-board");
 
 // ---- coach: Team Draft List ----

@@ -366,6 +366,9 @@ export interface FixtureForkState {
   /** Invitation notifications went out (once per fixture). */
   invited?: boolean;
   result?: FixtureForkResult;
+  /** A finished game whose result arrived while a team was redrafting (redraftWindow.ts): held, not applied. The timer
+   *  leaves it alone; an organiser's "Check for a result" applies it once neither team is blocked any more. */
+  redraftHold?: { at: string; gameId: string; reason: string };
   /** Organiser-visible history: generate, schedule, failures, resets (with reasons), result. */
   log: FixtureForkLogEntry[];
 }
@@ -861,6 +864,8 @@ export interface RedraftWindow {
   openNotifiedAt?: string;
   /** Coaches still drafting reminded 24 h before the close. */
   reminderAt?: string;
+  /** The close started: rebuilt lists and needs-redraft marks are journalled on the tasks (redraftWindow.ts). */
+  closing?: string;
   /** The close was processed (teams rebuilt or marked needs redraft). */
   processedAt?: string;
 }

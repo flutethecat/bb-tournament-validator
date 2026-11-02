@@ -18,7 +18,18 @@ import {
   targetConflict, validateDraft, type DraftContext, type DraftInput, type Roller,
 } from "./redraft.js";
 import { leagueOwner, type LeagueStore } from "./store.js";
+import { assignSeasonsPlayed } from "./playerIds.js";
 import type { LeagueRecord, RedraftState, RedraftWindow, SeasonRecord } from "./types.js";
+
+/**
+ * The league's seasons for redraft pricing, newest first, with seasonsPlayed derived when a stored season predates the
+ * field: the coach routes and the window job price re-hires the same way (agent fee per season played).
+ */
+export function redraftSeasons(store: Pick<LeagueStore, "seasons">, leagueId: string): SeasonRecord[] {
+  const seasons = store.seasons(leagueId);
+  if (seasons.some((s) => s.teams.some((t) => t.players.some((p) => p.seasonsPlayed === undefined)))) assignSeasonsPlayed(seasons);
+  return seasons;
+}
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
 export const REMINDER_MS = DAY_MS;
@@ -53,7 +64,7 @@ export type CommitOutcome = { ok: true; text: string } | { ok: false; conflict: 
  * seasons in memory; the caller writes them. Throws a RedraftError when the list breaks a rule.
  */
 export function commitDraft(
-  seasons: SeasonRecord[], leagueId: string, source: SeasonRecord, ctx: DraftContext, input: DraftInput, actor: string, now: string, opts: { auto?: boolean } = {},
+  seasons: SeasonRecord[], leagueId: string, source: SeasonRecord, ctx: DraftContext, input: DraftInput, actor: string, now: string, opts: { auto?: boolean; apply?: boolean } = {},
 ): CommitOutcome & { target?: SeasonRecord } {
   const state = source.redraft!;
   const price = validateDraft(ctx, input);
@@ -73,7 +84,8 @@ export function commitDraft(
   ctx.task.submittedBy = actor;
   delete ctx.task.needsRedraft;
   if (opts.auto) ctx.task.auto = true;
-  if (target) {
+  // apply: false (the window job's journal step) leaves the list waiting on the task; the job's apply step writes it.
+  if (target && opts.apply !== false) {
     applyDraftTeam(target, newTeam);
     ctx.task.appliedTo = target.id;
   }
@@ -116,7 +128,10 @@ export function redraftPlayBlock(seasons: SeasonRecord[], team: { teamId?: strin
       const hit = team.teamId ? task.teamId === team.teamId : Boolean(named) && task.name.trim().toLowerCase() === named;
       if (!hit) continue;
       if (windowOpen(state.window, now)) return `${task.name} is redrafting until ${whenText(state.window.closesAt)}: no games while the redraft window is open.`;
-      if (task.status === "pending" && task.needsRedraft) return `${task.name} needs to finish its redraft before it can play.`;
+      if (task.status !== "pending") continue;
+      if (task.needsRedraft) return `${task.name} needs to finish its redraft before it can play.`;
+      // Past the close but not processed yet (the job runs each minute): still blocked until it is rebuilt or marked.
+      if (now.getTime() >= t(state.window.closesAt) && !state.window.processedAt) return `${task.name}'s redraft window has closed and is being processed: no games until then.`;
     }
   }
   return "";
@@ -138,7 +153,13 @@ export interface RedraftWindowDeps {
   rollD6?: Roller;
 }
 
-export interface RedraftWindowOutcome { opened: string[]; reminded: string[]; closed: Array<{ leagueId: string; seasonId: string; rebuilt: string[]; needsRedraft: string[] }> }
+export interface RedraftWindowOutcome {
+  opened: string[];
+  reminded: string[];
+  closed: Array<{ leagueId: string; seasonId: string; rebuilt: string[]; needsRedraft: string[] }>;
+  /** Leagues whose tick stopped on a failed write (the next tick resumes). */
+  failed: string[];
+}
 
 const organisersOf = (league: LeagueRecord): string[] => {
   const out: string[] = [];
@@ -155,66 +176,107 @@ function due(state: RedraftState, now: number): boolean {
   return !w.processedAt && now >= t(w.closesAt);
 }
 
+/** Thrown inside a tick when a write fails: that league's tick stops, and the next tick resumes from what is durable. */
+class WriteFailed extends Error {}
+
+/**
+ * The close runs in three durable steps, so a failed write or a crash never loses a rebuild (each tick resumes):
+ *   1. journal: rebuilt draft lists and needs-redraft marks are written onto the source season's tasks (window.closing
+ *      set; nothing is applied to the receiving season yet);
+ *   2. apply: every journalled list without appliedTo is written into the receiving season (idempotent: a roster an
+ *      interrupted tick already placed is the same roster, so it is placed again unchanged);
+ *   3. mark: appliedTo and window.processedAt go onto the source season only after the receiving season is durable.
+ * Coaches and organisers are told after step 3, once.
+ */
 export function runRedraftWindowJob(deps: RedraftWindowDeps): RedraftWindowOutcome {
   const now = deps.now?.() ?? new Date();
   const ms = now.getTime();
   const iso = now.toISOString();
-  const out: RedraftWindowOutcome = { opened: [], reminded: [], closed: [] };
+  const out: RedraftWindowOutcome = { opened: [], reminded: [], closed: [], failed: [] };
   for (const league of deps.store.list()) {
-    const seasons = deps.store.seasons(league.id);
+    if (!deps.store.seasons(league.id).some((s) => s.redraft && due(s.redraft, ms))) continue;
+    const seasons = redraftSeasons(deps.store, league.id);
     const source = seasons.find((s) => s.redraft && due(s.redraft, ms));
     if (!source) continue;
     const state = source.redraft!;
     const w = state.window!;
     const notices: Array<{ coach: string; input: NotificationInput }> = [];
     const pending = state.teams.filter((x) => x.selected && x.status === "pending");
-    const touched = new Set<SeasonRecord>([source]);
     const coachNote = (coach: string | undefined, teamId: string, title: string, body: string): void => {
       if (coach) notices.push({ coach, input: { type: "league-broadcast", title, body: `${league.name}: ${body}`, link: redraftModeLink(league.id, teamId), from: league.name, action: true } });
     };
-    if (!w.openNotifiedAt && ms >= t(w.opensAt)) {
-      w.openNotifiedAt = iso;
-      for (const x of pending) coachNote(x.coachId, x.teamId, "Redraft open", `the redraft for ${x.name} is open until ${whenText(w.closesAt)}. Roll Rest & Relaxation, then build next season's roster in the Roster Builder.`);
-      out.opened.push(`${league.id}/${source.id}`);
-    }
-    if (!w.reminderAt && ms >= t(w.closesAt) - REMINDER_MS && ms < t(w.closesAt)) {
-      w.reminderAt = iso;
-      for (const x of pending) coachNote(x.coachId, x.teamId, "Redraft closes in 24 hours", `${x.name}'s redraft closes at ${whenText(w.closesAt)}. Submit your draft list, or the team is rebuilt from its current roster if it fits the budget.`);
-      out.reminded.push(`${league.id}/${source.id}`);
-    }
-    if (!w.processedAt && ms >= t(w.closesAt)) {
-      w.processedAt = iso;
-      const rebuilt: string[] = [];
-      const needs: string[] = [];
-      for (const task of pending) {
-        if (task.needsRedraft) continue;
-        const ctx = draftContext(seasons, source, task.teamId);
-        if (!ctx) continue;
-        try {
-          if (!task.rest && ctx.team.players.some((p) => (p.niggling | 0) > 0)) task.rest = { at: iso, by: "League", rolls: restAndRelaxation(ctx.team, "site", {}, deps.rollD6 ?? d6) };
-          const done = commitDraft(seasons, league.id, source, ctx, currentRosterInput(ctx), "League", iso, { auto: true });
-          if (done.ok) {
-            rebuilt.push(task.teamId);
-            if (done.target) touched.add(done.target);
-            coachNote(task.coachId, task.teamId, "Redraft closed: team rebuilt", `the redraft window closed, so ${task.name} was rebuilt from its current roster within its budget.`);
+    const write = (s: SeasonRecord): void => { try { deps.store.putSeason(s); } catch { throw new WriteFailed(); } };
+    try {
+      let changed = false;
+      if (!w.openNotifiedAt && ms >= t(w.opensAt)) {
+        w.openNotifiedAt = iso;
+        changed = true;
+        for (const x of pending) coachNote(x.coachId, x.teamId, "Redraft open", `the redraft for ${x.name} is open until ${whenText(w.closesAt)}. Roll Rest & Relaxation, then build next season's roster in the Roster Builder.`);
+        out.opened.push(`${league.id}/${source.id}`);
+      }
+      if (!w.reminderAt && ms >= t(w.closesAt) - REMINDER_MS && ms < t(w.closesAt)) {
+        w.reminderAt = iso;
+        changed = true;
+        for (const x of pending) coachNote(x.coachId, x.teamId, "Redraft closes in 24 hours", `${x.name}'s redraft closes at ${whenText(w.closesAt)}. Submit your draft list, or the team is rebuilt from its current roster if it fits the budget.`);
+        out.reminded.push(`${league.id}/${source.id}`);
+      }
+      if (!w.processedAt && ms >= t(w.closesAt)) {
+        // 1. journal (once): rebuild in memory without touching the receiving season, then write the source.
+        if (!w.closing) {
+          w.closing = iso;
+          for (const task of pending) {
+            if (task.needsRedraft) continue;
+            const ctx = draftContext(seasons, source, task.teamId);
+            if (!ctx) continue;
+            try {
+              if (!task.rest && ctx.team.players.some((p) => (p.niggling | 0) > 0)) task.rest = { at: iso, by: "League", rolls: restAndRelaxation(ctx.team, "site", {}, deps.rollD6 ?? d6) };
+              commitDraft(seasons, league.id, source, ctx, currentRosterInput(ctx), "League", iso, { auto: true, apply: false });
+            } catch (e) {
+              const reason = e instanceof RedraftError ? e.message : "The current roster could not be rebuilt.";
+              task.needsRedraft = { at: iso, reason };
+              state.log.unshift({ at: iso, by: "League", text: `${task.name} needs a redraft: ${reason}`, teamId: task.teamId });
+            }
           }
-        } catch (e) {
-          const reason = e instanceof RedraftError ? e.message : "The current roster could not be rebuilt.";
-          task.needsRedraft = { at: iso, reason };
-          needs.push(task.teamId);
-          state.log.unshift({ at: iso, by: "League", text: `${task.name} needs a redraft: ${reason}`, teamId: task.teamId });
-          coachNote(task.coachId, task.teamId, "Redraft needed", `the redraft window closed and ${task.name}'s current roster does not fit (${reason}). The team cannot play until you submit a draft list.`);
+          state.revision += 1;
+          write(source);
         }
+        // 2. apply the journalled lists to the receiving season (resumes after an interrupted tick).
+        const closing = w.closing;
+        const target = redraftTarget(seasons, source);
+        const waiting = state.teams.filter((x) => x.auto && x.status === "submitted" && x.draft && !x.appliedTo);
+        if (target && waiting.length) {
+          for (const task of waiting) {
+            const conflict = targetConflict(target, { id: task.teamId, name: task.name }, task.draft!.team);
+            if (conflict) { task.status = "expired"; task.expiredReason = conflict; continue; }
+            applyDraftTeam(target, task.draft!.team);
+          }
+          write(target);
+          for (const task of waiting) if (task.status === "submitted") task.appliedTo = target.id;
+        }
+        // 3. mark processed (only now that the receiving season is durable); people are told after the write below.
+        const rebuilt = state.teams.filter((x) => x.auto && x.submittedAt === closing && x.status === "submitted").map((x) => x.teamId);
+        const needs = state.teams.filter((x) => x.status === "pending" && x.needsRedraft?.at === closing).map((x) => x.teamId);
+        w.processedAt = iso;
+        state.log.unshift({ at: iso, by: "League", text: `The redraft window closed: ${rebuilt.length} team${rebuilt.length === 1 ? "" : "s"} rebuilt from their current roster, ${needs.length} need${needs.length === 1 ? "s" : ""} a redraft.` });
+        for (const task of state.teams) {
+          if (rebuilt.includes(task.teamId)) coachNote(task.coachId, task.teamId, "Redraft closed: team rebuilt", `the redraft window closed, so ${task.name} was rebuilt from its current roster within its budget.`);
+          else if (needs.includes(task.teamId)) coachNote(task.coachId, task.teamId, "Redraft needed", `the redraft window closed and ${task.name}'s current roster does not fit (${task.needsRedraft!.reason}). The team cannot play until you submit a draft list.`);
+        }
+        for (const coach of organisersOf(league)) {
+          notices.push({ coach, input: { type: "league-broadcast", title: "Redraft window closed", body: `${league.name}: ${rebuilt.length} rebuilt from their current roster, ${needs.length} need a redraft.`, link: redraftBoardLink(league.id), from: league.name } });
+        }
+        out.closed.push({ leagueId: league.id, seasonId: source.id, rebuilt, needsRedraft: needs });
+        changed = true;
       }
-      state.log.unshift({ at: iso, by: "League", text: `The redraft window closed: ${rebuilt.length} team${rebuilt.length === 1 ? "" : "s"} rebuilt from their current roster, ${needs.length} need${needs.length === 1 ? "s" : ""} a redraft.` });
-      for (const coach of organisersOf(league)) {
-        notices.push({ coach, input: { type: "league-broadcast", title: "Redraft window closed", body: `${league.name}: ${rebuilt.length} rebuilt from their current roster, ${needs.length} need a redraft.`, link: redraftBoardLink(league.id), from: league.name } });
+      if (changed) {
+        state.revision += 1;
+        // Written before anyone is told: a restart finds the step done.
+        write(source);
       }
-      out.closed.push({ leagueId: league.id, seasonId: source.id, rebuilt, needsRedraft: needs });
+    } catch (e) {
+      if (e instanceof WriteFailed) { out.failed.push(league.id); continue; }
+      throw e;
     }
-    state.revision += 1;
-    // Written before anyone is told: a restart finds the step done.
-    try { for (const s of touched) deps.store.putSeason(s); } catch { continue; }
     if (deps.notify) {
       const send = draftAwareNotify(deps.store, league.id, deps.notify, deps.isAdmin ?? (() => false));
       for (const n of notices) { try { send(n.coach, n.input); } catch { /* fire-and-forget */ } }
@@ -222,4 +284,3 @@ export function runRedraftWindowJob(deps: RedraftWindowDeps): RedraftWindowOutco
   }
   return out;
 }
-

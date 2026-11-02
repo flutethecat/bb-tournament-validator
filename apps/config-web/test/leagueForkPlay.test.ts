@@ -609,6 +609,48 @@ describe("Super FUMBBL fixture routes", () => {
     const read = (await call("GET", "/api/leagues/tabbl/seasons/season-7", EVE)).body as { season: SeasonRecord };
     expect(read.season.fixtures[0]!.fork).toEqual({ status: "finished", teams: {}, log: [] });
   });
+  it("[review P2] a result arriving while a team is redrafting is held, never applied by the timer, and released by an organiser after", async () => {
+    await call("POST", `${base}/fork/generate`, ANN, {});
+    const hid = forkTeamIdFor("tabbl", "season-7", "grudge");
+    const aid = forkTeamIdFor("tabbl", "season-7", "orcs");
+    // Orcs are in an open redraft window (stored on a season of the league; the block reads every season's redraft)
+    const s7 = store.season("tabbl", "season-7")!;
+    const budget = { base: 0, treasury: 0, played: 0, wins: 0, draws: 0, bonus: 0, raw: 0, capped: 0 };
+    s7.redraft = {
+      startedAt: "2026-10-30T00:00:00.000Z", byCoach: "Jay", capEnabled: false, cap: 0, revision: 1, log: [],
+      teams: [{ teamId: "orcs", sourceSeasonId: "season-7", name: "Orcs", coach: "Bob", race: "Orc", selected: true, budget, status: "pending" }],
+      window: { opensAt: "2000-01-01T00:00:00.000Z", closesAt: "2100-01-01T00:00:00.000Z" },
+    };
+    store.putSeason(s7);
+    notes.length = 0;
+    fork.states.set("g42", { status: "finished", playedAt: "2026-10-30T20:00:00.000Z" });
+    fork.results.set("g42", fullResult(hid, aid));
+    const held = await syncLeagueForkResults({ store, fork, notify: deps().notify });
+    expect(held.applied).toEqual([]);
+    let f = store.season("tabbl", "season-7")!.fixtures.find((x) => x.id === "f1")!;
+    expect(f.home.score).toBeNull();
+    expect(f.fork!.redraftHold).toMatchObject({ gameId: "g42" });
+    expect(f.fork!.redraftHold!.reason).toMatch(/Orcs is redrafting/);
+    expect(store.season("tabbl", "season-7")!.teams.find((t) => t.id === "grudge")!.treasury).not.toBe(60_000); // rosters untouched
+    expect(notes.filter((n) => n.title === "Super FUMBBL result held for the redraft").map((n) => n.coach)).toContain("Jay");
+    // the timer again: still held, told once
+    await syncLeagueForkResults({ store, fork, notify: deps().notify });
+    const heldNotes = notes.filter((n) => n.title === "Super FUMBBL result held for the redraft").length;
+    // the redraft closes: the timer still leaves the held result alone (an organiser decides)
+    const s = store.season("tabbl", "season-7")!;
+    s.redraft!.closedAt = "2026-11-01T00:00:00.000Z";
+    store.putSeason(s);
+    await syncLeagueForkResults({ store, fork, notify: deps().notify });
+    expect(store.season("tabbl", "season-7")!.fixtures.find((x) => x.id === "f1")!.home.score).toBeNull();
+    expect(notes.filter((n) => n.title === "Super FUMBBL result held for the redraft")).toHaveLength(heldNotes);
+    // the organiser's Check for a result releases and applies it
+    const rel = await call("POST", `${base}/fork/sync`, JAY, {});
+    expect(rel.status).toBe(200);
+    f = store.season("tabbl", "season-7")!.fixtures.find((x) => x.id === "f1")!;
+    expect(f.home.score).toBe(2);
+    expect(f.fork!.redraftHold).toBeUndefined();
+    expect(f.fork!.log.some((l) => /released after the redraft/.test(l.text))).toBe(true);
+  });
 
   // Kickoff figures (pre-result CTV + dedicated fans x 10k), what the fork's teamValue counts:
   // Grudge Rollers: Arm 95k + Doomed 50k (Limp misses the game) + 2 rerolls 100k + assistant 10k + apothecary 50k = 305k, + 2 fans = 325k.

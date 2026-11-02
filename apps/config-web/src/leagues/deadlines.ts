@@ -34,6 +34,7 @@ import { readJsonObject, requestRevision } from "./http.js";
 import { isLeagueOrganiser, leagueOwner, type LeagueStore } from "./store.js";
 import type { DeadlineOutcome, DeadlinePolicy, LeagueFixture, LeagueRecord, RoundDeadline, SeasonRecord } from "./types.js";
 import { publishedLeagues } from "./lifecycle.js";
+import { fixtureRedraftBlock } from "./redraftWindow.js";
 
 export const DEADLINE_OUTCOMES: readonly DeadlineOutcome[] = ["review", "no-result", "both-lose"];
 /** What an organiser may decide for a fixture (review is the "not decided yet" state). */
@@ -93,11 +94,11 @@ export function forkGamePending(f: Pick<LeagueFixture, "fork">): boolean {
 }
 
 /** Fixtures the auto-forfeit job would act on now (policy on, active season). Pure. */
-export function dueFixtures(season: SeasonRecord, now: Date): LeagueFixture[] {
+export function dueFixtures(season: SeasonRecord, now: Date, skip?: (f: LeagueFixture) => boolean): LeagueFixture[] {
   if (season.status !== "active" || !policyOf(season).autoForfeit) return [];
   const t = now.getTime();
   return season.fixtures.filter((f) => {
-    if (f.deadlineOutcome || f.suspended || hasScore(f) || forkGamePending(f)) return false;
+    if (f.deadlineOutcome || f.suspended || hasScore(f) || forkGamePending(f) || skip?.(f)) return false;
     const d = effectiveDeadline(season, f);
     // Reopened by an organiser: skipped until the fixture's deadline changes.
     if (d !== undefined && f.deadlineReopenedFor === d) return false;
@@ -154,8 +155,8 @@ export function deadlineRecipients(league: LeagueRecord, season: SeasonRecord, f
  * Applies the season's auto-forfeit outcome to every due fixture IN PLACE (no write). Returns the fixtures it marked.
  * Callers write the season before notifying (applied once; a restart sees the outcome and skips the fixture).
  */
-export function applyDue(season: SeasonRecord, now: Date): LeagueFixture[] {
-  const due = dueFixtures(season, now);
+export function applyDue(season: SeasonRecord, now: Date, skip?: (f: LeagueFixture) => boolean): LeagueFixture[] {
+  const due = dueFixtures(season, now, skip);
   if (!due.length) return [];
   const { outcome } = policyOf(season);
   const at = now.toISOString();
@@ -220,8 +221,11 @@ export function runDeadlineJob(deps: DeadlineJobDeps): DeadlineJobOutcome {
     const league = deps.store.league(leagueId);
     if (!league) continue;
     const season = deps.store.season(league.id, seasonId);
-    if (!season || !dueFixtures(season, now).length) continue;
-    const marked = applyDue(season, now);
+    // A team in an open redraft window (or still needing its redraft) takes no deadline outcome until it may play again.
+    const all = deps.store.seasons(league.id);
+    const skip = (f: LeagueFixture): boolean => Boolean(fixtureRedraftBlock(all, f, now));
+    if (!season || !dueFixtures(season, now, skip).length) continue;
+    const marked = applyDue(season, now, skip);
     if (!marked.length) continue;
     try { deps.store.putSeason(season); } catch { continue; }
     notifyApplied(deps.notify, league, season, marked);

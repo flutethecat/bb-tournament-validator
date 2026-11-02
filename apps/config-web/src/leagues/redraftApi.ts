@@ -27,14 +27,13 @@ import type { LeagueApiDeps, LeagueApiIdentity, LeagueApiResult } from "./api.js
 import { buildRedraftPost, discordEvents, postWebhook as defaultPoster, type DiscordPayload } from "./discord.js";
 import { postLeagueEvent } from "./events.js";
 import { readJsonObject, requestRevision } from "./http.js";
-import { assignSeasonsPlayed } from "./playerIds.js";
 import {
   budgetBase, coachOwnsTeam, coachView, draftContext, leagueAliases, gold, liftApplies, OVERRIDE_MAX, parseDraftInput, redraftBudget, redraftPhase,
   finishedSeasons, redraftBoard, RedraftError, redraftSource, redraftTarget, redraftTargets, restAndRelaxation, sameCoach, spendable, stateRules, teamRecord,
   windowView, type BoardRow, type CoachRedraftView,
 } from "./redraft.js";
 import { amountsOf, effectiveRedraftRules, WINDOW_DAYS_MAX } from "./redraftRules.js";
-import { commitDraft, newWindow, redraftBoardLink, redraftModeLink, whenText, windowBefore } from "./redraftWindow.js";
+import { commitDraft, newWindow, redraftBoardLink, redraftModeLink, redraftSeasons, whenText, windowBefore } from "./redraftWindow.js";
 import { isLeagueOrganiser, leagueOwner, type LeagueStore } from "./store.js";
 import type { LeagueRecord, RedraftBudget, RedraftLogEntry, RedraftRules, RedraftState, RedraftTeamTask, RedraftWindow, SeasonRecord } from "./types.js";
 import { isDraftLeague, publishedLeagues } from "./lifecycle.js";
@@ -48,12 +47,8 @@ const fail = (status: number, error: string, extra: Record<string, unknown> = {}
 /** The coach's Redraft mode (with a team) or the organiser's board (without): server links, /app/... */
 export const redraftLink = (leagueId: string, teamId?: string): string => (teamId ? redraftModeLink(leagueId, teamId) : redraftBoardLink(leagueId));
 
-/** The league's seasons, newest first, with seasonsPlayed derived when a stored season predates the field. */
-function loadSeasons(store: LeagueStore, leagueId: string): SeasonRecord[] {
-  const seasons = store.seasons(leagueId);
-  if (seasons.some((s) => s.teams.some((t) => t.players.some((p) => p.seasonsPlayed === undefined)))) assignSeasonsPlayed(seasons);
-  return seasons;
-}
+/** The league's seasons, newest first, with seasonsPlayed derived (shared with the window job: redraftWindow.ts). */
+const loadSeasons = (store: LeagueStore, leagueId: string): SeasonRecord[] => redraftSeasons(store, leagueId);
 
 const isManager = (league: LeagueRecord, auth: LeagueApiIdentity): boolean => auth.admin || isLeagueOrganiser(league, auth.coach);
 
@@ -71,6 +66,8 @@ export interface RedraftBoardView {
   cap: number;
   /** The formula the board shows (the confirmed redraft's snapshot, else the league's settings). */
   rules: RedraftRules;
+  /** The league settings revision the formula was read at: Confirm sends it back (409 when the settings changed since). */
+  settingsRevision: number;
   /** The window (confirmed redrafts since 11-02) with open / before flags at read time. */
   window: (RedraftWindow & { open: boolean; before: boolean }) | null;
   active: BoardRow[];
@@ -88,7 +85,7 @@ function boardView(league: LeagueRecord, seasons: SeasonRecord[], picks: Redraft
   if (!source) {
     return {
       leagueId: league.id, leagueName: league.name, revision: 0, source: null, target: null, sources, targets: [], state: null, capEnabled: rules.capEnabled, cap: rules.cap,
-      rules, window: null, active: [], inactive: [], note: "Finish a season first: a redraft runs between seasons.",
+      rules, settingsRevision: league.revision ?? 0, window: null, active: [], inactive: [], note: "Finish a season first: a redraft runs between seasons.",
     };
   }
   // Once confirmed, the target is the one the redraft stored (or the default); a pick only steers an unconfirmed board.
@@ -106,6 +103,7 @@ function boardView(league: LeagueRecord, seasons: SeasonRecord[], picks: Redraft
     state: state ? meta : null,
     capEnabled: state?.capEnabled ?? rules.capEnabled, cap: state?.cap ?? rules.cap,
     rules: state ? stateRules(state) : rules,
+    settingsRevision: league.revision ?? 0,
     window: state?.window && w ? { ...state.window, open: w.open, before: w.before } : null,
     active, inactive,
     note: target ? `Draft lists go into ${target.name}.` : "Draft lists are kept until the next season is started, then go into it.",
@@ -298,6 +296,10 @@ async function boardPost(lg: LeagueRecord, auth: LeagueApiIdentity, input: Recor
     if (targetPick && !target) return fail(400, `Pick a season after ${source.name} to receive the draft lists.`, { field: "targetSeasonId" });
     if (target && target.fixtures.some((f) => f.home.score !== null && f.away.score !== null))
       return fail(409, `${target.name} already has results: a redraft happens between seasons.`);
+    // The board was read against one version of the league's redraft settings: a save since then (another tab, another
+    // organiser) must not be confirmed with the stale formula.
+    if (input.settingsRevision !== undefined && input.settingsRevision !== (lg.revision ?? 0))
+      return fail(409, "The league's redraft settings changed since you opened the board. Reload to see the latest.", { settingsRevision: lg.revision ?? 0 });
     if (typeof input.capEnabled !== "boolean") throw new RedraftError(400, "capEnabled must be true or false.", "capEnabled");
     const settings = effectiveRedraftRules(lg);
     const capAmount = input.cap === undefined ? settings.cap : input.cap;
@@ -356,10 +358,9 @@ async function boardPost(lg: LeagueRecord, auth: LeagueApiIdentity, input: Recor
     if (openNow) window.openNotifiedAt = now;
     source.redraft = state;
     deps.store.putSeason(source);
-    deps.store.updateLeague(lg.id, (l) => {
-      l.redraftCap = cap;
-      if (l.redraftRules) l.redraftRules = { ...l.redraftRules, capEnabled: cap.enabled, cap: cap.cap };
-    });
+    // The cap picked here is this redraft's (snapshot above); the league's saved settings are left as they are. The old
+    // remembered cap is kept for leagues that never saved one (it sits under redraftRules in effectiveRedraftRules).
+    deps.store.updateLeague(lg.id, (l) => { l.redraftCap = cap; });
     // Coaches are told now when the window is open; otherwise the window job tells them when it opens.
     if (openNow) {
       notifyAll(deps, teams.filter((t) => t.selected && t.coachId).map((t) => ({
@@ -483,11 +484,14 @@ export function teamRedraftBudgetRoute(method: string, rest: string[], league: L
   const earnedNow = budget.capped;
   const liftWouldApply = earnedNow < rules.setBudget;
   let redraft: TeamRedraftBudgetView["redraft"] = null;
-  const mine = Boolean(auth && (isManager(league, auth) || coachOwnsTeam(team, auth.coach, leagueAliases(seasons))));
-  if (mine) {
-    const open = seasons.find((s) => s.redraft && !s.redraft.closedAt && s.redraft.teams.some((t) => t.teamId === team.id && t.selected));
-    const task = open?.redraft?.teams.find((t) => t.teamId === team.id && t.selected);
-    if (open && task) {
+  // The open task belongs to the team's CURRENT coach: authorise against the roster the task was made from (as the coach
+  // routes do), never against the requested season's team (a former coach of an older season must not read it).
+  const open = seasons.find((s) => s.redraft && !s.redraft.closedAt && s.redraft.teams.some((t) => t.teamId === team.id && t.selected));
+  const ctx = open ? draftContext(seasons, open, team.id) : undefined;
+  const mine = Boolean(auth && ctx && (isManager(league, auth) || coachOwnsTeam(ctx.team, auth.coach, leagueAliases(seasons))));
+  if (mine && open && ctx) {
+    const task = ctx.task;
+    {
       redraft = {
         phase: redraftPhase(task), spendable: spendable(task), override: task.override ?? null, lift: task.lift ?? null, window: open.redraft!.window ?? null,
         history: open.redraft!.log.filter((l) => l.teamId === team.id).slice(0, 20), link: redraftLink(league.id, team.id),

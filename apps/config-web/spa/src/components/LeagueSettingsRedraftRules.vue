@@ -4,11 +4,13 @@
 // budget and the window length. Defaults = the amounts used before 11-02. Saves the "redraft" section of PATCH
 // /api/leagues/:id/settings (the server validates and is the authority). A ladder may override these later.
 import { computed, inject, reactive, watch } from "vue";
-import { formulaText, goldK } from "../leagues/redraft";
+import { formulaText, goldK, REDRAFT_BOARD_KEY, saveRedraftRules } from "../leagues/redraft";
 import { LEAGUE_SETTINGS_KEY } from "../leagues/settings";
 import type { RedraftRules } from "../leagues/types";
 
 const settings = inject(LEAGUE_SETTINGS_KEY)!;
+/** The board beside the form (League settings -> Redraft): reloaded after a save so Confirm uses the saved cap and window. */
+const board = inject(REDRAFT_BOARD_KEY, null);
 const { state } = settings;
 const view = computed(() => state.view?.redraft);
 
@@ -40,7 +42,7 @@ const payload = computed(() => ({
 const dirty = computed(() => Boolean(view.value) && JSON.stringify(toForm(view.value!.rules)) !== JSON.stringify({ ...form }));
 const formula = computed(() => formulaText(payload.value));
 const busy = computed(() => state.busy === "redraft");
-const save = () => settings.save("redraft", payload.value, "redraft", "Redraft budget saved. It applies to the next redraft you open.");
+const save = (): Promise<boolean> => saveRedraftRules(settings, board, payload.value);
 function reset(): void { if (view.value) Object.assign(form, toForm(view.value.defaults)); }
 </script>
 

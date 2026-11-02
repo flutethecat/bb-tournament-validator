@@ -4,7 +4,7 @@ import type { ViteDevServer } from "vite";
 import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
 import {
-  boardPath, budgetNote, createRedraftBoard, redraftPickers, createRedraftTeam, draftTotals, formulaText, initialPicks, localToIso, redraftModePath, seasonsTitle, stepOf, tasksForTeam,
+  boardPath, budgetNote, createRedraftBoard, redraftPickers, createRedraftTeam, draftTotals, formulaText, initialPicks, localToIso, redraftModePath, seasonsTitle,saveRedraftRules,  stepOf, tasksForTeam,
 } from "../spa/src/leagues/redraft";
 import type { CoachRedraftView, RedraftBoardRow, RedraftBoardView } from "../spa/src/leagues/types";
 
@@ -207,6 +207,28 @@ describe("redraft mode helpers (owner 11-02)", () => {
     const big = { ...v, players: v.players.map((p, i) => (i === 1 ? { ...p, bigGuy: true } : p)) };
     picks.hires.Troll = 1;
     expect(draftTotals(big, picks).problems).toContain("At most 1 big guy (2 picked).");
+  });
+
+  it("[review P2] saving the budget formula reloads the board; Confirm sends the settings revision it read", async () => {
+    let reads = 0;
+    const f = mockFetcher({
+      "/api/leagues/tabbl/redraft": () => { reads += 1; return { redraft: boardView({ settingsRevision: reads === 1 ? 4 : 5, cap: reads === 1 ? 1_300_000 : 1_250_000 }) }; },
+      "POST /api/leagues/tabbl/redraft": () => ({ redraft: confirmedBoard() }),
+    });
+    const b = createRedraftBoard({ api: f });
+    await b.load("tabbl");
+    const saves: unknown[] = [];
+    const settings = { save: async (_s: "redraft", payload: unknown) => { saves.push(payload); return true; } };
+    expect(await saveRedraftRules(settings, b, { cap: 1_250_000 })).toBe(true);
+    expect(saves).toEqual([{ cap: 1_250_000 }]);
+    expect(reads).toBe(2);
+    expect(b.state.cap).toBe(1_250_000);
+    b.state.picked.orcs = true;
+    await b.confirm();
+    expect(f.calls.at(-1)!.body).toMatchObject({ settingsRevision: 5, cap: 1_250_000 });
+    // a failed save leaves the board as it is
+    expect(await saveRedraftRules({ save: async () => false }, b, {})).toBe(false);
+    expect(reads).toBe(2); // no reload after a failed save
   });
 
   it("board controller: Lift to budget per team and for all; confirm sends the window", async () => {

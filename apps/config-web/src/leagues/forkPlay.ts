@@ -35,6 +35,7 @@ import { leagueFixtureRef } from "./tabletopFixtures.js";
 import { isLeagueOrganiser, leagueOwner, type LeagueStore } from "./store.js";
 import type { FixtureForkState, FixtureForkStatus, ForkSide, LeagueFixture, LeagueRecord, SeasonRecord } from "./types.js";
 import { publishedLeagues } from "./lifecycle.js";
+import { fixtureRedraftBlock } from "./redraftWindow.js";
 
 /** Error a fork client throws with an HTTP status for the coach (503 no account store, 404 no fork account, ...). */
 export class ForkClientError extends Error {
@@ -611,12 +612,38 @@ export interface SyncDeps {
   now?: () => Date;
 }
 
-/** Applies a finished game's result to its fixture once (under the fixture lock). */
-export async function applyFixtureResult(deps: SyncDeps, leagueId: string, seasonId: string, fixtureId: string, result: ForkGameResult): Promise<{ applied: boolean; reason?: string }> {
+/**
+ * Applies a finished game's result to its fixture once (under the fixture lock). A result that arrives while either team
+ * is redrafting (or still needs its redraft) is HELD (fork.redraftHold, logged, organisers told once): rosters are not
+ * touched. The timer skips a held result; `release` (an organiser's "Check for a result") applies it once nobody is
+ * blocked any more.
+ */
+export async function applyFixtureResult(
+  deps: SyncDeps, leagueId: string, seasonId: string, fixtureId: string, result: ForkGameResult, opts: { release?: boolean } = {},
+): Promise<{ applied: boolean; reason?: string; held?: boolean }> {
   return withFixtureLock(fixtureLockKey(leagueId, seasonId, fixtureId), async () => {
     const now = deps.now?.() ?? new Date();
+    const fixtureNow = deps.store.season(leagueId, seasonId)?.fixtures.find((x) => x.id === fixtureId);
+    const blocked = fixtureNow ? fixtureRedraftBlock(deps.store.seasons(leagueId), fixtureNow, now) : "";
+    if (fixtureNow && (blocked || (fixtureNow.fork?.redraftHold && !opts.release))) {
+      const reason = blocked || "The result is held for an organiser to apply after the redraft.";
+      let first = false;
+      saveFork(deps.store, leagueId, seasonId, fixtureId, (f) => {
+        if (!f.fork || f.fork.redraftHold?.gameId === result.gameId) return;
+        f.fork.redraftHold = { at: now.toISOString(), gameId: result.gameId, reason };
+        log(f.fork, now, "Super FUMBBL", `Result of game ${result.gameId} held: ${reason} An organiser applies it after the redraft with Check for a result.`);
+        first = true;
+      });
+      const league = deps.store.league(leagueId);
+      if (first && league) {
+        const body = `${league.name}: the Super FUMBBL result of ${fixtureNow.home.team} vs ${fixtureNow.away.team} is held (${reason}). Apply it after the redraft window with Check for a result on the fixture.`;
+        for (const coach of new Set([leagueOwner(league), ...league.organisers].filter(Boolean))) send(deps as ForkRouteDeps, coach, { type: "league-broadcast", title: "Super FUMBBL result held for the redraft", body, link: fixturePageLink(leagueId, seasonId, fixtureId) });
+      }
+      return { applied: false, held: true, reason };
+    }
     let outcome: ReturnType<typeof applyForkResult> | undefined;
     const saved = saveFork(deps.store, leagueId, seasonId, fixtureId, (f, season) => {
+      if (f.fork?.redraftHold) { log(f.fork, now, "Super FUMBBL", `Held result of game ${f.fork.redraftHold.gameId} released after the redraft.`); delete f.fork.redraftHold; }
       outcome = applyForkResult(season, f, result, now);
       if (outcome.applied) {
         const r = outcome.result;
@@ -653,7 +680,7 @@ export async function applyFixtureResult(deps: SyncDeps, leagueId: string, seaso
  * Looks at every fixture with a live Super FUMBBL game: marks it in progress when the fork runs it, and applies the
  * result once the fork has finished it. Safe to run on a timer and by hand at the same time.
  */
-export async function syncLeagueForkResults(deps: SyncDeps, only?: { leagueId: string; seasonId: string; fixtureId: string }): Promise<{ applied: string[]; errors: string[] }> {
+export async function syncLeagueForkResults(deps: SyncDeps, only?: { leagueId: string; seasonId: string; fixtureId: string }, opts: { release?: boolean } = {}): Promise<{ applied: string[]; errors: string[] }> {
   const open: Array<{ leagueId: string; seasonId: string; fixtureId: string; gameId: string; status: FixtureForkStatus }> = [];
   // Lane L5: a draft league's games sync once it is published (no result notices or posts about a hidden league).
   for (const league of publishedLeagues(deps.store.list())) {
@@ -690,7 +717,7 @@ export async function syncLeagueForkResults(deps: SyncDeps, only?: { leagueId: s
     try {
       const result = await deps.fork.result(o.gameId, st.playedAt);
       if (!result) continue;
-      const done = await applyFixtureResult(deps, o.leagueId, o.seasonId, o.fixtureId, result);
+      const done = await applyFixtureResult(deps, o.leagueId, o.seasonId, o.fixtureId, result, opts);
       if (done.applied) applied.push(o.gameId); else if (done.reason) errors.push(`${o.gameId}: ${done.reason}`);
     } catch (e) {
       errors.push(`${o.gameId}: ${(e as Error).message}`);
@@ -746,7 +773,8 @@ export async function leagueForkRoutes(
     const at = locate(deps.store, leagueId, seasonId, fixtureId);
     if (isResult(at)) return at;
     if (!isManager(at.league, auth)) return fail(403, "Only the league organisers can check for a result.");
-    const out = await syncLeagueForkResults({ ...deps, fork: client }, { leagueId, seasonId, fixtureId });
+    // An organiser's check also releases a result held for the redraft (once no team is blocked).
+    const out = await syncLeagueForkResults({ ...deps, fork: client }, { leagueId, seasonId, fixtureId }, { release: true });
     const now = locate(deps.store, leagueId, seasonId, fixtureId);
     if (isResult(now)) return now;
     return res(200, { ok: true, applied: out.applied, errors: out.errors, fork: fixtureForkView(now.league, now.season, now.fixture, auth) });

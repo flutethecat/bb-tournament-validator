@@ -541,6 +541,8 @@ export interface RedraftBoardView {
   cap: number;
   /** Since 11-02: the formula (the confirmed snapshot, else the league's settings) and the window. */
   rules?: RedraftRules;
+  /** The league settings revision the formula was read at (Confirm sends it back; 409 when the settings moved on). */
+  settingsRevision?: number;
   window?: (RedraftWindow & { open: boolean; before: boolean }) | null;
   active: RedraftBoardRow[];
   inactive: RedraftBoardRow[];

@@ -9,6 +9,7 @@ import { leagueLobbyFixture } from "../src/fixtureLobby/league";
 import { datasetRoster, redraftBudget, rehireQuote, spendable } from "../src/leagues/redraft";
 import { DEFAULT_REDRAFT_RULES, effectiveRedraftRules, parseRedraftRules, RedraftRulesError } from "../src/leagues/redraftRules";
 import { redraftPlayBlock, runRedraftWindowJob } from "../src/leagues/redraftWindow";
+import { runDeadlineJob } from "../src/leagues/deadlines";
 import { LeagueStore } from "../src/leagues/store";
 import { leagueFixtureView, recordLeagueFixture } from "../src/leagues/tabletopFixtures";
 import type { LeagueFixture, LeaguePlayer, LeagueTeam, SeasonRecord } from "../src/leagues/types";
@@ -328,6 +329,122 @@ describe("redraft mode routes", () => {
     expect(posts).toHaveLength(1);
     expect(posts[0]!.embeds[0]!.title).toBe("TABBL: Gobbos Rest & Relaxation");
     expect(posts[0]!.embeds[0]!.description).toBe("Gob 1: rolled 5 (needs 4+), niggling injury healed");
+  });
+
+  // ---- Sol review fixes (P2) ----
+
+  /** The store with putSeason failing for the seasons `when` picks (a disk failure or a crash between two writes). */
+  const failingStore = (when: (s: SeasonRecord) => boolean): LeagueStore => new Proxy(store, {
+    get(target, prop) {
+      if (prop === "putSeason") return (s: SeasonRecord) => { if (when(s)) throw new Error("disk full"); return target.putSeason(s); };
+      const v = Reflect.get(target, prop, target) as unknown;
+      return typeof v === "function" ? (v as (...a: unknown[]) => unknown).bind(target) : v;
+    },
+  });
+  const tell = (coach: string, input: { title: string; body: string; link: string }) => notes.push({ coach, title: input.title, body: input.body, link: input.link });
+
+  it("[review P2] window close survives a failed receiving-season write: journalled, nobody told, the next tick applies it once", async () => {
+    expect((await confirm()).status).toBe(200);
+    expect((await call("POST", "/api/leagues/tabbl/redraft", JAY, { revision: rev(), action: "team", teamId: "gobbos", override: { budget: 100_000, reason: "Owes the league" } })).status).toBe(200);
+    notes = [];
+    const closeAt = new Date(NOW.getTime() + 7 * DAY + 1000);
+    // past the close, before any tick: unfinished teams are still blocked (derived from the state)
+    expect(redraftPlayBlock(store.seasons("tabbl"), { teamId: "orcs" }, closeAt)).toMatch(/being processed/);
+    const broken = runRedraftWindowJob({ store: failingStore((s) => s.id === "season-7"), notify: tell, now: () => closeAt, rollD6: () => 6 });
+    expect(broken).toMatchObject({ failed: ["tabbl"], closed: [] });
+    expect(notes).toEqual([]);
+    expect(s6().redraft!.window).toMatchObject({ closing: closeAt.toISOString() });
+    expect(s6().redraft!.window!.processedAt).toBeUndefined();
+    expect(task("orcs")).toMatchObject({ status: "submitted", auto: true });
+    expect(task("orcs").appliedTo).toBeUndefined();
+    expect(task("gobbos").needsRedraft).toBeTruthy();
+    expect(store.season("tabbl", "season-7")!.teams).toEqual([]);
+    expect(redraftPlayBlock(store.seasons("tabbl"), { teamId: "gobbos" }, closeAt)).toMatch(/needs to finish/);
+    const later = new Date(closeAt.getTime() + 60_000);
+    const ok = runRedraftWindowJob({ store, notify: tell, now: () => later, rollD6: () => 6 });
+    expect(ok.closed).toEqual([{ leagueId: "tabbl", seasonId: "season-6", rebuilt: ["orcs"], needsRedraft: ["gobbos"] }]);
+    expect(task("orcs").appliedTo).toBe("season-7");
+    expect(store.season("tabbl", "season-7")!.teams.map((t) => t.id)).toEqual(["orcs"]);
+    expect(notes.filter((n) => n.title === "Redraft closed: team rebuilt")).toHaveLength(1);
+    expect(runRedraftWindowJob({ store, notify: tell, now: () => later }).closed).toEqual([]);
+    expect(notes.filter((n) => n.title === "Redraft closed: team rebuilt")).toHaveLength(1);
+  });
+
+  it("[review P2] a crash after the receiving season is written: the next tick re-places the same roster (no expiry) and marks it applied", async () => {
+    expect((await confirm()).status).toBe(200);
+    const closeAt = new Date(NOW.getTime() + 7 * DAY + 1000);
+    // the last write (the source marked processed) fails
+    const broken = runRedraftWindowJob({ store: failingStore((s) => s.id === "season-6" && Boolean(s.redraft?.window?.processedAt)), notify: tell, now: () => closeAt, rollD6: () => 6 });
+    expect(broken.failed).toEqual(["tabbl"]);
+    expect(store.season("tabbl", "season-7")!.teams.map((t) => t.id).sort()).toEqual(["gobbos", "orcs"]);
+    expect(s6().redraft!.window!.processedAt).toBeUndefined();
+    expect(task("orcs").appliedTo).toBeUndefined();
+    const placed = JSON.stringify(store.season("tabbl", "season-7")!.teams);
+    runRedraftWindowJob({ store, notify: tell, now: () => closeAt, rollD6: () => 6 });
+    expect(task("orcs")).toMatchObject({ status: "submitted", appliedTo: "season-7" });
+    expect(task("gobbos")).toMatchObject({ status: "submitted", appliedTo: "season-7" });
+    expect(s6().redraft!.window!.processedAt).toBeTruthy();
+    expect(JSON.stringify(store.season("tabbl", "season-7")!.teams)).toBe(placed);
+  });
+
+  it("[review P2] the window job prices legacy players like the coach routes (seasonsPlayed derived): 880k, not 660k", async () => {
+    // Gobbos played Seasons 4 and 5 and sat out Season 6 (inactive); their stored players predate seasonsPlayed.
+    const legacy = (n: number): LeagueTeam => {
+      const t = goblins();
+      t.players = t.players.map((p, i) => { const { seasonsPlayed: _s, ...rest } = { ...p, playerId: `p-gob${i + 1}-s${n}` }; return rest as LeaguePlayer; });
+      return t;
+    };
+    store.putSeason(season(4, "completed", [legacy(4)], [fx("g4", ["Gobbos", 1], ["Orcs", 0])]));
+    store.putSeason(season(5, "completed", [legacy(5)], [fx("g5", ["Gobbos", 1], ["Orcs", 0])]));
+    store.putSeason(season(6, "completed", [orcs()], [fx("f1", ["Orcs", 2], ["Elves", 1])]));
+    expect((await call("POST", "/api/leagues/tabbl/redraft", JAY, { revision: 0, action: "confirm", capEnabled: false, teams: [{ teamId: "orcs", selected: false }, { teamId: "gobbos", selected: true }] })).status).toBe(200);
+    const quote = (await call("GET", "/api/leagues/tabbl/redraft/teams/gobbos", CAT)).body as { redraft: { players: Array<{ fee: number; cost: number }> } };
+    expect(quote.redraft.players[0]).toMatchObject({ fee: 40_000, cost: 80_000 }); // Season 4 + Season 5
+    const closeAt = new Date(NOW.getTime() + 7 * DAY + 1000);
+    runRedraftWindowJob({ store, now: () => closeAt, rollD6: () => 6 });
+    expect(task("gobbos")).toMatchObject({ status: "submitted", auto: true });
+    expect(task("gobbos").draft!.spent).toBe(11 * 80_000);
+  });
+
+  it("[review P2] team summary: a former coach of an older season never reads the current coach's redraft task", async () => {
+    store.putSeason(season(5, "completed", [{ ...goblins(), coach: "Ann", coachId: "Ann", players: goblins().players.map((p, i) => ({ ...p, playerId: `p-gob${i + 1}-s5` })) }], [fx("g5", ["Gobbos", 1], ["Orcs", 0])]));
+    store.updateLeague("tabbl", (l) => { l.redraftRules = { setBudget: 1_100_000, liftToBudget: true }; });
+    expect((await confirm()).status).toBe(200);
+    type B = { budget: { redraft: null | { history: unknown[] } } };
+    const ann = await call("GET", "/api/leagues/tabbl/seasons/season-5/teams/gobbos/redraft-budget", ANN);
+    expect(ann.status).toBe(200);
+    expect((ann.body as B).budget.redraft).toBeNull();
+    expect(ann.headers?.["cache-control"]).not.toBe("private, no-store");
+    expect(((await call("GET", "/api/leagues/tabbl/seasons/season-5/teams/gobbos/redraft-budget", CAT)).body as B).budget.redraft).not.toBeNull();
+    expect(((await call("GET", "/api/leagues/tabbl/seasons/season-6/teams/gobbos/redraft-budget", ANN)).body as B).budget.redraft).toBeNull();
+  });
+
+  it("[review P2] Confirm refuses a stale settings revision (409) and never overwrites the saved cap", async () => {
+    store.updateLeague("tabbl", (l) => { l.redraftRules = { cap: 1_200_000, setBudget: 1_000_000 }; l.revision = 4; });
+    const board = (await call("GET", "/api/leagues/tabbl/redraft", JAY)).body as { redraft: { settingsRevision: number; cap: number } };
+    expect(board.redraft).toMatchObject({ settingsRevision: 4, cap: 1_200_000 });
+    // another organiser saves the formula meanwhile
+    const saved = await call("PATCH", "/api/leagues/tabbl/settings", JAY, { revision: 4, redraft: { cap: 1_250_000 } });
+    expect(saved.status).toBe(200);
+    const stale = await confirm({ settingsRevision: 4, cap: 1_200_000 });
+    expect(stale.status).toBe(409);
+    expect(s6().redraft).toBeUndefined();
+    const fresh = await confirm({ settingsRevision: 5, cap: 1_300_000 });
+    expect(fresh.status).toBe(200);
+    expect(s6().redraft!.cap).toBe(1_300_000); // this redraft's cap
+    expect(store.league("tabbl")!.redraftRules!.cap).toBe(1_250_000); // the league's saved cap stays
+  });
+
+  it("[review P2] deadline auto-forfeit leaves a redrafting team alone until the redraft lets it play", async () => {
+    expect((await confirm()).status).toBe(200);
+    const s7 = store.season("tabbl", "season-7")!;
+    s7.deadlinePolicy = { autoForfeit: true, outcome: "both-lose" };
+    s7.fixtures[0]!.deadline = new Date(NOW.getTime() - 60 * 60 * 1000).toISOString();
+    store.putSeason(s7);
+    const later = new Date(NOW.getTime() + 60 * 60 * 1000);
+    expect(runDeadlineJob({ store, now: () => later }).applied).toEqual([]);
+    expect((await call("POST", "/api/leagues/tabbl/redraft", JAY, { revision: rev(), action: "close" })).status).toBe(200);
+    expect(runDeadlineJob({ store, now: () => later }).applied.map((a) => a.fixtureId)).toEqual(["n1"]);
   });
 
   it("CSRF covers every redraft write (by method); the reads are safe methods", () => {
