@@ -351,6 +351,13 @@ export interface SeasonRecord {
   roundDeadlines?: RoundDeadline[];
   /** Auto-forfeit after the deadline (absent = off). */
   deadlinePolicy?: DeadlinePolicy;
+  /** The "Pay entry fee" block (server-built): links, entry fee, and the viewer's own teams' paid status. */
+  payment?: {
+    entryFee?: string;
+    payPal?: string;
+    venmo?: { handle: string; url: string };
+    mine?: Array<{ teamId: string; team: string; paid: boolean }>;
+  };
 }
 
 export type StatsScope = "bb2020" | "bb2025" | "all";
@@ -417,6 +424,9 @@ export interface LeagueRegistrations {
   allowRegistration: boolean;
   maxRegistrations: number | null;
   maxPerRace: number | null;
+  /** League default payment links a new season copies (absent = none). */
+  payPal?: string;
+  venmo?: string;
 }
 
 export type DiscordEventKey = "news" | "fixtureCreated" | "matchStarted" | "matchResult" | "milestones";

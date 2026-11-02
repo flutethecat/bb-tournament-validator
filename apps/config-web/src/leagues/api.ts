@@ -66,7 +66,7 @@ import { applyForkSettings, leagueForkRoutes, publicForkState, updateForkSetting
 import { applyPendingDrafts } from "./redraft.js";
 import { assignTeamCoach } from "./teamCoach.js";
 import { myRedraftTasks, redraftRoutes } from "./redraftApi.js";
-import { leagueParticipantRoutes, participantsForPublic } from "./participants.js";
+import { leagueParticipantRoutes, myPaymentStatus, participantsForPublic } from "./participants.js";
 import {
   parseConnections, parseInformation, parseRegistrations, parseTeamBuilding, registrationsOf, settingsView, SettingsError, teamBuildingTable,
 } from "./settings.js";
@@ -75,7 +75,8 @@ import { clearStandingsCache, podiumAwards, PODIUM_SLOTS, proposePodium, withSta
 import { fixturePlayed } from "./tourplay.js";
 import { ORGANISER_LOG_KINDS } from "./teamValue.js";
 import { draftAwareNotify, isDraftLeague, leagueVisibleTo, seasonStage, storeWithoutLeague, visibleLeagues, type SeasonStage } from "./lifecycle.js";
-import { defaultSeasonRegistration } from "./seasonRegistration.js";
+import { defaultSeasonRegistration, seasonRegistrationOf } from "./seasonRegistration.js";
+import { paymentLinksView } from "../payments/links.js";
 import { createLeagueRoute, leagueLifecycleRoutes } from "./wizard.js";
 import { TEST_SESSION_REFUSAL, testSessionMayWrite } from "../registration/testSession.js";
 import { isLeagueOrganiser, LEAGUE_ART_DIR, LEAGUE_ART_PATH, leagueOwner, LeagueStore, LeagueStoreError, SEASON_ID } from "./store.js";
@@ -400,7 +401,11 @@ export async function leagueApi(
   if (first === "seasons" && second && extra.length === 0) {
     const season = store.season(league.id, second);
     if (!season) return { status: 404, body: { error: "Season not found." } };
-    return { status: 200, body: { league: leagueSummary(league, store.seasons(league.id)), season: seasonForViewer(league, season, auth) } };
+    // A signed-in read carries the viewer's own paid status (seasonForViewer payment.mine): never cached for anyone else.
+    return {
+      status: 200, ...(auth ? { headers: { "cache-control": "private, no-store" } } : {}),
+      body: { league: leagueSummary(league, store.seasons(league.id)), season: seasonForViewer(league, season, auth) },
+    };
   }
   if (first === "stats" && second === undefined) {
     const raw = query.get("scope") ?? "all";
@@ -990,9 +995,26 @@ export function seasonForViewer(league: LeagueRecord, full: SeasonRecord, auth: 
   const fixtures = season.fixtures.map((f) => (f.forkNotice || f.fork ? publicForkState(f) : f));
   // Organiser-only log entries (team value diff / not recomputed) stay with organisers and admins.
   const manager = Boolean(auth && (auth.admin || isLeagueOrganiser(league, auth.coach)));
-  if (manager) return { ...season, fixtures };
+  const payment = seasonPayment(league, full, auth, manager);
+  const extra = payment ? { payment } : {};
+  if (manager) return { ...season, fixtures, ...extra };
   // Participants tab flags (paid, verified...) are organiser data (participants.ts).
   const participants = participantsForPublic(season.participants);
-  if (!season.log) return { ...season, fixtures, participants };
-  return { ...season, fixtures, participants, log: season.log.filter((e) => !ORGANISER_LOG_KINDS.has(e.kind)) };
+  if (!season.log) return { ...season, fixtures, participants, ...extra };
+  return { ...season, fixtures, participants, log: season.log.filter((e) => !ORGANISER_LOG_KINDS.has(e.kind)), ...extra };
+}
+
+/**
+ * The "Pay entry fee" block of a season read: the season's links (re-checked) and entry fee, shown on a published league
+ * (a draft reaches only its organisers and admins), plus the viewer's own teams' Paid flag. Nobody else's paid status is
+ * ever in it. Undefined when there is nothing to show (no link, and no entry of the viewer's with a fee).
+ */
+function seasonPayment(league: LeagueRecord, season: SeasonRecord, auth: LeagueApiIdentity | undefined, manager: boolean): SeasonRecord["payment"] {
+  if (isDraftLeague(league) && !manager) return undefined;
+  const reg = seasonRegistrationOf(league, season);
+  const links = paymentLinksView(reg.payPal, reg.venmo);
+  const mine = auth ? myPaymentStatus(season, auth.coach) : [];
+  const fee = reg.entryFee.trim();
+  if (!links && !(mine.length && fee)) return undefined;
+  return { ...(fee ? { entryFee: fee } : {}), ...(links ?? {}), ...(mine.length ? { mine } : {}) };
 }

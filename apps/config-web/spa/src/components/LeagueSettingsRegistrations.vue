@@ -2,10 +2,12 @@
 // League settings, Registrations: which rosters may register (official / NAF-approved / unofficial), whether
 // registration is open, max registrations and max per race (blank = no limit). No bulk actions
 // here (owner 10-30); the footnote points organisers at the league's Participants tab (paid / verified / checked in /
-// standby, one team or all at once) and the Teams tab's Assign coach account.
+// standby, one team or all at once) and the Teams tab's Assign coach account. The default payment links (PayPal.Me link,
+// Venmo username) are copied by each new season; a season's own links are set under Season registration.
 import { computed, inject, reactive, watch } from "vue";
 import { RouterLink } from "vue-router";
 import { LEAGUE_SETTINGS_KEY } from "../leagues/settings";
+import { normalisePayPal, normaliseVenmo, PAY_NOTE, payPalProblem, venmoProblem } from "../shared/payLinks";
 
 const settings = inject(LEAGUE_SETTINGS_KEY)!;
 const { state } = settings;
@@ -18,6 +20,8 @@ const fromView = () => {
     allowRegistration: r.allowRegistration,
     maxRegistrations: r.maxRegistrations === null ? "" : String(r.maxRegistrations),
     maxPerRace: r.maxPerRace === null ? "" : String(r.maxPerRace),
+    payPal: r.payPal ?? "",
+    venmo: r.venmo ?? "",
   };
 };
 const form = reactive(fromView());
@@ -36,8 +40,10 @@ const errors = computed(() => ({
   maxRegistrations: maxReg.value === "bad" ? "1 to 512, or blank for no limit." : "",
   maxPerRace: maxRace.value === "bad" ? "1 to 64, or blank for no limit."
     : typeof maxRace.value === "number" && typeof maxReg.value === "number" && maxRace.value > maxReg.value ? "Cannot be more than max registrations." : "",
+  payPal: payPalProblem(form.payPal),
+  venmo: venmoProblem(form.venmo),
 }));
-const valid = computed(() => !errors.value.rosters && !errors.value.maxRegistrations && !errors.value.maxPerRace);
+const valid = computed(() => Object.values(errors.value).every((e) => !e));
 
 function save(): void {
   if (!valid.value) return;
@@ -45,6 +51,8 @@ function save(): void {
     allowedRosters: { official: form.official, nafApproved: form.nafApproved, unofficial: form.unofficial },
     allowRegistration: form.allowRegistration,
     maxRegistrations: maxReg.value, maxPerRace: maxRace.value,
+    payPal: (() => { const p = normalisePayPal(form.payPal); return p.ok ? p.value : form.payPal.trim(); })(),
+    venmo: (() => { const v = normaliseVenmo(form.venmo); return v.ok ? v.value : form.venmo.trim(); })(),
   });
 }
 </script>
@@ -75,7 +83,18 @@ function save(): void {
           <input v-model="form.maxPerRace" type="number" min="1" max="64" inputmode="numeric" placeholder="No limit" />
           <small v-if="errors.maxPerRace" class="ls-field-error">{{ errors.maxPerRace }}</small>
         </label>
+        <label class="ls-field" :data-invalid="errors.payPal ? 'true' : undefined">
+          <span>Default PayPal link</span>
+          <input v-model="form.payPal" type="url" maxlength="200" placeholder="https://paypal.me/YourName" autocomplete="off" :aria-invalid="errors.payPal ? 'true' : undefined" />
+          <small v-if="errors.payPal" class="ls-field-error">{{ errors.payPal }}</small>
+        </label>
+        <label class="ls-field" :data-invalid="errors.venmo ? 'true' : undefined">
+          <span>Default Venmo username</span>
+          <input v-model="form.venmo" type="text" maxlength="31" placeholder="@Your-Name" autocomplete="off" :aria-invalid="errors.venmo ? 'true' : undefined" />
+          <small v-if="errors.venmo" class="ls-field-error">{{ errors.venmo }}</small>
+        </label>
       </div>
+      <p class="hm-small hm-empty">Optional payment links: each new season starts with these, and you can change a season's own under Season registration. {{ PAY_NOTE }}</p>
       <p class="hm-small hm-empty">
         Mark teams paid, verified, checked in or on standby, one at a time or all at once, from the league's
         <RouterLink :to="{ name: 'league-detail', params: { id: state.id }, query: { tab: 'participants' } }">Participants tab</RouterLink>.

@@ -224,6 +224,8 @@ interface DraftPlan {
   divisions?: string[];
   playoffs?: boolean;
   registration?: SeasonRegistration;
+  /** Season 1's payment links, also kept as the league defaults a later season copies. */
+  payDefaults?: { payPal?: string; venmo?: string };
   connections?: ReturnType<typeof parseConnections>;
 }
 
@@ -284,6 +286,7 @@ function patchDraft(league: LeagueRecord, who: LeagueApiIdentity, input: Record<
   if (input.season !== undefined && (input.season as Record<string, unknown>).registration !== undefined) {
     const raw = obj((input.season as Record<string, unknown>).registration, "season.registration");
     plan.registration = parseSeasonRegistration(raw, regBase);
+    if (raw.payPal !== undefined || raw.venmo !== undefined) plan.payDefaults = { payPal: plan.registration.payPal, venmo: plan.registration.venmo };
   } else if (plan.regs) plan.registration = regBase;
   if (input.connections !== undefined) plan.connections = parseConnections(input.connections, discordEvents(league));
   let step: number | undefined;
@@ -323,6 +326,14 @@ function patchDraft(league: LeagueRecord, who: LeagueApiIdentity, input: Record<
       if (plan.info.address !== undefined) { if (plan.info.address === null) delete l.address; else l.address = plan.info.address; }
     }
     if (plan.regs) l.registrations = plan.regs;
+    if (plan.payDefaults) {
+      const regs = l.registrations ? { ...l.registrations } : structuredClone(DEFAULT_REGISTRATIONS);
+      for (const kind of ["payPal", "venmo"] as const) {
+        const v = plan.payDefaults[kind];
+        if (v) regs[kind] = v; else delete regs[kind];
+      }
+      l.registrations = regs;
+    }
     if (plan.connections?.playOnFork !== undefined) l.playOnFork = plan.connections.playOnFork;
     if (plan.connections?.discordEvents) l.discordEvents = plan.connections.discordEvents;
     const w = l.wizard ?? { step: 1, createdBy: who.coach };

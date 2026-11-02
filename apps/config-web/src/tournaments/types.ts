@@ -95,6 +95,10 @@ export interface TournamentRecord {
   startTime?: string;
   /** Free text, e.g. "15 GBP" or "Free". */
   entryFee?: string;
+  /** Payment links (src/payments/links.ts): the organiser's PayPal.Me link in its https form, and their Venmo username
+   *  without the @. Coaches pay outside the site; organisers mark entries paid. */
+  payPal?: string;
+  venmo?: string;
   /** Organiser-written markdown-lite (paragraphs, **bold**, *italic*, http(s) links, lists). */
   summary?: string;
   /** "What to bring" notes, markdown-lite. */
@@ -226,6 +230,8 @@ export interface TournamentEntrantRecord {
   rosterVerifiedOverride?: boolean;
   /** v4: organiser seed for seedingMode "manual" (1 = top seed). */
   manualSeed?: number;
+  /** Who last changed flags.paid, and when (the coach and managers only; anonymised on account deletion). */
+  paidUpdated?: { by: string; at: string };
   submission?: TournamentSubmission;
   /** A NAF number stored with the entry (coach and managers only): typed by the coach before the profile became the
    *  source (owner 10-31), or given by an organiser adding the coach. On a NAF-sanctioned tournament the coach's profile

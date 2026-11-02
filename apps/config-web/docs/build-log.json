@@ -1,6 +1,21 @@
 [
   {
     "date": "2026-11-02",
+    "title": "PayPal and Venmo links for entry fees",
+    "body": "Organisers can add a PayPal.Me link and a Venmo username next to the entry fee, in the tournament and league creation steps and later in Manage or League settings. The overview then shows a Pay entry fee block with both buttons. Payment is made directly to the organiser; organisers tick Paid in Participants, and each coach sees only their own payment status.",
+    "links": [
+      {
+        "label": "Tournaments",
+        "href": "/app/tournaments"
+      },
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-02",
     "title": "Pages fit a 1920x1080 screen",
     "body": "On a desktop screen the page itself no longer scrolls: the top bar, sidebar and page headers stay put and long content scrolls inside its own pane. League and tournament tabs, the Tournament Creator (its Preview columns scroll separately), the Roster Builder's three columns, the coach page, Account, Schedule, Messages, Tabletop, the fixture lobby, the redraft board and the lists all work this way, with table headers that stay in view. On laptops, tablets and phones pages scroll as before.",
     "links": [

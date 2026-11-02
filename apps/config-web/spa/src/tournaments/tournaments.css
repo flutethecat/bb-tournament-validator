@@ -76,6 +76,7 @@ td.tn-team > .tn-side-text, td.tn-team > .tn-team-name { display: inline-grid; v
 .tn-rounds-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .tn-left { margin: 0; }
 .tn-filter { justify-self: start; }
+.tn-paid-count { margin: 8px 0; }
 .tn-fixtures { list-style: none; margin-top: 0; margin-bottom: 0; padding: 0; display: grid; gap: 8px; }
 .tn-fixture {
   display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 12px; padding: 8px 12px;
@@ -222,6 +223,8 @@ td.tn-shared > span + span { margin-top: 2px; }
 .tn-field textarea, .tn-news-form textarea { width: 100%; min-height: 88px; resize: vertical; box-sizing: border-box; }
 .tn-news-form input[type="text"] { min-height: 44px; width: 100%; box-sizing: border-box; }
 .tn-field-wide { grid-column: 1 / -1; }
+.tn-pay-status { margin: 8px 0 0; font-size: 14px; }
+.tn-pay-status[data-paid="true"] { color: var(--sf-gold); }
 .tn-hero-meta { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--ui-muted); }
 
 @media (max-width: 760px) {

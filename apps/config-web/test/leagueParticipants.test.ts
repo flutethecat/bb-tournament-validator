@@ -177,7 +177,7 @@ describe("league participants", () => {
     expect(sent.map((s) => s.coach).sort()).toEqual(["Bob", "Dee"]);
     const bob = sent.find((s) => s.coach === "Bob")!.input;
     expect(bob).toMatchObject({ type: "entrant-flag", title: "TABBL, Season 6: your entry was updated", link: "/app/leagues/tabbl?season=season-6", from: "Jay" });
-    expect(bob.body).toBe("Elves: Marked as paid. Dwarfs: Marked as paid.");
+    expect(bob.body).toBe("Elves: Payment received. Dwarfs: Payment received.");
     sent = [];
     await call("PATCH", `${base}/orcs`, JAY, { revision: rev(), rosterVerified: false, active: false });
     expect(sent).toEqual([{ coach: "Dee", input: expect.objectContaining({ body: "Orcs: Moved to standby." }) }]); // verified was already off

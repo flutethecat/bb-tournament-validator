@@ -3,7 +3,8 @@
 // "by hand" when an organiser verified it), the five status flags as toggles, and the next fixture. Filter chips pick
 // out the rows that need attention. Rows collapse to cards on a phone. "Shared" shows what each coach chose to share with
 // this tournament's organisers (owner 10-31; "Not shared" otherwise), the entry's NAF name and number (on a NAF-sanctioned
-// tournament the coach's current profile details, so a change or unlink shows here), and a "Not a NAF member" flag. The row menu has "Message coach" (notifications lane) and "NAF details" (organisers record a coach's NAF name and number).
+// tournament the coach's current profile details, so a change or unlink shows here), and a "Not a NAF member" flag. The Paid
+// count sits by the filters, and each Paid box says who last changed it and when (organisers only, like the flag). The row menu has "Message coach" (notifications lane) and "NAF details" (organisers record a coach's NAF name and number).
 import { computed, inject, ref } from "vue";
 import type { TournamentEntrant, TournamentEntrantFlags } from "../shared/api";
 import Crest from "./Crest.vue";
@@ -61,6 +62,14 @@ const rows = computed(() => state.entrants.filter((e) => !e.droppedAt).filter(ke
   e, flags: flagsOf(e), roster: rosterState(e), next: nextFixtureFor(e.id, state),
 })));
 const dropped = computed(() => state.entrants.filter((e) => e.droppedAt).length);
+const active = computed(() => state.entrants.filter((e) => !e.droppedAt));
+const paidCount = computed(() => active.value.filter((e) => flagsOf(e).paid).length);
+const paidBy = (e: TournamentEntrant): string => {
+  const u = e.paidUpdated;
+  if (!u?.at) return "";
+  const when = u.at.slice(0, 16).replace("T", " ");
+  return `${flagsOf(e).paid ? "Marked paid" : "Marked not paid"}${u.by ? ` by ${u.by}` : ""}, ${when} UTC`;
+};
 const busyRow = (_id: string): boolean => Boolean(state.busy);
 const messaging = ref<TournamentEntrant | null>(null);
 const nafEditing = ref<TournamentEntrant | null>(null);
@@ -80,6 +89,9 @@ function seed(e: TournamentEntrant, raw: string) {
   <div class="sf-tabs small tn-filter" role="group" aria-label="Show participants">
     <button v-for="f in FILTERS" :key="f.id" type="button" class="sf-tab" :aria-pressed="filter === f.id" @click="filter = f.id">{{ f.label }}</button>
   </div>
+  <p v-if="active.length" class="tn-paid-count" data-paid-count="true">
+    <span class="sf-chip" :data-tone="paidCount === active.length ? 'ok' : 'muted'">Paid {{ paidCount }}/{{ active.length }}</span>
+  </p>
   <p v-if="!rows.length" class="hm-empty">{{ filter === "all" ? "No participants yet." : "Nobody matches this filter." }}</p>
   <div v-else class="tn-table-wrap">
     <table class="sf-table tn-table tn-participants">
@@ -113,7 +125,8 @@ function seed(e: TournamentEntrant, raw: string) {
             <span class="sf-chip" :data-tone="ROSTER_TONE[r.roster]" :data-roster="r.roster">{{ ROSTER_LABEL[r.roster] }}</span>
             <span v-if="r.e.rosterVerifiedOverride !== undefined" class="muted"> by hand</span>
           </td>
-          <td v-for="f in FLAGS" :key="f.key" :data-label="f.label" class="tn-flag">
+          <td v-for="f in FLAGS" :key="f.key" :data-label="f.label" class="tn-flag" :title="f.key === 'paid' && paidBy(r.e) ? paidBy(r.e) : undefined">
+            <span v-if="f.key === 'paid' && paidBy(r.e)" class="tn-sr">{{ paidBy(r.e) }}</span>
             <span v-if="!canWrite">{{ r.flags[f.key] ? "Yes" : "No" }}</span>
             <input
               v-else

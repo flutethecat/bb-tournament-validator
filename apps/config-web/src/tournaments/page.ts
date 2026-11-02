@@ -12,6 +12,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { promises as fsp } from "node:fs";
 import { join } from "node:path";
+import { parsePayField } from "../payments/links.js";
 import { AVATAR_CONTENT_TYPE, avatarRateLimit, sniffImage, type AvatarExt, type SniffedImage } from "../teamAvatars.js";
 import { isTournamentManager, TournamentStore, TournamentStoreError } from "./store.js";
 import type { TournamentDeadlines, TournamentLocation, TournamentNewsPost, TournamentRecord } from "./types.js";
@@ -73,12 +74,15 @@ export interface TournamentPagePatch {
   location?: TournamentLocation | null;
   startTime?: string | null;
   entryFee?: string | null;
+  /** Payment links (src/payments/links.ts): null clears. */
+  payPal?: string | null;
+  venmo?: string | null;
   summary?: string | null;
   notes?: string | null;
   deadlines?: TournamentDeadlines | null;
 }
 
-export const PAGE_FIELDS = ["location", "startTime", "entryFee", "summary", "notes", "deadlines"] as const;
+export const PAGE_FIELDS = ["location", "startTime", "entryFee", "payPal", "venmo", "summary", "notes", "deadlines"] as const;
 
 export function parsePagePatch(input: Record<string, unknown>): TournamentPagePatch {
   const out: TournamentPagePatch = {};
@@ -104,6 +108,12 @@ export function parsePagePatch(input: Record<string, unknown>): TournamentPagePa
     out.startTime = value ?? null;
   }
   if (input.entryFee !== undefined) out.entryFee = text(input.entryFee, "entryFee", ENTRY_FEE_MAX) ?? null;
+  for (const kind of ["payPal", "venmo"] as const) {
+    const checked = parsePayField(kind, input[kind]);
+    if (!checked) continue;
+    if (!checked.ok) bad(checked.error);
+    else out[kind] = checked.value || null;
+  }
   if (input.summary !== undefined) out.summary = text(input.summary, "summary", SUMMARY_MAX) ?? null;
   if (input.notes !== undefined) out.notes = text(input.notes, "notes", NOTES_MAX) ?? null;
   if (input.deadlines !== undefined) {

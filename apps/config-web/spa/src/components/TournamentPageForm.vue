@@ -1,10 +1,12 @@
 <script setup lang="ts">
-// Tournament page settings (Manage tab): banner upload / remove, location, start time, entry fee, deadlines, the
-// summary and the "What to bring" notes. Saved with one PATCH of the changed fields (the existing settings route);
+// Tournament page settings (Manage tab): banner upload / remove, location, start time, entry fee, the payment links
+// (PayPal.Me link, Venmo username; checked here and again by the server), deadlines, the summary and the "What to bring"
+// notes. Saved with one PATCH of the changed fields (the existing settings route);
 // the server validates lengths and links and answers with its own message on a refusal.
 import { computed, inject, reactive, ref, watch } from "vue";
 import { fromLocalInput, safeBannerUrl, toLocalInput, TOURNAMENT_DETAIL_KEY, type TournamentSettingsPatch } from "../tournaments/detail";
 import { SESSION_KEY, writesAllowed } from "../session";
+import { normalisePayPal, normaliseVenmo, PAY_NOTE, payPalProblem, venmoProblem } from "../shared/payLinks";
 
 const SUMMARY_MAX = 4000;
 const NOTES_MAX = 2000;
@@ -20,7 +22,7 @@ const busy = computed(() => Boolean(state.busy));
 const mine = computed(() => state.lastAction === "page" || state.lastAction === "banner");
 
 interface Form {
-  venue: string; address: string; mapUrl: string; startTime: string; entryFee: string;
+  venue: string; address: string; mapUrl: string; startTime: string; entryFee: string; payPal: string; venmo: string;
   registration: string; checkIn: string; summary: string; notes: string;
 }
 const fromRecord = (): Form => ({
@@ -29,6 +31,8 @@ const fromRecord = (): Form => ({
   mapUrl: t.value.location?.mapUrl ?? "",
   startTime: t.value.startTime ?? "",
   entryFee: t.value.entryFee ?? "",
+  payPal: t.value.payPal ?? "",
+  venmo: t.value.venmo ?? "",
   registration: toLocalInput(t.value.deadlines?.registration),
   checkIn: toLocalInput(t.value.deadlines?.checkIn),
   summary: t.value.summary ?? "",
@@ -46,6 +50,8 @@ const patch = computed<TournamentSettingsPatch>(() => {
       : null;
   if (form.startTime !== before.startTime) out.startTime = form.startTime || null;
   if (form.entryFee !== before.entryFee) out.entryFee = form.entryFee.trim() || null;
+  if (form.payPal !== before.payPal) { const p = normalisePayPal(form.payPal); out.payPal = (p.ok ? p.value : form.payPal.trim()) || null; }
+  if (form.venmo !== before.venmo) { const v = normaliseVenmo(form.venmo); out.venmo = (v.ok ? v.value : form.venmo.trim()) || null; }
   if (form.registration !== before.registration || form.checkIn !== before.checkIn)
     out.deadlines = form.registration || form.checkIn
       ? { registration: fromLocalInput(form.registration), checkIn: fromLocalInput(form.checkIn) }
@@ -56,7 +62,9 @@ const patch = computed<TournamentSettingsPatch>(() => {
 });
 const dirty = computed(() => Object.keys(patch.value).length > 0);
 const tooLong = computed(() => form.summary.length > SUMMARY_MAX || form.notes.length > NOTES_MAX);
-const save = () => { if (dirty.value && !tooLong.value) void detail.savePage(patch.value); };
+const payErrors = computed(() => ({ payPal: payPalProblem(form.payPal), venmo: venmoProblem(form.venmo) }));
+const payBad = computed(() => Boolean(payErrors.value.payPal || payErrors.value.venmo));
+const save = () => { if (dirty.value && !tooLong.value && !payBad.value) void detail.savePage(patch.value); };
 
 // ---- banner ----
 const banner = computed(() => safeBannerUrl(t.value.bannerUrl));
@@ -101,6 +109,16 @@ async function upload() {
       <label class="tn-field sf-field"><span class="tn-fact-k">Map link</span><input v-model="form.mapUrl" type="url" maxlength="500" placeholder="https://" autocomplete="off" /></label>
       <label class="tn-field sf-field"><span class="tn-fact-k">Start time</span><input v-model="form.startTime" type="time" /></label>
       <label class="tn-field sf-field"><span class="tn-fact-k">Entry fee</span><input v-model="form.entryFee" type="text" maxlength="40" placeholder="e.g. 15 GBP or Free" autocomplete="off" /></label>
+      <label class="tn-field sf-field" :data-invalid="payErrors.payPal ? 'true' : undefined">
+        <span class="tn-fact-k">PayPal link</span>
+        <input v-model="form.payPal" type="url" maxlength="200" placeholder="https://paypal.me/YourName" autocomplete="off" :aria-invalid="payErrors.payPal ? 'true' : undefined" aria-describedby="tn-pay-paypal-err tn-pay-note" />
+        <small v-if="payErrors.payPal" id="tn-pay-paypal-err" class="sf-error">{{ payErrors.payPal }}</small>
+      </label>
+      <label class="tn-field sf-field" :data-invalid="payErrors.venmo ? 'true' : undefined">
+        <span class="tn-fact-k">Venmo username</span>
+        <input v-model="form.venmo" type="text" maxlength="31" placeholder="@Your-Name" autocomplete="off" :aria-invalid="payErrors.venmo ? 'true' : undefined" aria-describedby="tn-pay-venmo-err tn-pay-note" />
+        <small v-if="payErrors.venmo" id="tn-pay-venmo-err" class="sf-error">{{ payErrors.venmo }}</small>
+      </label>
       <label class="tn-field sf-field"><span class="tn-fact-k">Registration closes (UTC)</span><input v-model="form.registration" type="datetime-local" /></label>
       <label class="tn-field sf-field"><span class="tn-fact-k">Check-in by (UTC)</span><input v-model="form.checkIn" type="datetime-local" /></label>
       <label class="tn-field sf-field tn-field-wide">
@@ -111,9 +129,10 @@ async function upload() {
         <span class="tn-fact-k">What to bring <span class="muted">({{ form.notes.length }} / {{ NOTES_MAX }})</span></span>
         <textarea v-model="form.notes" rows="4" :maxlength="NOTES_MAX" />
       </label>
+      <p id="tn-pay-note" class="muted tn-hint tn-field-wide">Optional payment links show a "Pay entry fee" block on the overview. {{ PAY_NOTE }}</p>
       <p class="muted tn-hint tn-field-wide">Text formatting: **bold**, *italic*, [label](https://link), "- " for a list. A blank line starts a new paragraph.</p>
       <div class="tn-actions tn-form-actions">
-        <button class="sf-btn primary" type="submit" :disabled="!dirty || tooLong || busy">Save page</button>
+        <button class="sf-btn primary" type="submit" :disabled="!dirty || tooLong || payBad || busy">Save page</button>
         <button class="sf-btn" type="button" :disabled="!dirty || busy" @click="Object.assign(form, fromRecord())">Reset</button>
       </div>
     </form>

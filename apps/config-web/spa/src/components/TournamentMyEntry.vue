@@ -17,6 +17,7 @@ import NafProfileField from "./NafProfileField.vue";
 import { API_KEY } from "../app";
 import { createSharing, type ShareField } from "../account/sharing";
 import { SESSION_KEY, writesAllowed } from "../session";
+import { paymentStatusText } from "../shared/payLinks";
 import {
   isPageAction, linkProfileNaf, myEntrant, nafProblem, nextFixtureFor, registrationOpen, ROSTER_LABEL, ROSTER_TONE, rosterState, submitChoices,
   TOURNAMENT_DETAIL_KEY, type NafLinkDraft, type ProfileNafView,
@@ -40,6 +41,8 @@ const groups = computed(() => (["Team Builder saves", "Library teams"] as const)
   .map((label) => ({ label, items: choices.value.filter((c) => c.group === label) }))
   .filter((g) => g.items.length));
 const next = computed(() => (mine.value ? nextFixtureFor(mine.value.id, state) : null));
+// The coach's own payment status (only the coach and managers get flags): shown when there is a fee or a payment link.
+const payShown = computed(() => Boolean(mine.value?.flags && (t.value.entryFee || t.value.paymentLinks || mine.value.flags.paid)));
 
 const teamId = ref("");
 const saveRef = ref("");
@@ -156,6 +159,7 @@ async function doWithdraw() { await detail.withdraw(); }
           </span>
           <span class="sf-chip" :data-tone="ROSTER_TONE[roster]" :data-roster="roster">{{ ROSTER_LABEL[roster] }}</span>
         </div>
+        <p v-if="payShown" class="tn-pay-status" :data-paid="mine.flags?.paid ? 'true' : 'false'">{{ paymentStatusText(mine.flags?.paid === true) }}</p>
         <form v-if="nafPending && canWrite" class="tn-reg-naf tn-naf-pending" novalidate @submit.prevent="doAnswerNaf">
           <p class="sf-error">This tournament is NAF sanctioned. Add your NAF name and number to your profile, or say you are not a NAF member, before you submit a roster.</p>
           <NafProfileField

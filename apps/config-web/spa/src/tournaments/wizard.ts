@@ -12,6 +12,7 @@ import type { Fetcher } from "../session";
 import { createBody, type CreateTournamentBody, type TournamentFormat } from "./create";
 import { fromLocalInput, PAIRING_LABEL, SEEDING_LABEL, TIEBREAKER_LABEL, type TournamentPrimaryTiebreaker } from "./detail";
 import type { TournamentPairingSystem, TournamentSeedingMode } from "../shared/api";
+import { normalisePayPal, normaliseVenmo } from "../shared/payLinks";
 
 export type WizardStep = "ruleset" | "details" | "registration" | "review";
 export const WIZARD_STEPS: ReadonlyArray<{ id: WizardStep; label: string }> = [
@@ -57,6 +58,9 @@ export interface WizardForm {
   checkInOpensAt: string;
   checkInClosesAt: string;
   entryFee: string;
+  /** Payment links (optional): a PayPal.Me link and a Venmo username. */
+  payPal: string;
+  venmo: string;
   nafSanctioned: boolean;
 }
 
@@ -66,7 +70,7 @@ export function blankWizardForm(): WizardForm {
     packageName: "", name: "", seriesId: "", startsAt: "", endsAt: "", playOnFork: false, venue: "", address: "", mapUrl: "", startTime: "",
     format: "swiss", roundCount: "", pairingSystem: "", seedingMode: "elo", primaryTiebreaker: "buchholz", turnTimer: "optional", summary: "",
     opensAt: "", closesAt: "", maxPlayers: 16, waitlist: true, approval: "auto", rosterLater: true, rosterBy: "", selfCheckIn: true,
-    checkInOpensAt: "", checkInClosesAt: "", entryFee: "", nafSanctioned: false,
+    checkInOpensAt: "", checkInClosesAt: "", entryFee: "", payPal: "", venmo: "", nafSanctioned: false,
   };
 }
 
@@ -81,6 +85,8 @@ export interface WizardBody extends CreateTournamentBody {
   location?: { venue?: string; address?: string; mapUrl?: string };
   startTime?: string;
   entryFee?: string;
+  payPal?: string;
+  venmo?: string;
   summary?: string;
   deadlines?: { registration?: string; checkIn?: string };
   registration: {
@@ -110,6 +116,8 @@ export function wizardBody(form: WizardForm, publish: boolean): WizardBody {
   const opensAt = iso(form.opensAt);
   const rosterBy = form.rosterLater ? iso(form.rosterBy) : "";
   const checkInOpens = form.selfCheckIn ? iso(form.checkInOpensAt) : "";
+  const payPal = normalisePayPal(form.payPal);
+  const venmo = normaliseVenmo(form.venmo);
   return {
     ...base,
     publish,
@@ -122,6 +130,8 @@ export function wizardBody(form: WizardForm, publish: boolean): WizardBody {
     ...(Object.keys(location).length ? { location } : {}),
     ...(tabletop && form.startTime ? { startTime: form.startTime } : {}),
     ...(form.entryFee.trim() ? { entryFee: form.entryFee.trim() } : {}),
+    ...(form.payPal.trim() ? { payPal: payPal.ok ? payPal.value : form.payPal.trim() } : {}),
+    ...(form.venmo.trim() ? { venmo: venmo.ok ? venmo.value : form.venmo.trim() } : {}),
     ...(form.summary.trim() ? { summary: form.summary.trim() } : {}),
     ...(Object.keys(deadlines).length ? { deadlines } : {}),
     registration: {
@@ -162,6 +172,10 @@ export function stepProblem(step: WizardStep, form: WizardForm): string {
     if (!form.closesAt && before(form.opensAt, form.startsAt)) return "Registration must open before the tournament starts.";
     if (form.selfCheckIn && !form.checkInClosesAt && before(form.checkInOpensAt, form.startsAt)) return "Check-in must open before the tournament starts.";
     if (form.entryFee.length > 40) return "The entry fee can be at most 40 characters.";
+    const payPal = normalisePayPal(form.payPal);
+    if (!payPal.ok) return payPal.error;
+    const venmo = normaliseVenmo(form.venmo);
+    if (!venmo.ok) return venmo.error;
     return "";
   }
   return "";
@@ -222,6 +236,8 @@ export function summaryRows(form: WizardForm, series: readonly WizardSeries[]): 
       ["Rosters", form.rosterLater ? (form.rosterBy ? `Later, by ${when(form.rosterBy)}` : "Later") : "With the entry"],
       ["Check-in", form.selfCheckIn ? "Self check-in" : "Organisers only"],
       ["Entry fee", form.entryFee.trim()],
+      ["PayPal", form.payPal.trim() && (normalisePayPal(form.payPal).ok ? "Link set" : "Check the link")],
+      ["Venmo", form.venmo.trim() && `@${form.venmo.trim().replace(/^@/, "")}`],
       ["NAF", form.nafSanctioned ? "Sanctioned" : "Not sanctioned"],
     ]),
     review: [],

@@ -145,6 +145,10 @@ export interface TournamentSummary {
   location?: TournamentLocation;
   startTime?: string;
   entryFee?: string;
+  /** Payment links as stored (the organiser forms) and as the page may show them (server re-checked). */
+  payPal?: string;
+  venmo?: string;
+  paymentLinks?: { payPal?: string; venmo?: { handle: string; url: string } };
   summary?: string;
   notes?: string;
   news?: TournamentNewsPost[];
@@ -205,6 +209,8 @@ export interface TournamentEntrant {
   droppedAt?: string;
   submission?: TournamentSubmissionView;
   flags?: TournamentEntrantFlags;
+  /** Coach and managers only: who last changed Paid, and when. */
+  paidUpdated?: { by: string; at: string };
   rosterVerifiedOverride?: boolean;
   manualSeed?: number;
   /** Coach and managers only: the entry's NAF details (on a NAF-sanctioned tournament the coach's current profile NAF

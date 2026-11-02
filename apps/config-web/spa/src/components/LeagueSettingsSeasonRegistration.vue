@@ -2,13 +2,15 @@
 // League settings, Registrations (lane L5, Q7): one season's own registration settings, started from the league defaults
 // above when the season was made. Allow registration, max teams and max per race are enforced through the registration
 // core's window (server seasonRegistration.ts); the band caption says whether self-registration is open right now.
-// GET / PATCH /api/leagues/:id/seasons/:seasonId/registration (the season's revision guards the write).
+// GET / PATCH /api/leagues/:id/seasons/:seasonId/registration (the season's revision guards the write). The payment links
+// (PayPal.Me link, Venmo username) sit next to the entry fee; the server checks them again.
 import { computed, inject, reactive, ref, watch } from "vue";
 import { API_KEY } from "../app";
 import { ApiError } from "../shared/api";
 import { LEAGUE_SETTINGS_KEY } from "../leagues/settings";
 import type { SeasonRegistrationView } from "../leagues/lifecycle";
 import { fromLocalInput, toLocalInput } from "../leagues/wizard";
+import { normalisePayPal, normaliseVenmo, PAY_NOTE, payPalProblem, venmoProblem } from "../shared/payLinks";
 
 const fetcher = inject(API_KEY)!;
 const settings = inject(LEAGUE_SETTINGS_KEY)!;
@@ -23,6 +25,7 @@ const notice = ref("");
 const blank = () => ({
   official: true, nafApproved: true, unofficial: false, allowRegistration: false, maxRegistrations: "", maxPerRace: "",
   opensAt: "", closesAt: "", approval: "organiser" as "organiser" | "auto", waitlist: true, allowExistingTeams: false, allowMidSeason: false, entryFee: "",
+  payPal: "", venmo: "",
 });
 const form = reactive(blank());
 function fill(v: SeasonRegistrationView): void {
@@ -32,6 +35,7 @@ function fill(v: SeasonRegistrationView): void {
     maxRegistrations: s.maxRegistrations === null ? "" : String(s.maxRegistrations), maxPerRace: s.maxPerRace === null ? "" : String(s.maxPerRace),
     opensAt: toLocalInput(s.opensAt), closesAt: toLocalInput(s.closesAt), approval: s.approval, waitlist: s.waitlist,
     allowExistingTeams: s.allowExistingTeams, allowMidSeason: s.allowMidSeason, entryFee: s.entryFee,
+    payPal: s.payPal ?? "", venmo: s.venmo ?? "",
   });
 }
 const path = (): string => `/api/leagues/${encodeURIComponent(state.id)}/seasons/${encodeURIComponent(seasonId.value)}/registration`;
@@ -63,6 +67,8 @@ const errors = computed(() => ({
   maxPerRace: maxRace.value === "bad" ? "1 to 64, or blank for no limit."
     : typeof maxRace.value === "number" && typeof maxReg.value === "number" && maxRace.value > maxReg.value ? "Cannot be more than max teams." : "",
   closesAt: (() => { const o = fromLocalInput(form.opensAt); const c = fromLocalInput(form.closesAt); return o && c && Date.parse(c) <= Date.parse(o) ? "Registration must close after it opens." : ""; })(),
+  payPal: payPalProblem(form.payPal),
+  venmo: venmoProblem(form.venmo),
 }));
 const valid = computed(() => Object.values(errors.value).every((e) => !e));
 const caption = computed(() => {
@@ -84,6 +90,8 @@ async function save(): Promise<void> {
       allowRegistration: form.allowRegistration, maxRegistrations: maxReg.value, maxPerRace: maxRace.value,
       opensAt: fromLocalInput(form.opensAt), closesAt: fromLocalInput(form.closesAt), approval: form.approval, waitlist: form.waitlist,
       allowExistingTeams: form.allowExistingTeams, allowMidSeason: form.allowMidSeason, entryFee: form.entryFee.trim(),
+      payPal: (() => { const p = normalisePayPal(form.payPal); return p.ok ? p.value : form.payPal.trim(); })(),
+      venmo: (() => { const v = normaliseVenmo(form.venmo); return v.ok ? v.value : form.venmo.trim(); })(),
     } });
     view.value = res.registration;
     fill(res.registration);
@@ -147,6 +155,17 @@ async function save(): Promise<void> {
             <small v-if="errors.closesAt" class="ls-field-error">{{ errors.closesAt }}</small>
           </label>
           <label class="ls-field ls-wide"><span>Entry fee</span><input v-model="form.entryFee" type="text" maxlength="200" placeholder="e.g. $10, paid at the first game" /></label>
+          <label class="ls-field" :data-invalid="errors.payPal ? 'true' : undefined">
+            <span>PayPal link</span>
+            <input v-model="form.payPal" type="url" maxlength="200" placeholder="https://paypal.me/YourName" autocomplete="off" :aria-invalid="errors.payPal ? 'true' : undefined" />
+            <small v-if="errors.payPal" class="ls-field-error">{{ errors.payPal }}</small>
+          </label>
+          <label class="ls-field" :data-invalid="errors.venmo ? 'true' : undefined">
+            <span>Venmo username</span>
+            <input v-model="form.venmo" type="text" maxlength="31" placeholder="@Your-Name" autocomplete="off" :aria-invalid="errors.venmo ? 'true' : undefined" />
+            <small v-if="errors.venmo" class="ls-field-error">{{ errors.venmo }}</small>
+          </label>
+          <p class="hm-small hm-empty ls-wide">Optional. With a link set, the league page shows a "Pay entry fee" block for this season. {{ PAY_NOTE }}</p>
         </div>
       </template>
     </section>

@@ -22,6 +22,8 @@ export interface ParticipantRow {
   coachId?: string;
   flags: ParticipantFlags;
   updated?: { by: string; at: string };
+  /** Who last changed Paid, and when. */
+  paidUpdated?: { by: string; at: string };
   /** Only what the coach shared with this league (server-filtered). */
   contact?: { preferredName?: string; email?: string; phones?: Array<{ number: string; label?: string }> };
 }
@@ -50,6 +52,13 @@ export function contactLines(r: Pick<ParticipantRow, "contact">): string[] {
   const c = r.contact;
   if (!c) return [];
   return [...(c.preferredName ? [c.preferredName] : []), ...(c.email ? [c.email] : []), ...(c.phones ?? []).map((p) => (p.label ? `${p.number} (${p.label})` : p.number))];
+}
+
+/** "Marked paid by Jay, 2026-11-02 12:00 UTC" for the Paid box ("" when nobody changed it here). */
+export function paidByText(r: Pick<ParticipantRow, "paidUpdated" | "flags">): string {
+  const u = r.paidUpdated;
+  if (!u?.at) return "";
+  return `${r.flags.paid ? "Marked paid" : "Marked not paid"}${u.by ? ` by ${u.by}` : ""}, ${u.at.slice(0, 16).replace("T", " ")} UTC`;
 }
 
 /** "3 / 28" of the rows with a flag on. */

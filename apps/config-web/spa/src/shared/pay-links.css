@@ -1,0 +1,15 @@
+/* "Pay entry fee" block (PayEntryFee.vue): sits inside an existing overview panel, below its key/value list. Tokens only. */
+.pay-block { display: grid; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 2px solid var(--sf-panel-line); min-width: 0; }
+.pay-h { margin: 0; font: 12px/1.3 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-heading); }
+.pay-fee { margin: 0; font-size: 15px; overflow-wrap: anywhere; }
+.pay-links { display: flex; flex-wrap: wrap; gap: 8px; }
+.pay-btn { gap: 8px; text-transform: none; letter-spacing: 0; max-width: 100%; }
+.pay-handle { font: 14px/1.2 var(--font-body); overflow: hidden; text-overflow: ellipsis; }
+.pay-badge { display: block; flex: none; }
+.pay-badge-frame { fill: var(--ui-surface-2); stroke: currentColor; stroke-width: 2; }
+.pay-badge-text { fill: currentColor; font: italic 700 12px var(--font-body); }
+.pay-btn[data-pay="paypal"] .pay-badge { color: var(--sf-seat-home); }
+.pay-btn[data-pay="venmo"] .pay-badge { color: var(--ui-info); }
+.pay-status { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; font-size: 14px; }
+.pay-status li[data-paid="true"] { color: var(--sf-gold); }
+.pay-note { margin: 0; font-size: 13px; color: var(--ui-muted); }

@@ -15,6 +15,7 @@ import {
   APPROVAL_LABEL, createTournamentWizard, DRAFT_NOTICE, filterPackages, PUBLISHED_NOTICE, summaryRows, TOURNAMENT_WIZARD_KEY,
   TURN_TIMER_LABEL, WIZARD_STEPS, type WizardStep,
 } from "../tournaments/wizard";
+import { PAY_NOTE, payPalProblem, venmoProblem } from "../shared/payLinks";
 import "../tournaments/wizard.css";
 
 const fetcher = inject(API_KEY)!;
@@ -36,6 +37,7 @@ const index = computed(() => WIZARD_STEPS.findIndex((s) => s.id === state.step))
 const stepTitle: Record<WizardStep, string> = { ruleset: "Pick a ruleset", details: "Details", registration: "Registration", review: "Review" };
 const cards = computed(() => filterPackages(state.packages, state.search));
 const rows = computed(() => summaryRows(state.form, state.series));
+const payErrors = computed(() => ({ payPal: payPalProblem(state.form.payPal), venmo: venmoProblem(state.form.venmo) }));
 const swiss = computed(() => state.form.format === "swiss");
 const seriesName = computed(() => state.series.find((s) => s.id === state.form.seriesId)?.name ?? "");
 const body = ref<HTMLElement | null>(null);
@@ -241,6 +243,17 @@ function startOver(): void {
             <fieldset class="tw-group tw-group-wide">
               <legend class="tw-legend">Entry</legend>
               <label class="sf-field"><span class="sf-k">Entry fee</span><input v-model="state.form.entryFee" type="text" maxlength="40" placeholder="e.g. 15 GBP or Free" autocomplete="off" /></label>
+              <label class="sf-field" :data-invalid="payErrors.payPal ? 'true' : undefined">
+                <span class="sf-k">PayPal link (optional)</span>
+                <input v-model="state.form.payPal" type="url" maxlength="200" placeholder="https://paypal.me/YourName" autocomplete="off" :aria-invalid="payErrors.payPal ? 'true' : undefined" />
+                <small v-if="payErrors.payPal" class="sf-error">{{ payErrors.payPal }}</small>
+              </label>
+              <label class="sf-field" :data-invalid="payErrors.venmo ? 'true' : undefined">
+                <span class="sf-k">Venmo username (optional)</span>
+                <input v-model="state.form.venmo" type="text" maxlength="31" placeholder="@Your-Name" autocomplete="off" :aria-invalid="payErrors.venmo ? 'true' : undefined" />
+                <small v-if="payErrors.venmo" class="sf-error">{{ payErrors.venmo }}</small>
+              </label>
+              <p class="tw-help tw-wide" data-pay-note="true">Coaches see a "Pay entry fee" block with these links on the overview. {{ PAY_NOTE }}</p>
               <label class="sf-check tw-check"><input v-model="state.form.nafSanctioned" type="checkbox" /> NAF sanctioned</label>
               <p v-if="state.form.nafSanctioned" class="tw-help tw-wide" data-naf-note="true">
                 Coaches' NAF name and number come from their profile and go to the organisers with the entry. A coach without one adds it to their profile or says they're not a NAF member. Organisers can set NAF details only for their active entrants.

@@ -1,10 +1,12 @@
 <script setup lang="ts">
 // Create a league, step 3 Season 1: name, start date, phases (Regular always, Play-offs optional as a knockout), divisions
 // (named groups; none = one), and the season's registration window (Q7): opens / closes, approval (organiser by default,
-// Q5), waitlist (on, Q6), existing teams (off, Q8), joining mid-season (off, Q9), entry fee text (Q17). Registration
+// Q5), waitlist (on, Q6), existing teams (off, Q8), joining mid-season (off, Q9), entry fee text (Q17), and the optional
+// payment links (PayPal.Me link, Venmo username; also kept as the league defaults a later season copies). Registration
 // opens only after Publish and Open registration in League settings.
 import { computed, inject } from "vue";
 import { ENTRY_FEE_MAX, LEAGUE_WIZARD_KEY } from "../leagues/wizard";
+import { PAY_NOTE } from "../shared/payLinks";
 
 const wizard = inject(LEAGUE_WIZARD_KEY)!;
 const { state } = wizard;
@@ -82,6 +84,19 @@ const dropDivision = (i: number): void => { s.value.divisions.splice(i, 1); };
         <small class="lw-help">Shown to coaches when they register. No payments are taken here.</small>
         <small v-if="state.errors.entryFee" class="sf-error">{{ state.errors.entryFee }}</small>
       </label>
+      <div class="lw-two">
+        <label class="sf-field lw-field" :data-invalid="state.errors.payPal ? 'true' : undefined">
+          <span class="sf-k">PayPal link (optional)</span>
+          <input v-model="s.payPal" type="url" maxlength="200" placeholder="https://paypal.me/YourName" autocomplete="off" :aria-invalid="state.errors.payPal ? 'true' : undefined" />
+          <small v-if="state.errors.payPal" class="sf-error">{{ state.errors.payPal }}</small>
+        </label>
+        <label class="sf-field lw-field" :data-invalid="state.errors.venmo ? 'true' : undefined">
+          <span class="sf-k">Venmo username (optional)</span>
+          <input v-model="s.venmo" type="text" maxlength="31" placeholder="@Your-Name" autocomplete="off" :aria-invalid="state.errors.venmo ? 'true' : undefined" />
+          <small v-if="state.errors.venmo" class="sf-error">{{ state.errors.venmo }}</small>
+        </label>
+      </div>
+      <p class="lw-help" data-pay-note="true">The league page shows a "Pay entry fee" block with these links. {{ PAY_NOTE }}</p>
     </div>
   </div>
 </template>

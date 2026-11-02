@@ -110,6 +110,9 @@ export interface LeagueRegistrations {
   maxRegistrations: number | null;
   /** null = no limit. */
   maxPerRace: number | null;
+  /** League default payment links that a new season copies (src/payments/links.ts; absent = none). */
+  payPal?: string;
+  venmo?: string;
 }
 
 export const DISCORD_EVENT_KEYS = ["news", "fixtureCreated", "matchStarted", "matchResult", "milestones"] as const;
@@ -432,6 +435,8 @@ export interface LeagueParticipant {
   checkedIn?: true;
   /** Who changed the participant flags last, and when (anonymised on account deletion). */
   flagsUpdated?: { by: string; at: string };
+  /** Who last changed `paid`, and when (organiser-only like the flag; anonymised on account deletion). */
+  paidUpdated?: { by: string; at: string };
   /** An organiser set active / standby on this site (the TourPlay export's value alone means nothing: it marks every row inactive). */
   activeSet?: true;
   /** The season team this row belongs to, pinned by the Participants tab (participants.ts participantOf). */
@@ -684,6 +689,18 @@ export interface SeasonRecord {
   news?: LeagueNewsPost[];
   /** Season activity log (fixtures created / deleted, matches started, results), newest first, capped: see events.ts. */
   log?: LeagueEventEntry[];
+  /** Read model only (api.ts seasonForViewer): the season's payment links and entry fee, plus the viewer's own entries'
+   *  paid status (`mine`, signed-in coaches only). Absent when there is nothing to show. */
+  payment?: SeasonPaymentView;
+}
+
+/** What the league page's "Pay entry fee" block shows (api.ts seasonForViewer). */
+export interface SeasonPaymentView {
+  entryFee?: string;
+  payPal?: string;
+  venmo?: { handle: string; url: string };
+  /** The viewer's own teams in the season and whether an organiser marked each one paid. Never anyone else's. */
+  mine?: Array<{ teamId: string; team: string; paid: boolean }>;
 }
 
 /** A league news post (League page, Overview): modelled on the tournament news (MarkdownLite body). */

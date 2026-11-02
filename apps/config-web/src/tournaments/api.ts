@@ -21,6 +21,7 @@ import type {
   VerifiedCoachIdentity,
 } from "./types.js";
 import { tournamentLink, type TournamentNotify } from "../notifications.js";
+import { paymentLinksView } from "../payments/links.js";
 import { myTournamentAwards, tournamentHonoursRoutes } from "./honours.js";
 import type { StoredTournamentResult } from "../tournamentResults.js";
 import { canonicalNafId } from "../auth/identitiesStore.js";
@@ -229,7 +230,7 @@ function submissionView(entrant: TournamentEntrantRecord, private_: boolean) {
  *  details and nafPending are derived from it and the coach's current profile NAF (`profile`): a sanctioned entry shows
  *  the profile's NAF name and number, and owes its answer when there is none (reads never write). */
 function clientEntrant(entrant: TournamentEntrantRecord, deps: Pick<TournamentApiDeps, "teamBuild">, private_: boolean, shared?: SharedContact, tournament?: TournamentRecord, profile?: ProfileNaf) {
-  const { coach, submission: _submission, flags, rosterVerifiedOverride, manualSeed, nafNumber, notNafMember, nafPending, nafSnapshot: _nafSnapshot, ...rest } = entrant;
+  const { coach, submission: _submission, flags, rosterVerifiedOverride, manualSeed, nafNumber, notNafMember, nafPending, nafSnapshot: _nafSnapshot, paidUpdated, ...rest } = entrant;
   const team = deps.teamBuild(entrant.teamId);
   const submission = submissionView(entrant, private_);
   return {
@@ -243,6 +244,7 @@ function clientEntrant(entrant: TournamentEntrantRecord, deps: Pick<TournamentAp
     ...(submission ? { submission } : {}),
     ...(private_ ? {
       flags: { ...DEFAULT_ENTRANT_FLAGS, ...(flags ?? {}) },
+      ...(paidUpdated ? { paidUpdated: { ...paidUpdated } } : {}),
       ...(rosterVerifiedOverride === undefined ? {} : { rosterVerifiedOverride }),
       ...(manualSeed === undefined ? {} : { manualSeed }),
       ...(tournament ? nafFields(entryNaf(tournament, entrant, profile)) : nafNumber ? { nafNumber } : {}),
@@ -372,6 +374,8 @@ function clientTournament(
 ) {
   const { startsAt, endsAt, bannerPath: _bannerPath, news, activity: _activity, ...record } = tournament;
   const banner = bannerUrl(tournament);
+  // Payment links as a page may show them (re-checked; only valid links). The detail route is the only way to a draft.
+  const payment = paymentLinksView(tournament.payPal, tournament.venmo);
   const ownEntrant = auth
     ? entrants.find((entrant) => coachKey(entrant.coach.ffbCoachId) === coachKey(auth.coach))
     : undefined;
@@ -382,6 +386,7 @@ function clientTournament(
     ...(startsAt === undefined ? {} : { startsAt }),
     ...(endsAt === undefined ? {} : { endsAt }),
     ...(banner ? { bannerUrl: banner } : {}),
+    ...(payment ? { paymentLinks: payment } : {}),
     ...(news?.length ? { news: orderedNews(news) } : {}),
     ...(tournamentOwner(tournament) ? { ownerCoachId: tournamentOwner(tournament) } : {}),
     organizerCoachIds: tournament.organizerCoachIds ?? [],
@@ -472,7 +477,7 @@ function quietly(fn: () => void): void {
 }
 
 const FLAG_WORDS: Record<keyof TournamentEntrantFlags, [on: string, off: string]> = {
-  paid: ["Marked as paid", "Marked as not paid"],
+  paid: ["Payment received", "Payment no longer marked as received"],
   rosterVerified: ["Roster verified", "Roster marked invalid"],
   frozen: ["Roster frozen", "Roster unfrozen"],
   checkedIn: ["Checked in", "Check-in cleared"],
@@ -484,7 +489,8 @@ function effectiveFlags(entrant: TournamentEntrantRecord | undefined): Tournamen
 }
 
 function notifyFlagChanges(deps: TournamentApiDeps, tournament: TournamentRecord, before: TournamentEntrantRecord | undefined, after: TournamentEntrantRecord, actor: string): void {
-  if (!deps.notify) return;
+  // An unpublished draft is out of sight for its coaches: nothing to tell them yet.
+  if (!deps.notify || tournament.unpublished === true) return;
   quietly(() => {
     const was = effectiveFlags(before);
     const now = effectiveFlags(after);
@@ -1129,7 +1135,7 @@ export async function tournamentApi(
       const updated = deps.store.updateEntrant(tournament.id, entrantId, {
         flags: flags as Partial<TournamentEntrantFlags>,
         ...(input.manualSeed === undefined ? {} : { manualSeed: input.manualSeed as number | null }),
-      }, now);
+      }, now, identity.coach);
       notifyFlagChanges(deps, tournament, before, updated, identity.coach);
       return { status: 200, body: { entrant: clientEntrant(updated, deps, true, undefined, tournament, tournament.nafSanctioned && updated.droppedAt === undefined ? profileNaf(deps, updated.coach.ffbCoachId) : undefined) } };
     }

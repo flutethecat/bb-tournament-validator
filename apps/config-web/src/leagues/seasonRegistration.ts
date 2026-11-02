@@ -15,6 +15,7 @@
 import {
   normalizeCap, organiserMayAdd, windowStatus, type ApprovalMode, type CompetitionSnapshot, type RegistrationWindow, type WindowStatus,
 } from "../registration/index.js";
+import { normalisePayPal, parsePayField, venmoUrl } from "../payments/links.js";
 import { isDraftLeague, seasonStage } from "./lifecycle.js";
 import { DEFAULT_REGISTRATIONS, parseRegistrations, registrationsOf, SettingsError } from "./settings.js";
 import { leagueOwner } from "./store.js";
@@ -31,6 +32,9 @@ export interface SeasonRegistration extends LeagueRegistrations {
   allowMidSeason: boolean;
   /** Entry fee text shown at registration (no payment processing, Q17). */
   entryFee: string;
+  /** Payment links (src/payments/links.ts), next to the entry fee: "" = none here, absent = the league default. */
+  payPal?: string;
+  venmo?: string;
 }
 
 /** The owner's accepted defaults for the window fields (core defaultRegistrationWindow("league")). */
@@ -54,7 +58,20 @@ export function seasonRegistrationOf(league: Pick<LeagueRecord, "registrations">
   if (out.approval !== "auto" && out.approval !== "organiser") out.approval = base.approval;
   for (const k of ["waitlist", "allowExistingTeams", "allowMidSeason", "allowRegistration"] as const) if (typeof out[k] !== "boolean") out[k] = base[k];
   if (typeof out.entryFee !== "string") out.entryFee = "";
+  // A stored link that is not (or no longer) valid is dropped from the read; "" (cleared for this season) stays.
+  if (typeof out.payPal !== "string" || (out.payPal && normalisePayPal(out.payPal).ok !== true)) delete out.payPal;
+  if (typeof out.venmo !== "string" || (out.venmo && !venmoUrl(out.venmo))) delete out.venmo;
   return out;
+}
+
+/** Validated payment link fields of a body into the season's settings ("" = cleared for this season). */
+function applyPayFields(r: Record<string, unknown>, next: SeasonRegistration): void {
+  for (const kind of ["payPal", "venmo"] as const) {
+    const checked = parsePayField(kind, r[kind]);
+    if (!checked) continue;
+    if (!checked.ok) throw new SettingsError(400, checked.error, kind);
+    next[kind] = checked.value;
+  }
 }
 
 // eslint-disable-next-line no-control-regex
@@ -108,6 +125,7 @@ export function parseSeasonRegistration(raw: unknown, prior: SeasonRegistration)
     if (fee.length > ENTRY_FEE_MAX) throw new SettingsError(400, `Entry fee must be at most ${ENTRY_FEE_MAX} characters.`, "entryFee");
     next.entryFee = fee;
   }
+  applyPayFields(r, next);
   return next;
 }
 

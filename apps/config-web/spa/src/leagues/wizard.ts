@@ -5,6 +5,7 @@
 
 import { reactive, type InjectionKey } from "vue";
 import { ApiError } from "../shared/api";
+import { normalisePayPal, normaliseVenmo, payPalProblem, venmoProblem } from "../shared/payLinks";
 import type { Fetcher } from "../session";
 import { fetchUpload, type RawUploader } from "./league";
 import { isWebhookUrl, teamBuildingError } from "./settings";
@@ -41,6 +42,7 @@ export interface WizardDraft {
     id: string; name: string; number: number; startedAt?: string; stage: string; divisions: string[]; playoffs: boolean; revision: number;
     registration: {
       opensAt?: string; closesAt?: string; approval: "auto" | "organiser"; waitlist: boolean; allowExistingTeams: boolean; allowMidSeason: boolean; entryFee: string;
+      payPal?: string; venmo?: string;
     };
   } | null;
   connections: { playOnFork: boolean; discord: { configured: boolean; maskedUrl: string; events: Record<string, boolean> } };
@@ -56,6 +58,8 @@ export interface WizardForm {
   season: {
     name: string; startsAt: string; divisions: string[]; playoffs: boolean; opensAt: string; closesAt: string;
     approval: "auto" | "organiser"; waitlist: boolean; allowExistingTeams: boolean; allowMidSeason: boolean; entryFee: string;
+    /** Payment links (optional): a PayPal.Me link and a Venmo username. */
+    payPal: string; venmo: string;
   };
   connections: { playOnFork: boolean; webhook: string; clearWebhook: boolean; events: Record<string, boolean> };
 }
@@ -78,7 +82,7 @@ export function emptyForm(): WizardForm {
     rules: { ruleset: "BB2025", official: true, nafApproved: true, unofficial: false, maxRegistrations: "", maxPerRace: "", rosters: [] },
     season: {
       name: "Season 1", startsAt: "", divisions: [], playoffs: false, opensAt: "", closesAt: "",
-      approval: "organiser", waitlist: true, allowExistingTeams: false, allowMidSeason: false, entryFee: "",
+      approval: "organiser", waitlist: true, allowExistingTeams: false, allowMidSeason: false, entryFee: "", payPal: "", venmo: "",
     },
     connections: { playOnFork: false, webhook: "", clearWebhook: false, events: { news: true, fixtureCreated: true, matchStarted: true, matchResult: true, milestones: true } },
   };
@@ -118,6 +122,7 @@ export function formFromDraft(d: WizardDraft): WizardForm {
       name: d.season.name, startsAt: isoDay(d.season.startedAt), divisions: [...d.season.divisions], playoffs: d.season.playoffs,
       opensAt: toLocalInput(r.opensAt), closesAt: toLocalInput(r.closesAt), approval: r.approval, waitlist: r.waitlist,
       allowExistingTeams: r.allowExistingTeams, allowMidSeason: r.allowMidSeason, entryFee: r.entryFee,
+      payPal: r.payPal ?? "", venmo: r.venmo ?? "",
     };
   }
   f.connections = { playOnFork: d.connections.playOnFork, webhook: "", clearWebhook: false, events: { ...d.connections.discord.events } };
@@ -175,6 +180,10 @@ export function seasonErrors(f: WizardForm): StepErrors {
   const closes = fromLocalInput(s.closesAt);
   if (opens && closes && Date.parse(closes) <= Date.parse(opens)) e.closesAt = "Registration must close after it opens.";
   if (s.entryFee.trim().length > ENTRY_FEE_MAX) e.entryFee = `Entry fee must be at most ${ENTRY_FEE_MAX} characters.`;
+  const payPal = payPalProblem(s.payPal);
+  if (payPal) e.payPal = payPal;
+  const venmo = venmoProblem(s.venmo);
+  if (venmo) e.venmo = venmo;
   return e;
 }
 
@@ -213,6 +222,8 @@ export function stepPayload(step: WizardStepId, f: WizardForm): Record<string, u
       registration: {
         opensAt: fromLocalInput(s.opensAt), closesAt: fromLocalInput(s.closesAt), approval: s.approval, waitlist: s.waitlist,
         allowExistingTeams: s.allowExistingTeams, allowMidSeason: s.allowMidSeason, entryFee: s.entryFee.trim(),
+        payPal: (() => { const p = normalisePayPal(s.payPal); return p.ok ? p.value : s.payPal.trim(); })(),
+        venmo: (() => { const v = normaliseVenmo(s.venmo); return v.ok ? v.value : s.venmo.trim(); })(),
       },
     } };
   }
@@ -268,6 +279,8 @@ export function summaryGroups(f: WizardForm, draft: WizardDraft | null): Summary
       { k: "Existing teams", v: yes(s.allowExistingTeams) },
       { k: "Join mid-season", v: yes(s.allowMidSeason) },
       ...(s.entryFee.trim() ? [{ k: "Entry fee", v: s.entryFee.trim() }] : []),
+      ...(s.payPal.trim() ? [{ k: "PayPal", v: normalisePayPal(s.payPal).ok ? "Link set" : "Check the link" }] : []),
+      ...(s.venmo.trim() ? [{ k: "Venmo", v: `@${s.venmo.trim().replace(/^@/, "")}` }] : []),
     ] },
     { step: "connections", title: "Connections", rows: [
       { k: "Discord", v: discord },

@@ -804,6 +804,8 @@ function anonymiseTournaments(an: Anonymiser, tx: TextReplacer, data: Obj): bool
       for (const k of ["nafNumber", "notNafMember", "nafPending", "nafSnapshot"]) if (k in e) { delete e[k]; changed = true; }
     }
     mark(an.fields(e.coach, identity, ["discordUserId"]));
+    // Participants: the manager who last marked the entry paid (or not).
+    if (isObj(e.paidUpdated)) mark(an.fields(e.paidUpdated, ["by"], []));
     // Registration core (src/registration): the organiser decision and the audited transitions.
     mark(anonymiseRegistrationTrail(an, tx, e));
   }
@@ -877,6 +879,7 @@ function anonymiseSeason(an: Anonymiser, tx: TextReplacer, displays: ReadonlySet
     if (linked(p)) mark(LINKED_ROW(an, p));
     // Participants tab: the organiser who last changed the row's flags.
     if (isObj(p.flagsUpdated)) mark(an.fields(p.flagsUpdated, ["by"], []));
+    if (isObj(p.paidUpdated)) mark(an.fields(p.paidUpdated, ["by"], []));
   }
   // League registrations (src/registration): the coach's own rows, and every decision / transition they made.
   for (const r of objs(s.registrations)) mark(anonymiseLeagueRegistration(an, tx, r));

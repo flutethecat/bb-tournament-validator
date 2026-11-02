@@ -8,7 +8,7 @@ import { computed, inject, ref, watch } from "vue";
 import { API_KEY } from "../app";
 import { LEAGUE_DETAIL_KEY } from "../leagues/league";
 import {
-  contactLines, createLeagueParticipants, FLAG_LABEL, flagCount, keepRow, LEAGUE_PARTICIPANTS_KEY, PARTICIPANT_FILTERS, PARTICIPANT_FLAGS,
+  contactLines, createLeagueParticipants, FLAG_LABEL, flagCount, keepRow, LEAGUE_PARTICIPANTS_KEY, paidByText, PARTICIPANT_FILTERS, PARTICIPANT_FLAGS,
   type ParticipantFilter, type ParticipantFlag,
 } from "../leagues/participants";
 import "../leagues/participants.css";
@@ -142,7 +142,8 @@ const rowBusy = (id: string): boolean => state.busy === `row:${id}` || state.bus
                   <span v-if="!contactLines(r).length" class="lg-part-dim">Not shared</span>
                 </span>
               </td>
-              <td v-for="f in PARTICIPANT_FLAGS" :key="f" class="lg-part-flag" :data-label="FLAG_LABEL[f]">
+              <td v-for="f in PARTICIPANT_FLAGS" :key="f" class="lg-part-flag" :data-label="FLAG_LABEL[f]" :title="f === 'paid' && paidByText(r) ? paidByText(r) : undefined">
+                <span v-if="f === 'paid' && paidByText(r)" class="tn-sr">{{ paidByText(r) }}</span>
                 <input
                   type="checkbox" :checked="r.flags[f]" :aria-label="`${FLAG_LABEL[f]}: ${r.team}`" :disabled="rowBusy(r.teamId)"
                   @change="setFlag(r.teamId, f, $event.target as HTMLInputElement)"

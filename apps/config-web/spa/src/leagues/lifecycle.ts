@@ -60,6 +60,9 @@ export interface SeasonRegistrationView {
     allowExistingTeams: boolean;
     allowMidSeason: boolean;
     entryFee: string;
+    /** Payment links ("" = none for this season). */
+    payPal?: string;
+    venmo?: string;
   };
 }
 

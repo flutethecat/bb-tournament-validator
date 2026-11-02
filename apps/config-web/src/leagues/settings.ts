@@ -11,6 +11,7 @@
  * The Discord URL never appears in the read model (maskWebhookUrl) and never in an error message.
  */
 import { bb2025 } from "@bb/validator/dataset";
+import { parsePayField } from "../payments/links.js";
 import { discordEvents, isDiscordWebhookUrl, maskWebhookUrl } from "./discord.js";
 import { leagueOwner } from "./store.js";
 import {
@@ -136,6 +137,13 @@ export function parseRegistrations(raw: unknown, prior: LeagueRegistrations): Le
   if (r.maxPerRace !== undefined) next.maxPerRace = limit(r.maxPerRace, "Max per race", 64);
   if (next.maxRegistrations !== null && next.maxPerRace !== null && next.maxPerRace > next.maxRegistrations)
     throw new SettingsError(400, "Max per race cannot be more than max registrations.", "maxPerRace");
+  // League default payment links (a new season copies them): validated like a season's, absent when cleared.
+  for (const kind of ["payPal", "venmo"] as const) {
+    const checked = parsePayField(kind, r[kind]);
+    if (!checked) continue;
+    if (!checked.ok) throw new SettingsError(400, checked.error, kind);
+    if (checked.value) next[kind] = checked.value; else delete next[kind];
+  }
   return next;
 }
 

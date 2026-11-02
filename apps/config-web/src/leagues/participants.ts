@@ -16,11 +16,12 @@
  * by team id once pinned, else by team name AND coach (participantOf: never another coach's row). A team without a row
  * gets one on its first change (`addedHere`), and a touched row is pinned (`teamId`). TourPlay exports mark every row
  * inactive, so the imported `active` is ignored: a team is active until an organiser sets it here (`activeSet`).
- * `flagsUpdated` records who changed them last (anonymised on account deletion).
+ * `flagsUpdated` records who changed them last and `paidUpdated` who last changed Paid (both anonymised on account deletion).
  *
  * Privacy: a row carries the coach's contact only as the coach shared it with this league (sharedContactFor: preferred
- * name, email, phones), never otherwise and never Discord ids. The public season read drops the four new flags and
- * flagsUpdated (participantsForPublic).
+ * name, email, phones), never otherwise and never Discord ids. The public season read drops the four new flags,
+ * flagsUpdated and paidUpdated (participantsForPublic). A coach reads only their own teams' Paid (myPaymentStatus, in the
+ * season read for that coach).
  *
  * Notifications: the coach account on the team (coachId) hears what changed, once per coach per request (a bulk change
  * over several of one coach's teams is one notification). The acting organiser is not told about their own team.
@@ -50,6 +51,8 @@ export interface ParticipantRow {
   coachId?: string;
   flags: ParticipantFlags;
   updated?: { by: string; at: string };
+  /** Who last changed Paid, and when. */
+  paidUpdated?: { by: string; at: string };
   contact?: ParticipantContact;
 }
 
@@ -143,6 +146,7 @@ export function participantRows(league: LeagueRecord, season: SeasonRecord, view
       ...(coachId ? { coachId } : {}),
       flags: flagsOf(p),
       ...(p?.flagsUpdated ? { updated: { ...p.flagsUpdated } } : {}),
+      ...(p?.paidUpdated ? { paidUpdated: { ...p.paidUpdated } } : {}),
       ...(contact ? { contact } : {}),
     };
   });
@@ -151,9 +155,19 @@ export function participantRows(league: LeagueRecord, season: SeasonRecord, view
 /** The public season read: the organiser-only flags and bookkeeping never leave the server; active is the site's. */
 export function participantsForPublic(rows: LeagueParticipant[]): LeagueParticipant[] {
   return rows.map((row) => {
-    const { paid: _p, rosterVerified: _r, frozen: _f, checkedIn: _c, flagsUpdated: _u, activeSet: _a, teamId: _t, addedHere: _h, ...rest } = row;
+    const { paid: _p, rosterVerified: _r, frozen: _f, checkedIn: _c, flagsUpdated: _u, paidUpdated: _pu, activeSet: _a, teamId: _t, addedHere: _h, ...rest } = row;
     return { ...rest, active: effectiveActive(row) };
   });
+}
+
+/** The signed-in coach's own teams in the season with their Paid flag (team account match only; never another coach's). */
+export function myPaymentStatus(season: Pick<SeasonRecord, "participants" | "teams">, coach: string): Array<{ teamId: string; team: string; paid: boolean }> {
+  const me = key(coach);
+  if (!me) return [];
+  return season.teams
+    .filter((t) => key(teamAccount(t)) === me)
+    .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
+    .map((t) => ({ teamId: t.id, team: t.name, paid: participantOf(season, t)?.paid === true }));
 }
 
 const FLAG_FIELDS = ["paid", "rosterVerified", "frozen", "checkedIn"] as const;
@@ -161,11 +175,13 @@ function copyFlags(from: LeagueParticipant, to: LeagueParticipant): void {
   for (const f of FLAG_FIELDS) { if (from[f]) to[f] = true; else delete to[f]; }
   if (from.activeSet) { to.active = from.active; to.activeSet = true; } else delete to.activeSet;
   if (from.flagsUpdated) to.flagsUpdated = { ...from.flagsUpdated }; else delete to.flagsUpdated;
+  if (from.paidUpdated) to.paidUpdated = { ...from.paidUpdated }; else delete to.paidUpdated;
 }
 function stripFlags(row: LeagueParticipant): void {
   for (const f of FLAG_FIELDS) delete row[f];
   delete row.activeSet;
   delete row.flagsUpdated;
+  delete row.paidUpdated;
   row.active = true;
 }
 
@@ -216,7 +232,7 @@ function parseFlags(raw: unknown): { ok: true; set: Partial<ParticipantFlags> } 
 }
 
 const FLAG_WORDS: Record<ParticipantFlag, [on: string, off: string]> = {
-  paid: ["Marked as paid", "Marked as not paid"],
+  paid: ["Payment received", "Payment no longer marked as received"],
   rosterVerified: ["Roster verified", "Roster marked invalid"],
   frozen: ["Roster frozen", "Roster unfrozen"],
   checkedIn: ["Checked in", "Check-in cleared"],
@@ -250,6 +266,7 @@ function applyFlags(season: SeasonRecord, teamIds: string[], set: Partial<Partic
       else delete row[f];
     }
     row.flagsUpdated = { by, at };
+    if (set.paid !== undefined && set.paid !== before.paid) row.paidUpdated = { by, at };
     changed++;
     const coachId = team.coachAssigned?.cleared ? undefined : team.coachId ?? row.coachId;
     if (!coachId) continue;

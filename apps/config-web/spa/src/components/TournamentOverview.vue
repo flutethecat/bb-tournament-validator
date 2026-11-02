@@ -1,16 +1,25 @@
 <script setup lang="ts">
 // Overview tab: the facts panel (only what the server sent; a key/value list like the league's season panel), the
-// organiser's summary and "What to bring" notes (markdown-lite), the News panel, then the slot (My entry).
-import { computed } from "vue";
+// organiser's summary and "What to bring" notes (markdown-lite), the News panel, then the slot (My entry). The Details panel
+// ends with the "Pay entry fee" block when the organiser set a payment link (not on a finished tournament; a draft reaches
+// only its managers).
+import { computed, inject } from "vue";
 import { RouterLink } from "vue-router";
 import type { TournamentSummary } from "../shared/api";
-import { factsStrip } from "../tournaments/detail";
+import { factsStrip, TOURNAMENT_DETAIL_KEY } from "../tournaments/detail";
 import { FORMAT_LABEL } from "../tournaments/list";
 import MarkdownLite from "./MarkdownLite.vue";
+import PayEntryFee from "./PayEntryFee.vue";
 import TournamentNews from "./TournamentNews.vue";
 
 const props = defineProps<{ tournament: TournamentSummary }>();
 const facts = computed(() => factsStrip(props.tournament));
+const detail = inject(TOURNAMENT_DETAIL_KEY, null);
+const showPay = computed(() => {
+  const t = props.tournament;
+  if (!t.paymentLinks || t.status === "completed" || t.status === "cancelled") return false;
+  return !t.unpublished || detail?.state.capabilities.manage === true;
+});
 </script>
 
 <template>
@@ -30,6 +39,7 @@ const facts = computed(() => factsStrip(props.tournament));
             </dd>
           </div>
         </dl>
+        <PayEntryFee v-if="showPay" id-prefix="tn" :entry-fee="tournament.entryFee" :links="tournament.paymentLinks" />
       </section>
     </div>
     <div class="hm-col tn-main-col">

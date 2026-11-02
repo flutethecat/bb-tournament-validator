@@ -142,6 +142,8 @@ export interface TournamentSettingsPatch {
   location?: TournamentLocation | null;
   startTime?: string | null;
   entryFee?: string | null;
+  payPal?: string | null;
+  venmo?: string | null;
   summary?: string | null;
   notes?: string | null;
   deadlines?: TournamentDeadlines | null;

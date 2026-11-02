@@ -259,7 +259,7 @@ describe("tournament hooks", () => {
     const res = await call("PATCH", `/api/tournaments/${id}/entrants/${encodeURIComponent(entrant("Alice").id)}`, owner, { flags: { paid: true, checkedIn: true } });
     expect(res!.status).toBe(200);
     expect(notify.sent).toEqual([{ coach: "Alice", input: {
-      type: "entrant-flag", title: "Spike Open: your entry was updated", body: "Marked as paid. Checked in.", link: `/app/tournaments/${id}?tab=overview`, from: "Veers",
+      type: "entrant-flag", title: "Spike Open: your entry was updated", body: "Payment received. Checked in.", link: `/app/tournaments/${id}?tab=overview`, from: "Veers",
     } }]);
     notify.sent.length = 0;
     await call("PATCH", `/api/tournaments/${id}/entrants/${encodeURIComponent(entrant("Alice").id)}`, owner, { flags: { active: false, frozen: true, rosterVerified: true } });

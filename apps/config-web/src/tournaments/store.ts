@@ -498,7 +498,7 @@ function applyTournamentUpdate(data: TournamentDataFileV4, tournamentId: string,
 function applyPagePatch(data: TournamentDataFileV4, tournamentId: string, patch: TournamentPagePatch, now: Date): TournamentRecord {
   const tournament = data.tournaments[tournamentId];
   if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
-  for (const field of ["location", "startTime", "entryFee", "summary", "notes", "deadlines"] as const) {
+  for (const field of ["location", "startTime", "entryFee", "payPal", "venmo", "summary", "notes", "deadlines"] as const) {
     const value = patch[field];
     if (value === undefined) continue;
     if (value === null) delete tournament[field];
@@ -1123,6 +1123,7 @@ export class TournamentStore {
     entrantId: string,
     patch: { flags?: Partial<TournamentEntrantFlags>; manualSeed?: number | null },
     now = new Date(),
+    by?: string,
   ): TournamentEntrantRecord {
     return this.mutate((data) => {
       const tournament = data.tournaments[tournamentId];
@@ -1130,6 +1131,7 @@ export class TournamentStore {
       const entrant = data.entrants[entrantId];
       if (!entrant || entrant.tournamentId !== tournamentId) throw new TournamentStoreError(404, "Tournament entrant not found.");
       const flags = { ...DEFAULT_ENTRANT_FLAGS, ...(entrant.flags ?? {}) };
+      const paidBefore = flags.paid;
       for (const [key, value] of Object.entries(patch.flags ?? {})) {
         if (!(key in DEFAULT_ENTRANT_FLAGS)) throw new TournamentStoreError(400, `Unknown participant flag "${key}".`);
         if (typeof value !== "boolean") throw new TournamentStoreError(400, `${key} must be true or false.`);
@@ -1138,6 +1140,8 @@ export class TournamentStore {
       }
       entrant.flags = flags;
       entrant.flags = withVerified(entrant);
+      // Who marked the entry paid (or not), and when: the organiser's record (laws 21-22: never on a public read).
+      if (flags.paid !== paidBefore) entrant.paidUpdated = { by: by ?? "", at: now.toISOString() };
       if (patch.manualSeed === null) delete entrant.manualSeed;
       else if (patch.manualSeed !== undefined) {
         if (!Number.isSafeInteger(patch.manualSeed) || patch.manualSeed < 1 || patch.manualSeed > 999)
