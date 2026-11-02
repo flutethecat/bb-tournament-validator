@@ -29,10 +29,7 @@ export const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday",
 
 // ---- time zones (Intl only, no dependency) ---------------------------------------------------------------------------
 
-export function isTimeZone(tz: unknown): tz is string {
-  if (typeof tz !== "string" || !tz || tz.length > 64) return false;
-  try { new Intl.DateTimeFormat("en-US", { timeZone: tz }); return true; } catch { return false; }
-}
+export { isTimeZone } from "../leagues/timeZone.js";
 
 interface LocalParts { y: number; m: number; d: number; hh: number; mm: number; wd: number }
 const WD: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };

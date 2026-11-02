@@ -19,6 +19,7 @@ import { HouseRulesError, houseRulesOf, parseHouseRules, type HouseRules } from 
 import { discordEvents, isDiscordWebhookUrl, maskWebhookUrl } from "./discord.js";
 import { redraftRulesView, type RedraftRulesView } from "./redraftRules.js";
 import { leagueOwner } from "./store.js";
+import { isTimeZone, leagueTimeZone, leagueTimeZoneSet } from "./timeZone.js";
 import {
   DISCORD_EVENT_KEYS, LEAGUE_RULESETS, type DiscordEvents, type LeagueAddress, type LeagueCountry, type LeagueRecord, type LeagueRegistrations,
   type LeagueRuleset, type LeagueSecrets, type SeasonRecord, type TeamBuildingRosterRule, type TeamBuildingRules,
@@ -165,6 +166,8 @@ export interface InformationPatch {
   playOnFork?: boolean;
   /** The ruleset card: a saved package name, or null = the plain base ruleset. Existence is checked by the caller. */
   rulesetPackage?: string | null;
+  /** IANA time zone (timeZone.ts); null = clear (the league reads UTC). */
+  timeZone?: string | null;
 }
 
 export const RULESET_PACKAGE_MAX = 120;
@@ -206,6 +209,11 @@ export function parseInformation(raw: unknown): InformationPatch {
     else if (typeof i.rulesetPackage !== "string" || !i.rulesetPackage.trim() || i.rulesetPackage.trim().length > RULESET_PACKAGE_MAX)
       throw new SettingsError(400, "Pick a ruleset from the list.", "rulesetPackage");
     else out.rulesetPackage = i.rulesetPackage.trim();
+  }
+  if (i.timeZone !== undefined) {
+    if (i.timeZone === null || i.timeZone === "") out.timeZone = null;
+    else if (!isTimeZone(i.timeZone)) throw new SettingsError(400, "Pick a time zone from the list (for example America/New_York).", "timeZone");
+    else out.timeZone = i.timeZone;
   }
   return out;
 }
@@ -316,6 +324,8 @@ export interface LeagueSettingsView {
     /** Played on (a General setting since creation wizards v2). */
     playOnFork: boolean;
     rulesetPackage: string | null;
+    /** IANA zone; null = not set yet (the league reads UTC: organisers see "Set your league's time zone"). */
+    timeZone: string | null;
   };
   houseRules: HouseRules;
   /** The organiser's regions for pairing / join (not the US/CA address regions below). */
@@ -357,6 +367,7 @@ export function settingsView(
       name: league.name, fullName: league.fullName, description: league.description,
       ruleset: league.ruleset ?? "BB2025", mode: "individual", address: league.address ?? null,
       playOnFork: league.playOnFork === true, rulesetPackage: league.rulesetPackage ?? null,
+      timeZone: leagueTimeZoneSet(league) ? leagueTimeZone(league) : null,
     },
     houseRules: houseRulesOf(league, "league"),
     competitionRegions: league.regions ?? [],

@@ -600,3 +600,34 @@ describe("DM queue", () => {
     expect(safeInviteUrl("")).toBeNull();
   });
 });
+
+describe("league time zone", () => {
+  it("leagueTimeZone reads the IANA zone, else UTC; General saves it and refuses an unknown zone", async () => {
+    const { leagueTimeZone, leagueTimeZoneSet, isTimeZone } = await import("../src/leagues/timeZone");
+    const { leagueApi } = await import("../src/leagues/api");
+    expect(leagueTimeZone(leagues.league("lg"))).toBe("UTC");
+    expect(leagueTimeZoneSet(leagues.league("lg")!)).toBe(false);
+    expect(isTimeZone("America/New_York")).toBe(true);
+    expect(isTimeZone("Mars/Olympus")).toBe(false);
+    const call = (body: unknown) => leagueApi("PATCH", "/api/leagues/lg/settings", new URLSearchParams(), { coach: "Org", admin: false }, { store: leagues, readBody: async () => Buffer.from(JSON.stringify(body)) } as never);
+    const view = await leagueApi("GET", "/api/leagues/lg/settings", new URLSearchParams(), { coach: "Org", admin: false }, { store: leagues } as never);
+    const settings = (view!.body as { settings: { revision: number; information: { timeZone: string | null } } }).settings;
+    expect(settings.information.timeZone).toBeNull();
+    const bad = await call({ revision: settings.revision, information: { timeZone: "Mars/Olympus" } });
+    expect(bad!.body).toMatchObject({ field: "timeZone" });
+    const ok = await call({ revision: settings.revision, information: { timeZone: "Europe/London" } });
+    expect((ok!.body as { settings: { information: { timeZone: string } } }).settings.information.timeZone).toBe("Europe/London");
+    expect(leagueTimeZone(leagues.league("lg"))).toBe("Europe/London");
+    // the Weekly Digest reads it
+    const g = await discordApi("GET", "/api/leagues/lg/discord", { coach: "Org" }, undefined, { leagues, tournaments, state });
+    expect((g!.body as { discord: { weekly: { timeZone: string; timeZoneSet: boolean } } }).discord.weekly).toMatchObject({ timeZone: "Europe/London", timeZoneSet: true });
+  });
+
+  it("the wizard creates a league with the organiser's browser time zone", async () => {
+    const { leagueApi } = await import("../src/leagues/api");
+    const r = await leagueApi("POST", "/api/leagues", new URLSearchParams(), { coach: "Org", admin: false, organizer: true } as never, { store: leagues, readBody: async () => Buffer.from(JSON.stringify({ name: "Zone League", slug: "zone-league", timeZone: "America/Chicago" })) } as never);
+    expect(r!.status).toBe(201);
+    expect(leagues.league("zone-league")!.timeZone).toBe("America/Chicago");
+    expect((r!.body as { draft: { identity: { timeZone: string } } }).draft.identity.timeZone).toBe("America/Chicago");
+  });
+});

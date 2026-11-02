@@ -29,7 +29,8 @@ import type { DiscordObserver } from "./observer.js";
 import { post, samplePost } from "./posts.js";
 import type { DiscordStateStore } from "./store.js";
 import { leagueTarget, seasonCompetitionKey, seasonTarget, tournamentTarget, type DiscordTarget } from "./targets.js";
-import { isTimeZone, parseWeekly, weeklyOf, WEEKDAYS, type WeeklyDigestSettings } from "./weekly.js";
+import { parseWeekly, weeklyOf, WEEKDAYS, type WeeklyDigestSettings } from "./weekly.js";
+import { isTimeZone, leagueTimeZone, leagueTimeZoneSet } from "../leagues/timeZone.js";
 
 export interface DiscordApiIdentity { coach: string; admin?: boolean }
 export interface DiscordApiResult { status: number; body: unknown; headers?: Record<string, string> }
@@ -101,7 +102,7 @@ export interface CompetitionDiscordView {
   endOfGameDigest: boolean;
   comments: boolean;
   catalogue: Array<{ key: DiscordEventKey; label: string; group: "competition" | "inGame" }>;
-  weekly?: WeeklyDigestSettings & { timeZone: string; weekdays: readonly string[] };
+  weekly?: WeeklyDigestSettings & { timeZone: string; timeZoneSet: boolean; weekdays: readonly string[] };
   botInviteUrl?: string;
   seasons?: Array<{ id: string; name: string }>;
 }
@@ -247,7 +248,7 @@ function viewFor(r: Resolved, deps: DiscordApiDeps): CompetitionDiscordView {
   if (r.league && !r.seasonId) {
     const invite = botInviteUrl(deps.clientId);
     return viewOf(r.target, r.ownUrl, undefined, {
-      weekly: { ...weeklyOf(r.league.weeklyDigest), timeZone: r.league.timeZone ?? "UTC", weekdays: WEEKDAYS },
+      weekly: { ...weeklyOf(r.league.weeklyDigest), timeZone: leagueTimeZone(r.league), timeZoneSet: leagueTimeZoneSet(r.league), weekdays: WEEKDAYS },
       ...(invite ? { botInviteUrl: invite } : {}),
       seasons: deps.leagues.seasons(r.league.id).map((s) => ({ id: s.id, name: s.name })),
     });

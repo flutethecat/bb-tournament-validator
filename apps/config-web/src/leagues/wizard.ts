@@ -26,6 +26,7 @@ import { artUrl, assertRulesetPackage, leaguePath, seasonSummary, type LeagueApi
 import { houseRulesOf, type HouseRules } from "../competition/houseRules.js";
 import { discordEvents, maskWebhookUrl } from "./discord.js";
 import { populateSeasonDiscord } from "../discord/api.js";
+import { leagueTimeZone, leagueTimeZoneSet } from "./timeZone.js";
 import { readJsonObject, requestRevision } from "./http.js";
 import { fixturePlayed } from "./tourplay.js";
 import { canMoveStage, isDraftLeague, MIN_TEAMS_TO_START, leagueVisibility, managesLeague, SEASON_STAGE_LABEL, seasonStage, STAGE_ACTION_LABEL, type SeasonStage } from "./lifecycle.js";
@@ -112,7 +113,7 @@ export interface WizardView {
   completedAt?: string;
   test: boolean;
   /** General (step 1): `playOnFork` is the Played on setting (creation wizards v2 moved it out of Connections). */
-  identity: { name: string; fullName: string; slug: string; description: string; address: LeagueRecord["address"] | null; logoUrl?: string; bannerUrl?: string; playOnFork: boolean };
+  identity: { name: string; fullName: string; slug: string; description: string; address: LeagueRecord["address"] | null; logoUrl?: string; bannerUrl?: string; playOnFork: boolean; timeZone: string | null };
   rules: {
     ruleset: "BB2020" | "BB2025";
     /** The ruleset card: a saved package name, or null = the plain base ruleset. */
@@ -149,6 +150,7 @@ export function wizardView(league: LeagueRecord, seasons: SeasonRecord[], webhoo
       name: league.name, fullName: league.fullName, slug: league.slug || league.id, description: league.description, address: league.address ?? null,
       ...(logo ? { logoUrl: logo } : {}), ...(banner ? { bannerUrl: banner } : {}),
       playOnFork: league.playOnFork === true,
+      timeZone: leagueTimeZoneSet(league) ? leagueTimeZone(league) : null,
     },
     rules: {
       ruleset: league.ruleset ?? "BB2025",
@@ -193,7 +195,8 @@ export async function createLeagueRoute(auth: LeagueApiIdentity | undefined, dep
   if (!b.ok) return b.result;
   const input = b.value;
   try {
-    const info = parseInformation({ name: input.name ?? "", fullName: input.fullName, description: input.description, address: input.address, playOnFork: input.playOnFork });
+    // The organiser's browser time zone comes with the create call (owner 11-02); absent = the league reads UTC.
+    const info = parseInformation({ name: input.name ?? "", fullName: input.fullName, description: input.description, address: input.address, playOnFork: input.playOnFork, timeZone: input.timeZone });
     const name = info.name!;
     const id = parseSlug(input.slug, name);
     const { store } = deps;
@@ -213,6 +216,7 @@ export async function createLeagueRoute(auth: LeagueApiIdentity | undefined, dep
       // New leagues lift teams to the redraft budget (owner 11-02); leagues made before keep the old behaviour.
       redraftRules: { ...NEW_LEAGUE_REDRAFT_RULES },
       ...(info.playOnFork ? { playOnFork: true } : {}),
+      ...(info.timeZone ? { timeZone: info.timeZone } : {}),
       // Q13: what a test sign-in makes is a test league, the only kind it may change afterwards.
       ...(auth.test ? { test: true as const } : {}),
     }, now);
@@ -271,7 +275,7 @@ function patchDraft(league: LeagueRecord, who: LeagueApiIdentity, input: Record<
   if (input.identity !== undefined) {
     const i = obj(input.identity, "identity");
     if (i.slug !== undefined && i.slug !== league.id) throw new SettingsError(400, "The league address is set when the league is created.", "slug");
-    plan.info = parseInformation({ name: i.name, fullName: i.fullName, description: i.description, address: i.address });
+    plan.info = parseInformation({ name: i.name, fullName: i.fullName, description: i.description, address: i.address, timeZone: i.timeZone });
     // Played on lives in General (creation wizards v2).
     if (i.playOnFork !== undefined) plan.playOnFork = parseInformation({ playOnFork: i.playOnFork }).playOnFork;
   }
@@ -352,6 +356,7 @@ function patchDraft(league: LeagueRecord, who: LeagueApiIdentity, input: Record<
       if (plan.info.description !== undefined) l.description = plan.info.description;
       if (plan.info.ruleset !== undefined) l.ruleset = plan.info.ruleset;
       if (plan.info.address !== undefined) { if (plan.info.address === null) delete l.address; else l.address = plan.info.address; }
+      if (plan.info.timeZone !== undefined) { if (plan.info.timeZone === null) delete l.timeZone; else l.timeZone = plan.info.timeZone; }
     }
     if (plan.regs) l.registrations = plan.regs;
     if (plan.payDefaults) {

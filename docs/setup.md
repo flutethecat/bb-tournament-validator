@@ -171,7 +171,8 @@ environment key: organisers paste webhook URLs in the app, where they are stored
   (the tabletop recorder, Super FUMBBL results); deaths and sent-offs post live, the rest go in the end-of-game digest unless
   switched to live. Hand-entered results are never announced. Drafts never post. Coach-typed text is always posted with
   listed words starred (***).
-- **Weekly Digest.** On by default for a league with a webhook: Sunday 10:00 in the league's time zone (UTC until set),
+- **Weekly Digest.** On by default for a league with a webhook: Sunday 10:00 in the league's time zone (League settings, General;
+  defaulted to the organiser's browser zone at creation; UTC until set),
   or every 2 / 4 weeks, or after each round. Weeks without games are skipped. The last run is stored in
   `<FORK_STATE_DIR>/discord/ledger.json`, so a restart never posts twice.
 - **State.** `<FORK_STATE_DIR>/discord/` holds tournament options (`competitions.json`), tournament / series webhooks

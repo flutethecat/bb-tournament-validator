@@ -23,6 +23,7 @@ import { seasonRegistrationOf, seasonWindowStatus } from "../leagues/seasonRegis
 import { deriveStandings } from "../leagues/standings.js";
 import type { LeagueStore } from "../leagues/store.js";
 import { fixturePlayed } from "../leagues/tourplay.js";
+import { leagueTimeZone } from "../leagues/timeZone.js";
 import type { DiscordEventKey, LeagueFixture, LeagueRecord, SeasonRecord } from "../leagues/types.js";
 import { calculateStandings } from "../tournaments/pairing.js";
 import type { TournamentStore } from "../tournaments/store.js";
@@ -250,7 +251,7 @@ export class DiscordObserver {
   async digestFor(league: LeagueRecord, from: number, to: number): Promise<{ payload?: DiscordPayload; reason?: string; from: number; to: number }> {
     const season = DiscordObserver.digestSeason(this.deps.leagues.seasons(league.id));
     if (!season) return { reason: "The league has no season yet.", from, to };
-    const tz = league.timeZone ?? "UTC";
+    const tz = leagueTimeZone(league);
     const fixtures = season.fixtures.filter((f) => fixturePlayed(f) && !f.test);
     const content = weeklyContent(season, from, to, tz, await this.games(league, season, fixtures));
     if (!content) return { reason: "No games were played in this period, so the digest is skipped.", from, to };
@@ -262,7 +263,7 @@ export class DiscordObserver {
     const settings = weeklyOf(league.weeklyDigest);
     if (target.draft || !target.url || !settings.enabled) return 0;
     const now = this.now();
-    const tz = league.timeZone ?? "UTC";
+    const tz = leagueTimeZone(league);
     const last = this.deps.state.weekly(league.id);
     if (settings.trigger === "schedule") {
       const slot = slotDue(settings, now, tz, last.lastRun);
