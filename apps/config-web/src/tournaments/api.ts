@@ -1253,6 +1253,15 @@ export async function tournamentApi(
       if (input.playOnFork !== undefined) {
         if (typeof input.playOnFork !== "boolean")
           return { status: 400, body: { error: "playOnFork must be true or false." } };
+        // A lobby START already went one way (online launch released, or a recorder match made): switching now would
+        // strand those fixtures, so the switch waits until every started fixture is resolved.
+        if (input.playOnFork !== (existing.playOnFork === true) && deps.fixtureLobby) {
+          const open = deps.store.matches(tournamentId).filter((m) => !m.result && !["completed", "cancelled", "dismissed"].includes(m.status));
+          let started = false;
+          try { started = open.some((m) => deps.fixtureLobby!(m.id)?.started === true); }
+          catch { return { status: 500, body: { error: "Could not read the fixture lobbies right now." } }; }
+          if (started) return { status: 409, body: { error: "A fixture lobby of this tournament has already started its match. Finish or resolve those fixtures before changing where the tournament is played." } };
+        }
         patch.playOnFork = input.playOnFork;
       }
       if (input.roundCount !== undefined) patch.roundCount = requestedRoundCount(input.roundCount);

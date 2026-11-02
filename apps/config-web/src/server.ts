@@ -1071,6 +1071,7 @@ function tournamentLobbyDeps(): TournamentLobbyDeps {
       return { file: teamFileFromLibraryDetail(detail.body.team), rostered: rosteredOf(lib?.rosteredInducements) };
     },
     submissionCurrent: (coach, submission) => liveSubmittedSave(coach, submission) !== undefined,
+    chainStartedAt: async (coach, saveId) => (await (await tabletopDeps()).repo.getChain(coach, saveId))?.revisions[0]?.createdAt,
   };
 }
 

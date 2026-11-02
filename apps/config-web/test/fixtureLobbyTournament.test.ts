@@ -52,6 +52,7 @@ describe("tournament fixture lobby", () => {
   let repo: FileTabletopRepository;
   let tt: TabletopApiDeps;
   let starts = 0;
+  let chainAt: string | undefined;
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "tour-lobby-"));
@@ -61,7 +62,7 @@ describe("tournament fixture lobby", () => {
       tournaments: { t1: tournament("t1", "active"), t2: tournament("t2", "draft", { ownerCoachId: "Org3", organizerCoachIds: [] }) },
       entrants: {
         e1: { id: "e1", tournamentId: "t1", seed: 1, coach: side("e1", "Ann", "lib-ann").coach, teamId: "lib-ann", registeredAt: at(-100),
-          submission: { saveId: "save:ann1", revision: "rev-1", submittedAt: at(-90), teamName: "Green Tide", race: "Orc", snapshot: { rosterId: "orc" },
+          submission: { saveId: "save:ann1", revision: at(-95), submittedAt: at(-90), teamName: "Green Tide", race: "Orc", snapshot: { rosterId: "orc" },
             validation: { ok: true, problems: [], checkedAt: at(-90), packageName: "test-cup" } } },
         e2: { id: "e2", tournamentId: "t1", seed: 2, coach: side("e2", "Bob", "lib-bob").coach, teamId: "lib-bob", registeredAt: at(-100) },
         e3: { id: "e3", tournamentId: "t2", seed: 1, coach: side("e3", "Ann", "lib-ann").coach, teamId: "lib-ann", registeredAt: at(-100) },
@@ -81,6 +82,7 @@ describe("tournament fixture lobby", () => {
     current = true;
     clock = 0;
     starts = 0;
+    chainAt = undefined;
     repo = new FileTabletopRepository(join(dir, "tt"));
     tt = {
       repo, results: new TournamentResultStore(join(dir, "res")),
@@ -110,6 +112,7 @@ describe("tournament fixture lobby", () => {
       return createMatch(input.actor, input.organiser, { ...input.extra, fixtureRef: input.fixtureRef, home: input.home, away: input.away }, tt, () => new Date(), { inducementsByCoach: input.inducementsByCoach, fromLobby: true });
     },
     adoptMatch: (input) => adoptLobbyMatch(tt, input),
+    chainStartedAt: async () => chainAt,
   });
   const L = `/api/tournaments/t1/fixtures/${encodeURIComponent(M1)}/lobby`;
   const call = async (coach: string | undefined, method: string, path: string, body: Record<string, unknown> = {}): Promise<LobbyResult> => {
@@ -293,5 +296,71 @@ describe("tournament fixture lobby", () => {
     expect((await post("Ann", "start", {})).body).toMatchObject({ started: true, to: "/tournaments/t1?tab=rounds" });
     expect(starts).toBe(0);
     expect((await presenceCall())!.status).not.toBe(409);
+    // a started lobby went online: switching the tournament back to tabletop would strand it
+    const back = (await settings("Org", false))!;
+    expect(back.status).toBe(409);
+    expect((back.body as { error: string }).error).toMatch(/already started its match/);
+  });
+
+  it("an edited submitted save unlocks the locked roster with the reason; START never runs on it", async () => {
+    await readyAndLock();
+    current = false; // Ann edits the submitted save after locking and pressing Ready
+    const r = await post("Bob", "start", {});
+    expect(r.status).toBe(409);
+    expect(err(r)).toMatch(/save changed after it was submitted/);
+    expect(starts).toBe(0);
+    const v = await view("Ann");
+    expect(v.sides.home).toMatchObject({ rosterLocked: false, ready: false });
+    expect(v.chat.at(-1).text).toMatch(/^Ann's roster was unlocked: Green Tide: the Team Builder save changed/);
+    expect(err(await post("Ann", "ready", { ready: true }))).toMatch(/save changed after it was submitted|Lock the roster first/);
+  });
+
+  it("a withdrawn entrant loses the seat: a spectator who cannot write, and the lobby closes", async () => {
+    await post("Bob", "chat", { text: "hi" });
+    const snap = tournaments.snapshot();
+    tournaments.writeSnapshot({ ...snap, entrants: { ...snap.entrants, e2: { ...snap.entrants.e2!, droppedAt: at(-1) } } } as never);
+    const v = await view("Bob");
+    expect(v.viewer.role).toBe("spectator");
+    expect(v.chat).toBeNull();
+    expect(v).toMatchObject({ open: false, closedReason: "Bob withdrew from the tournament." });
+    expect((await post("Bob", "chat", { text: "still here?" })).status).toBe(403);
+    expect((await view("Ann")).viewer.role).toBe("home");
+  });
+
+  it("spectators get the menu without Builder counts", async () => {
+    const items = (v: { sides: { home: { inducements: { menu: Array<{ items: Array<{ id: string; max: number; prefilled?: number }> }> } } } }) =>
+      v.sides.home.inducements.menu.flatMap((c) => c.items).find((i) => i.id === "bribes")!;
+    expect(items(await view())).toEqual(expect.objectContaining({ max: 3 }));
+    expect(items(await view())).not.toHaveProperty("prefilled");
+    expect(items(await view("Eve"))).not.toHaveProperty("prefilled");
+    expect(items(await view("Bob"))).toMatchObject({ max: 1, prefilled: 2 });
+  });
+
+  it("the package's star limits (count, combined cost, roster stars included) hold at save, lock and START", async () => {
+    const stars = ((await view("Ann")).sides.home.inducements.menu as Array<{ id: string; items: Array<{ id: string; price: number }> }>).find((c) => c.id === "star")!.items;
+    expect(stars.length).toBeGreaterThan(1);
+    pkg = { ...pkgWith(), starPlayers: { allowed: true, maxCount: 1, maxCombinedCost: null } } as unknown as TournamentPackage;
+    expect(err(await post("Ann", "inducements", { side: "home", picks: [{ id: stars[0]!.id, qty: 1 }, { id: stars[1]!.id, qty: 1 }] }))).toMatch(/at most 1 star player per team/);
+    pkg = { ...pkgWith(), starPlayers: { allowed: true, maxCount: null, maxCombinedCost: stars[0]!.price - 5_000 } } as unknown as TournamentPackage;
+    expect(err(await post("Ann", "inducements", { side: "home", picks: [{ id: stars[0]!.id, qty: 1 }] }))).toMatch(/Star players may cost at most/);
+    // a star already on the roster counts
+    const starPlayer = { ...ORC.players[0]!, id: "s1", kind: "star" as const, positionName: stars[0]!.id.slice(5) };
+    const withStar = { ...ORC, players: [...ORC.players, starPlayer] };
+    pkg = { ...pkgWith(), starPlayers: { allowed: true, maxCount: 1, maxCombinedCost: null } } as unknown as TournamentPackage;
+    const d = deps();
+    const r = await tournamentLobbyRoute("POST", `${L}/inducements`, { coach: "Ann", admin: false }, { side: "home", picks: [{ id: stars[1]!.id, qty: 1 }] },
+      { ...d, teamOf: (c) => (c === "Ann" ? { file: withStar, rostered: [] } : { file: HUMAN, rostered: [] }) });
+    expect(err(r!)).toMatch(/1 already on the roster/);
+  });
+
+  it("START refuses when the recorder already holds the save from before the submitted revision", async () => {
+    await readyAndLock();
+    chainAt = at(-200); // the recorder chain was built from an older version of the save
+    const r = await post("Ann", "start", {});
+    expect(r.status).toBe(409);
+    expect(err(r)).toMatch(/older version of the save than the one submitted/);
+    expect(await repo.listMatches()).toHaveLength(0);
+    chainAt = at(-10); // a chain started after the submission holds exactly the submitted roster
+    expect((await post("Ann", "start", {})).body).toMatchObject({ started: true });
   });
 });

@@ -15,7 +15,7 @@
  */
 import { plainText } from "../leagues/inducementRules.js";
 import {
-  budgetFor, CHAT_KEEP, CHAT_MAX_CHARS, gateOf, holdBanner, inducementStep, kGold, menuFor, newLobby, parsePicks, picksVisible, planSide,
+  budgetFor, CHAT_KEEP, CHAT_MAX_CHARS, fixedTeamStale, gateOf, holdBanner, inducementStep, kGold, menuFor, newLobby, parsePicks, picksVisible, planSide,
   prefilledLines, priceSide, resolveStart, sideHasStep, tvRoles, type LobbyViewer,
 } from "./core.js";
 import type { LobbyPresence } from "./presence.js";
@@ -122,7 +122,8 @@ export function lobbyView(fx: LobbyFixture, stored: LobbyRecord | undefined, aut
         visible,
         picks: visible ? (priced && !("error" in priced) ? priced.lines : st.picks.map((p) => ({ id: p.id, name: p.id, qty: p.qty, cost: 0 }))) : null,
         total: priced && !("error" in priced) ? priced.total : null,
-        menu: menuFor(fx, s),
+        // without the snapshot, the menu carries no Builder counts either (caps as the ruleset sets them)
+        menu: menuFor(shown ? fx : { ...fx, prefilled: undefined }, s),
         prefilled: shown ? prefilledLines(fx, s) : null,
       },
     };
@@ -273,8 +274,25 @@ async function write(fx: LobbyFixture, auth: LobbyAuth, deps: LobbyDeps, mutate:
     let rec: LobbyRecord;
     try { rec = deps.store.get(fx.key) ?? newLobby(fx, now); } catch { return fail(500, "Could not read this lobby right now."); }
     for (const s of LOBBY_SIDES) if (fx.sides[s].coachId && !rec.coaches.some((c) => same(c, fx.sides[s].coachId))) rec.coaches.push(fx.sides[s].coachId);
+    // a locked fixed team that no longer holds (tournaments: the submitted save was edited) is unlocked first, with the
+    // reason, so neither Ready nor START ever runs on another roster than the one that was locked
+    const unlocked: string[] = [];
+    for (const s of LOBBY_SIDES) {
+      const why = rec.started ? "" : fixedTeamStale(fx, rec, s);
+      if (!why) continue;
+      Object.assign(rec.sides[s], { rosterLocked: false, ready: false });
+      delete rec.sides[s].teamRef;
+      system(rec, fx, s, `{${s}}'s roster was unlocked: ${why}`, now.toISOString());
+      unlocked.push(why);
+    }
     const out = await mutate(rec, now);
-    if (out !== "ok" && !("ok" in out)) return out;
+    if (out !== "ok" && !("ok" in out)) {
+      if (!unlocked.length) return out;
+      rec.revision += 1;
+      rec.updatedAt = now.toISOString();
+      try { deps.store.put(rec); } catch { /* re-derived on the next write */ }
+      return fail(409, unlocked[0]!); // the cause, not its consequence ("has not locked their roster")
+    }
     rec.revision += 1;
     rec.updatedAt = now.toISOString();
     if (rec.chat.length > CHAT_KEEP) rec.chat = rec.chat.slice(-CHAT_KEEP);

@@ -227,4 +227,6 @@ export interface LobbyFixture {
   rosterPrivate?: boolean;
   /** SPA path of each side's full roster (default: the competition page's team tab). */
   teamLinks?: Partial<Record<LobbySide, string>>;
+  /** Further limits on a side's priced picks (tournaments: the package's star count / combined cost): the reason, or "". */
+  checkPicks?: (side: LobbySide, lines: readonly ResolvedPick[]) => string;
 }

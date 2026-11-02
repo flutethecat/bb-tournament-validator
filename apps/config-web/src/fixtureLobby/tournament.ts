@@ -58,6 +58,8 @@ export interface TournamentLobbyDeps extends LobbyDeps {
   leagues?: LeagueStore;
   results?: () => StoredTournamentResult[];
   resultsRevision?: () => string;
+  /** When the recorder's chain for a coach's save started (its baseline revision's createdAt); undefined = no chain. */
+  chainStartedAt?(coach: string, saveId: string): Promise<string | undefined>;
 }
 
 export const LOBBY_BODY_MAX = 16 * 1024;
@@ -91,7 +93,32 @@ export async function tournamentLobbyRoute(
   const m = deps.tournaments.match(at.matchId);
   if (!m || m.tournamentId !== t.id) return fail(404, "Fixture not found.");
   if (!m.away) return fail(404, "A bye has no fixture lobby.");
-  return lobbyRoute(method, at.action, tournamentLobbyFixture(t, m, auth, deps), auth, input, deps);
+  return lobbyRoute(method, at.action, tournamentLobbyFixture(t, m, auth, deps), auth, input, withSubmittedChain(t, deps));
+}
+
+/**
+ * The recorder plays a save from its chain (src/tabletop ensureChain): a chain that started BEFORE the submitted save
+ * revision was built from an older version of the roster, so START refuses (the organiser sorts it out) rather than
+ * play another roster than the submitted one. A chain started at or after the submitted revision holds exactly it (the
+ * save has not changed since: the roster lock checks that).
+ */
+function withSubmittedChain(t: TournamentRecord, deps: TournamentLobbyDeps): TournamentLobbyDeps {
+  const start = deps.startTabletop;
+  const startedAt = deps.chainStartedAt;
+  if (!start || !startedAt) return deps;
+  return {
+    ...deps,
+    startTabletop: async (input) => {
+      for (const sd of [input.home, input.away]) {
+        const sub = deps.tournaments.entrants(t.id).find((e) => !e.droppedAt && same(e.coach.ffbCoachId, sd.coach))?.submission;
+        if (!sub || !sub.saveId.startsWith("save:") || sd.team !== sub.saveId) continue;
+        const began = await startedAt(sd.coach, sub.saveId.slice("save:".length));
+        if (began && began < sub.revision)
+          return { status: 409, body: { error: `${sub.teamName ?? "This team"}: the match recorder already holds this team from an older version of the save than the one submitted, so it cannot play the submitted roster. Ask an organiser.` } };
+      }
+      return start(input);
+    },
+  };
 }
 
 // ---- inducements from the package ----------------------------------------------------------------------------------
@@ -126,6 +153,20 @@ function packageOffers(pkg: TournamentPackage, config: SeasonInducements, optIns
 export function packageLobbyRules(pkg: TournamentPackage | undefined): LobbyFixture["rules"] {
   const ind = (pkg?.inducements ?? {}) as { treasuryTopUp?: unknown; highlander?: unknown };
   return { treasuryTopUp: ind.treasuryTopUp === true, highlander: ind.highlander === true, starClash: "refund" };
+}
+
+/** The package's star limits (`starPlayers.maxCount` / `maxCombinedCost`) over the roster's stars plus the hired ones. */
+export function packageStarLimit(pkg: TournamentPackage | undefined, roster: { count: number; cost: number }, lines: ReadonlyArray<{ id: string; cost: number }>): string {
+  const hired = lines.filter((l) => l.id.startsWith(STAR_PREFIX));
+  if (!pkg || !hired.length) return "";
+  const { maxCount, maxCombinedCost, paidInSkillPoints } = pkg.starPlayers;
+  const count = roster.count + hired.length;
+  if (typeof maxCount === "number" && count > maxCount)
+    return `This tournament allows at most ${maxCount} star player${maxCount === 1 ? "" : "s"} per team${roster.count ? ` (${roster.count} already on the roster)` : ""}.`;
+  const cost = (paidInSkillPoints ? 0 : roster.cost) + hired.reduce((n, l) => n + l.cost, 0);
+  if (typeof maxCombinedCost === "number" && cost > maxCombinedCost)
+    return `Star players may cost at most ${Math.round(maxCombinedCost / 1000)}K together in this tournament${roster.cost && !paidInSkillPoints ? " (roster stars included)" : ""}.`;
+  return "";
 }
 
 // ---- the fixture ----------------------------------------------------------------------------------------------------
@@ -185,13 +226,24 @@ export function tournamentLobbyFixture(t: TournamentRecord, m: ScheduledMatchRec
   const prefilled: Record<LobbySide, LobbyPick[]> = { home: [], away: [] };
   const fixedTeams = {} as NonNullable<LobbyFixture["fixedTeams"]>;
   const teamLinks: Partial<Record<LobbySide, string>> = {};
+  const rosterStars: Record<LobbySide, { count: number; cost: number }> = { home: { count: 0, cost: 0 }, away: { count: 0, cost: 0 } };
+  const withdrawn: string[] = [];
   const side = (s: LobbySide): LobbyFixtureSide => {
     const ms = m[s]!;
-    const cid = ms.coach.ffbCoachId;
     const entrant = entrants.find((e) => e.id === ms.entrantId);
+    // a withdrawn (dropped) entrant loses the seat: no coach account on the side, so they read as a spectator
+    const dropped = !entrant || entrant.droppedAt !== undefined;
+    if (dropped) withdrawn.push(ms.coach.ffbCoachId);
+    const cid = dropped ? "" : ms.coach.ffbCoachId;
     const submission = entrant?.submission;
     const data = (() => { try { return deps.teamOf(cid, submission, ms.teamId); } catch { return undefined; } })();
     const name = submission?.teamName ?? data?.file.name ?? ms.teamId;
+    // stars already on the roster count against the package's star limits
+    for (const p of data?.file.players ?? []) {
+      if (p.kind !== "star" || p.dead) continue;
+      rosterStars[s].count += 1;
+      rosterStars[s].cost += bb2025.stars.find((x) => x.name === p.positionName || x.name === p.name)?.cost ?? 0;
+    }
     const team = lobbyTeam(data?.file, name, submission?.race ?? data?.file.race ?? "", entrant?.id ?? ms.entrantId, starsOn);
     // what the Builder bought (stars are roster players, never lobby inducements)
     prefilled[s] = (data?.rostered ?? [])
@@ -205,7 +257,7 @@ export function tournamentLobbyFixture(t: TournamentRecord, m: ScheduledMatchRec
     teamLinks[s] = `${base}/team/${enc(ms.entrantId)}`;
     const row = standings.find((r) => r.entrantId === ms.entrantId);
     return {
-      coachId: cid, coach: cid, team,
+      coachId: cid, coach: ms.coach.ffbCoachId, team,
       ...(row ? { standing: { rank: row.rank, points: row.points, group: "" } } : {}),
       stats: {
         season: { ...statsOf(tournamentGames(matches, cid)), ...(row ? { points: row.points } : {}) },
@@ -215,8 +267,9 @@ export function tournamentLobbyFixture(t: TournamentRecord, m: ScheduledMatchRec
   };
   const sides = { home: side("home"), away: side("away") };
   const closedReason = CLOSED[t.status]
-    ?? (m.result || m.status === "completed" ? "This fixture has been played."
-      : m.status === "cancelled" || m.status === "dismissed" ? "This fixture is not being played." : "");
+    ?? (withdrawn.length ? `${withdrawn.join(" and ")} withdrew from the tournament.`
+      : m.result || m.status === "completed" ? "This fixture has been played."
+        : m.status === "cancelled" || m.status === "dismissed" ? "This fixture is not being played." : "");
   const managers = [...new Set([tournamentOwner(t), ...(t.organizerCoachIds ?? [])].filter((c): c is string => Boolean(c)))];
   return {
     key: tournamentLobbyKey(m.id),
@@ -239,5 +292,6 @@ export function tournamentLobbyFixture(t: TournamentRecord, m: ScheduledMatchRec
     recorderTeamAllowed: (s, team) => { const f = fixedTeams[s]; return Boolean(f && !("error" in f) && f.ref === team.ref); },
     start: { fixtureRef: m.id, extra: {} },
     prefilled, fixedTeams, rosterPrivate: true, teamLinks,
+    checkPicks: (s, lines) => packageStarLimit(pkg, rosterStars[s], lines),
   };
 }

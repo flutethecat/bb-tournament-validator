@@ -193,6 +193,8 @@ export function priceSide(fx: LobbyFixture, side: LobbySide, picks: readonly Lob
     lines.push({ id: p.id, name: o.name, qty: p.qty, cost: o.price * p.qty });
   }
   if (stars > starCap(fx)) return { error: `At most ${starCap(fx)} star players.` };
+  const extra = fx.checkPicks?.(side, lines);
+  if (extra) return { error: extra };
   return { lines, total: lines.reduce((n, l) => n + l.cost, 0) };
 }
 
@@ -277,7 +279,7 @@ export function gateOf(fx: LobbyFixture, rec: LobbyRecord, online?: Record<Lobby
   const name = (s: LobbySide) => fx.sides[s].coach || `The ${s} coach`;
   if (!fx.open) blockers.push(fx.closedReason || "This fixture is closed.");
   if (rec.started) blockers.push("The match has started.");
-  for (const s of LOBBY_SIDES) if (!rosters[s]) blockers.push(`${name(s)} has not locked their roster.`);
+  for (const s of LOBBY_SIDES) if (!rosters[s]) blockers.push(fixedTeamStale(fx, rec, s) || `${name(s)} has not locked their roster.`);
   // The overdog locks first; the underdog may pre-lock with Auto-Buy or pick when START holds.
   if (step && r.overdog && !inducements[r.overdog]) blockers.push(`${name(r.overdog)} has not locked their inducements.`);
   if (step && r.underdog && rec.hold && !rec.sides[r.underdog].locked) blockers.push(`Waiting for ${name(r.underdog)} to lock inducements.`);
@@ -293,7 +295,17 @@ export function gateOf(fx: LobbyFixture, rec: LobbyRecord, online?: Record<Lobby
 
 function rosterDone(fx: LobbyFixture, rec: LobbyRecord, side: LobbySide): boolean {
   const st = rec.sides[side];
-  return st.rosterLocked && (fx.mode !== "tabletop" || Boolean(st.teamRef));
+  return st.rosterLocked && (fx.mode !== "tabletop" || Boolean(st.teamRef)) && !fixedTeamStale(fx, rec, side);
+}
+
+/** A locked roster whose fixed team no longer holds (tournaments: the submitted save changed, or the submission was
+ *  replaced): the reason, else "". The lock then counts as open and the next write unlocks it (api.ts). */
+export function fixedTeamStale(fx: LobbyFixture, rec: Pick<LobbyRecord, "sides">, side: LobbySide): string {
+  const st = rec.sides[side];
+  const fixed = fx.mode === "tabletop" ? fx.fixedTeams?.[side] : undefined;
+  if (!fixed || !st.rosterLocked) return "";
+  if ("error" in fixed) return fixed.error;
+  return st.teamRef && st.teamRef !== fixed.ref ? `${fixed.name}: the submitted team changed since the roster was locked. Lock it again.` : "";
 }
 
 // ---- START resolution ---------------------------------------------------------------------------------------------
