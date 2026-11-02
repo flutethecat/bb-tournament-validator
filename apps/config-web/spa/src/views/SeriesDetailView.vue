@@ -63,7 +63,7 @@ onMounted(() => { if (state.id !== props.id || !state.loaded) void detail.load(p
 </script>
 
 <template>
-  <div class="hm-page sr-page">
+  <div class="hm-page sr-page sf-fit">
     <p v-if="state.notFound" class="hm-empty" role="status">This series doesn't exist. <RouterLink to="/series">All series</RouterLink></p>
     <p v-else-if="state.error" class="sf-error" role="alert">{{ state.error }}</p>
     <p v-else-if="!series" class="hm-empty" role="status">Loading series...</p>
@@ -87,7 +87,7 @@ onMounted(() => { if (state.id !== props.id || !state.loaded) void detail.load(p
         </div>
       </section>
 
-      <div class="sr-grid">
+      <div class="sr-grid sf-shrink sf-scroll sf-col">
         <section class="hm-panel sr-events" aria-labelledby="sr-events-h">
           <header class="hm-band"><h2 id="sr-events-h">Tournaments</h2><span class="hm-cap">{{ counted.length }} COUNTED</span></header>
           <p v-if="!events.length" class="hm-empty">No tournaments in this series yet.</p>

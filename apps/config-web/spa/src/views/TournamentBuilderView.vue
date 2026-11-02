@@ -191,7 +191,7 @@ async function pickPackage(name: string): Promise<void> {
 </script>
 
 <template>
-  <div class="hm-page tm-page tb-page" :class="{ 'tb-wide': tab === 'roster' || tab === 'ruleset' }">
+  <div class="hm-page tm-page tb-page sf-fit" :class="{ 'tb-wide': tab === 'roster' || tab === 'ruleset' }">
     <!-- The step tabs live in the shell header (owner 10-31) once mounted on a screen 640 px and wider; until then (and in
          server rendering) they render here. Phones get no tabs at all: the summary bar below returns to Ruleset. -->
     <Teleport to="#sf-header-slot" :disabled="!inHeader">
@@ -225,7 +225,7 @@ async function pickPackage(name: string): Promise<void> {
     <p v-else-if="!state.booted" class="hm-empty" role="status">Loading rulesets...</p>
     <p v-if="state.status" :class="state.statusError ? 'lobby-error' : 'hm-empty'" role="status">{{ state.status }}</p>
 
-    <div v-if="state.booted" :id="`tb-pane-${tab}`" class="tb-pane" role="tabpanel" :aria-labelledby="`tb-tab-${tab}`">
+    <div v-if="state.booted" :id="`tb-pane-${tab}`" class="tb-pane sf-fill" role="tabpanel" :aria-labelledby="`tb-tab-${tab}`">
       <TournamentBuilderLeague v-if="tab === 'ruleset' && builder.leagueMode()" @race="pickRace" @next="go('roster')" />
       <TournamentBuilderRuleset v-else-if="tab === 'ruleset'" @package="pickPackage" @race="pickRace" @next="go('roster')" />
       <div v-else-if="tab === 'roster'" class="tb-work">

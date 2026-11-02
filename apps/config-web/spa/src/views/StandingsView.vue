@@ -23,7 +23,7 @@ onMounted(() => { if (!state.loaded) void st.load(league.value); });
 </script>
 
 <template>
-  <div class="hm-page st-page">
+  <div class="hm-page st-page sf-fit">
     <section class="hm-panel st-pick" aria-labelledby="st-pick-h">
       <header class="hm-band"><h2 id="st-pick-h">League</h2><span class="hm-cap">Tabletop standings</span></header>
       <form class="st-form" novalidate @submit.prevent="go">
@@ -42,10 +42,10 @@ onMounted(() => { if (!state.loaded) void st.load(league.value); });
       <p class="st-next"><RouterLink class="ob-btn small" to="/leagues">Browse leagues</RouterLink></p>
     </section>
 
-    <section v-else-if="!state.error && state.loaded" class="hm-panel st-table" aria-labelledby="st-table-h">
+    <section v-else-if="!state.error && state.loaded" class="hm-panel st-table sf-pane sf-shrink" aria-labelledby="st-table-h">
       <header class="hm-band"><h2 id="st-table-h">{{ state.league }}</h2><span class="hm-cap">{{ state.rows.length }} {{ state.rows.length === 1 ? "coach" : "coaches" }}</span></header>
       <p v-if="!state.rows.length" class="hm-empty">No finished games in {{ state.league }} yet.</p>
-      <div v-else class="lg-scroll">
+      <div v-else class="lg-scroll sf-pane-body">
         <table class="lg-table">
           <thead>
             <tr>

@@ -80,7 +80,7 @@ onUnmounted(() => stopPolling());
 </script>
 
 <template>
-  <div class="hm-page tl-page">
+  <div class="hm-page tl-page sf-fit">
     <div class="tl-toolbar">
       <div ref="seg" class="tl-seg" role="radiogroup" aria-label="Tournament status" @keydown="onSegKey">
         <button
@@ -105,7 +105,7 @@ onUnmounted(() => stopPolling());
       <header class="hm-band"><h2 id="tl-none-h">{{ tabLabel }}</h2><span class="hm-cap">{{ caption }}</span></header>
       <p class="hm-empty">{{ state.q ? "No tournaments match that search." : `No ${state.tab} tournaments.` }}</p>
     </section>
-    <ul v-else class="tl-cards" :aria-label="`${tabLabel} tournaments`">
+    <ul v-else class="tl-cards sf-shrink sf-scroll sf-col" :aria-label="`${tabLabel} tournaments`">
       <li v-for="c in cards" :key="c.t.id">
         <article class="hm-panel tl-card" :aria-labelledby="`tl-${c.t.id}`">
           <div class="tl-strip" :data-banner="showBanner(c) ? 'image' : 'crest'">

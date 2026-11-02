@@ -22,7 +22,7 @@ onMounted(() => { if (!state.loaded) void list.load(); });
 </script>
 
 <template>
-  <div class="hm-page sr-page">
+  <div class="hm-page sr-page sf-fit">
     <div class="tl-toolbar">
       <RouterLink class="tl-action" to="/tournaments">All tournaments</RouterLink>
       <button v-if="canCreate" class="tl-create-btn" type="button" aria-haspopup="dialog" @click="creating = true">Create series</button>
@@ -33,7 +33,7 @@ onMounted(() => { if (!state.loaded) void list.load(); });
       <header class="hm-band"><h2 id="sr-none-h">Tournament series</h2><span class="hm-cap">{{ caption }}</span></header>
       <p class="hm-empty">No series yet.</p>
     </section>
-    <ul v-else class="tl-cards" aria-label="Tournament series">
+    <ul v-else class="tl-cards sf-shrink sf-scroll sf-col" aria-label="Tournament series">
       <li v-for="s in state.items" :key="s.id">
         <article class="hm-panel tl-card sr-card" :aria-labelledby="`sr-${s.id}`">
           <header class="hm-band"><h2>Series</h2><span class="hm-cap">{{ s.tournamentCount }} {{ s.tournamentCount === 1 ? "EVENT" : "EVENTS" }}</span></header>

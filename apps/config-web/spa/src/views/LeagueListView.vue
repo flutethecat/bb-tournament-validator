@@ -22,7 +22,7 @@ onMounted(() => { if (!state.loaded) void list.load(); });
 </script>
 
 <template>
-  <div class="hm-page lg-page">
+  <div class="hm-page lg-page sf-fit">
     <div v-if="canCreate" class="sf-btn-row lg-list-tools"><RouterLink class="sf-btn primary" :to="{ name: 'league-new' }">Create league</RouterLink></div>
     <p v-if="state.error" class="lobby-error" role="alert">{{ state.error }}</p>
     <p v-else-if="!state.loaded" class="hm-empty" role="status">Loading leagues...</p>
@@ -30,7 +30,7 @@ onMounted(() => { if (!state.loaded) void list.load(); });
       <header class="hm-band"><h2 id="lg-none-h">Leagues</h2><span class="hm-cap">{{ caption }}</span></header>
       <p class="hm-empty">No leagues yet.</p>
     </section>
-    <ul v-else class="tl-cards lg-cards" aria-label="Leagues">
+    <ul v-else class="tl-cards lg-cards sf-shrink sf-scroll sf-col" aria-label="Leagues">
       <li v-for="c in cards" :key="c.l.id">
         <article class="hm-panel tl-card lg-card" :aria-labelledby="`lg-${c.l.id}`">
           <div class="lg-strip" :data-banner="c.banner && !broken[`b:${c.l.id}`] ? 'image' : 'gradient'">

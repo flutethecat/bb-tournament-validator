@@ -632,3 +632,15 @@
 /* 1920x1080 with no page scroll (design.md §6): the league race grid and the league inducement list scroll inside their panes. */
 @media (min-width: 1180px) { .tb-league-races { max-height: max(280px, calc(100vh - 340px)); overflow-y: auto; overscroll-behavior: contain; padding-right: 2px; } }
 .tb-league-ind { max-height: 300px; overflow-y: auto; overscroll-behavior: contain; }
+
+/* ---- Fit to 1920x1080 (owner 11-02, home.css "Fit to 1920x1080"): the summary bar stays; the Ruleset and Sheet steps scroll
+   in the pane, and on the Roster step each of the three columns scrolls on its own (the roster list keeps its measured
+   height, TournamentBuilderRoster measureList). */
+@media (min-width: 1367px) and (min-height: 700px) {
+  .shell-main .tb-page.sf-fit { align-items: center; }
+  .tb-pane.sf-fill { position: relative; overflow-y: auto; overscroll-behavior: contain; padding: 2px 6px 8px 2px; margin: -2px -6px 0 -2px; }
+  .tb-pane.sf-fill:has(> .tb-work) { display: flex; flex-direction: column; overflow: hidden; }
+  .tb-pane.sf-fill > .tb-work { flex: 1 1 0; min-height: 0; align-items: stretch; }
+  .tb-pane.sf-fill > .tb-work > .tb-col { position: relative; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 2px 6px 8px 2px; margin: -2px -6px 0 -2px; }
+  .tb-pane.sf-fill > .tb-work > .tb-col-centre { padding-bottom: 0; } /* the measured roster list already ends 16 px above the screen edge */
+}

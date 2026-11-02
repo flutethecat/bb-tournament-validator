@@ -131,6 +131,8 @@
    bar, then the sidebar and the content area side by side, each scrolling inside itself, so the document never scrolls.
    A page opts in with .sf-fit on its root: it then fills the content area, and its long parts scroll in panes:
      .sf-fill        a child of .sf-fit (or of a .sf-pane) that takes the remaining height;
+     .sf-shrink      a child of .sf-fit that keeps its natural height but shrinks to the room left (a short list
+                     stays short, a long one scrolls);
      .sf-pane        a column panel (usually an .hm-panel): its band stays, its .sf-pane-body scrolls;
      .sf-scroll      any box that scrolls on its own (a column of panels, a table wrap);
      .sf-cols        a .hm-grid / .sf-split whose columns each scroll (.hm-col children become .sf-scroll).
@@ -149,6 +151,7 @@
   .shell-main .sf-fit > .sf-fill, .shell-main .sf-pane > .sf-fill { flex: 1 1 0; min-height: 0; }
   /* a notice above the page can leave too little room: the pane keeps a usable height and the content area scrolls */
   .shell-main .sf-fit > .sf-fill { min-height: 280px; }
+  .shell-main .sf-fit > .sf-shrink { flex: 0 1 auto; min-height: 200px; }
   .shell-main .sf-pane { display: flex; flex-direction: column; min-height: 0; }
   .shell-main .sf-pane > * { flex: none; }
   .shell-main .sf-pane > .sf-pane-body { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; }

@@ -904,7 +904,7 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
       expect(html, path).not.toContain("so-page");
     }
     const { html } = await render("/messages", { "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord", discordSsoEnabled: true } });
-    expect(html).toContain('class="so-page"');
+    expect(html).toContain('class="so-page sf-fit"'); // fit to 1920x1080 (owner 11-02)
     expect(html).toContain('id="so-threads-h"');
     expect(html).toContain('id="so-blocked-h"');
   });
@@ -934,7 +934,7 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     const { html } = await render("/account", signedInRoutes(), (spa) => { (spa.app as { provide: (k: symbol, v: unknown) => void }).provide(dlg.SCHEDULE_DIALOG_KEY, ctl); });
     expect(html).toMatch(/role="dialog" aria-modal="true" aria-labelledby="ac-sched-h"/);
     expect(html).toMatch(/id="ac-sched-h"[^>]*>\s*Set schedule/);
-    const pageTag = html.match(/<div class="hm-page ac-page"[^>]*>/)?.[0] ?? "";
+    const pageTag = html.match(/<div class="hm-page sf-fit sf-fill ac-page"[^>]*>/)?.[0] ?? "";
     expect(pageTag).toContain("inert");
     expect(pageTag).toContain('aria-hidden="true"');
     const d = html.slice(html.indexOf('role="dialog"'));
@@ -1056,7 +1056,7 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
 
   it("coach page: two-column panels, empty states, deadlines with chips in the coach's timezone, schedule grid, teams, what's new (latest 5)", async () => {
     const { html, f } = await render("/home", signedInRoutes());
-    expect(html).toContain('<div class="hm-grid">');
+    expect(html).toContain('<div class="hm-grid sf-fill sf-cols">'); // fit to 1920x1080: each column scrolls
     const main = html.slice(html.indexOf('class="hm-col hm-col-main"'), html.indexOf('class="hm-col hm-col-side"'));
     const side = html.slice(html.indexOf('class="hm-col hm-col-side"'));
     for (const id of ["whats-new", "notifications", "deadlines"]) expect(main).toContain(`id="${id}"`);

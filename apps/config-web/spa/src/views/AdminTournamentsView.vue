@@ -34,7 +34,7 @@ async function addOrganizer(id: string) {
 </script>
 
 <template>
-  <div class="hm-page">
+  <div class="hm-page sf-fit">
     <section class="hm-panel" aria-labelledby="ad-h">
       <header class="hm-band"><h2 id="ad-h">All tournaments</h2><span v-if="isAdmin && state.loaded" class="hm-cap">Page {{ state.page }}</span></header>
       <form v-if="isAdmin" class="ad-search" role="search" @submit.prevent="admin.search(query)">
@@ -48,7 +48,7 @@ async function addOrganizer(id: string) {
       <p v-if="state.error" class="sf-error" role="alert">{{ state.error }}</p>
       <p v-else-if="!state.loaded" class="muted" role="status">Loading tournaments...</p>
       <section v-else-if="!state.items.length" class="hm-panel"><p class="hm-empty">No tournaments.</p></section>
-      <ul v-else class="ad-list">
+      <ul v-else class="ad-list sf-shrink sf-scroll sf-col">
         <li v-for="t in state.items" :key="t.id" class="ad-card">
           <div class="ad-head">
             <h3 class="ad-name">
