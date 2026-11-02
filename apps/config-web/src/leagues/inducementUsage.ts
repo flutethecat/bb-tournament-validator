@@ -139,33 +139,61 @@ function resultFromRecorder(f: LeagueFixture, e: OpEntry): boolean {
   return f.home.score === e.result.home && f.away.score === e.result.away && (f.home.cas ?? 0) === e.result.homeCas && (f.away.cas ?? 0) === e.result.awayCas;
 }
 
-// Per source: opId -> the frozen publish (picks + recorded result). An opId missing from a scan is remembered for a
-// short while only (its match may be mid-publish), so a stray fixture never forces a scan on every request.
+// Per source: opId -> the frozen publish (picks + recorded result), least recently used first, at most OP_CACHE_MAX. An
+// opId missing from a scan is remembered for a short while only (its match may be mid-publish), so a stray fixture
+// never forces a scan on every request; expired misses are dropped on every call, and a miss found later is forgotten.
 const opCache = new WeakMap<InducementUsageSource, { ops: Map<string, OpEntry>; missing: Map<string, number> }>();
 const MISSING_TTL_MS = 60_000;
+export const OP_CACHE_MAX = 5_000;
+
+/** Test hook: the sizes of a source's caches. */
+export const usageCacheSize = (source: InducementUsageSource): { ops: number; missing: number } =>
+  ({ ops: opCache.get(source)?.ops.size ?? 0, missing: opCache.get(source)?.missing.size ?? 0 });
+
+function capped<V>(map: Map<string, V>, key: string, value: V, max: number): void {
+  map.delete(key);
+  map.set(key, value);
+  for (const oldest of map.keys()) { if (map.size <= max) break; map.delete(oldest); }
+}
 
 /** The counted games of these seasons: every played fixture, with the recorder's picks when its result came from there. */
-export async function usageGames(seasons: readonly SeasonRecord[], source: InducementUsageSource | undefined, now = Date.now()): Promise<UsageGame[]> {
+export async function usageGames(
+  seasons: readonly SeasonRecord[], source: InducementUsageSource | undefined, now = Date.now(), max = OP_CACHE_MAX,
+): Promise<UsageGame[]> {
   const played = seasons.flatMap((season) => season.fixtures.filter(fixturePlayed).map((f) => ({ season, f })));
-  let cache = source ? opCache.get(source) : undefined;
-  if (source && !cache) { cache = { ops: new Map(), missing: new Map() }; opCache.set(source, cache); }
-  if (source && cache) {
-    const wanted = played.map(({ f }) => f.tabletop?.opId).filter((op): op is string => Boolean(op) && !cache!.ops.has(op!) && !((cache!.missing.get(op!) ?? 0) > now));
-    if (wanted.length) {
-      const want = new Set(wanted);
-      const found = (await source.listMatches()).filter((m) => m.state === "published" && m.fixtureRef && m.fixtureLink?.opId && want.has(m.fixtureLink.opId));
+  // this request's entries, so an eviction during a large scan never drops a game it just read
+  const seen = new Map<string, OpEntry>();
+  if (source) {
+    let cache = opCache.get(source);
+    if (!cache) { cache = { ops: new Map(), missing: new Map() }; opCache.set(source, cache); }
+    const { ops, missing } = cache;
+    for (const [op, until] of missing) if (until <= now) missing.delete(op);
+    const wanted = new Set<string>();
+    for (const { f } of played) {
+      const op = f.tabletop?.opId;
+      if (!op || seen.has(op)) continue;
+      const hit = ops.get(op);
+      if (hit) { seen.set(op, hit); capped(ops, op, hit, max); } // refresh its place
+      else if (!missing.has(op)) wanted.add(op);
+    }
+    if (wanted.size) {
+      const found = (await source.listMatches()).filter((m) => m.state === "published" && m.fixtureRef && m.fixtureLink?.opId && wanted.has(m.fixtureLink.opId));
       for (const m of found) {
+        const op = m.fixtureLink!.opId;
         const sides = effectiveMatchPicks(m, await source.readEvents(m.id));
         const result = recordedResult(m);
-        cache.ops.set(m.fixtureLink!.opId, { ref: m.fixtureRef!, ...(result ? { result } : {}), ...(sides ? { sides } : {}) });
-        want.delete(m.fixtureLink!.opId);
+        const entry: OpEntry = { ref: m.fixtureRef!, ...(result ? { result } : {}), ...(sides ? { sides } : {}) };
+        seen.set(op, entry);
+        capped(ops, op, entry, max);
+        missing.delete(op);
+        wanted.delete(op);
       }
-      for (const op of want) cache.missing.set(op, now + MISSING_TTL_MS);
+      for (const op of wanted) capped(missing, op, now + MISSING_TTL_MS, max);
     }
   }
   return played.map(({ season, f }): UsageGame => {
     const op = f.tabletop?.opId;
-    const e = op ? cache?.ops.get(op) : undefined;
+    const e = op ? seen.get(op) : undefined;
     if (!e || e.ref !== leagueFixtureRef(season.leagueId, season.id, f.id) || !resultFromRecorder(f, e) || !e.sides) return { season };
     return { season, sides: e.sides };
   });

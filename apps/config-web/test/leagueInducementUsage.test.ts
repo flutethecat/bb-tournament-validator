@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { requireSession } from "../src/auth/requireSession";
 import { leagueApi, leaguePath, type LeagueApiDeps, type LeagueApiResult } from "../src/leagues/api";
-import { aggregateInducementUsage, effectiveMatchPicks, type InducementUsageSource, type InducementUsageView } from "../src/leagues/inducementUsage";
+import { aggregateInducementUsage, effectiveMatchPicks, usageCacheSize, usageGames, type InducementUsageSource, type InducementUsageView } from "../src/leagues/inducementUsage";
 import { LeagueStore } from "../src/leagues/store";
 import { leagueFixtureRef } from "../src/leagues/tabletopFixtures";
 import type { LeagueFixture, SeasonRecord } from "../src/leagues/types";
@@ -201,6 +201,32 @@ describe("GET .../seasons/:seasonId/inducements/usage", () => {
     expect(v.gamesCounted).toBe(3);
     await call("GET", U);
     expect(scans).toBe(2);
+  });
+
+  it("[review] the opId cache is bounded (LRU) and expired misses are pruned; a miss found later is forgotten", async () => {
+    const seasons = () => store.seasons("tabbl");
+    const t0 = 1_000_000;
+    // 4 recorded fixtures with a match (op-1, op-2a, op-2b, op-2e) and none for nothing: cap 2 keeps the 2 last used
+    const games = await usageGames(seasons(), source, t0, 2);
+    expect(games.filter((g) => g.sides).length).toBe(3); // this request still counts every game it read
+    expect(usageCacheSize(source)).toEqual({ ops: 2, missing: 0 });
+    // a fixture whose match is not there yet: one miss, kept while fresh, pruned once expired
+    const s2 = store.season("tabbl", "season-2")!;
+    Object.assign(s2.fixtures.find((f) => f.id === "f4")!, fixture("f4", true, "op-late"));
+    store.putSeason(s2);
+    await usageGames(seasons(), source, t0 + 1, 2);
+    expect(usageCacheSize(source).missing).toBe(1);
+    const scansFresh = scans;
+    await usageGames(seasons(), source, t0 + 2, 1000);
+    // (the larger cap refills the evicted ops with one scan; the fresh miss alone would not force one)
+    expect(scans).toBe(scansFresh + 1);
+    expect(usageCacheSize(source).missing).toBe(1);
+    // the match arrives after the miss expired: found, cached, and the miss is gone
+    matches.push(match("m-late", leagueFixtureRef("tabbl", "season-2", "f4"), "op-late"));
+    events["m-late"] = [ind("home", [{ id: "bribes", qty: 1 }])];
+    const later = await usageGames(seasons(), source, t0 + 120_000, 1000);
+    expect(later.filter((g) => g.sides).length).toBe(4);
+    expect(usageCacheSize(source)).toEqual({ ops: 5, missing: 0 });
   });
 
   it("[review] a recorder result cleared and replaced by hand (or edited by hand) no longer counts the old match", async () => {
