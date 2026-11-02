@@ -127,6 +127,40 @@
 .sf-rail-toggle:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .sf-scrim { display: none; }
 
+/* ---- Fit to 1920x1080 (owner 11-02, laws 18a, design.md §6). On a desktop screen the shell is one viewport tall: the top
+   bar, then the sidebar and the content area side by side, each scrolling inside itself, so the document never scrolls.
+   A page opts in with .sf-fit on its root: it then fills the content area, and its long parts scroll in panes:
+     .sf-fill        a child of .sf-fit (or of a .sf-pane) that takes the remaining height;
+     .sf-pane        a column panel (usually an .hm-panel): its band stays, its .sf-pane-body scrolls;
+     .sf-scroll      any box that scrolls on its own (a column of panels, a table wrap);
+     .sf-cols        a .hm-grid / .sf-split whose columns each scroll (.hm-col children become .sf-scroll).
+   A page that has not opted in scrolls inside the content area (never the document). Below the desktop size (≤ 1366
+   wide, or shorter than 700 px) none of this applies: panes stack at their natural height and the page scrolls normally,
+   so phones get no nested scroll traps. FIT_QUERY in shell/fit.ts mirrors this media query. */
+@media (min-width: 1367px) and (min-height: 700px) {
+  body > #app { position: relative; display: grid; grid-template-rows: auto minmax(0, 1fr); height: 100dvh; overflow: hidden; }
+  .sf-body { min-height: 0; }
+  .sf-aside { position: relative; top: auto; align-self: stretch; height: auto; min-height: 0; }
+  .sf-body > .shell-main { position: relative; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; } /* relative: visually hidden (absolute) text stays inside the scroller */
+  .sf-body > .shell-main > * { flex: none; }
+  .sf-body > .shell-main > .sf-fit { flex: 1 1 auto; }
+  .sf-fit { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+  .sf-fit > * { flex: none; min-height: 0; }
+  .sf-fit > .sf-fill, .sf-pane > .sf-fill { flex: 1 1 0; min-height: 0; }
+  .sf-pane { display: flex; flex-direction: column; min-height: 0; }
+  .sf-pane > * { flex: none; }
+  .sf-pane > .sf-pane-body { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+  .sf-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  /* scrolling columns: room for the panels' 4 px drop shadow and focus rings, which the scroller would clip */
+  .sf-cols > .hm-col, .sf-scroll.sf-col { padding: 2px 6px 8px 2px; margin: -2px -6px 0 -2px; }
+  .sf-cols { align-items: stretch; min-height: 0; }
+  .sf-cols > .hm-col { min-height: 0; overflow-y: auto; overscroll-behavior: contain; align-content: start; }
+  /* a table header stays in view while its pane scrolls */
+  .sf-pane-body thead th, .sf-scroll thead th { position: sticky; top: 0; z-index: 1; background: var(--ui-surface); }
+  /* hash targets land at the top of their pane, not under a top bar */
+  .sf-fit .hm-panel { scroll-margin-top: 8px; }
+}
+
 /* ---- nav trees */
 .sf-nav { padding: 8px 0; }
 /* Tree headers wear the coach page band box (owner 10-30): panel surface, 2 px frame, 4 px heading-red left accent. */

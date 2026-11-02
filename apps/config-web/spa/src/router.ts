@@ -4,6 +4,8 @@
 import { createRouter, type RouteLocationNormalized, type RouteRecordRaw, type RouterHistory } from "vue-router";
 import { LOBBY_ID_PATTERN } from "./shared/format";
 import type { SessionStore } from "./session";
+import { contentArea, fitMode, revealInPane } from "./shell/fit";
+import { hashId } from "./tournaments/scroll";
 import AccountView from "./views/AccountView.vue";
 import AdminOrganiserRequestsView from "./views/AdminOrganiserRequestsView.vue";
 import AdminTournamentsView from "./views/AdminTournamentsView.vue";
@@ -206,7 +208,16 @@ export function createAppRouter(history: RouterHistory, session: SessionStore) {
     history,
     routes,
     // Coach-page rows link to panels by hash (/home#deadlines): scroll that panel into view, clear of the top bar.
-    scrollBehavior: (to, _from, saved) => (to.hash ? { el: to.hash, top: 72 } : saved ?? undefined),
+    // Fitted desktop shell (shell/fit.ts): the window never scrolls, so a new page resets the content area and a hash
+    // target is revealed inside its pane.
+    scrollBehavior: (to, from, saved) => {
+      if (!fitMode()) return to.hash ? { el: to.hash, top: 72 } : saved ?? undefined;
+      const main = contentArea();
+      if (main && to.path !== from.path) main.scrollTop = 0;
+      const target = to.hash ? document.getElementById(hashId(to.hash)) : null;
+      if (target) revealInPane(target);
+      return false;
+    },
   });
   // Every navigation waits for the first session read, so a page never renders against an unknown identity. A
   // failed read does not block navigation: the shell shows the error with a retry.

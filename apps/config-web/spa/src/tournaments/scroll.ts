@@ -3,8 +3,12 @@
 // Register / Your entry) would land at the top. The page calls this once its load settles: wait a tick for the render,
 // then scroll the target clear of the top bar, retrying briefly while it has not appeared yet (bounded, fails quiet).
 
+import { fitMode, revealInPane } from "../shell/fit";
+
 export interface HashScrollDeps {
   find(id: string): { getBoundingClientRect(): { top: number } } | null;
+  /** Fitted desktop shell (shell/fit.ts): bring the target to the top of its own pane instead of moving the window. */
+  reveal?(el: unknown): void;
   scrollTo(top: number): void;
   scrollY(): number;
   tick(): Promise<void>;
@@ -23,6 +27,7 @@ export async function scrollToHashAfter(ready: Promise<unknown>, hash: string, d
   await deps.tick();
   for (let i = 0; i < tries; i++) {
     const el = deps.find(id);
+    if (el && deps.reveal) { deps.reveal(el); return true; }
     if (el) {
       deps.scrollTo(Math.max(0, el.getBoundingClientRect().top + deps.scrollY() - HASH_SCROLL_OFFSET));
       return true;
@@ -43,6 +48,7 @@ export function browserHashScroll(tick: () => Promise<void>): HashScrollDeps | n
   if (typeof window === "undefined" || typeof document === "undefined") return null;
   return {
     find: (id) => document.getElementById(id),
+    ...(fitMode() ? { reveal: (el: unknown) => revealInPane(el as Element) } : {}),
     scrollTo: (top) => window.scrollTo({ top }),
     scrollY: () => window.scrollY,
     tick,
