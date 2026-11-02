@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -495,5 +495,80 @@ describe("Pay entry fee block (server-rendered)", () => {
     expect(html).toMatch(/aria-labelledby="lg-summary-h"[^]*data-pay-block="true"[^]*Orcs: Payment: not yet marked/);
     const { payment: _p, ...plain } = season;
     expect(await render(mods.LOverview, { league, season: plain, summary, crests: {} })).not.toContain("data-pay-block");
+  });
+});
+
+// ---- privacy exports and the organiser CSV (Sol review P2s) ----
+
+describe("Paid audit in exports", () => {
+  const prevIdentities = process.env.IDENTITIES_FILE;
+  afterEach(() => { if (prevIdentities === undefined) delete process.env.IDENTITIES_FILE; else process.env.IDENTITIES_FILE = prevIdentities; });
+
+  async function seeded() {
+    const { seed, depsFor } = await import("./privacyFixture.js");
+    const { clearFences } = await import("../src/privacy/fence.js");
+    const root = tmp("paylinks-privacy-");
+    process.env.IDENTITIES_FILE = join(root, "identities.json");
+    clearFences();
+    await seed(root);
+    const deps = depsFor(root);
+    // Alice (an organiser of t1 and of league l1) marked Bob's entries paid.
+    const tFile = join(deps.tournamentsDir, "tournaments.json");
+    const t = JSON.parse(readFileSync(tFile, "utf8"));
+    t.entrants.e2.flags = { paid: true, rosterVerified: false, frozen: false, checkedIn: false, active: true };
+    t.entrants.e2.paidUpdated = { by: "Alice", at: "2026-11-02T12:00:00.000Z" };
+    writeFileSync(tFile, JSON.stringify(t));
+    const sFile = join(deps.stateDir, "leagues", "l1", "seasons", "s1.json");
+    const s = JSON.parse(readFileSync(sFile, "utf8"));
+    s.participants[1].paidUpdated = { by: "Alice", at: "2026-11-02T12:00:00.000Z" };
+    s.participants[1].teamId = "blue-elves";
+    writeFileSync(sFile, JSON.stringify(s));
+    return { root, deps, sFile, tFile };
+  }
+
+  it("a personal export carries the Paid marks the coach made, with the competition and entry reference only", async () => {
+    const { deps } = await seeded();
+    const { collectExport } = await import("../src/privacy/collectors.js");
+    const files = new Map((await collectExport(deps, "alice")).map((f) => [f.name, String(f.content)]));
+    const t = JSON.parse(files.get("tournament-entries.json")!);
+    expect(t.paidActions).toEqual([{ tournament: "Autumn Open", tournamentId: "t1", entrantId: "e2", paid: true, at: "2026-11-02T12:00:00.000Z" }]);
+    expect(JSON.stringify(t.paidActions)).not.toMatch(/Bob|notNafMember|discord/i);
+    const leagues = JSON.parse(files.get("league-teams.json")!);
+    expect(leagues[0].seasons[0].paidActions).toEqual([{ teamId: "blue-elves", team: "Blue Elves", paid: true, at: "2026-11-02T12:00:00.000Z" }]);
+    expect(JSON.stringify(leagues[0].seasons[0].paidActions)).not.toMatch(/BobNaf/);
+    // Bob made no Paid marks: his export has none.
+    const bob = new Map((await collectExport(deps, "bob")).map((f) => [f.name, String(f.content)]));
+    expect(JSON.parse(bob.get("tournament-entries.json")!).paidActions).toBeUndefined();
+  });
+
+  it("the league participants CSV carries paid_updated_by and paid_updated_at; the zip route is organiser-only", async () => {
+    const { leagueCsvFiles } = await import("../src/leagues/exportZip.js");
+    const { store, call, part, rev } = leagueFixture();
+    await call("PATCH", `${part()}/orcs`, JAY, { revision: rev(), paid: true });
+    const csv = String(Object.entries(leagueCsvFiles(store.league("tabbl")!, [store.season("tabbl", "season-6")!])).find(([k]) => k.endsWith("participants.csv"))![1]);
+    const [head, ...lines] = csv.split(/\r?\n/).filter(Boolean);
+    expect(head!.endsWith("checked_in,paid_updated_by,paid_updated_at")).toBe(true);
+    expect(lines.find((l) => l.includes("Orcs"))!.endsWith(`Jay,${NOW.toISOString()}`)).toBe(true);
+    // A deleted organiser shows as their pseudonym (the stored name after anonymisation).
+    const s = store.season("tabbl", "season-6")!;
+    s.participants.find((p) => p.teamId === "orcs")!.paidUpdated = { by: "Deleted coach #3", at: NOW.toISOString() };
+    const anon = String(Object.entries(leagueCsvFiles(store.league("tabbl")!, [s])).find(([k]) => k.endsWith("participants.csv"))![1]);
+    expect(anon).toContain(`Deleted coach #3,${NOW.toISOString()}`);
+    // The zip: organisers only.
+    expect((await call("GET", "/api/leagues/tabbl/export.zip", undefined)).status).toBe(401);
+    for (const who of [BOB, IVY, OLGA]) expect((await call("GET", "/api/leagues/tabbl/export.zip", who)).status, who.coach).toBe(403);
+    const ok = await call("GET", "/api/leagues/tabbl/export.zip", JAY);
+    expect(ok.status).toBe(200);
+  });
+
+  it("deleting the organiser anonymises their Paid marks in both stores", async () => {
+    const { deps, sFile, tFile } = await seeded();
+    const collectors = await import("../src/privacy/collectors.js");
+    const P = "Deleted coach #1";
+    const plan = { jobId: "x".repeat(24), coachHash: "", coach: "Alice", coachNames: ["Alice"], displays: ["Alice Smith", "AliceNaf"], nafId: "1001", pseudonym: P, teamKeys: [], proxyKeys: [], actor: "self", at: "" };
+    const ctx = collectors.deleteContext(deps, { ...collectors.splitPlan(plan as never).stored, coach: "Alice", coachNames: ["Alice"], displays: ["Alice Smith", "AliceNaf"], nafId: "1001" } as never);
+    for (const step of collectors.DELETE_STEPS.filter((x) => x.id === "anonymise-tournaments" || x.id === "anonymise-leagues")) await step.run(ctx);
+    expect(JSON.parse(readFileSync(tFile, "utf8")).entrants.e2.paidUpdated.by).toBe(P);
+    expect(JSON.parse(readFileSync(sFile, "utf8")).participants[1].paidUpdated.by).toBe(P);
   });
 });

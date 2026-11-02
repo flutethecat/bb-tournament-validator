@@ -408,6 +408,14 @@ export const STORE_COLLECTORS: StoreCollector[] = [
       const tName = (id?: string) => (id && data?.tournaments?.[id]?.name) || id || "";
       const entries = Object.values(data?.entrants ?? {}).filter((e) => isMine(ctx.keys, e.coach?.ffbCoachId))
         .map((e) => ({ tournament: tName(e.tournamentId), ...e }));
+      // Paid marks the coach made as a manager on other coaches' entries: the competition and the entry reference, what
+      // they set and when (nothing else of that coach's entry).
+      const paidActions = Object.values(data?.entrants ?? {})
+        .filter((e) => isObj(e.paidUpdated) && isMine(ctx.keys, (e.paidUpdated as Obj).by))
+        .map((e) => ({
+          tournament: tName(e.tournamentId), tournamentId: e.tournamentId, entrantId: e.id,
+          paid: isObj(e.flags) && (e.flags as Obj).paid === true, at: (e.paidUpdated as Obj).at,
+        }));
       // A fixture shows the opponent as on the public page: coach name and team only (never their Discord id).
       const side = (s: { coach?: { ffbCoachId?: string } } | undefined) => (s ? { ...s, coach: { ffbCoachId: s.coach?.ffbCoachId } } : s);
       const matches = Object.values(data?.scheduledMatches ?? {})
@@ -433,7 +441,7 @@ export const STORE_COLLECTORS: StoreCollector[] = [
       const resultEdits = Object.values(data?.tournaments ?? {}).flatMap((t) => objs(t.activity)
         .filter((e) => isMine(ctx.keys, e.by))
         .map((e) => ({ tournament: t.name ?? "", ...e })));
-      return [{ name: "tournament-entries.json", content: json({ entries, matches, managed, series, ...(awards.length ? { awards } : {}), ...(resultEdits.length ? { resultEdits } : {}) }) }];
+      return [{ name: "tournament-entries.json", content: json({ entries, matches, managed, series, ...(awards.length ? { awards } : {}), ...(resultEdits.length ? { resultEdits } : {}), ...(paidActions.length ? { paidActions } : {}) }) }];
     },
     erase: ["organiser-roles", "anonymise-tournaments"],
   },
@@ -460,8 +468,11 @@ export const STORE_COLLECTORS: StoreCollector[] = [
             standings: objs(s.phases).flatMap((p) => objs(p.standings).filter(linked)),
             awards: objs(s.awards).filter(linked),
             registrations: ownLeagueRegistrations(s, (v) => isMine(ctx.keys, v)),
+            // Paid marks the coach made as an organiser: the team reference, what they set and when.
+            paidActions: objs(s.participants).filter((p) => isObj(p.paidUpdated) && isMine(ctx.keys, (p.paidUpdated as Obj).by))
+              .map((p) => ({ ...(typeof p.teamId === "string" ? { teamId: p.teamId } : {}), team: p.team, paid: p.paid === true, at: (p.paidUpdated as Obj).at })),
           };
-        }).filter((r) => r.teams.length + r.fixtures.length + r.participants.length + r.standings.length + r.awards.length + r.registrations.length > 0);
+        }).filter((r) => r.teams.length + r.fixtures.length + r.participants.length + r.standings.length + r.awards.length + r.registrations.length + r.paidActions.length > 0);
         const role = isMine(ctx.keys, league.owner) ? "owner" : (league.organisers ?? []).some((o) => isMine(ctx.keys, o)) ? "organiser" : undefined;
         if (rows.length || role || awards.length || pins.length)
           leagues.push({ league: league.name ?? league.id, id: league.id, ...(role ? { role } : {}), seasons: rows, ...(awards.length ? { awards } : {}), ...(pins.length ? { hallOfFame: pins } : {}) });
