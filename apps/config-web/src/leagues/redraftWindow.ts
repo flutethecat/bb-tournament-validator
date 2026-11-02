@@ -19,7 +19,7 @@ import {
 } from "./redraft.js";
 import { leagueOwner, type LeagueStore } from "./store.js";
 import { assignSeasonsPlayed } from "./playerIds.js";
-import type { LeagueRecord, RedraftState, RedraftWindow, SeasonRecord } from "./types.js";
+import type { LeagueRecord, RedraftState, RedraftTeamTask, RedraftWindow, SeasonRecord } from "./types.js";
 
 /**
  * The league's seasons for redraft pricing, newest first, with seasonsPlayed derived when a stored season predates the
@@ -122,11 +122,15 @@ export function redraftPlayBlock(seasons: SeasonRecord[], team: { teamId?: strin
   const named = (team.team ?? "").trim().toLowerCase();
   for (const s of seasons) {
     const state = s.redraft;
-    if (!state || state.closedAt || !state.window) continue;
+    if (!state || !state.window) continue;
     for (const task of state.teams) {
       if (!task.selected || (task.status !== "pending" && task.status !== "submitted")) continue;
       const hit = team.teamId ? task.teamId === team.teamId : Boolean(named) && task.name.trim().toLowerCase() === named;
       if (!hit) continue;
+      // A journalled rebuild whose roster is not in the receiving season yet stays blocked (also after a close), so no
+      // result can reach the team before its new roster is durable.
+      if (applyingRebuild(state, task)) return `${task.name}'s rebuilt roster is still being written into the next season: no games until then.`;
+      if (state.closedAt) continue;
       if (windowOpen(state.window, now)) return `${task.name} is redrafting until ${whenText(state.window.closesAt)}: no games while the redraft window is open.`;
       if (task.status !== "pending") continue;
       if (task.needsRedraft) return `${task.name} needs to finish its redraft before it can play.`;
@@ -135,6 +139,11 @@ export function redraftPlayBlock(seasons: SeasonRecord[], team: { teamId?: strin
     }
   }
   return "";
+}
+
+/** A window-close rebuild journalled on the task but not yet written into the receiving season (redraftWindow job). */
+export function applyingRebuild(state: Pick<RedraftState, "window">, task: Pick<RedraftTeamTask, "auto" | "status" | "draft" | "appliedTo">): boolean {
+  return Boolean(task.auto && task.status === "submitted" && task.draft && !task.appliedTo && state.window?.closing && !state.window.processedAt);
 }
 
 /** The block for either side of a fixture ("" = both may play). */
@@ -170,7 +179,9 @@ const organisersOf = (league: LeagueRecord): string[] => {
 /** Seasons with an open redraft that has a window step still to do (cheap pre-check before any write). */
 function due(state: RedraftState, now: number): boolean {
   const w = state.window;
-  if (!w || state.closedAt) return false;
+  if (!w) return false;
+  // A closed redraft still finishes a journalled close (its rebuilt rosters must reach the receiving season).
+  if (state.closedAt) return Boolean(w.closing && !w.processedAt);
   if (!w.openNotifiedAt && now >= t(w.opensAt)) return true;
   if (!w.reminderAt && now >= t(w.closesAt) - REMINDER_MS && now < t(w.closesAt)) return true;
   return !w.processedAt && now >= t(w.closesAt);
@@ -208,13 +219,14 @@ export function runRedraftWindowJob(deps: RedraftWindowDeps): RedraftWindowOutco
     const write = (s: SeasonRecord): void => { try { deps.store.putSeason(s); } catch { throw new WriteFailed(); } };
     try {
       let changed = false;
-      if (!w.openNotifiedAt && ms >= t(w.opensAt)) {
+      const live = !state.closedAt;
+      if (live && !w.openNotifiedAt && ms >= t(w.opensAt)) {
         w.openNotifiedAt = iso;
         changed = true;
         for (const x of pending) coachNote(x.coachId, x.teamId, "Redraft open", `the redraft for ${x.name} is open until ${whenText(w.closesAt)}. Roll Rest & Relaxation, then build next season's roster in the Roster Builder.`);
         out.opened.push(`${league.id}/${source.id}`);
       }
-      if (!w.reminderAt && ms >= t(w.closesAt) - REMINDER_MS && ms < t(w.closesAt)) {
+      if (live && !w.reminderAt && ms >= t(w.closesAt) - REMINDER_MS && ms < t(w.closesAt)) {
         w.reminderAt = iso;
         changed = true;
         for (const x of pending) coachNote(x.coachId, x.teamId, "Redraft closes in 24 hours", `${x.name}'s redraft closes at ${whenText(w.closesAt)}. Submit your draft list, or the team is rebuilt from its current roster if it fits the budget.`);
@@ -222,7 +234,7 @@ export function runRedraftWindowJob(deps: RedraftWindowDeps): RedraftWindowOutco
       }
       if (!w.processedAt && ms >= t(w.closesAt)) {
         // 1. journal (once): rebuild in memory without touching the receiving season, then write the source.
-        if (!w.closing) {
+        if (!w.closing && live) {
           w.closing = iso;
           for (const task of pending) {
             if (task.needsRedraft) continue;
@@ -245,13 +257,11 @@ export function runRedraftWindowJob(deps: RedraftWindowDeps): RedraftWindowOutco
         const target = redraftTarget(seasons, source);
         const waiting = state.teams.filter((x) => x.auto && x.status === "submitted" && x.draft && !x.appliedTo);
         if (target && waiting.length) {
-          for (const task of waiting) {
-            const conflict = targetConflict(target, { id: task.teamId, name: task.name }, task.draft!.team);
-            if (conflict) { task.status = "expired"; task.expiredReason = conflict; continue; }
-            applyDraftTeam(target, task.draft!.team);
-          }
+          // A journalled rebuild is never expired here: the team stayed blocked from play since the journal (applyingRebuild),
+          // so whatever the receiving season holds for it is an earlier attempt of this same roster (placed again).
+          for (const task of waiting) applyDraftTeam(target, task.draft!.team);
           write(target);
-          for (const task of waiting) if (task.status === "submitted") task.appliedTo = target.id;
+          for (const task of waiting) task.appliedTo = target.id;
         }
         // 3. mark processed (only now that the receiving season is durable); people are told after the write below.
         const rebuilt = state.teams.filter((x) => x.auto && x.submittedAt === closing && x.status === "submitted").map((x) => x.teamId);

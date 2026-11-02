@@ -231,6 +231,22 @@ describe("redraft mode helpers (owner 11-02)", () => {
     expect(reads).toBe(2); // no reload after a failed save
   });
 
+  it("[review P3] a board reload keeps the organiser's ticks; another source season starts from the server's selection", async () => {
+    const f = mockFetcher({
+      "/api/leagues/tabbl/redraft": () => ({ redraft: boardView({ cap: 1_250_000 }) }),
+      "/api/leagues/tabbl/redraft?source=season-5": { redraft: boardView({ source: { id: "season-5", name: "Season 5", number: 5, ruleset: "BB2025" } }) },
+    });
+    const b = createRedraftBoard({ api: f });
+    await b.load("tabbl");
+    b.state.picked.orcs = true;
+    b.state.picked.gobbos = true;
+    expect(await saveRedraftRules({ save: async () => true }, b, { cap: 1_250_000 })).toBe(true);
+    expect(b.state.picked).toMatchObject({ orcs: true, gobbos: true, elves: false });
+    expect(b.state.cap).toBe(1_250_000);
+    await b.pickSource("season-5");
+    expect(b.state.picked).toMatchObject({ orcs: false, gobbos: false });
+  });
+
   it("board controller: Lift to budget per team and for all; confirm sends the window", async () => {
     const f = mockFetcher({
       "/api/leagues/tabbl/redraft": { redraft: boardView({ rules: { base: null, perGame: 20_000, perWin: 20_000, perDraw: 10_000, perLoss: 0, agentFee: 20_000, capEnabled: true, cap: 1_300_000, setBudget: 1_000_000, liftToBudget: false, windowDays: 5 } }) },

@@ -115,13 +115,18 @@ export function createRedraftBoard(deps: { api: Fetcher }) {
     opensAt: "", windowDays: 7,
   });
 
+  let keptSource: string | undefined;
   function take(view: RedraftBoardView): void {
-    state.view = view;
     // Before confirmation the cap and the window follow the league's saved settings (a settings save reloads the board).
     state.capEnabled = view.capEnabled;
     state.cap = view.cap;
     if (view.rules && !view.state) state.windowDays = view.rules.windowDays;
-    state.picked = Object.fromEntries([...view.active, ...view.inactive].map((r) => [r.teamId, r.selected]));
+    // A reload of the same unconfirmed board (a settings save, a target pick) keeps the organiser's ticks; a confirmed
+    // board, or another source season, starts from the server's selection.
+    const keep = !view.state && state.view !== null && keptSource === view.source?.id;
+    state.picked = Object.fromEntries([...view.active, ...view.inactive].map((r) => [r.teamId, keep && state.picked[r.teamId] !== undefined ? state.picked[r.teamId]! : r.selected]));
+    keptSource = view.source?.id;
+    state.view = view;
   }
 
   async function load(id: string): Promise<void> {

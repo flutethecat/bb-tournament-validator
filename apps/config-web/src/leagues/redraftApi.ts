@@ -33,7 +33,7 @@ import {
   windowView, type BoardRow, type CoachRedraftView,
 } from "./redraft.js";
 import { amountsOf, effectiveRedraftRules, WINDOW_DAYS_MAX } from "./redraftRules.js";
-import { commitDraft, newWindow, redraftBoardLink, redraftModeLink, redraftSeasons, whenText, windowBefore } from "./redraftWindow.js";
+import { applyingRebuild, commitDraft, newWindow, redraftBoardLink, redraftModeLink, redraftSeasons, whenText, windowBefore } from "./redraftWindow.js";
 import { isLeagueOrganiser, leagueOwner, type LeagueStore } from "./store.js";
 import type { LeagueRecord, RedraftBudget, RedraftLogEntry, RedraftRules, RedraftState, RedraftTeamTask, RedraftWindow, SeasonRecord } from "./types.js";
 import { isDraftLeague, publishedLeagues } from "./lifecycle.js";
@@ -428,6 +428,9 @@ async function boardPost(lg: LeagueRecord, auth: LeagueApiIdentity, input: Recor
   }
 
   if (action === "close") {
+    // The window close may still be writing rebuilt rosters into the next season (the job resumes each minute).
+    if (state.teams.some((t) => applyingRebuild(state, t)))
+      return fail(409, "The window close is still writing rebuilt rosters into the next season. Try Close redraft again in a minute.");
     const left = state.teams.filter((t) => t.selected && t.status === "pending");
     for (const t of left) { t.status = "skipped"; delete t.needsRedraft; }
     const done = state.teams.filter((t) => t.status === "submitted").length;

@@ -447,6 +447,48 @@ describe("redraft mode routes", () => {
     expect(runDeadlineJob({ store, now: () => later }).applied.map((a) => a.fixtureId)).toEqual(["n1"]);
   });
 
+  it("[review P2] a journalled rebuild stays blocked until its roster is durable: no auto-forfeit in between, recovery never expires it", async () => {
+    expect((await confirm()).status).toBe(200);
+    const s7 = store.season("tabbl", "season-7")!;
+    s7.deadlinePolicy = { autoForfeit: true, outcome: "both-lose" };
+    s7.fixtures[0]!.deadline = new Date(NOW.getTime() + 6 * DAY).toISOString();
+    store.putSeason(s7);
+    const closeAt = new Date(NOW.getTime() + 7 * DAY + 1000);
+    const broken = runRedraftWindowJob({ store: failingStore((s) => s.id === "season-7"), notify: tell, now: () => closeAt, rollD6: () => 6 });
+    expect(broken.failed).toEqual(["tabbl"]);
+    expect(task("orcs")).toMatchObject({ status: "submitted", auto: true });
+    expect(task("orcs").appliedTo).toBeUndefined();
+    // the journalled teams stay blocked: the overdue fixture takes no deadline outcome, no result can be entered
+    expect(redraftPlayBlock(store.seasons("tabbl"), { teamId: "orcs" }, closeAt)).toMatch(/still being written/);
+    expect(runDeadlineJob({ store, now: () => closeAt }).applied).toEqual([]);
+    expect((await call("PATCH", "/api/leagues/tabbl/seasons/season-7/fixtures/n1", JAY, { result: { home: 1, away: 0 } }, { now: () => closeAt })).status).toBe(409);
+    expect(store.season("tabbl", "season-7")!.fixtures[0]!.home.score).toBeNull();
+    // recovery applies both rosters; nothing expires
+    runRedraftWindowJob({ store, notify: tell, now: () => closeAt, rollD6: () => 6 });
+    expect(task("orcs")).toMatchObject({ status: "submitted", appliedTo: "season-7" });
+    expect(task("gobbos")).toMatchObject({ status: "submitted", appliedTo: "season-7" });
+    expect(store.season("tabbl", "season-7")!.teams.map((t) => t.id).sort()).toEqual(["gobbos", "orcs"]);
+    expect(redraftPlayBlock(store.seasons("tabbl"), { teamId: "orcs" }, closeAt)).toBe("");
+  });
+
+  it("[review P2] Close redraft waits for a journalled close; a tick still recovers it after a close", async () => {
+    expect((await confirm()).status).toBe(200);
+    const closeAt = new Date(NOW.getTime() + 7 * DAY + 1000);
+    runRedraftWindowJob({ store: failingStore((s) => s.id === "season-7"), notify: tell, now: () => closeAt, rollD6: () => 6 });
+    const refused = await call("POST", "/api/leagues/tabbl/redraft", JAY, { revision: rev(), action: "close" }, { now: () => closeAt });
+    expect(refused.status).toBe(409);
+    expect((refused.body as { error: string }).error).toMatch(/still writing rebuilt rosters/);
+    expect(s6().redraft!.closedAt).toBeUndefined();
+    // a redraft closed anyway (an older server, a hand edit): the tick still finishes the journalled work
+    const s = s6(); s.redraft!.closedAt = closeAt.toISOString(); s.redraft!.closedBy = "Jay"; store.putSeason(s);
+    const out = runRedraftWindowJob({ store, notify: tell, now: () => closeAt, rollD6: () => 6 });
+    expect(out.closed.map((c) => c.rebuilt.sort())).toEqual([["gobbos", "orcs"]]);
+    expect(task("orcs").appliedTo).toBe("season-7");
+    expect(store.season("tabbl", "season-7")!.teams.map((t) => t.id).sort()).toEqual(["gobbos", "orcs"]);
+    // once applied, Close works as before (here: already closed)
+    expect(runRedraftWindowJob({ store, now: () => closeAt }).closed).toEqual([]);
+  });
+
   it("CSRF covers every redraft write (by method); the reads are safe methods", () => {
     for (const p of ["/api/leagues/tabbl/redraft", "/api/leagues/tabbl/redraft/teams/orcs/rest", "/api/leagues/tabbl/redraft/teams/orcs/submit"]) expect(isStateChangingApiRequest("POST", p)).toBe(true);
     expect(isStateChangingApiRequest("PATCH", "/api/leagues/tabbl/settings")).toBe(true);
