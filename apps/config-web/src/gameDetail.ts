@@ -11,6 +11,7 @@
 // The hero card is built by the Past Games normaliser itself (recentResults over just this game), so the page and the
 // card never disagree. Anything not public (draft tournaments, test or unfinished tabletop matches) is a 404.
 
+import { visibleComments } from "./discord/hub.js";
 import type { GamestateTeamResult } from "@bb/fork-ops";
 import { recentResults, TABLETOP_LISTED, type GameSource, type RecentInputs, type RecentResult, type RecentSide } from "./recentResults.js";
 import type { StoredTournamentResult } from "./tournamentResults.js";
@@ -165,6 +166,8 @@ export interface GameDetail {
   card: GameCard;
   summary: GameSummary;
   reporter?: GameReporter;
+  /** Recorder games: the coach's comments organisers have not hidden (src/discord/comments.ts). */
+  comments?: Array<{ side: "home" | "away"; coach: string; text: string }>;
   /** Online games only: the state of the turn-ordered log. */
   replay?: ReplayState;
 }
@@ -449,21 +452,24 @@ export function gameDetail(source: GameSource, id: string, inputs: GameInputs): 
     let summary = baseSummary(gameCard, m.roundNumber, { id: t.id, name: t.name, href: roundsHref(t.id) }, true);
     const recorded = inputs.tabletop.find((r) => r.match.fixtureRef === m.id && listedTabletop(r.match));
     let reporter: GameReporter | undefined;
+    let comments: GameDetail["comments"] = [];
     if (recorded) {
       // A tabletop match recorded for this fixture: its sides follow the match, which may list the coaches swapped.
       const swapped = recorded.match.fixtureSwap === true;
       summary = withTabletop(summary, recorded);
       reporter = reporterFor(recorded.match, recorded.events);
+      comments = visibleComments(recorded.match);
       if (swapped) {
         // The page reads in fixture order: the summary, the reporter's two summaries and each moment's side all flip.
         summary = { ...summary, home: summary.away, away: summary.home };
         reporter = swapReporter(reporter);
+        comments = comments.map((c) => ({ ...c, side: c.side === "home" ? "away" as const : "home" as const }));
       }
     } else if (forkRow) {
       summary = withFork(summary, forkRow, forkRow.home.coach.trim().toLowerCase() !== m.home.coach.ffbCoachId.trim().toLowerCase() &&
         forkRow.away.coach.trim().toLowerCase() === m.home.coach.ffbCoachId.trim().toLowerCase(), inputs.leagueGame);
     }
-    return { source, id, card: gameCard, summary: withEdit(summary, m), ...(reporter ? { reporter } : {}) };
+    return { source, id, card: gameCard, summary: withEdit(summary, m), ...(reporter ? { reporter } : {}), ...(comments.length ? { comments } : {}) };
   }
 
   if (source === "tabletop") {
@@ -478,7 +484,8 @@ export function gameDetail(source: GameSource, id: string, inputs: GameInputs): 
       row,
     );
     const edited = row.match.fixtureRef ? anyFixture(inputs.tournaments, (m) => m.id === row.match.fixtureRef) : undefined;
-    return { source, id, card: gameCard, summary: withEdit(summary, edited), reporter: reporterFor(row.match, row.events) };
+    const comments = visibleComments(row.match);
+    return { source, id, card: gameCard, summary: withEdit(summary, edited), reporter: reporterFor(row.match, row.events), ...(comments.length ? { comments } : {}) };
   }
 
   const row = inputs.results.find((r) => r.gameId === id && isForkRow(r));

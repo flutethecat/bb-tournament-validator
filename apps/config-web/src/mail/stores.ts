@@ -119,6 +119,8 @@ export interface CoachMailPrefs {
   /** Account page "Discord messages for actions I need to take" (absent = on for a coach with Discord linked), stamped
    *  with when it was set and the wording version (src/mail/service.ts DISCORD_DM_VERSION). */
   discordDm?: { on: boolean; at: string; version: string };
+  /** Account page "Filter profanity" (absent = on): listed words show as *** for this viewer (src/discord/displaySettings.ts). */
+  profanityFilter?: { on: boolean; at: string };
 }
 
 interface PrefsFile { version: 1; coaches: Record<string, CoachMailPrefs> }

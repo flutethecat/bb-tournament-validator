@@ -932,6 +932,8 @@ function anonymiseTabletopMatch(an: Anonymiser, tx: TextReplacer, m: Obj): boole
   mark(an.fields(m.confirmedBy, ["by"], []));
   mark(an.keyedMap(m.confirmations)); // coach -> confirmation time: a known coach-keyed map
   mark(tx.texts(m, ["note"]));
+  // Coach's comments (keyed by side, so the seat above carries the coach): their text, and who hid one.
+  if (isObj(m.comments)) for (const c of [m.comments.home, m.comments.away]) { mark(tx.texts(c, ["text"])); if (isObj(c)) mark(an.fields(c.hidden, ["by"], [])); }
   return changed;
 }
 
