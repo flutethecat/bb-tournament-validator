@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-02",
+    "title": "Weekly Digest marks organiser-typed scores as edited",
+    "body": "A score an organiser typed or changed shows in the Weekly Digest as \"(edited)\" and counts as a normal result. Only outcomes an admin decided (forfeits, deadline forfeits, concessions with no recorded game) are labelled as an administrative win, loss or draw, with no score.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-02",
     "title": "Weekly Digest now lists every result, and labels administrative ones",
     "body": "The Discord Weekly Digest includes hand-entered results as well as recorded games. Forfeits, deadline auto-forfeits, concessions entered by an organiser and organiser overrides of an existing result show as an administrative win, loss or draw (forfeits show no score). Highlights still use recorded games only.",
     "links": [

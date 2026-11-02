@@ -4,9 +4,9 @@
  * with a webhook. A period with no games is skipped. Content: standings (top 10 + movers), the period's results, and
  * highlights from RECORDED games only (most fouls, deaths, top scorer, most casualties; biggest win may use any scored
  * result that is not administrative); bounties claimed have no data source yet, so that highlight is omitted. The results
- * list holds EVERY result of the period (recorded, hand-entered, imported); an administratively decided one (a forfeit, the
- * deadline auto-forfeit, a concession entered by an organiser, an organiser's override of an existing result) is labelled
- * as an administrative win / loss / draw.
+ * list holds EVERY result of the period (recorded, hand-entered, imported). An outcome an admin DECIDED (a forfeit, the
+ * deadline auto-forfeit, a concession on a fixture with no recorded game) is labelled as an administrative win / loss / draw
+ * with no score; a score an organiser typed or changed is labelled "(edited)" and otherwise counts as a normal result.
  *
  * Pure (time and data passed in): the scheduler (observer.ts) decides when, stores the last run, and posts.
  */
@@ -105,24 +105,25 @@ const finished = (f: LeagueFixture): number => Date.parse(f.finishedAt ?? f.tabl
 export const recordedResult = (f: LeagueFixture): boolean => Boolean(f.fork?.result || f.tabletop?.opId);
 
 /**
- * What marks a result as administrative (none of these is on a recorded game that nobody touched):
+ * What marks a result as administrative: an outcome an admin or organiser DECIDED instead of a score being recorded:
  *   - deadlineOutcome "both-lose": both sides lose (the deadline auto-forfeit, auto: true, or an organiser's decision);
- *   - a conceded side on a fixture with no recorded game (an organiser's or admin's forfeit or concession, or an import's);
- *   - resultEdit: an organiser or admin typed a new score over a result that already existed.
- * A first-time typed score, or an imported one, with no concession is a normal result (the store cannot tell a played game
- * from an award, so only an override of an existing result counts).
+ *   - a conceded side on a fixture with no recorded game (a forfeit or concession), unless an organiser has since typed a
+ *     score over it (resultEdit): then the typed score is the result.
+ * A score typed or changed by an organiser is not administrative; it is "edited" (editedResult).
  */
 export type AdminResult = { kind: "win"; winner: "home" | "away" } | { kind: "loss-both" } | { kind: "draw" };
 export function adminResult(f: LeagueFixture): AdminResult | undefined {
   if (f.deadlineOutcome?.outcome === "both-lose") return { kind: "loss-both" };
   const o = fixtureOutcome(f);
   if (!o) return undefined;
-  const forfeit = !recordedResult(f) && (f.home.conceded || f.away.conceded);
-  if (!forfeit && !f.resultEdit) return undefined;
+  if (recordedResult(f) || f.resultEdit || !(f.home.conceded || f.away.conceded)) return undefined;
   if (o.home === "win") return { kind: "win", winner: "home" };
   if (o.away === "win") return { kind: "win", winner: "away" };
   return o.home === "draw" ? { kind: "draw" } : { kind: "loss-both" };
 }
+
+/** A score an organiser or admin typed (first time) or changed (private marker resultEdit), and not an administrative decision. */
+export const editedResult = (f: LeagueFixture): boolean => Boolean(f.resultEdit) && fixturePlayed(f) && !adminResult(f);
 
 /** When the result was decided: the game's finish, an organiser's override, or the deadline forfeit. NaN = undated. */
 const resultTime = (f: LeagueFixture): number => {
@@ -139,20 +140,18 @@ export function periodFixtures(season: Pick<SeasonRecord, "fixtures">, from: num
   return season.fixtures.filter((f) => (fixturePlayed(f) || f.deadlineOutcome?.outcome === "both-lose") && !f.test && resultTime(f) > from && resultTime(f) <= to);
 }
 
-/** The period's fixtures that came from a recorded game and were not overridden: the only source of highlights' detail. */
-export const recordedFixtures = (fixtures: LeagueFixture[]): LeagueFixture[] => fixtures.filter((f) => recordedResult(f) && !adminResult(f));
+/** The period's fixtures that came from a recorded game and were not edited: the only source of highlights' detail. */
+export const recordedFixtures = (fixtures: LeagueFixture[]): LeagueFixture[] => fixtures.filter((f) => recordedResult(f) && !adminResult(f) && !editedResult(f));
 
 const resultLine = (f: LeagueFixture): string => {
   const h = safe(f.home.team, 60);
   const a = safe(f.away.team, 60);
   const adm = adminResult(f);
-  if (!adm) return `${h} ${f.home.score ?? 0} - ${f.away.score ?? 0} ${a}`;
-  // A forfeit or concession with no score shows none; an override keeps its score, even 0 - 0.
-  const forfeit = f.deadlineOutcome?.outcome === "both-lose" || (!recordedResult(f) && (f.home.conceded || f.away.conceded));
-  const score = !forfeit || f.home.score || f.away.score ? ` (${f.home.score ?? 0} - ${f.away.score ?? 0})` : "";
-  if (adm.kind === "loss-both") return `Admin loss: ${h} and ${a} (both teams)${score}`;
-  if (adm.kind === "draw") return `Admin draw: ${h} and ${a}${score}`;
-  return adm.winner === "home" ? `Admin win: ${h} over ${a}${score}` : `Admin win: ${a} over ${h}${score}`;
+  if (!adm) return `${h} ${f.home.score ?? 0} - ${f.away.score ?? 0} ${a}${editedResult(f) ? " (edited)" : ""}`;
+  // A decided outcome shows no score.
+  if (adm.kind === "loss-both") return `Admin loss: ${h} and ${a} (both teams)`;
+  if (adm.kind === "draw") return `Admin draw: ${h} and ${a}`;
+  return adm.winner === "home" ? `Admin win: ${h} over ${a}` : `Admin win: ${a} over ${h}`;
 };
 
 function firstTable(season: SeasonRecord): StandingRow[] {
@@ -181,7 +180,8 @@ export function standingsWithMovers(season: SeasonRecord, from: number): { stand
 
 /**
  * Highlights from the RECORDED fixtures (casualty counts) and games (in-game events); a highlight without data is left out.
- * Biggest win reads `scored` (default: the same fixtures): any result of the period that is not administrative.
+ * Biggest win reads `scored` (default: the same fixtures): any result of the period that is not administrative (an edited
+ * score counts; its label is added).
  */
 export function highlights(fixtures: LeagueFixture[], games: GameRecord[], scored: LeagueFixture[] = fixtures): PostField[] {
   const out: PostField[] = [];
@@ -209,7 +209,7 @@ export function highlights(fixtures: LeagueFixture[], games: GameRecord[], score
   const deaths = games.flatMap((g) => g.lines.death.map((l) => `${safe(l.player, 60)} (${safe(g[l.side].team, 60)})`));
   if (deaths.length) out.push({ name: "Deaths", value: deaths.slice(0, 10).join("\n") });
   const big = scored.filter((f) => !adminResult(f)).map((f) => ({ f, margin: Math.abs((f.home.score ?? 0) - (f.away.score ?? 0)) })).filter((x) => x.margin > 0).sort((a, b) => b.margin - a.margin)[0];
-  if (big) out.push({ name: "Biggest win", value: `${safe(big.f.home.team, 60)} ${big.f.home.score} - ${big.f.away.score} ${safe(big.f.away.team, 60)}`, inline: true });
+  if (big) out.push({ name: "Biggest win", value: `${safe(big.f.home.team, 60)} ${big.f.home.score} - ${big.f.away.score} ${safe(big.f.away.team, 60)}${editedResult(big.f) ? " (edited)" : ""}`, inline: true });
   return out;
 }
 

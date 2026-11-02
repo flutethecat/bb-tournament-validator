@@ -467,7 +467,7 @@ describe("Weekly Digest", () => {
     expect(c.highlights.map((h) => h.name)).toEqual(["Most casualties", "Biggest win"]); // no recorded games: no fouls / scorers / deaths, no bounties ever
   });
 
-  it("typed and administrative results are in the digest; admin ones are labelled, forfeits show no score, highlights stay recorded-only", () => {
+  it("decided outcomes are labelled administrative with no score; organiser-typed scores are labelled edited; recorded and coach results are unlabelled", () => {
     const sc = (h: number | null, a: number | null, cas: number | null = null) => ({ home: { ...fx("x").home, score: h, cas }, away: { ...fx("x").away, score: a, cas } });
     const recorded = fx("rec", { ...sc(2, 1, 3), tabletop: { revision: 1, opId: "op" }, finishedAt: at(-30) });
     const typed = fx("typed", { ...sc(5, 0, 9), finishedAt: at(-29), round: 2 });
@@ -478,21 +478,21 @@ describe("Weekly Digest", () => {
     const overrideWin = fx("ow", { ...sc(8, 1), tabletop: { revision: 1, opId: "op2" }, finishedAt: at(-300), resultEdit: { by: "Org", at: at(-25) } });
     const overrideDraw = fx("od", { ...sc(1, 1), finishedAt: at(-300), resultEdit: { at: at(-24) } });
     const overrideZero = fx("oz", { ...sc(0, 0), finishedAt: at(-300), resultEdit: { at: at(-22) } });
+    const firstTyped = fx("ft", { ...sc(6, 2), finishedAt: at(-21), resultEdit: { by: "Org", at: at(-21) } });
     const noResult = fx("nr", { deadlineOutcome: { outcome: "no-result", by: "Org", at: at(-23) } });
     const undated = fx("und", { ...sc(4, 4) });
-    const s = season("season-1", [recorded, typed, forfeit, forfeitAway, deadlineAuto, deadlineOrg, overrideWin, overrideDraw, overrideZero, noResult, undated]);
+    const s = season("season-1", [recorded, typed, forfeit, forfeitAway, deadlineAuto, deadlineOrg, overrideWin, overrideDraw, overrideZero, firstTyped, noResult, undated]);
     const c = weeklyContent(s, NOW.getTime() - 7 * 24 * 3_600_000, NOW.getTime(), "UTC", [])!;
     expect(c.results).toEqual([
       "Orcs 2 - 1 Elves", "Orcs 5 - 0 Elves",
       "Admin win: Orcs over Elves", "Admin win: Elves over Orcs",
       "Admin loss: Orcs and Elves (both teams)", "Admin loss: Orcs and Elves (both teams)",
-      "Admin win: Orcs over Elves (8 - 1)", "Admin draw: Orcs and Elves (1 - 1)",
-      "Admin draw: Orcs and Elves (0 - 0)",
+      "Orcs 8 - 1 Elves (edited)", "Orcs 1 - 1 Elves (edited)", "Orcs 0 - 0 Elves (edited)", "Orcs 6 - 2 Elves (edited)",
     ]);
-    // highlights: casualties from the recorded fixture only (3, not the typed 9); biggest win ignores administrative ones (5-0, not 8-1)
+    // highlights: casualties from the recorded fixture only (3, not the typed 9); an edited score counts for biggest win (8-1)
     const h = Object.fromEntries(c.highlights.map((x) => [x.name, x.value]));
     expect(h["Most casualties"]).toBe("Orcs: 3");
-    expect(h["Biggest win"]).toBe("Orcs 5 - 0 Elves");
+    expect(h["Biggest win"]).toBe("Orcs 8 - 1 Elves (edited)");
     // standings are unchanged by the digest change: they still count every result
     expect(c.standings.length).toBeGreaterThan(0);
   });
@@ -512,13 +512,13 @@ describe("Weekly Digest", () => {
     expect(titles().filter((t) => t.endsWith("result"))).toEqual([]);
   });
 
-  it("an organiser typing over an existing result marks it administrative; a first typed score does not; a recorded result clears the mark", async () => {
+  it("an organiser's first or changed score is marked edited; an unchanged save and a recorded result are not", async () => {
     leagues.putSeason(season("season-1", [fx("a"), fx("b")]));
     const lg = leagues.league("lg")!;
     const deps = { store: leagues, now: () => NOW } as never;
     const enter = (id: string, home: number) => editFixture(lg, "season-1", id, { coach: "Org", admin: false } as never, { result: { home, away: 0, homeCas: null, awayCas: null } }, deps);
     await enter("a", 2);
-    expect(leagues.season("lg", "season-1")!.fixtures.find((f) => f.id === "a")!.resultEdit).toBeUndefined();
+    expect(leagues.season("lg", "season-1")!.fixtures.find((f) => f.id === "a")!.resultEdit).toMatchObject({ by: "Org" });
     await enter("a", 3);
     expect(leagues.season("lg", "season-1")!.fixtures.find((f) => f.id === "a")!.resultEdit).toMatchObject({ by: "Org" });
     // an unchanged save neither refreshes nor creates the mark
@@ -526,7 +526,12 @@ describe("Weekly Digest", () => {
     const later = { store: leagues, now: () => new Date(NOW.getTime() + 3_600_000) } as never;
     await editFixture(lg, "season-1", "a", { coach: "Org2", admin: false } as never, { result: { home: 3, away: 0, homeCas: null, awayCas: null } }, later);
     expect(leagues.season("lg", "season-1")!.fixtures.find((f) => f.id === "a")!.resultEdit).toEqual(marked);
-    await enter("b", 1);
+    // a recorded result (coach / recorder path) carries no mark, and an unchanged organiser save does not add one
+    const rec = leagues.season("lg", "season-1")!;
+    Object.assign(rec.fixtures.find((f) => f.id === "b")!, { finishedAt: NOW.toISOString(), tabletop: { revision: 1, opId: "op" } });
+    Object.assign(rec.fixtures.find((f) => f.id === "b")!.home, { score: 1, cas: null });
+    Object.assign(rec.fixtures.find((f) => f.id === "b")!.away, { score: 0, cas: null });
+    leagues.putSeason(rec);
     await editFixture(lg, "season-1", "b", { coach: "Org", admin: false } as never, { result: { home: 1, away: 0, homeCas: null, awayCas: null } }, later);
     expect(leagues.season("lg", "season-1")!.fixtures.find((f) => f.id === "b")!.resultEdit).toBeUndefined();
     // the marker never reaches a season read

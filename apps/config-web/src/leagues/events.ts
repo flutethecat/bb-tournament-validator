@@ -433,14 +433,14 @@ export async function editFixture(
     if (fixture.announced) { delete fixture.announced.result; if (!fixture.announced.started) delete fixture.announced; }
   } else if (result) {
     const before = fixturePlayed(fixture) ? resultSig(fixture) : "";
-    // Typing over a result that was already there is an administrative override (the Weekly Digest labels it); a both-lose
-    // placeholder is not a result, so the first real score entered over it is a normal one.
-    const overrides = fixturePlayed(fixture) && fixture.deadlineOutcome?.outcome !== "both-lose";
-    // Only a save that changes the scores or casualties is an override: an unchanged save keeps (or never makes) the mark.
-    const changed = fixture.home.score !== result.home || fixture.away.score !== result.away || fixture.home.cas !== result.homeCas || fixture.away.cas !== result.awayCas;
-    if (overrides && !changed) { /* no-op save: leave resultEdit as it is */ }
-    else if (overrides) fixture.resultEdit = { ...(who.coach ? { by: who.coach } : {}), at: (deps.now?.() ?? new Date()).toISOString() };
-    else delete fixture.resultEdit;
+    // This route is organiser/admin-only (the settings gate in api.ts); a coach's report arrives through the recorder or the
+    // Super FUMBBL result path, which clear the marker. So every score typed or changed here is an organiser's edit, a first
+    // entry included, and the Weekly Digest labels it "edited". A both-lose placeholder is not a result: a score entered over
+    // it is an entry too.
+    const placeholder = fixture.deadlineOutcome?.outcome === "both-lose";
+    // Only a save that changes the scores or casualties counts: an unchanged save keeps (or never makes) the mark.
+    const changed = !fixturePlayed(fixture) || placeholder || fixture.home.score !== result.home || fixture.away.score !== result.away || fixture.home.cas !== result.homeCas || fixture.away.cas !== result.awayCas;
+    if (changed) fixture.resultEdit = { ...(who.coach ? { by: who.coach } : {}), at: (deps.now?.() ?? new Date()).toISOString() };
     // A both-lose deadline placeholder is a double concession: the real result entered over it is not.
     if (fixture.deadlineOutcome?.outcome === "both-lose") fixture.home.conceded = fixture.away.conceded = false;
     fixture.home.score = result.home;
