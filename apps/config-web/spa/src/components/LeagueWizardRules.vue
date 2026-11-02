@@ -17,9 +17,11 @@ const r = computed(() => state.form.rules);
 const TIERS = [1, 2, 3, 4, 5, 6];
 const router = useRouter();
 onMounted(() => { if (state.packagesStatus === "idle") void wizard.loadPackages(); });
-// "Create a new ruleset": the Tournament Creator, then back to this draft league with the new ruleset picked.
+// "Create a new ruleset": the Tournament Creator, then back to this draft league with the new ruleset picked. The step's
+// unsaved edits (house rules, limits, team building) are kept for this tab and restored on return.
 function newRuleset(): void {
   if (!state.draft) return;
+  wizard.stashRules();
   void router.push({ name: "tournament-creator", query: { new: "1", return: "league", draft: state.draft.id } });
 }
 const fillNotice = ref("");

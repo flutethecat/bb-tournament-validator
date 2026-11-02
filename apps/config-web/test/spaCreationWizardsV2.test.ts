@@ -12,7 +12,7 @@ import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
 import { blankWizardForm, createTournamentWizard, DRAFT_KEY, migrateStep, stepProblem, WIZARD_STEPS, wizardBody } from "../spa/src/tournaments/wizard";
 import {
-  BB2020_CARD, createLeagueWizard, emptyForm, selectedCardKey, stepPayload, summaryGroups, WIZARD_STEPS as LEAGUE_STEPS, type WizardDraft,
+  BB2020_CARD, createLeagueWizard, emptyForm, RULES_STASH_KEY, selectedCardKey, stepPayload, summaryGroups, WIZARD_STEPS as LEAGUE_STEPS, type WizardDraft,
 } from "../spa/src/leagues/wizard";
 import { DEFAULT_RULESET_PACKAGE, FEATURED_RULESETS, filterCards, rulesetCards, rulesetLabel } from "../spa/src/shared/competition";
 
@@ -172,6 +172,34 @@ describe("league wizard v2", () => {
     await back.start("grill", { packageName: "Fresh Pack" });
     expect(back.state.step).toBe("rules");
     expect(back.state.form.rules.rulesetPackage).toBe("Fresh Pack");
+  });
+  it("\"Create a new ruleset\" keeps the Rules step's unsaved edits and restores them on return (sessionStorage)", async () => {
+    const store = new Map<string, string>();
+    const g = globalThis as { sessionStorage?: unknown };
+    const had = g.sessionStorage;
+    g.sessionStorage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) };
+    try {
+      const w = createLeagueWizard({ api: mockFetcher({ "/api/leagues/grill/draft": { draft: draft() } }) });
+      await w.start("grill");
+      w.state.step = "rules";
+      w.state.form.rules.maxRegistrations = "12";
+      w.state.form.rules.houseRules = { ...w.state.form.rules.houseRules, hireFire: "notEnforced", maxStatIncreasesPlayer: 2 };
+      w.stashRules();
+      expect([...store.keys()]).toEqual([`${RULES_STASH_KEY}:grill`]);
+      const back = createLeagueWizard({ api: mockFetcher({ "/api/leagues/grill/draft": { draft: draft() } }) });
+      await back.start("grill", { packageName: "Fresh Pack" });
+      expect(back.state.step).toBe("rules");
+      expect(back.state.form.rules).toMatchObject({ maxRegistrations: "12", rulesetPackage: "Fresh Pack", houseRules: { hireFire: "notEnforced", maxStatIncreasesPlayer: 2, mvp: "random" } });
+      expect(store.size).toBe(0);
+      // a broken stash is dropped and the saved draft stands
+      store.set(`${RULES_STASH_KEY}:grill`, "{not json");
+      const broken = createLeagueWizard({ api: mockFetcher({ "/api/leagues/grill/draft": { draft: draft() } }) });
+      await broken.start("grill");
+      expect(broken.state.form.rules.houseRules.mvp).toBe("random");
+    } finally {
+      g.sessionStorage = had;
+    }
+    expect(readFileSync(fileURLToPath(new URL("../spa/src/components/LeagueWizardRules.vue", import.meta.url)), "utf8")).toMatch(/wizard\.stashRules\(\);\s*void router\.push/);
   });
   it("Review: Save as draft and Publish now validate every step first; Publish now also publishes", async () => {
     const routes: Record<string, Handler> = { "/api/leagues/grill/draft": { draft: draft({ step: 5 }) }, "PATCH /api/leagues/grill/draft": { draft: draft({ step: 5, revision: 2 }) }, "POST /api/leagues/grill/publish": { ok: true } };

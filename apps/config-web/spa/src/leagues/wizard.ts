@@ -343,6 +343,35 @@ export interface WizardState {
   packagesStatus: "idle" | "loading" | "ready" | "error";
 }
 
+/** "Create a new ruleset" keeps the Rules step's unsaved edits for this tab (sessionStorage, per draft league): a
+ *  per-viewer convenience, read and written inside try/catch, removed once restored. */
+export const RULES_STASH_KEY = "sf.leagueWizardRules";
+const stashKey = (draftId: string): string => `${RULES_STASH_KEY}:${draftId}`;
+function writeStash(draftId: string, rules: WizardForm["rules"]): void {
+  try { if (typeof sessionStorage !== "undefined") sessionStorage.setItem(stashKey(draftId), JSON.stringify(rules)); } catch { /* no storage */ }
+}
+/** The stashed Rules form for a draft (removed as it is read), or undefined when none or unreadable. */
+function takeStash(draftId: string): WizardForm["rules"] | undefined {
+  try {
+    if (typeof sessionStorage === "undefined") return undefined;
+    const raw = sessionStorage.getItem(stashKey(draftId));
+    if (raw === null) return undefined;
+    sessionStorage.removeItem(stashKey(draftId));
+    const v = JSON.parse(raw) as Partial<WizardForm["rules"]>;
+    const f = emptyForm().rules;
+    if (!v || typeof v !== "object") return undefined;
+    return {
+      ruleset: v.ruleset === "BB2020" ? "BB2020" : "BB2025",
+      official: v.official !== false, nafApproved: v.nafApproved !== false, unofficial: v.unofficial === true,
+      maxRegistrations: typeof v.maxRegistrations === "string" ? v.maxRegistrations : f.maxRegistrations,
+      maxPerRace: typeof v.maxPerRace === "string" ? v.maxPerRace : f.maxPerRace,
+      rosters: Array.isArray(v.rosters) ? v.rosters as TeamBuildingRosterRule[] : f.rosters,
+      rulesetPackage: typeof v.rulesetPackage === "string" ? v.rulesetPackage : "",
+      houseRules: (() => { try { return parseHouseRules(v.houseRules, "league"); } catch { return f.houseRules; } })(),
+    };
+  } catch { return undefined; }
+}
+
 /** The league's extra card: the BB2020 base ruleset (leagues only). */
 export const BB2020_CARD: RulesetCard = { packageName: "", ruleset: "BB2020", label: "BB2020", line: "The 2020 edition." };
 /** The picked card's key (RulesetCardPicker `selected`). */
@@ -371,7 +400,12 @@ export function createLeagueWizard(deps: { api: Fetcher; upload?: RawUploader })
         const d = (await deps.api<{ draft: WizardDraft }>(`/api/leagues/${encodeURIComponent(draftId)}/draft`)).draft;
         take(d, true);
         state.step = WIZARD_STEPS[Math.min(WIZARD_STEPS.length, Math.max(1, d.step)) - 1]!.id;
-        // Back from "Create a new ruleset" (Tournament Creator, ?package=): the new ruleset is picked on the Rules step.
+        // Back from "Create a new ruleset": the Rules step's unsaved edits come back first, then the new ruleset is picked.
+        const stashed = takeStash(d.id);
+        if (stashed) {
+          state.form.rules = { ...stashed, rosters: stashed.rosters.length ? stashed.rosters : state.form.rules.rosters };
+          state.step = "rules";
+        }
         if (opts.packageName) { state.form.rules.rulesetPackage = opts.packageName; state.form.rules.ruleset = "BB2025"; state.step = "rules"; }
       } else {
         state.form = emptyForm();
@@ -479,6 +513,8 @@ export function createLeagueWizard(deps: { api: Fetcher; upload?: RawUploader })
     },
     canGo: (id: WizardStepId): boolean => stepIndex(id) <= state.reached || id === state.step,
     loadPackages,
+    /** Keep the Rules step's unsaved edits before leaving for the Tournament Creator ("Create a new ruleset"). */
+    stashRules(): void { if (state.draft) writeStash(state.draft.id, JSON.parse(JSON.stringify(state.form.rules)) as WizardForm["rules"]); },
     /** Pick a ruleset card ("" package = a plain base ruleset). */
     pickRuleset(card: RulesetCard): void {
       state.form.rules.rulesetPackage = card.packageName;
