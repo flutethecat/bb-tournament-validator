@@ -144,3 +144,4 @@
 .ls-life-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; padding-bottom: 10px; border-bottom: 1px solid var(--sf-panel-line); }
 .ls-life-text { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; min-width: 0; }
 .ls-life-text strong { font: 500 1.05rem/1.2 var(--font-heading, sans-serif); letter-spacing: .03em; }
+.ls-life-why { flex-basis: 100%; margin: 0; }

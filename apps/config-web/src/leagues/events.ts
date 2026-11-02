@@ -27,6 +27,7 @@ import { fixturePlayed } from "./tourplay.js";
 import type {
   DiscordEventKey, FixtureSide, LeagueEventEntry, LeagueFixture, LeagueNewsPost, LeagueRecord, LeagueTeam, SeasonRecord,
 } from "./types.js";
+import { isDraftLeague } from "./lifecycle.js";
 
 export const EVENTS_MAX_BYTES = 64 * 1024;
 export const LOG_CAP = 200;
@@ -87,6 +88,8 @@ export function buildMatchResultPost(league: LeagueName, season: SeasonName, f: 
 export async function postLeagueEvent(
   store: LeagueStore, league: LeagueRecord, key: DiscordEventKey, payload: DiscordPayload, poster: WebhookPoster = defaultPoster,
 ): Promise<boolean> {
+  // Lane L5: a draft league posts nothing to Discord (publishing never replays what happened while it was a draft).
+  if (isDraftLeague(store.league(league.id) ?? league)) return false;
   const url = store.secrets(league.id).discordWebhookUrl;
   if (!url || !discordEvents(league)[key]) return false;
   try { return (await poster(url, payload)).ok; } catch { return false; }

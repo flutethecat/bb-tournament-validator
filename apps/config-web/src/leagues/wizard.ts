@@ -25,7 +25,8 @@ import { assertTestSessionMayWrite, RegistrationError, registrationCounts } from
 import { artUrl, leaguePath, seasonSummary, type LeagueApiDeps, type LeagueApiIdentity, type LeagueApiResult } from "./api.js";
 import { discordEvents, maskWebhookUrl } from "./discord.js";
 import { readJsonObject, requestRevision } from "./http.js";
-import { canMoveStage, isDraftLeague, leagueVisibility, managesLeague, SEASON_STAGE_LABEL, seasonStage, STAGE_ACTION_LABEL, type SeasonStage } from "./lifecycle.js";
+import { fixturePlayed } from "./tourplay.js";
+import { canMoveStage, isDraftLeague, MIN_TEAMS_TO_START, leagueVisibility, managesLeague, SEASON_STAGE_LABEL, seasonStage, STAGE_ACTION_LABEL, type SeasonStage } from "./lifecycle.js";
 import { seasonTeamEntries } from "./registrationCheck.js";
 import { defaultSeasonRegistration, parseSeasonRegistration, seasonRegistrationOf, seasonWindow, seasonWindowStatus, type SeasonRegistration } from "./seasonRegistration.js";
 import {
@@ -352,6 +353,10 @@ function moveStage(league: LeagueRecord, seasonId: string, input: Record<string,
   const from = seasonStage(season);
   if (from === to) return res(200, { ok: true, changed: false, season: seasonSummary(season) });
   if (!canMoveStage(from, to)) return fail(409, `${STAGE_ACTION_LABEL[to]} is not possible: ${season.name} is ${SEASON_STAGE_LABEL[from].toLowerCase()}.`, "stage");
+  if (to === "active" && season.teams.length < MIN_TEAMS_TO_START)
+    return fail(409, `Start season needs at least ${MIN_TEAMS_TO_START} teams; ${season.name} has ${season.teams.length}.`, "stage");
+  if (from === "active" && season.fixtures.some(fixturePlayed))
+    return fail(409, `${season.name} already has results: registration can't reopen. Turn on joining mid-season instead.`, "stage");
   season.stage = to;
   if (to === "registration") season.registration = { ...seasonRegistrationOf(league, season), allowRegistration: true };
   if (to === "active" && !season.startedAt) season.startedAt = (deps.now?.() ?? new Date()).toISOString();

@@ -61,10 +61,11 @@ const move = (s: SeasonSummary, stage: "setup" | "registration" | "active", labe
         </p>
         <div class="sf-btn-row">
           <button
-            v-for="a in stageActions(s)" :key="a.stage" class="sf-btn small" :class="{ primary: a.primary }" type="button" :disabled="Boolean(busy)"
-            @click="move(s, a.stage, a.label)"
+            v-for="a in stageActions(s)" :key="a.stage" class="sf-btn small" :class="{ primary: a.primary }" type="button" :disabled="Boolean(busy) || Boolean(a.disabled)"
+            :title="a.disabled || undefined" @click="move(s, a.stage, a.label)"
           >{{ a.label }}</button>
         </div>
+        <p v-for="a in stageActions(s).filter((x) => x.disabled)" :key="`why-${a.stage}`" class="hm-small hm-empty ls-life-why">{{ a.disabled }}</p>
       </div>
       <p class="hm-small hm-empty">
         Open registration lets coaches register once the league is published, within the season's window (Registrations tab).

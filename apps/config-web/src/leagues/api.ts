@@ -74,7 +74,7 @@ import { leagueStats, isStatsScope, type LeagueStats, type StatsScope } from "./
 import { clearStandingsCache, podiumAwards, PODIUM_SLOTS, proposePodium, withStandings, type PodiumPlace } from "./standings.js";
 import { fixturePlayed } from "./tourplay.js";
 import { ORGANISER_LOG_KINDS } from "./teamValue.js";
-import { isDraftLeague, leagueVisibleTo, seasonStage, visibleLeagues, type SeasonStage } from "./lifecycle.js";
+import { isDraftLeague, leagueVisibleTo, managesLeague, seasonStage, visibleLeagues, type SeasonStage } from "./lifecycle.js";
 import { defaultSeasonRegistration } from "./seasonRegistration.js";
 import { createLeagueRoute, leagueLifecycleRoutes } from "./wizard.js";
 import { TEST_SESSION_REFUSAL, testSessionMayWrite } from "../registration/testSession.js";
@@ -348,6 +348,12 @@ export async function leagueApi(
   if (found && !leagueVisibleTo(found, auth)) return { status: 404, headers: { "cache-control": "private, no-store" }, body: { error: "League not found." } };
   if (found && !read && !testSessionMayWrite(auth, found)) return { status: 403, body: { error: TEST_SESSION_REFUSAL } };
   const league = found;
+  // While a draft, notifications about it reach only its organisers and site admins (no coach hears of a hidden league).
+  if (found && isDraftLeague(found) && deps.notify) {
+    const notify = deps.notify;
+    const admins = new Set(siteAdmins(deps).map((c) => c.trim().toLowerCase()));
+    deps = { ...deps, notify: (coach, input) => { if (managesLeague(found, { coach, admin: admins.has(coach.trim().toLowerCase()) })) notify(coach, input); } };
+  }
   const [first, second, ...extra] = route.rest;
   const lifecycle = await leagueLifecycleRoutes(method, route.rest, league, auth, deps);
   if (lifecycle) return lifecycle;
@@ -438,7 +444,9 @@ async function artRoute(
     const rel = kind === "logo" ? league?.logoPath : league?.bannerPath;
     if (!league || !rel || !LEAGUE_ART_PATH.test(rel)) return { status: 404, body: { error: `No ${label}.` } };
     const ext = rel.split(".").pop() as AvatarExt;
-    return { status: 200, file: { path: join(store.leagueDir(id), rel), contentType: AVATAR_CONTENT_TYPE[ext] } };
+    // Lane L5: a draft's artwork is never cached by a proxy (only its organisers may load it at all).
+    const draftArt = isDraftLeague(league) ? { headers: { "cache-control": "private, no-store", vary: "Cookie" } } : {};
+    return { status: 200, ...draftArt, file: { path: join(store.leagueDir(id), rel), contentType: AVATAR_CONTENT_TYPE[ext] } };
   }
   if (method !== "PUT" && method !== "DELETE") return { status: 405, body: { error: "Use GET, PUT or DELETE." } };
   if (!auth) return { status: 401, body: { error: `Sign in to change the ${label}.` } };
@@ -733,6 +741,7 @@ function patchSettings(league: LeagueRecord, who: LeagueApiIdentity, input: Reco
 
 /** Discord post for a season milestone the league enabled. Best effort; the URL is never logged. */
 async function postMilestone(league: LeagueRecord, deps: LeagueApiDeps, payload: DiscordPayload): Promise<void> {
+  if (isDraftLeague(deps.store.league(league.id) ?? league)) return; // lane L5: drafts post nothing to Discord
   const url = deps.store.secrets(league.id).discordWebhookUrl;
   if (!url || !discordEvents(league).milestones) return;
   try { await (deps.postWebhook ?? defaultPoster)(url, payload); } catch { /* best effort */ }
@@ -836,6 +845,7 @@ async function finishSeason(league: LeagueRecord, seasonId: string, who: LeagueA
     season.podium = { decidedBy, proposed, final, overridden, by: who.coach, at };
   }
   season.status = "completed";
+  season.stage = "active"; // lane L5: a stored registration stage never survives finishing (or a reopen)
   season.endedAt = at;
   deps.store.putSeason(season);
   await postMilestone(league, deps, buildMilestonePost(league, "season-finished", season.name));
@@ -870,6 +880,8 @@ function reopenSeason(league: LeagueRecord, seasonId: string, deps: LeagueApiDep
   if (season.status !== "completed") return { status: 409, body: { error: `${season.name} is still in progress.` } };
   if (!season.podium) return { status: 409, body: { error: "Only a season finished on this site can be reopened." } };
   season.status = "active";
+  // Lane L5: a reopened season is in play again, never back in registration.
+  season.stage = "active";
   delete season.endedAt;
   delete season.podium;
   season.awards = season.awards.filter((a) => !a.podium);

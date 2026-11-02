@@ -94,7 +94,10 @@ describe("wizard helpers", () => {
     expect(seasonStageOf({ status: "completed", stage: "registration" })).toBe("completed");
     expect(stageActions({ status: "active", stage: "setup" }).map((a) => a.label)).toEqual(["Open registration", "Start season"]);
     expect(stageActions({ status: "active", stage: "registration" }).map((a) => a.label)).toEqual(["Start season", "Close registration"]);
-    expect(stageActions({ status: "active" })).toEqual([]);
+    expect(stageActions({ status: "active", stage: "setup", teamCount: 1 })[1]).toMatchObject({ label: "Start season", disabled: "Start season needs at least 2 teams (1 so far)." });
+    expect(stageActions({ status: "active", stage: "registration", teamCount: 4 })[0]).not.toHaveProperty("disabled");
+    expect(stageActions({ status: "active", playedCount: 0 }).map((a) => a.label)).toEqual(["Back to registration"]);
+    expect(stageActions({ status: "active", playedCount: 3 })).toEqual([]);
     expect(canCreateLeague({ authenticated: true, authMethod: "discord", organizer: true })).toBe(true);
     expect(canCreateLeague({ authenticated: true, authMethod: "discord", admin: true })).toBe(true);
     expect(canCreateLeague({ authenticated: true, authMethod: "discord" })).toBe(false);

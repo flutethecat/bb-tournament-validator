@@ -2207,7 +2207,9 @@ async function handleApi(
           res.writeHead(200, {
             "content-type": league.file.contentType,
             "content-length": String(bytes.length),
-            "cache-control": "public, max-age=3600",
+            // A draft league's artwork answers private, no-store + Vary (api.ts artRoute); published artwork caches publicly.
+            "cache-control": league.headers?.["cache-control"] ?? "public, max-age=3600",
+            ...(league.headers?.vary ? { vary: league.headers.vary } : {}),
             "x-content-type-options": "nosniff",
           });
           res.end(method === "HEAD" ? undefined : bytes);

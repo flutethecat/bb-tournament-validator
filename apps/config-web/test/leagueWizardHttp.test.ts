@@ -79,8 +79,22 @@ describe("league creation over HTTP", () => {
     expect(anonList.leagues.map((l) => l.id)).toEqual(["tabbl"]);
     const mine = (await (await fetch(`${origin}/api/leagues`, { headers: { cookie: olga } })).json()) as { leagues: Array<{ id: string }> };
     expect(mine.leagues.map((l) => l.id)).toEqual(["harbour-league", "tabbl"]);
+    // A draft's artwork is private and never cached publicly; published artwork is.
+    const art = `league-art/${"b".repeat(64)}.png`;
+    const lstore = new LeagueStore(join(root, "state"));
+    mkdirSync(join(lstore.leagueDir("harbour-league"), "league-art"), { recursive: true });
+    writeFileSync(join(lstore.leagueDir("harbour-league"), art), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    lstore.setArt("harbour-league", "logo", art);
+    const draftLogo = await fetch(`${origin}/api/leagues/harbour-league/logo`, { headers: { cookie: olga } });
+    expect(draftLogo.status).toBe(200);
+    expect(draftLogo.headers.get("cache-control")).toBe("private, no-store");
+    expect(draftLogo.headers.get("vary")).toContain("Cookie");
+    expect((await fetch(`${origin}/api/leagues/harbour-league/logo`)).status).toBe(404);
+    // Message members on a draft: 404 to a coach who is not its organiser (never 403).
+    expect((await fetch(`${origin}/api/leagues/harbour-league/messages`, { headers: { cookie: pat } })).status).toBe(404);
     expect((await send("POST", "/api/leagues/harbour-league/publish", olga, {})).status).toBe(200);
     expect((await fetch(`${origin}/api/leagues/harbour-league`)).status).toBe(200);
+    expect((await fetch(`${origin}/api/leagues/harbour-league/logo`)).headers.get("cache-control")).toBe("public, max-age=3600");
   });
 
   it("a test sign-in creates a test league and may write only there", async () => {

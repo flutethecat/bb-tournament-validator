@@ -22,6 +22,7 @@ import type { RecipientResolver } from "./recipients.js";
 import { mailCoachKey, type MailAuditEntry, type MailAuditLog } from "./stores.js";
 import { cleanText, oneLine, renderLeagueMessage } from "./templates.js";
 import type { MailMessage } from "./transport.js";
+import { isDraftLeague } from "../leagues/lifecycle.js";
 
 export const LEAGUE_SUBJECT_MAX = 120;
 export const LEAGUE_BODY_MAX = 5000;
@@ -96,7 +97,8 @@ const fail = (status: number, error: string, field?: string): LeagueMessageResul
 
 function gate(league: LeagueRecord | undefined, auth: LeagueMessageAuth | undefined): LeagueMessageResult | undefined {
   if (!auth) return fail(401, "Sign in to message league members.");
-  if (!league) return fail(404, "League not found.");
+  // Lane L5: a draft league does not exist for anyone but its organisers and site admins (404, never 403).
+  if (!league || (isDraftLeague(league) && !auth.admin && !isLeagueOrganiser(league, auth.coach))) return fail(404, "League not found.");
   if (!auth.admin && !isLeagueOrganiser(league, auth.coach)) return fail(403, "Only this league's organisers and site admins can message its members.");
   return undefined;
 }

@@ -28,12 +28,21 @@ let dir = "";
 let store: LeagueStore;
 let body: unknown;
 let clock = "2026-11-02T12:00:00.000Z";
+const posts: unknown[] = [];
+const notes: Array<{ coach: string }> = [];
+const teamOf = (id: string, race: string, coach = id): LeagueTeam => ({ id, name: id, race, coach, coachId: coach, teamValue: null, players: [], formerPlayers: [] } as never);
+const fixtureOf = (id: string, home: string, away: string) => ({
+  id, category: "Season", phase: "Regular", phaseId: "season-regular", group: "", round: 1, table: 1, suspended: false,
+  home: { team: home, teamId: home, coach: home, race: "Orc", score: null, cas: null, conceded: false },
+  away: { team: away, teamId: away, coach: away, race: "Human", score: null, cas: null, conceded: false },
+});
 const deps = (): LeagueApiDeps => ({
   store,
   readBody: async () => (body === undefined ? Buffer.alloc(0) : Buffer.from(JSON.stringify(body))),
   now: () => new Date(clock),
   identities: () => [{ coach: "Olga", level: "organizer" }, { coach: "Ivy", level: "organizer" }, { coach: "Pat", level: "player" }, { coach: "Root", level: "admin" }],
-  postWebhook: async () => ({ ok: true, status: 204 }),
+  postWebhook: async (_url, payload) => { posts.push(payload); return { ok: true, status: 204 }; },
+  notify: (coach) => { notes.push({ coach }); },
 });
 async function call(method: string, path: string, auth?: LeagueApiIdentity, b?: unknown, q = ""): Promise<LeagueApiResult> {
   body = b;
@@ -271,7 +280,7 @@ describe("draft visibility on every read path", () => {
 });
 
 describe("publish and season stages", () => {
-  it("Publish: organisers and admins only, once; stages move setup -> registration -> active, never back from active", async () => {
+  it("Publish: organisers and admins only, once; stages move setup -> registration -> active (2 teams), back only before a result", async () => {
     const d = await createDraft();
     await call("PATCH", `/api/leagues/${d.id}/settings`, OLGA, { revision: 0, administration: { addOrganiser: "Ivy" } });
     expect((await call("POST", `/api/leagues/${d.id}/publish`, PAT, {})).status).toBe(404); // a draft does not exist for Pat
@@ -291,14 +300,103 @@ describe("publish and season stages", () => {
     expect(seasonRegistrationOf(store.league(d.id)!, store.season(d.id, "season-1")!).allowRegistration).toBe(true);
     expect((await stage("setup")).body).toMatchObject({ season: { stage: "setup" } });
     await stage("registration");
+    // Start season needs at least two teams.
+    const empty = await stage("active");
+    expect(empty).toMatchObject({ status: 409, body: { field: "stage" } });
+    expect((empty.body as { error: string }).error).toContain("at least 2 teams");
+    const s1 = store.season(d.id, "season-1")!;
+    s1.teams = [teamOf("a", "Orc"), teamOf("b", "Human")];
+    s1.fixtures = [fixtureOf("f1", "a", "b")] as never;
+    store.putSeason(s1);
     expect((await stage("active")).body).toMatchObject({ season: { stage: "active" } });
-    expect((await stage("registration")).status).toBe(409);
+    // Back to registration while no fixture has a result; never to setup.
     expect((await stage("setup")).status).toBe(409);
+    expect((await stage("registration")).body).toMatchObject({ season: { stage: "registration" } });
+    expect((await stage("active")).status).toBe(200);
+    const played = store.season(d.id, "season-1")!;
+    played.fixtures[0] = { ...played.fixtures[0]!, home: { ...played.fixtures[0]!.home, score: 2 }, away: { ...played.fixtures[0]!.away, score: 1 } };
+    store.putSeason(played);
+    const late = await stage("registration");
+    expect(late.status).toBe(409);
+    expect((late.body as { error: string }).error).toContain("already has results");
     expect((await call("GET", `/api/leagues/${d.id}`)).body).toMatchObject({ seasons: [{ stage: "active" }] });
     // Finish season stays the way to completed.
     expect((await call("POST", `/api/leagues/${d.id}/seasons/season-1/finish`, OLGA, {})).status).toBe(200);
     expect(seasonStage(store.season(d.id, "season-1")!)).toBe("completed");
     expect(canMoveStage("completed", "active")).toBe(false);
+  });
+
+  it("Reopen season returns it to active, never to registration; the window stays closed", async () => {
+    seedImported();
+    const s = store.season("tabbl", "season-6")!;
+    s.stage = "registration";
+    s.registration = parseSeasonRegistration({ allowRegistration: true }, seasonRegistrationOf(store.league("tabbl")!, s));
+    store.putSeason(s);
+    expect(seasonWindowStatus(store.league("tabbl")!, store.season("tabbl", "season-6")!, new Date(clock)).open).toBe(true);
+    expect((await call("POST", "/api/leagues/tabbl/seasons/season-6/finish", IVY, {})).status).toBe(200);
+    expect(store.season("tabbl", "season-6")!.stage).toBe("active");
+    expect(seasonWindowStatus(store.league("tabbl")!, store.season("tabbl", "season-6")!, new Date(clock))).toMatchObject({ open: false, reason: "finished" });
+    expect((await call("POST", "/api/leagues/tabbl/seasons/season-6/reopen", IVY, {})).status).toBe(200);
+    const reopened = store.season("tabbl", "season-6")!;
+    expect(reopened).toMatchObject({ status: "active", stage: "active" });
+    expect(seasonWindowStatus(store.league("tabbl")!, reopened, new Date(clock))).toMatchObject({ open: false, reason: "started" });
+    // Even a stored registration stage on a finished season reads as completed and closed.
+    const odd = { ...reopened, status: "completed" as const, stage: "registration" as const };
+    expect(seasonStage(odd)).toBe("completed");
+    expect(seasonWindowStatus(store.league("tabbl")!, odd, new Date(clock))).toMatchObject({ open: false, reason: "finished" });
+  });
+});
+
+describe("a draft is silent and uncached", () => {
+  it("posts nothing to Discord and notifies only its organisers while a draft; publishing replays nothing", async () => {
+    const d = await createDraft();
+    await patchDraft(d.id, OLGA, { connections: { discord: { url: HOOK } } });
+    const s = store.season(d.id, "season-1")!;
+    s.teams = [teamOf("a", "Orc"), teamOf("b", "Human")];
+    store.putSeason(s);
+    posts.length = 0;
+    notes.length = 0;
+    const news = await call("POST", `/api/leagues/${d.id}/seasons/season-1/news`, OLGA, { title: "Hello", body: "First post." });
+    expect(news.status, JSON.stringify(news.body)).toBe(201);
+    expect((await call("POST", `/api/leagues/${d.id}/seasons`, OLGA, { name: "Season 2" })).status).toBe(201); // milestone
+    expect((await call("POST", `/api/leagues/${d.id}/seasons/season-1/finish`, OLGA, {})).status).toBe(200); // milestone
+    expect(posts).toEqual([]);
+    expect(notes).toEqual([]); // the team coaches never hear of a hidden league
+    // The test post stays: the organiser checks their own webhook.
+    expect((await call("POST", `/api/leagues/${d.id}/discord/test`, OLGA, {})).status).toBe(200);
+    expect(posts).toHaveLength(1);
+    posts.length = 0;
+    await call("POST", `/api/leagues/${d.id}/publish`, OLGA, {});
+    expect(posts).toEqual([]); // nothing from the draft period is replayed
+    const s2 = store.season(d.id, "season-2")!;
+    s2.teams = [teamOf("a", "Orc")];
+    store.putSeason(s2);
+    expect((await call("POST", `/api/leagues/${d.id}/seasons/season-2/news`, OLGA, { title: "Live", body: "Now public." })).status).toBe(201);
+    expect(posts).toHaveLength(1);
+    expect(notes.map((n) => n.coach)).toEqual(["a"]);
+  });
+
+  it("artwork: private, no-store + Vary while a draft; public caching once published", async () => {
+    const d = await createDraft();
+    store.setArt(d.id, "logo", `league-art/${"a".repeat(64)}.png`);
+    const draftLogo = await call("GET", `/api/leagues/${d.id}/logo`, OLGA);
+    expect(draftLogo.status).toBe(200);
+    expect(draftLogo.headers).toMatchObject({ "cache-control": "private, no-store", vary: "Cookie" });
+    expect((await call("GET", `/api/leagues/${d.id}/logo`)).status).toBe(404);
+    await call("POST", `/api/leagues/${d.id}/publish`, OLGA, {});
+    const pub = await call("GET", `/api/leagues/${d.id}/logo`);
+    expect(pub.status).toBe(200);
+    expect(pub.headers?.["cache-control"]).toBeUndefined(); // the server's public, max-age default
+  });
+
+  it("Message members: a draft answers 404 (not 403) to anyone but its organisers", async () => {
+    const { leagueMessagesRoute } = await import("../src/mail/leagueMessages");
+    const d = await createDraft();
+    const deps = { store } as never;
+    expect(leagueMessagesRoute("GET", `/api/leagues/${d.id}/messages`, { coach: "Pat", admin: false }, undefined, deps)?.status).toBe(404);
+    expect(leagueMessagesRoute("GET", "/api/leagues/nope/messages", { coach: "Pat", admin: false }, undefined, deps)?.status).toBe(404);
+    seedImported();
+    expect(leagueMessagesRoute("GET", "/api/leagues/tabbl/messages", { coach: "Pat", admin: false }, undefined, deps)?.status).toBe(403);
   });
 });
 

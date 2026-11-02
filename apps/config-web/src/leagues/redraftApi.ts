@@ -24,7 +24,7 @@ import {
 } from "./redraft.js";
 import { isLeagueOrganiser, leagueOwner, type LeagueStore } from "./store.js";
 import type { LeagueRecord, RedraftState, RedraftTeamTask, SeasonRecord } from "./types.js";
-import { publishedLeagues } from "./lifecycle.js";
+import { isDraftLeague, publishedLeagues } from "./lifecycle.js";
 
 export const REDRAFT_MAX_BYTES = 64 * 1024;
 const NO_STORE = { "cache-control": "no-store" };
@@ -102,6 +102,7 @@ function checkRevision(input: Record<string, unknown>, current: number, ifMatch:
 }
 
 async function discord(league: LeagueRecord, deps: LeagueApiDeps, key: "news" | "milestones", payload: DiscordPayload): Promise<void> {
+  if (isDraftLeague(deps.store.league(league.id) ?? league)) return; // lane L5: drafts post nothing
   const url = deps.store.secrets(league.id).discordWebhookUrl;
   if (!url || !discordEvents(league)[key]) return;
   try { await (deps.postWebhook ?? defaultPoster)(url, payload); } catch { /* best effort; the URL is never logged */ }

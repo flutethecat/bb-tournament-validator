@@ -20,11 +20,21 @@ export function seasonStageOf(s: Pick<SeasonSummary, "status" | "stage">): Seaso
   return s.stage === "setup" || s.stage === "registration" ? s.stage : "active";
 }
 
-/** The moves Administration offers for a season (mirrors the server's canMoveStage). */
-export function stageActions(s: Pick<SeasonSummary, "status" | "stage">): Array<{ stage: "setup" | "registration" | "active"; label: string; primary: boolean }> {
+/** Teams a season needs before Start season (server lifecycle.ts MIN_TEAMS_TO_START). */
+export const MIN_TEAMS_TO_START = 2;
+
+export interface StageAction { stage: "setup" | "registration" | "active"; label: string; primary: boolean; disabled?: string }
+
+/** The moves Administration offers for a season (mirrors the server: Start season needs 2 teams; registration reopens
+ *  from an active season only while no fixture has a result). `disabled` says why a move can't be made yet. */
+export function stageActions(s: Pick<SeasonSummary, "status" | "stage"> & Partial<Pick<SeasonSummary, "teamCount" | "playedCount">>): StageAction[] {
   const st = seasonStageOf(s);
-  if (st === "setup") return [{ stage: "registration", label: "Open registration", primary: true }, { stage: "active", label: "Start season", primary: false }];
-  if (st === "registration") return [{ stage: "active", label: "Start season", primary: true }, { stage: "setup", label: "Close registration", primary: false }];
+  const teams = s.teamCount ?? 0;
+  const start: StageAction = { stage: "active", label: "Start season", primary: st === "registration",
+    ...(teams < MIN_TEAMS_TO_START ? { disabled: `Start season needs at least ${MIN_TEAMS_TO_START} teams (${teams} so far).` } : {}) };
+  if (st === "setup") return [{ stage: "registration", label: "Open registration", primary: true }, start];
+  if (st === "registration") return [start, { stage: "setup", label: "Close registration", primary: false }];
+  if (st === "active" && (s.playedCount ?? 0) === 0) return [{ stage: "registration", label: "Back to registration", primary: false }];
   return [];
 }
 

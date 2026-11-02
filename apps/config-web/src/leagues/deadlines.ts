@@ -33,6 +33,7 @@ import { addLog } from "./events.js";
 import { readJsonObject, requestRevision } from "./http.js";
 import { isLeagueOrganiser, leagueOwner, type LeagueStore } from "./store.js";
 import type { DeadlineOutcome, DeadlinePolicy, LeagueFixture, LeagueRecord, RoundDeadline, SeasonRecord } from "./types.js";
+import { publishedLeagues } from "./lifecycle.js";
 
 export const DEADLINE_OUTCOMES: readonly DeadlineOutcome[] = ["review", "no-result", "both-lose"];
 /** What an organiser may decide for a fixture (review is the "not decided yet" state). */
@@ -192,7 +193,7 @@ export function watchedSeasons(store: LeagueStore, now = Date.now()): Array<{ le
   const hit = watchIndexes.get(store);
   if (hit && hit.version === store.version() && now - hit.at < WATCH_TTL_MS) return hit.seasons;
   const seasons: WatchIndex["seasons"] = [];
-  for (const league of store.list())
+  for (const league of publishedLeagues(store.list())) // lane L5: no auto-forfeit (or its notices) while a draft
     for (const s of store.seasons(league.id)) if (s.status === "active" && policyOf(s).autoForfeit) seasons.push({ leagueId: league.id, seasonId: s.id });
   watchIndexes.set(store, { version: store.version(), at: now, seasons });
   return seasons;

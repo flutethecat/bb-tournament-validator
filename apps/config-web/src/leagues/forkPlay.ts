@@ -34,6 +34,7 @@ import { fixturePlayed } from "./tourplay.js";
 import { leagueFixtureRef } from "./tabletopFixtures.js";
 import { isLeagueOrganiser, leagueOwner, type LeagueStore } from "./store.js";
 import type { FixtureForkState, FixtureForkStatus, ForkSide, LeagueFixture, LeagueRecord, SeasonRecord } from "./types.js";
+import { publishedLeagues } from "./lifecycle.js";
 
 /** Error a fork client throws with an HTTP status for the coach (503 no account store, 404 no fork account, ...). */
 export class ForkClientError extends Error {
@@ -654,7 +655,8 @@ export async function applyFixtureResult(deps: SyncDeps, leagueId: string, seaso
  */
 export async function syncLeagueForkResults(deps: SyncDeps, only?: { leagueId: string; seasonId: string; fixtureId: string }): Promise<{ applied: string[]; errors: string[] }> {
   const open: Array<{ leagueId: string; seasonId: string; fixtureId: string; gameId: string; status: FixtureForkStatus }> = [];
-  for (const league of deps.store.list()) {
+  // Lane L5: a draft league's games sync once it is published (no result notices or posts about a hidden league).
+  for (const league of publishedLeagues(deps.store.list())) {
     if (only && league.id !== only.leagueId) continue;
     for (const season of deps.store.seasons(league.id)) {
       if (only && season.id !== only.seasonId) continue;

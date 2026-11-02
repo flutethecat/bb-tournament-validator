@@ -56,14 +56,19 @@ export function seasonStage(season: Pick<SeasonRecord, "status" | "stage">): Sea
 
 /**
  * Allowed organiser moves (Settings -> Administration): Open registration (setup -> registration), Start season
- * (setup | registration -> active), Close registration (registration -> setup). Finishing stays Finish season.
+ * (setup | registration -> active, needs MIN_TEAMS_TO_START teams), Close registration (registration -> setup), and
+ * Back to registration (active -> registration, only while no fixture has a result: wizard.ts checks). Finishing stays
+ * Finish season; Reopen season returns a finished season to active, never to registration.
  */
 const MOVES: Readonly<Record<SeasonStage, readonly SeasonStage[]>> = {
   setup: ["registration", "active"],
   registration: ["setup", "active"],
-  active: [],
+  active: ["registration"],
   completed: [],
 };
+
+/** Teams a season needs before Start season. */
+export const MIN_TEAMS_TO_START = 2;
 
 export function canMoveStage(from: SeasonStage, to: SeasonStage): boolean {
   return MOVES[from].includes(to);
