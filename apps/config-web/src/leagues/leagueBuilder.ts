@@ -206,6 +206,8 @@ export function leagueBuilderContext(league: LeagueRecord, season: SeasonRecord,
 // ---- the builder's package resolver ----
 
 export const LEAGUE_UNKNOWN = "That league season doesn't exist.";
+/** An off-dataset (Secret League) roster under league rules: never in a season's Team building table. */
+export const LEAGUE_ROSTER_NOT_IN_TABLE = "This roster isn't in this league's team building table.";
 
 /** resolveBuilderPackage's league hook: undefined for a name that is not a league marker. */
 export function resolveLeaguePackage(store: Pick<LeagueStore, "league" | "season">, name: string | undefined): ResolvedBuilderPackage | { error: string } | undefined {

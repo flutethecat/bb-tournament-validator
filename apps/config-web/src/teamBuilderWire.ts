@@ -1,4 +1,5 @@
 import { pickNamesError } from "./playerNames.js";
+import { isLeaguePackageName } from "./leagueBuilderMarker.js";
 
 const STAT_INCREASE_KEYS = new Set(["MA", "ST", "AG", "PA", "AV"]);
 
@@ -32,7 +33,9 @@ export function teamBuilderBoundsError(body: unknown): string | null {
   // Length only: wrong types are reported by teamBuilderWireError / the composer with their own messages.
   const shortString = (v: unknown) => typeof v !== "string" || v.length <= B.stringChars;
   for (const key of ["rosterId", "teamName", "specialRule", "packageName", "skillPack", "teamId", "coach"] as const)
-    if (!shortString(raw[key])) return `${key} must be at most ${B.stringChars} characters.`;
+    // A league marker (league:<leagueId>:<seasonId>, up to 136 characters with two 64-character ids) is bounded by its own
+    // syntax (leagueBuilderMarker.ts), so every valid id pair works.
+    if (!shortString(raw[key]) && !(key === "packageName" && isLeaguePackageName(raw[key]))) return `${key} must be at most ${B.stringChars} characters.`;
   for (const key of ["reRolls", "assistantCoaches", "cheerleaders", "dedicatedFans"] as const) {
     const v = raw[key];
     if (v !== undefined && (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > B.staff))

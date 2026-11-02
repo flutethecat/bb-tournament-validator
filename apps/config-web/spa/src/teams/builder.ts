@@ -1131,10 +1131,12 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     void loadArt();
   }
   /** League mode: the season's context (rules summary, race picker, inducement table). False when it can't be read. */
-  async function loadLeague(ref: LeagueBuilderRef): Promise<boolean> {
+  /** `gen`: the restore this load belongs to; a newer choice (generation moved on) drops the response unapplied. */
+  async function loadLeague(ref: LeagueBuilderRef, gen?: number): Promise<boolean> {
     if (state.leagueCtx && state.leagueCtx.league.id === ref.leagueId && state.leagueCtx.season.id === ref.seasonId) return true;
     try {
       const ctx = sanitizeLeagueContext(await api<unknown>(`/api/leagues/${encodeURIComponent(ref.leagueId)}/seasons/${encodeURIComponent(ref.seasonId)}/team-building`));
+      if (gen !== undefined && gen !== generation) return false;
       if (!ctx) throw new Error("no league context");
       state.leagueCtx = ctx;
       return true;
@@ -1823,7 +1825,9 @@ export function createTournamentBuilder(deps: BuilderDeps) {
       }
       // A save whose ruleset is gone is not loaded: saving it again would drop its packageName.
       const leagueRef = parseLeaguePackageName(body.packageName);
-      if (leagueRef ? !(await loadLeague(leagueRef)) : body.packageName !== FREE_CREATE_PACKAGE && body.packageName !== SEVENS_FREE_CREATE_PACKAGE && !state.packages.some((p) => p.name === body.packageName)) {
+      const leagueOk = leagueRef ? await loadLeague(leagueRef, gen) : true;
+      if (gen !== generation) return false; // a newer ruleset / race / save choice won while the league rules loaded
+      if (leagueRef ? !leagueOk : body.packageName !== FREE_CREATE_PACKAGE && body.packageName !== SEVENS_FREE_CREATE_PACKAGE && !state.packages.some((p) => p.name === body.packageName)) {
         state.savesStatus = "This team's ruleset is no longer available.";
         return false;
       }

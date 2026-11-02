@@ -109,7 +109,7 @@ import {
 } from "./data";
 import { builderTierRows, isSevensPackage, packageRaceRules, packageResponseInfo, packageRulesInfo, resolveBuilderPackage, SEVENS_TABLETOP_ONLY } from "./teamBuilderPackage.js";
 import { FREE_CREATE_LABEL, isFreeCreatePackage } from "./freeCreate.js";
-import { resolveLeaguePackage, withLeagueProblems } from "./leagues/leagueBuilder.js";
+import { LEAGUE_ROSTER_NOT_IN_TABLE, resolveLeaguePackage, withLeagueProblems } from "./leagues/leagueBuilder.js";
 import { LEAGUE_FORK_NOTE, parseLeaguePackageName } from "./leagueBuilderMarker.js";
 import { freeDisplayRosterXml } from "./freeCreateDisplay.js";
 import { packagesApi } from "./packagesApi.js";
@@ -1369,7 +1369,8 @@ function sharedViewFor(coach: string, save: TeamBuilderSave, viewer: string | un
   try {
     const cfg = forkConfigFromEnv();
     if (cfg && body.rosterId) {
-      if (isSlRosterId(body.rosterId)) {
+      // League saves never take the roster-intrinsic path (a league admits only its table's dataset rosters).
+      if (isSlRosterId(body.rosterId) && !parseLeaguePackageName(body.packageName)) {
         const composed = composeIntrinsicFromBody(cfg.teamsDir, body);
         input.roster = composed.roster;
         input.intrinsic = { legal: composed.legal, issues: composed.issues.length };
@@ -4229,6 +4230,10 @@ async function handleApi(
       // non-mutating, and the build route still authenticates the coach before any write.
       const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, body.packageName, leagueBuilderPackage);
       if ("error" in resolvedPkg) return sendJson(res, 400, { error: resolvedPkg.error });
+      // League mode (lane L7): a league admits only the rosters of its Team building table (dataset rosters), so an
+      // off-dataset roster is never judged roster-intrinsically under league rules: it is refused here.
+      if (resolvedPkg.league && body.rosterId && isSlRosterId(body.rosterId))
+        return sendJson(res, 200, { valid: false, errors: [{ ruleId: "league", severity: "error", message: LEAGUE_ROSTER_NOT_IN_TABLE }], warnings: [], summary: null, players: 0 });
       // Secret League path (#52 A): off-dataset roster → compose + validate roster-intrinsically.
       // (Packages don't apply here — the dataset validator can't run for an off-dataset race.)
       if (body.rosterId && isSlRosterId(body.rosterId)) {

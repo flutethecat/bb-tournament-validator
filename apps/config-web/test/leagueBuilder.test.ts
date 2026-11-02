@@ -142,3 +142,43 @@ describe("resolveBuilderPackage league hook", () => {
     expect(withLeagueProblems({ valid: true, errors: [] }, {}, "Orc").valid).toBe(true);
   });
 });
+
+describe("review fixes (Sol, 3fcb3dc9)", () => {
+  it("every valid id pair fits the wire, including two 64-character ids; other long package names are still refused", async () => {
+    const { teamBuilderBoundsError } = await import("../src/teamBuilderWire.js");
+    const longId = `a${"b".repeat(63)}`;
+    const marker = leaguePackageName(longId, longId);
+    expect(marker.length).toBe(136);
+    expect(parseLeaguePackageName(marker)).toEqual({ leagueId: longId, seasonId: longId });
+    expect(teamBuilderBoundsError({ rosterId: "dwarf", packageName: marker })).toBeNull();
+    expect(teamBuilderBoundsError({ rosterId: "dwarf", packageName: "x".repeat(136) })).toMatch(/packageName must be at most 120/);
+    expect(teamBuilderBoundsError({ rosterId: "dwarf", packageName: `league:${longId}:${longId}x` })).toMatch(/packageName must be at most 120/);
+  });
+
+  it("a league save load that resolves after a newer ruleset choice is dropped", async () => {
+    const { createTournamentBuilder } = await import("../spa/src/teams/builder");
+    let release: (v: unknown) => void = () => undefined;
+    const ctx = leagueBuilderContext(league(), season());
+    const routes: Record<string, unknown> = {
+      "/api/fork/rosters": { rosters: [] }, "/api/packages": [], "/api/skills": {},
+      "/api/fork/team-builder/saves/sv_1": { save: { id: "sv_1", name: "Old", body: { rosterId: "dwarf", packageName: "league:tabbl:s7", picks: [] } } },
+    };
+    const api = (async (path: string) => {
+      if (path === "/api/leagues/tabbl/seasons/s7/team-building") return new Promise((resolve) => { release = resolve; });
+      if (path in routes) return routes[path];
+      if (path.startsWith("/api/fork/team-builder/inducements")) return { inducements: [] };
+      throw new Error(`no mock ${path}`);
+    }) as never;
+    const b = createTournamentBuilder({ api, coach: () => "Alice", previewDelay: 0 });
+    await b.boot();
+    const loading = b.loadSave("sv_1");
+    await new Promise((r) => setTimeout(r, 0));
+    await b.choosePackage("free-create");
+    release(ctx);
+    expect(await loading).toBe(false);
+    expect(b.state.packageName).toBe("free-create");
+    expect(b.state.leagueCtx).toBeNull();
+    expect(b.state.currentSave).toBeNull();
+    expect(b.state.savesStatus).toBe("");
+  });
+});

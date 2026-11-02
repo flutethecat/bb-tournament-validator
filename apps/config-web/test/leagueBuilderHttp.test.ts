@@ -152,6 +152,10 @@ describe("league mode over HTTP", () => {
     const human = (await fetcher("/api/fork/team-builder/preview", { method: "POST", body: { ...b.requestBody(), rosterId: "human.bb2025", picks: [{ positionId: "h1", count: 11 }] } })) as any;
     expect(human.valid).toBe(false);
     expect(human.errors[0]).toMatchObject({ ruleId: "league", message: "Human: 1 / 1 teams in this season, full." });
+    // A Secret League (numeric) roster id never takes the roster-intrinsic path under league rules.
+    const sl = (await fetcher("/api/fork/team-builder/preview", { method: "POST", body: { ...b.requestBody(), rosterId: "4242", picks: [{ positionId: "1", count: 11 }] } })) as any;
+    expect(sl.valid).toBe(false);
+    expect(sl.errors).toEqual([{ ruleId: "league", severity: "error", message: "This roster isn't in this league's team building table." }]);
     // Create on Fork is refused: the league team is made when the registration is accepted.
     const built = await fetch(`${origin}/api/fork/team-builder/build`, {
       method: "POST", headers: { authorization: `Bearer ${alice.token}`, "content-type": "application/json", "x-cw-auth": "1" }, body: JSON.stringify(b.requestBody()),
