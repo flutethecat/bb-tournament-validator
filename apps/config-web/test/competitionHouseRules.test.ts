@@ -52,20 +52,17 @@ describe("house rules model", () => {
     expect(houseRulesRows(defaultHouseRules("tournament"), "tournament").find((r) => r.k === "Progression")!.v).toBe("Off (resurrection)");
     expect(() => parseHouseRules({ progression: { spp: "yes" } }, "tournament")).toThrow(/true or false/);
   });
-  it("the package overlay enforces PtN banned and the stat caps on a copy, never the shared package", () => {
+  it("the package overlay applies the PtN ban on a copy, never the shared package; stat caps never rewrite it", () => {
     const pkg = { name: "P", inducements: { allowed: ["*"], caps: {} }, statIncreases: { allowed: ["MA"], maxPerPlayer: 2 }, special: { statIncreasesAllowed: true }, tiers: [{ tier: 1, statIncreases: { maxPerPlayer: 3 } }] };
     const rules = parseHouseRules({ prayers: { mode: "banned" }, maxStatIncreasesPlayer: 1, maxStatIncreasesTeam: 4 }, "tournament");
-    const out = applyHouseRulesToPackage(pkg, rules) as typeof pkg & { special: { statIncreaseRules: { maxPerTeam: number } } };
+    const out = applyHouseRulesToPackage(pkg, rules);
     expect(out.inducements.caps).toEqual({ prayers_to_nuffle: 0 });
-    expect(out.statIncreases.maxPerPlayer).toBe(1);
-    expect(out.tiers[0]!.statIncreases.maxPerPlayer).toBe(1);
-    expect(out.special.statIncreaseRules.maxPerTeam).toBe(4);
+    // the stat caps are an extra validator rule (competitionReviewFixes.test.ts), so the package levels stay as they were
+    expect(out.statIncreases.maxPerPlayer).toBe(2);
+    expect(out.tiers[0]!.statIncreases.maxPerPlayer).toBe(3);
     expect(pkg.inducements.caps).toEqual({});
-    expect(pkg.statIncreases.maxPerPlayer).toBe(2);
-    // A cost change, Brawling Brutes and defaults change nothing (display-only).
-    expect(applyHouseRulesToPackage(pkg, parseHouseRules({ prayers: { mode: "cost", costK: 80 }, brawlingBrutes: "off" }, "tournament"))).toEqual(pkg);
-    // A cap never loosens the package.
-    expect((applyHouseRulesToPackage(pkg, parseHouseRules({ maxStatIncreasesPlayer: 5 }, "tournament")) as typeof pkg).statIncreases.maxPerPlayer).toBe(2);
+    // A cost change, Brawling Brutes and stat caps alone change nothing in the package.
+    expect(applyHouseRulesToPackage(pkg, parseHouseRules({ prayers: { mode: "cost", costK: 80 }, brawlingBrutes: "off", maxStatIncreasesPlayer: 0 }, "tournament"))).toBe(pkg);
   });
 });
 

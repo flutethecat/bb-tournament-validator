@@ -357,7 +357,7 @@ import { syncLeagueForkResults } from "./leagues/forkPlay.js";
 import { registerLeagueEvents } from "./leagues/events.js";
 import type { TournamentSubmission } from "./tournaments/types.js";
 import { checkTournamentSubmission, type SubmissionCheckDeps } from "./tournaments/submissionCheck.js";
-import { applyHouseRulesToPackage } from "./competition/packageOverlay.js";
+import { applyHouseRulesToPackage, houseRuleValidatorRules } from "./competition/packageOverlay.js";
 
 /**
  * Endpoints reachable without ADMIN_PASSWORD even when it's set, AND always sent
@@ -1424,10 +1424,11 @@ const submissionCheckDeps = (): SubmissionCheckDeps => ({
     if (!cfg) return undefined;
     const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, packageName);
     if ("error" in resolvedPkg) return { ok: false, problems: [resolvedPkg.error] };
-    // The tournament's house rules on a copy of the package (PtN ban, stat caps); the shared package is never changed.
+    // The tournament's house rules: the PtN ban on a copy of the package (the shared package is never changed) and the
+    // stat caps as an extra rule on top of the package's own (they only ever tighten).
     const pkg = applyHouseRulesToPackage(resolvedPkg.pkg, houseRules);
     const composed = composeFromBody(cfg.teamsDir, body as TeamBuilderBody, undefined, pkg);
-    const result = validate(composed.roster, pkg, bb2025);
+    const result = validate(composed.roster, pkg, bb2025, houseRuleValidatorRules(houseRules));
     return { ok: result.valid, problems: result.errors.map((finding) => finding.message) };
   },
 });

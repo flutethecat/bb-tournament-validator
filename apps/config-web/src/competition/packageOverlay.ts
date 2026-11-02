@@ -1,46 +1,75 @@
 /**
- * A competition's house rules applied to a COPY of its ruleset package before a roster is validated (creation wizards v2,
- * lane 1). The shared package file is never changed. Only what the validator already has hooks for is enforced:
+ * A competition's house rules in the Roster Builder validator (creation wizards v2, lane 1). The shared package file is
+ * never changed, and a house rule only ever TIGHTENS what the package allows:
  *
- * - Prayers to Nuffle banned  -> the inducement's cap becomes 0 (`inducements.caps.prayers_to_nuffle`).
- * - Max stat increases per player -> `statIncreases.maxPerPlayer` (the lower of the package's and the house rule's), at
- *   the flat level and on every tier / team rule that sets its own (those merge over the flat value).
- * - Max stat increases per team   -> `special.statIncreaseRules.maxPerTeam` (the lower of the two).
+ * - Prayers to Nuffle banned -> the inducement's cap becomes 0 on a COPY of the package
+ *   (`inducements.caps.prayers_to_nuffle`); 0 is below any cap the package can set.
+ * - Max stat increases per player / per team -> an extra validator rule (houseRuleStatRule) that counts the increases
+ *   each player actually carries (the validator's own statIncreasesOf, against the dataset position) and refuses more
+ *   than the cap. It runs alongside the package's own stat-increases rule, so it applies on top of whatever the package
+ *   resolves (defaults, tiers, team rules) and can never loosen any of them.
  *
- * Display-only (no validator hook): a Prayers to Nuffle cost change, Brawling Brutes, progression, MVP, hire/fire. A stat
- * cap on a package that does not check stat increases at all changes nothing (the package decides whether they are allowed).
+ * Display-only (no validator hook): a Prayers to Nuffle cost change, Brawling Brutes, progression, MVP, hire/fire.
+ *
+ * houseRulesStamp (src/competition/houseRules.ts) names exactly these enforced settings: a roster check carries it, and
+ * a change to it makes earlier checks stale (src/tournaments/store.ts).
  */
+import { ALL_RULES, isStarName, statIncreasesOf, type Rule } from "@bb/validator";
 import type { HouseRules } from "./houseRules.js";
 
 export const PRAYERS_INDUCEMENT_ID = "prayers_to_nuffle";
+export const HOUSE_RULE_STAT_RULE_ID = "house-rule-stat-increases";
 
 type Json = Record<string, unknown>;
 const isObj = (v: unknown): v is Json => Boolean(v) && typeof v === "object" && !Array.isArray(v);
-const lower = (current: unknown, cap: number): number => (typeof current === "number" && current < cap ? current : cap);
 
-function capStatLevel(level: unknown, cap: number): void {
-  if (!isObj(level) || !isObj(level.statIncreases)) return;
-  level.statIncreases.maxPerPlayer = lower(level.statIncreases.maxPerPlayer, cap);
+/** The package with the Prayers to Nuffle ban applied (a copy; the original is untouched). */
+export function applyHouseRulesToPackage<T extends object>(pkg: T, rules: HouseRules | undefined): T {
+  if (!rules || rules.prayers.mode !== "banned") return pkg;
+  const out = structuredClone(pkg) as unknown as Json;
+  const ind = isObj(out.inducements) ? out.inducements : (out.inducements = {});
+  const caps = isObj((ind as Json).caps) ? (ind as Json).caps as Json : ((ind as Json).caps = {});
+  (caps as Json)[PRAYERS_INDUCEMENT_ID] = 0;
+  return out as unknown as T;
 }
 
-export function applyHouseRulesToPackage<T extends object>(pkg: T, rules: HouseRules | undefined): T {
-  if (!rules) return pkg;
-  const out = structuredClone(pkg) as unknown as Json;
-  if (rules.prayers.mode === "banned") {
-    const ind = isObj(out.inducements) ? out.inducements : (out.inducements = {});
-    const caps = isObj((ind as Json).caps) ? (ind as Json).caps as Json : ((ind as Json).caps = {});
-    (caps as Json)[PRAYERS_INDUCEMENT_ID] = 0;
-  }
-  const perPlayer = rules.maxStatIncreasesPlayer;
-  if (perPlayer !== null) {
-    capStatLevel(out, perPlayer);
-    for (const tier of Array.isArray(out.tiers) ? out.tiers : []) capStatLevel(tier, perPlayer);
-    for (const rule of Array.isArray(out.teamRules) ? out.teamRules : []) capStatLevel(rule, perPlayer);
-  }
-  const perTeam = rules.maxStatIncreasesTeam;
-  if (perTeam !== null && isObj(out.special)) {
-    const r = isObj(out.special.statIncreaseRules) ? out.special.statIncreaseRules : (out.special.statIncreaseRules = {});
-    (r as Json).maxPerTeam = lower((r as Json).maxPerTeam, perTeam);
-  }
-  return out as unknown as T;
+/** The validator rule for the stat caps, or undefined when neither cap is set. */
+export function houseRuleStatRule(rules: HouseRules | undefined): Rule | undefined {
+  const perPlayer = rules?.maxStatIncreasesPlayer ?? null;
+  const perTeam = rules?.maxStatIncreasesTeam ?? null;
+  if (perPlayer === null && perTeam === null) return undefined;
+  return {
+    id: HOUSE_RULE_STAT_RULE_ID,
+    needsDatasetRoster: true,
+    check: ({ players, data }) => {
+      const findings: ReturnType<Rule["check"]> = [];
+      let total = 0;
+      for (const rp of players) {
+        if (!rp.position || isStarName(data, rp.player.positionName)) continue;
+        const n = statIncreasesOf(rp.player, rp.position).length;
+        total += n;
+        if (perPlayer !== null && n > perPlayer) {
+          findings.push({
+            ruleId: HOUSE_RULE_STAT_RULE_ID, severity: "error", playerRef: rp.player.number,
+            message: `House rule: #${rp.player.number} ${rp.position.name} has ${n} stat increase${n === 1 ? "" : "s"}; the limit is ${perPlayer} per player.`,
+            expected: `<= ${perPlayer}`, actual: n,
+          });
+        }
+      }
+      if (perTeam !== null && total > perTeam) {
+        findings.push({
+          ruleId: HOUSE_RULE_STAT_RULE_ID, severity: "error",
+          message: `House rule: the team has ${total} stat increases; the limit is ${perTeam} per team.`,
+          expected: `<= ${perTeam}`, actual: total,
+        });
+      }
+      return findings;
+    },
+  };
+}
+
+/** The validator's rule list with the house-rule stat caps added (the package's own rules all still run). */
+export function houseRuleValidatorRules(rules: HouseRules | undefined): Rule[] {
+  const extra = houseRuleStatRule(rules);
+  return extra ? [...ALL_RULES, extra] : ALL_RULES;
 }
