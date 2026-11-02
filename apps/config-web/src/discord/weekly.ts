@@ -97,9 +97,15 @@ export function slotDue(s: WeeklyDigestSettings, now: Date, tz: string, lastRun:
 
 const finished = (f: LeagueFixture): number => Date.parse(f.finishedAt ?? f.tabletop?.reportedAt ?? f.fork?.result?.appliedAt ?? "");
 
-/** The season's played fixtures finished in (from, to]. */
+/** A result that came from a recorded game (a banked Super FUMBBL result, a recorder publish), not a hand entry. */
+export const recordedResult = (f: LeagueFixture): boolean => Boolean(f.fork?.result || f.tabletop?.opId);
+
+/**
+ * The season's played fixtures finished in (from, to], recorded results only: an organiser's or admin's hand-entered
+ * score is never announced, so it is not in the digest's results or highlights (the standings still count it).
+ */
 export function periodFixtures(season: Pick<SeasonRecord, "fixtures">, from: number, to: number): LeagueFixture[] {
-  return season.fixtures.filter((f) => fixturePlayed(f) && !f.test && Number.isFinite(finished(f)) && finished(f) > from && finished(f) <= to);
+  return season.fixtures.filter((f) => fixturePlayed(f) && recordedResult(f) && !f.test && Number.isFinite(finished(f)) && finished(f) > from && finished(f) <= to);
 }
 
 function firstTable(season: SeasonRecord): StandingRow[] {

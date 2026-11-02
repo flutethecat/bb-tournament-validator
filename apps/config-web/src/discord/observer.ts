@@ -182,7 +182,8 @@ export class DiscordObserver {
     const before = calculateStandings(entrants, matches.filter((m) => m.roundNumber < round), t.points, t.tiebreakers);
     const rankBefore = new Map(before.map((r) => [r.entrantId, r.rank]));
     const upTo = matches.filter((m) => m.roundNumber <= round);
-    const results = matches.filter((m) => m.roundNumber === round && m.away && m.result).map((m) => ({
+    // An organiser-entered score (manual, or a result edit) is never announced: left out of the summary's results and upsets.
+    const results = matches.filter((m) => m.roundNumber === round && m.away && m.result && m.result.manual !== true && m.edited?.kind !== "result").map((m) => ({
       home: label(m.home.entrantId), away: label(m.away!.entrantId), homeScore: m.result!.homeScore, awayScore: m.result!.awayScore,
       ...(round > 1 && rankBefore.has(m.home.entrantId) ? { homeRank: rankBefore.get(m.home.entrantId)! } : {}),
       ...(round > 1 && rankBefore.has(m.away!.entrantId) ? { awayRank: rankBefore.get(m.away!.entrantId)! } : {}),
@@ -319,8 +320,19 @@ export class DiscordObserver {
     return { from: previousSlot({ ...settings, everyWeeks: settings.trigger === "schedule" ? settings.everyWeeks : 1 }, slot, tz).getTime(), to: now.getTime() };
   }
 
-  /** "Post now" went out: the next digest starts from here (no game is posted twice). */
-  markPosted(league: LeagueRecord, at: number): void {
-    this.deps.state.setWeekly(league.id, { lastRun: new Date(at).toISOString() });
+  /**
+   * "Post now" claims its period before it sends: the next digest (scheduled or previewed) starts from `at`, so a tick while
+   * Discord answers posts nothing twice. release() puts the previous run back when the send failed (only if nothing moved
+   * the run on meanwhile).
+   */
+  claimPeriod(league: LeagueRecord, at: number): { release(): void } {
+    const before = this.deps.state.weekly(league.id).lastRun;
+    const claimed = new Date(at).toISOString();
+    this.deps.state.setWeekly(league.id, { lastRun: claimed });
+    return {
+      release: () => {
+        if (this.deps.state.weekly(league.id).lastRun === claimed) this.deps.state.setWeekly(league.id, { lastRun: before });
+      },
+    };
   }
 }
