@@ -54,7 +54,8 @@ async function remove(): Promise<void> {
   if (await detail.remove()) { confirmDelete.value = false; await router.push({ name: "series" }); }
 }
 function newTournament(): void {
-  if (series.value) creator?.show({ id: series.value.id, name: series.value.name });
+  // The creation wizard (lane L3) creates inside this series.
+  if (series.value) void router.push({ name: "tournament-new", query: { series: series.value.id } });
 }
 
 watch(() => props.id, (id) => void detail.load(id));
@@ -79,7 +80,7 @@ onMounted(() => { if (state.id !== props.id || !state.loaded) void detail.load(p
           <p class="sr-meta"><span class="sf-k">Run by</span> {{ series.organisers.join(", ") || "Admins" }}</p>
           <div v-if="canEdit" class="sf-btn-row sr-actions">
             <button class="sf-btn small" type="button" aria-haspopup="dialog" @click="editing = true">Edit</button>
-            <button v-if="canNewTournament" class="sf-btn small" type="button" aria-haspopup="dialog" @click="newTournament">New tournament</button>
+            <button v-if="canNewTournament" class="sf-btn small" type="button" @click="newTournament">New tournament</button>
             <button class="sf-btn small danger" type="button" aria-haspopup="dialog" @click="confirmDelete = true">Delete</button>
           </div>
           <p v-if="state.actionError && !editing && !confirmDelete" class="sf-error" role="alert">{{ state.actionError }}</p>

@@ -1,0 +1,96 @@
+/* Create a tournament (/app/tournaments/new, lane L3; design.md §5, §6): the step pane (band, scrolling body, action foot)
+   beside the Tournament summary panel. Panels, bands and controls come from home.css (hm-panel, hm-band, hm-cap, sf-btn,
+   sf-field, sf-k, sf-check, sf-tabs, sf-error, sf-chip); the step tabs reuse the Tournaments list's tl-seg strip; the
+   ruleset cards follow the Roster Builder's .tb-card language. Tokens only. */
+
+.tw-page { max-width: 1600px; }
+.tw-grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr); align-items: start; }
+@media (max-width: 900px) { .tw-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* step tabs: inline above the grid (server render, 640-900 px before mount), or in the shell header (Roster Builder) */
+.tw-steps { display: flex; flex-wrap: wrap; min-height: 44px; justify-self: start; }
+.tw-steps .tl-seg-btn { flex: 1 0 auto; min-height: 44px; padding: 0 14px; gap: 6px; }
+.tw-steps .tl-seg-btn[aria-current="step"] { color: var(--ui-text-on-primary); background: var(--ui-primary); }
+.tw-steps .tl-seg-btn:focus-visible { outline-offset: -2px; }
+.tw-steps.tw-steps-header { flex-wrap: nowrap; min-height: 0; height: 36px; flex: 0 1 auto; min-width: 0; }
+.tw-steps.tw-steps-header .tl-seg-btn { flex: 0 1 auto; min-height: 0; height: 100%; font-size: 11px; letter-spacing: .08em; white-space: nowrap; }
+@media (max-width: 900px) { .tw-steps.tw-steps-header .tl-seg-btn { padding: 0 8px; letter-spacing: .04em; } }
+.tw-num { display: inline-grid; place-items: center; min-width: 18px; height: 18px; font: 10px/1 var(--sf-band-font); border: 1px solid currentColor; border-radius: 2px; }
+
+/* the step pane */
+.tw-pane { display: flex; flex-direction: column; min-width: 0; padding-bottom: 0; }
+.tw-pane > .tw-body { margin: 0; padding: 0 12px 12px; }
+.tw-body:focus { outline: none; }
+.tw-body:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: -2px; }
+.tw-pane > .tw-foot { display: grid; gap: 8px; margin: 0; padding: 10px 12px 12px; border-top: 2px solid var(--sf-panel-line); }
+.tw-actions { justify-content: flex-end; }
+.tw-actions .tw-reset { margin-right: auto; order: -1; }
+.tw-denied-actions { margin-top: 8px; }
+
+/* ruleset step */
+.tw-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin-bottom: 12px; }
+.tw-search { display: grid; gap: 2px; flex: 1 1 260px; min-width: 0; }
+.tw-search input { width: 100%; }
+.tw-cards { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr)); padding-bottom: 4px; }
+.tw-card {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-height: 64px; min-width: 0; margin: 0;
+  padding: 10px 12px; font: inherit; text-align: center; color: var(--ui-text); cursor: pointer;
+  background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface-2);
+  border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--sf-panel-line); border-radius: 2px;
+  box-shadow: inset 0 1px 0 var(--sf-panel-hi), 0 3px 0 var(--sf-panel-drop);
+}
+.tw-card strong { font: 700 16px/1.25 var(--font-body, sans-serif); overflow-wrap: anywhere; }
+.tw-card:hover { border-color: var(--ui-heading); }
+.tw-card[aria-pressed="true"] { border-color: var(--ui-heading); border-left-color: var(--ui-heading); background: color-mix(in srgb, var(--ui-primary) 28%, var(--ui-surface-2)); }
+.tw-card:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.tw-card-desc { color: var(--ui-muted); font-size: 13px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.tw-card[aria-pressed="true"] .tw-card-desc { color: var(--ui-text); }
+
+/* details / registration: grouped sub-panels, two fields per row */
+.tw-groups { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+.tw-group {
+  display: grid; gap: 8px 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; min-width: 0; margin: 0; padding: 8px 12px 12px;
+  background: color-mix(in srgb, var(--ui-surface-2) 55%, transparent); border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--sf-panel-line);
+  border-radius: 2px; box-shadow: inset 0 1px 0 var(--sf-panel-hi);
+}
+.tw-group-wide { grid-column: 1 / -1; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+.tw-legend { float: left; width: 100%; margin: 0 0 2px; padding: 0; font: 11px/1.4 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-heading); }
+.tw-group > .tw-legend { grid-column: 1 / -1; }
+.tw-group .sf-field { display: grid; gap: 2px; min-width: 0; }
+.tw-group .sf-field :is(input, select, textarea) { width: 100%; min-width: 0; }
+.tw-group textarea { resize: vertical; min-height: 64px; }
+.tw-wide { grid-column: 1 / -1; }
+.tw-check { display: flex; align-items: center; gap: 8px; min-height: 40px; align-self: end; }
+.tw-help { margin: 0; color: var(--ui-muted); font-size: 13px; line-height: 1.4; }
+.tw-group .sf-tabs { justify-self: start; }
+@media (max-width: 1100px) { .tw-groups { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 520px) { .tw-group { grid-template-columns: minmax(0, 1fr); } }
+
+/* review and summary: key/value lists (league side-panel style) */
+.tw-review { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
+.tw-review-block { min-width: 0; padding: 8px 12px 12px; background: color-mix(in srgb, var(--ui-surface-2) 55%, transparent); border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--ui-heading); border-radius: 2px; }
+.tw-review-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.tw-review-head .tw-legend { float: none; width: auto; margin: 0; }
+.tw-review-note { grid-column: 1 / -1; }
+@media (max-width: 1100px) { .tw-review { grid-template-columns: minmax(0, 1fr); } }
+.tw-facts { display: grid; gap: 4px; margin: 0; }
+.tw-facts > div { display: grid; grid-template-columns: minmax(96px, max-content) minmax(0, 1fr); gap: 10px; align-items: baseline; }
+.tw-facts dt { margin: 0; font: 10px/1.6 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
+.tw-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.tw-side-body { display: grid; gap: 6px; }
+.tw-side-k { float: none; margin-top: 6px; }
+.tw-side-k:first-child { margin-top: 0; }
+
+/* Fit to 1920x1080 (owner 11-02, laws 18a): on a desktop-sized screen the page fills the content area and never scrolls;
+   the step body and the summary scroll inside their panels while the bands, tabs and actions stay put. Smaller screens
+   fall back to normal vertical page scroll. */
+@media (min-width: 901px) and (min-height: 600px) {
+  .tw-fit { height: calc(100dvh - var(--sf-top-h) - 32px); min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 12px; }
+  .tw-fit > * { flex: none; }
+  .tw-fit > .tw-grid { flex: 1 1 auto; min-height: 0; grid-template-rows: minmax(0, 1fr); align-items: stretch; }
+  .tw-fit .tw-pane, .tw-fit .tw-side { display: flex; flex-direction: column; min-height: 0; max-height: 100%; box-sizing: border-box; }
+  .tw-fit .tw-pane > .hm-band, .tw-fit .tw-side > .hm-band, .tw-fit .tw-foot { flex: none; }
+  .tw-fit .tw-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  .tw-fit .tw-side { padding-bottom: 0; }
+  .tw-fit .tw-side-body { flex: 0 1 auto; min-height: 0; overflow: auto; padding-bottom: 12px; }
+}

@@ -95,7 +95,7 @@ onUnmounted(() => stopPolling());
           <input id="tn-q" v-model="q" type="search" maxlength="60" autocomplete="off" placeholder="Search by name" />
           <button class="tl-search-btn" type="submit">Search</button>
         </form>
-        <button v-if="canCreate" class="tl-create-btn" type="button" aria-haspopup="dialog" @click="creator!.show()">Create</button>
+        <RouterLink v-if="canCreate" class="tl-create-btn" :to="{ name: 'tournament-new' }">Create</RouterLink>
       </div>
     </div>
 

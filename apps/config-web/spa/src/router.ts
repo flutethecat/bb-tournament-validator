@@ -37,6 +37,7 @@ import TournamentBuilderView from "./views/TournamentBuilderView.vue";
 import TournamentDetailView from "./views/TournamentDetailView.vue";
 import TournamentListView from "./views/TournamentListView.vue";
 import TournamentTeamView from "./views/TournamentTeamView.vue";
+import TournamentWizardView from "./views/TournamentWizardView.vue";
 import WhatsNewView from "./views/WhatsNewView.vue";
 import WelcomeView from "./views/WelcomeView.vue";
 
@@ -93,6 +94,8 @@ export const routes: RouteRecordRaw[] = [
   },
   // Tournaments: public read (no sign-in gate); the old hand-built page stays at /tournaments.html.
   { path: "/tournaments", name: "tournaments", component: TournamentListView, meta: { title: "Tournaments" } },
+  // Create a tournament (lane L3): the wizard replaced the Create Tournament dialog. Static, so it wins over :id.
+  { path: "/tournaments/new", name: "tournament-new", component: TournamentWizardView, meta: { requiresAuth: true, title: "New tournament" } },
   {
     path: "/tournaments/:id([\\w-]{1,64})",
     name: "tournament-detail",

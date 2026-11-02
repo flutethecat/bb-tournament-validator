@@ -10,7 +10,6 @@ import LandingWelcome from "./components/LandingWelcome.vue";
 import RecentGames from "./components/RecentGames.vue";
 import SignInPrompt from "./components/SignInPrompt.vue";
 import TestSignInCard from "./components/TestSignInCard.vue";
-import TournamentCreateDialog from "./components/TournamentCreateDialog.vue";
 import OnboardingDialog from "./components/OnboardingDialog.vue";
 import { ONBOARDING_KEY } from "./account/onboarding";
 import LeagueShareNotice from "./components/LeagueShareNotice.vue";
@@ -53,9 +52,10 @@ onMounted(() => watch(() => [session.coach(), onboardingSettled.value] as const,
   void leagueSharing?.load(settled ? coach : "");
 }, { immediate: true }));
 const createOpen = computed(() => creator?.state.open === true || onboardingOpen.value);
+// The Create Tournament dialog became the wizard page (lane L3): the menu item opens /app/tournaments/new.
 function openCreate(): void {
   menuOpen.value = false;
-  if (canCreate.value) creator?.show();
+  if (canCreate.value) void router.push({ name: "tournament-new" });
 }
 
 // RouterView is keyed by path: moving between two lobbies builds a fresh controller.
@@ -244,6 +244,5 @@ async function signOut(): Promise<void> {
       </template>
     </main>
   </div>
-  <TournamentCreateDialog v-if="creator?.state.open && !onboardingOpen" />
   <OnboardingDialog v-if="onboardingOpen" @sign-out="signOut" />
 </template>

@@ -4,7 +4,7 @@
 
 import { reactive, type InjectionKey } from "vue";
 import { ApiError, type TournamentSummary } from "../shared/api";
-import { writesAllowed, type Fetcher, type SessionStore } from "../session";
+import type { Fetcher, SessionStore } from "../session";
 import type { TournamentPrimaryTiebreaker } from "./detail";
 
 export type TournamentFormat = TournamentSummary["format"];
@@ -14,12 +14,12 @@ export const FORMAT_OPTIONS: ReadonlyArray<{ id: TournamentFormat; label: string
 export const CREATED_NOTICE = "Tournament created as a draft.";
 
 /**
- * Who may create: exactly the server's gate for POST /api/tournaments (src/tournaments/api.ts: `identity.organizer`,
- * the session's organizer flag), on a Discord session the SPA counts as signed in, and never a test sign-in session
- * (the server refuses every tournament write from one).
+ * Who may create: exactly the server's gate for POST /api/tournaments (src/tournaments/api.ts: site organisers and admins,
+ * registration spec Q1), on a Discord session the SPA counts as signed in. A test sign-in session may create too: the
+ * server marks what it makes as a test tournament, the only kind it may change (Q13).
  */
 export function canCreateTournament(session: SessionStore): boolean {
-  return session.signedIn() && session.state.info?.organizer === true && writesAllowed(session);
+  return session.signedIn() && (session.state.info?.organizer === true || session.state.info?.admin === true);
 }
 
 export interface CreateTournamentForm {
@@ -161,6 +161,8 @@ export function createTournamentCreator(deps: { api: Fetcher; onSignedOut?: () =
         state.busy = false;
       }
     },
+    /** The creation wizard (/app/tournaments/new) made `id`: its Manage tab shows `notice` once. */
+    noteCreated(id: string, notice: string): void { state.created = { id, notice }; deps.onCreated?.(); },
     /** The notice for `id` once (the detail page reads it on arrival). */
     takeNotice(id: string): string {
       if (!state.created || state.created.id !== id) return "";

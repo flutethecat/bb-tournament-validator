@@ -153,6 +153,13 @@ export interface TournamentSummary {
   nafSanctioned?: boolean;
   /** Fixtures are played on Super FUMBBL: the fixture lobby gates the launch and has no inducement step. Absent = tabletop. */
   playOnFork?: boolean;
+  /** Lane L3: an unpublished draft (only its managers and admins get it at all); publishedAt once a manager published it. */
+  unpublished?: boolean;
+  publishedAt?: string;
+  /** A test tournament (registration spec Q13): test sign-in sessions may change it. */
+  test?: boolean;
+  /** Registration settings (registration spec §2); the close values are `deadlines`, the cap is maxPlayers. */
+  registration?: { opensAt?: string; approval: "auto" | "organiser"; waitlist: boolean; rosterLater: boolean; rosterBy?: string; checkIn: { self: boolean; opensAt?: string } };
 }
 
 export interface TournamentLocation { venue?: string; address?: string; mapUrl?: string }

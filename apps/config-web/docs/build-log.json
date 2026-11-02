@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-02",
+    "title": "Create a tournament step by step, then publish it",
+    "body": "Create now opens a page that walks you through the ruleset (or a new one in the Tournament Creator), the details (dates, tabletop venue or Super FUMBBL, format, pairing), and registration (window, places, waitlist, approval, roster deadline, check-in, entry fee, NAF). Save it as a draft only you and your organisers can see, or publish it straight away; Manage has Publish and Unpublish.",
+    "links": [
+      {
+        "label": "Tournaments",
+        "href": "/app/tournaments"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-02",
     "title": "Build a team for a league",
     "body": "The Roster Builder has a league mode: open it from \"Build a team for this league\" on a league page while registration is open. It uses that season's team-building rules: only the rosters the league allows (official, NAF-approved, unofficial), each race's tier, treasury and starting skills, and the max per race (a full race shows why it can't be picked). The season's inducement table is shown for reference. A saved team keeps the league season, ready for registration.",
     "links": [

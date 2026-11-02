@@ -323,6 +323,9 @@ export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () =>
   const lockRosters = () => run("lock", () => deps.api(`${base()}/lock-rosters`, { method: "POST" }), "Rosters locked.");
   const unlockRosters = () => run("lock", () => deps.api(`${base()}/unlock-rosters`, { method: "POST" }), "Rosters unlocked.");
   const finish = () => run("finish", () => deps.api(`${base()}/finish`, { method: "POST" }), "Tournament finished.");
+  /** Lane L3: publish a hidden draft (public, registration per its window) or put a draft nobody entered back out of sight. */
+  const publish = () => run("publish", () => deps.api(`${base()}/publish`, { method: "POST" }), "Tournament published.");
+  const unpublish = () => run("publish", () => deps.api(`${base()}/unpublish`, { method: "POST" }), "Tournament unpublished. Only its organisers can see it.");
   const patchEntrant = (entrantId: string, patch: EntrantPatch) =>
     run(`entrant:${entrantId}`, () => deps.api(`${base()}/entrants/${encodeURIComponent(entrantId)}`, { method: "PATCH", body: patch }));
 
@@ -394,7 +397,7 @@ export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () =>
     state, load, loadStandings, ensureTab, refresh, loadTeamOptions,
     editResult, clearResult,
     register, withdraw, submit, answerNaf,
-    saveSettings, setOwner, addOrganizer, removeOrganizer, lockRosters, unlockRosters, finish, patchEntrant,
+    saveSettings, setOwner, addOrganizer, removeOrganizer, lockRosters, unlockRosters, finish, publish, unpublish, patchEntrant,
     start, previewRound, generateRound,
     savePage, uploadBanner, removeBanner, postNews, editNews, deleteNews,
   };

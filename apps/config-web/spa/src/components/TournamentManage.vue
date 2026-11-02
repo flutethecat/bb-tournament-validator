@@ -18,7 +18,8 @@ import { SESSION_KEY, writesAllowed } from "../session";
 const detail = inject(TOURNAMENT_DETAIL_KEY)!;
 const { state } = detail;
 const session = inject(SESSION_KEY)!;
-const canWrite = computed(() => writesAllowed(session));
+// A test sign-in session may change a test tournament (registration spec Q13).
+const canWrite = computed(() => writesAllowed(session) || state.tournament?.test === true);
 const t = computed(() => state.tournament!);
 const busy = computed(() => Boolean(state.busy));
 const started = computed(() => Boolean(t.value.startedAt) || t.value.status !== "draft");
@@ -52,7 +53,13 @@ async function editTournament() {
           <div v-if="t.format === 'swiss'"><dt>Pairing</dt><dd>{{ PAIRING_LABEL[t.pairingSystem ?? "eloSeeded"] }}</dd></div>
           <div><dt>Seeding</dt><dd>{{ SEEDING_LABEL[t.seedingMode ?? "elo"] }}</dd></div>
           <div><dt>Rosters</dt><dd>{{ t.rostersLockedAt ? `Locked ${startDate(t.rostersLockedAt)}` : "Open" }}</dd></div>
+          <div data-publication="true"><dt>Visibility</dt><dd>{{ t.unpublished ? "Unpublished: organisers only" : "Public" }}</dd></div>
         </dl>
+        <!-- Publish / Unpublish (lane L3): a hidden draft takes no entries; unpublishing needs nobody entered (the server says so) -->
+        <div v-if="canWrite && t.status === 'draft'" class="tn-actions tn-publish">
+          <button v-if="t.unpublished" class="sf-btn primary" type="button" :disabled="busy" @click="detail.publish()">Publish</button>
+          <button v-else class="sf-btn" type="button" :disabled="busy" @click="detail.unpublish()">Unpublish</button>
+        </div>
         <div v-if="canWrite" class="tn-actions tn-sticky-actions">
           <button v-if="!started" class="sf-btn primary" type="button" :disabled="busy" @click="open = true">Start Tournament</button>
           <button v-else class="sf-btn" type="button" @click="editTournament">Edit Tournament</button>

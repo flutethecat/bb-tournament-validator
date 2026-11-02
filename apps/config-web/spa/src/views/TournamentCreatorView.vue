@@ -63,8 +63,12 @@ function pickPreset(e: Event): void {
   presetPick.value = "";
   if (id && creator.loadPreset(id)) goUnsaved();
 }
+// "Create a new ruleset" from the tournament wizard (lane L3, ?return=wizard): a clean save goes back to the wizard with
+// the package selected. Read once: later tab and package links drop the query.
+const returnToWizard = route.query.return === "wizard";
 async function save(): Promise<void> {
   await creator.save();
+  if (returnToWizard && state.saved && state.selected && !state.conflict) { await router.push({ name: "tournament-new", query: { package: state.selected } }); return; }
   if (state.selected && state.selected !== route.query.package && !state.conflict) await router.replace(withTab({ package: state.selected }));
 }
 function reload(): void { if (state.selected) void creator.open(state.selected); }
@@ -73,7 +77,8 @@ usePageTitle(() => (allowed.value && state.pkg ? `Tournament Creator · ${title.
 
 <template>
   <div class="hm-page cr-page" :class="{ 'cr-page-wide': tab === 'preview' }">
-    <RouterLink class="tn-back" to="/tournaments">All tournaments</RouterLink>
+    <RouterLink v-if="returnToWizard" class="tn-back" :to="{ name: 'tournament-new' }">Back to the new tournament</RouterLink>
+    <RouterLink v-else class="tn-back" to="/tournaments">All tournaments</RouterLink>
 
     <section v-if="!allowed" class="hm-panel" aria-labelledby="cr-denied-h">
       <header class="hm-band"><h2 id="cr-denied-h">Not one of yours</h2></header>
