@@ -3,7 +3,6 @@
 // stars as the 11th player), team size (min / max players; Sevens: the non-Lineman cap and the Veteran), sideline staff
 // caps (Sevens: free Dedicated Fans), Sevens staff prices, and the package JSON a save would send.
 import { computed, inject } from "vue";
-import { isSevens } from "../tournaments/creatorCore";
 import { TOURNAMENT_CREATOR_KEY } from "../tournaments/creator";
 import CreatorNum from "./CreatorNum.vue";
 import CreatorOverride from "./CreatorOverride.vue";
@@ -14,7 +13,11 @@ const { state } = c;
 const ro = computed(() => Boolean(state.readOnly));
 const special = computed(() => state.pkg!.special);
 type SpecialKey = "insignificantTraitConstraint" | "stalling" | "slannAllowed" | "statIncreasesAllowed";
-const sevens = computed(() => isSevens(state.pkg));
+// The EFFECTIVE format: a package with no format of its own that extends a Sevens base shows the Sevens controls, with the
+// base's values tagged "inherited" until the organiser sets them here (which writes them into this package).
+const sevens = computed(() => c.sevens());
+const inheritedFrom = computed(() => c.effectiveFormat().inheritedFrom);
+const tag = (key: string): boolean => Boolean(c.inheritedFrom(["special", key]));
 // In Sevens, Slann eligibility is a tier-list choice (owner Q10) and stars are off, so those two controls don't apply.
 const toggles = computed<Array<{ key: SpecialKey; label: string }>>(() => [
   { key: "insignificantTraitConstraint", label: "Insignificant-trait constraint" },
@@ -28,21 +31,22 @@ const json = computed(() => JSON.stringify(c.serialize(), null, 2));
 <template>
   <section class="hm-panel" aria-labelledby="cr-special-h">
     <header class="hm-band"><h2 id="cr-special-h">Special rules</h2></header>
+    <p v-if="inheritedFrom" class="cr-hint" data-inherited-note>{{ sevens ? "Sevens" : "Standard" }} rules inherited from {{ inheritedFrom }}. A value you set here is saved in this package; the rest stays inherited.</p>
     <div class="cr-chips">
-      <button v-for="t in toggles" :key="t.key" type="button" class="cr-chip" :aria-pressed="special[t.key] === true" :disabled="ro" @click="c.toggleSpecial(t.key)">{{ t.label }}</button>
+      <button v-for="t in toggles" :key="t.key" type="button" class="cr-chip" :aria-pressed="special[t.key] === true" :disabled="ro" @click="c.toggleSpecial(t.key)">{{ t.label }}<small v-if="tag(t.key)" class="cr-inh" data-inherited>inherited</small></button>
       <button v-if="!sevens" type="button" class="cr-chip" :aria-pressed="Number(special.minPlayers) <= 10" :disabled="ro" @click="c.toggleStarsEleventh()">Stars are the 11th player</button>
     </div>
   </section>
 
   <section class="hm-panel" aria-labelledby="cr-size-h">
-    <header class="hm-band"><h2 id="cr-size-h">Team size</h2><span class="hm-cap">{{ sevens ? "Sevens" : "players" }}</span></header>
+    <header class="hm-band"><h2 id="cr-size-h">Team size</h2><span class="hm-cap">{{ sevens ? (inheritedFrom ? "Sevens (inherited)" : "Sevens") : "players" }}</span></header>
     <div class="cr-grid">
       <CreatorNum label="Minimum players" :path="['special', 'minPlayers']" kind="int" :placeholder="sevens ? '7 (Sevens)' : '11 (default)'" />
       <CreatorNum label="Maximum players" :path="['special', 'maxPlayers']" kind="int" :min="1" :placeholder="sevens ? '11 (Sevens)' : '16 (default)'" />
       <CreatorOverride v-if="sevens" label="Max players without the Lineman keyword" :path="['special', 'maxNonLineman']" kind="int" none none-label="no cap" flat />
     </div>
     <div v-if="sevens" class="cr-chips">
-      <button type="button" class="cr-chip" :aria-pressed="special.veteran === true" :disabled="ro" @click="c.toggleSpecial('veteran')">Veteran required</button>
+      <button type="button" class="cr-chip" :aria-pressed="special.veteran === true" :disabled="ro" @click="c.toggleSpecial('veteran')">Veteran required<small v-if="tag('veteran')" class="cr-inh" data-inherited>inherited</small></button>
     </div>
     <p v-if="sevens" class="cr-hint">The Lineman keyword decides who is a Lineman. The Veteran is one Lineman with MA −1 and one reroll a game.</p>
   </section>

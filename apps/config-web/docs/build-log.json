@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-02",
+    "title": "Tournament Creator summary page restyled, and inherited Sevens",
+    "body": "The Preview tab is now a summary page in the Roster Builder style: Overview, Team building, Skills & advancement, Inducements & stars and Special rules panels with figures, gold prices and on/off chips, and a package summary with the Save button beside it. A package that builds on a Sevens package now shows the Sevens settings on every tab, marked inherited until you change them here.",
+    "links": [
+      {
+        "label": "Tournament Creator",
+        "href": "/app/tournament-creator"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-02",
     "title": "Blood Bowl Sevens in the Roster Builder",
     "body": "Build Blood Bowl Sevens teams: pick Sevens Free Create (next to Free Create) or the Blood Bowl Sevens (Matched Play) ruleset. The builder follows the ruleset: 7 to 11 players, a Non-Linemen 3 / 4 counter, Sevens staff prices, the Sevens inducements (incl. Desperate Measures) and Skill Points by tier. Make one Lineman your Veteran (MA −1). Star Players and the fork aren't offered: Sevens is tabletop only. The team sheet and PDF print the Sevens title and mark the Veteran.",
     "links": [

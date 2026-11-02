@@ -14,8 +14,8 @@ import {
   applySevensDefaults, applyStandardDefaults, inducementDefs, isSevens, type PackageFormat,
   clone, deepEqual, fallbackRaw, freshView, inferView, isObj, kToGold, matrixForDisplay, MAX_TIERS, MEGA_STARS,
   normalizePackage, nullableNumber, numberOr, pairedStarNames, preflight, recordTouched, safeArray, serializePackage, setPath,
-  starTierCosts, touchPath, getPath, pathKey,
-  type Num, type Path, type Pkg, type PositionCatalog, type PresetInfo, type StatRuleDoc, type RawDoc, type SkillInfo, type SkillMode, type SkillPack, type StarInfo, type System,
+  starTierCosts, touchPath, getPath, pathKey, DEFAULT_GOLD_COSTS, humanizeId, overviewGold,
+  type Num, type StarPack, type Path, type Pkg, type PositionCatalog, type PresetInfo, type StatRuleDoc, type RawDoc, type SkillInfo, type SkillMode, type SkillPack, type StarInfo, type System,
   type TeamInfo, type Tier, type ViewState,
 } from "./creatorCore";
 
@@ -120,9 +120,10 @@ export interface CreatorState {
   preview: PreviewState;
   /** One-line notice after the Format toggle applied a format's defaults ("" otherwise). */
   formatNotice: string;
-  /** The `extends` base's RESOLVED format (GET /api/packages/<base> `pkg.format`, resolved along its own chain), for a
-   *  package with no format of its own: the Format toggle shows "Sevens (inherited from <base>)". Null when unknown. */
-  inherited: { base: string; format: PackageFormat } | null;
+  /** The `extends` base AS RESOLVED (GET /api/packages/<base> `pkg`, along its own chain), for a package with no format of
+   *  its own: the Format toggle shows "Sevens (inherited from <base>)", and absent keys fill from `pkg` so every tab shows
+   *  the inherited values and the inherited format's controls. Null when unknown. */
+  inherited: { base: string; format: PackageFormat; pkg: RawDoc | null } | null;
 }
 
 export interface CreatorDeps {
@@ -191,13 +192,44 @@ export function createTournamentCreator(deps: CreatorDeps) {
 
   // ---------- document bookkeeping ----------
 
+  /** The base the editing model is filled from ("" for none): see appliedInherit(). */
+  let appliedBase = "";
+  /** The resolved base a document fills its absent keys from: only with no format of its own, and only the base it extends. */
+  function appliedInherit(doc: unknown): RawDoc | null {
+    const inh = state.inherited;
+    if (!isObj(doc) || doc.format !== undefined || !inh?.pkg || typeof doc.extends !== "string" || doc.extends !== inh.base) return null;
+    return inh.pkg;
+  }
+
   function adoptDocument(doc: unknown): void {
+    const inherit = appliedInherit(doc);
     state.original = isObj(doc) ? clone(doc) : {};
-    state.baseline = normalizePackage(doc);
+    state.baseline = normalizePackage(doc, undefined, inherit);
     const filled = new Set<string>();
-    state.pkg = normalizePackage(doc, filled);
+    state.pkg = normalizePackage(doc, filled, inherit);
     state.injected = filled;
     state.touched = new Set();
+    appliedBase = inherit ? state.inherited!.base : "";
+  }
+
+  /** Refill the editing model after the resolved base arrived or changed. Untouched: re-adopt the document as opened.
+   *  With edits: rebuild from what a save would send (edits kept, untouched filled keys refill from the new base). */
+  function refill(): void {
+    const pkg = state.pkg;
+    if (!pkg) return;
+    const inherit = appliedInherit(pkg);
+    if ((inherit ? state.inherited!.base : "") === appliedBase) return;
+    if (state.touched.size === 0) {
+      adoptDocument(state.original);
+      state.view = inferView(state.pkg!);
+      return;
+    }
+    const current = serialize();
+    const filled = new Set<string>();
+    state.baseline = normalizePackage(state.original, undefined, inherit);
+    state.pkg = normalizePackage(current, filled, inherit);
+    state.injected = new Set([...filled, ...[...state.injected].filter((key) => state.touched.has(key))]);
+    appliedBase = inherit ? state.inherited!.base : "";
   }
 
   function loadIntoEditor(doc: unknown, problems: unknown): void {
@@ -216,13 +248,16 @@ export function createTournamentCreator(deps: CreatorDeps) {
   /** Look up the extends base's resolved format (only for a package without a format of its own). */
   async function refreshInherited(): Promise<void> {
     const base = typeof state.pkg?.extends === "string" ? state.pkg.extends : "";
-    if (!base || state.pkg?.format) { state.inherited = null; return; }
-    if (state.inherited?.base === base) return;
+    if (!base || state.pkg?.format) { state.inherited = null; refill(); return; }
+    if (state.inherited?.base === base) { refill(); return; }
     state.inherited = null;
+    refill();
     try {
       const result = await api<Record<string, unknown>>(`/api/packages/${encodeURIComponent(base)}`);
-      const resolved = isObj(result.pkg) ? (result.pkg as { format?: unknown }) : null;
-      if (state.pkg?.extends === base) state.inherited = { base, format: resolved?.format === "sevens" ? "sevens" : "standard" };
+      const resolved = isObj(result.pkg) ? (result.pkg as RawDoc) : null;
+      if (state.pkg?.extends !== base) return;
+      state.inherited = { base, format: resolved?.format === "sevens" ? "sevens" : "standard", pkg: resolved ? clone(resolved) : null };
+      refill();
     } catch {
       /* unknown: the toggle shows the package's own format */
     }
@@ -236,6 +271,8 @@ export function createTournamentCreator(deps: CreatorDeps) {
     if (inh && pkg.extends && inh.base === pkg.extends) return { format: inh.format, inheritedFrom: inh.base };
     return { format: "standard", inheritedFrom: null };
   }
+  /** The package plays Blood Bowl Sevens: its own format, or one inherited along the extends chain. */
+  const sevens = (): boolean => effectiveFormat().format === "sevens";
 
   function serialize(): RawDoc {
     if (!state.pkg || !state.baseline) return {};
@@ -253,7 +290,13 @@ export function createTournamentCreator(deps: CreatorDeps) {
     return state.injected.has(key) && !state.touched.has(key);
   }
   function inheritedHint(display: unknown): string {
-    return state.pkg?.extends ? `inherited from ${state.pkg.extends}` : `default ${display === "" || display == null ? "none" : display}`;
+    const shown = display === "" || display == null ? "none" : display;
+    if (appliedBase && state.pkg?.extends === appliedBase) return `${shown} (inherited)`;
+    return state.pkg?.extends ? `inherited from ${state.pkg.extends}` : `default ${shown}`;
+  }
+  /** The base a field's shown value comes from, while the package does not set it itself (null otherwise). */
+  function inheritedFrom(path: Path): string | null {
+    return appliedBase && state.pkg?.extends === appliedBase && isInherited(path) ? appliedBase : null;
   }
 
   function markDirty(): void {
@@ -642,7 +685,7 @@ export function createTournamentCreator(deps: CreatorDeps) {
   function toggleStarsAllowed(): void {
     // Blood Bowl Sevens has no Star Players (owner Q4): the toggle is locked off.
     edit((pkg) => {
-      if (isSevens(pkg)) return false;
+      if (sevens()) return false;
       pkg.starPlayers.allowed = !pkg.starPlayers.allowed;
     });
   }
@@ -859,7 +902,7 @@ export function createTournamentCreator(deps: CreatorDeps) {
    *  defaults the save wrote out are the organiser's own from now on, so they stop counting as injected. */
   function rebaseOnto(sent: RawDoc): void {
     state.original = clone(sent);
-    state.baseline = normalizePackage(sent);
+    state.baseline = normalizePackage(sent, undefined, appliedInherit(sent));
     state.injected = new Set([...state.injected].filter((key) => getPath(sent, JSON.parse(key) as Path) === undefined));
   }
 
@@ -949,7 +992,7 @@ export function createTournamentCreator(deps: CreatorDeps) {
 
   return {
     state,
-    serialize, dirty, isInherited, inheritedHint, isAllRaces, inducementAllowed, overrideMode,
+    serialize, dirty, isInherited, inheritedHint, inheritedFrom, sevens, isAllRaces, inducementAllowed, overrideMode,
     edit, setAt, setBound, setOverrideMode, toggleMulti, setMultiAll, setField,
     toggleAllRaces, toggleRace, setCapIncludesSkills, setSystem, setSkillMode, toggleSecondarySwap, setFormat, effectiveFormat,
     addSpOverride, removeSpOverride, addGoldOverride, removeGoldOverride, addBannedSkill, removeBannedSkill,
@@ -976,7 +1019,7 @@ export function creatorAllowed(info: { authenticated?: boolean; organizer?: bool
 export type { Tier };
 
 /** The package summary rows (Overview tab and the Preview tab), from the editing model. */
-export function packageSummary(state: Pick<CreatorState, "pkg" | "view" | "teams">): Array<{ label: string; value: string }> {
+export function packageSummary(state: Pick<CreatorState, "pkg" | "view" | "teams">, sevensFormat?: boolean): Array<{ label: string; value: string }> {
   const pkg = state.pkg;
   if (!pkg) return [];
   const allRaces = safeArray(pkg.eligibleRosters).includes("*");
@@ -991,7 +1034,7 @@ export function packageSummary(state: Pick<CreatorState, "pkg" | "view" | "teams
         : state.view.system === "matrix" ? "matrix"
           : state.view.skillMode === "count" ? `${a.maxPrimary ?? 0} pri / ${a.maxSecondary ?? 0} sec${a.secondarySwap ? " (swap)" : ""}`
             : `${a.skillPointBudget ?? 0} SP pool`;
-  const sevens = isSevens(pkg);
+  const sevens = sevensFormat ?? isSevens(pkg);
   const s = pkg.special;
   return [
     { label: "Format", value: sevens ? "Blood Bowl Sevens (tabletop only)" : "Standard" },
@@ -1010,6 +1053,192 @@ export function packageSummary(state: Pick<CreatorState, "pkg" | "view" | "teams
     { label: "Star packs", value: safeArray(pkg.starPacks).length ? String(safeArray(pkg.starPacks).length) : "none" },
     { label: "Banned skills", value: safeArray(pkg.special.bannedSkills).length ? String(safeArray(pkg.special.bannedSkills).length) : "none" },
   ];
+}
+
+// ---------- the summary page (Preview tab, owner 11-02: styled like the Roster Builder) ----------
+
+/** A key/value row (Silkscreen key, value at right). `tone` "gold" is money; "ok" / "off" render as chips. */
+export interface ReviewRow { key: string; label: string; value: string; tone?: "gold" | "ok" | "off" | "muted"; inherited?: boolean }
+/** A boxed figure (the builder's stat tile: big value, small caption under it). */
+export interface ReviewTile { key: string; label: string; value: string; gold?: boolean; inherited?: boolean }
+/** An on/off rule chip. */
+export interface ReviewChip { key: string; label: string; on: boolean; inherited?: boolean }
+export interface ReviewSection {
+  id: "overview" | "team" | "skills" | "inducements" | "special"; title: string; cap: string;
+  tiles: ReviewTile[]; rows: ReviewRow[]; chips: ReviewChip[]; note?: string;
+}
+export interface PackageReview {
+  sevens: boolean; name: string; sections: ReviewSection[];
+  /** The right-hand summary (the builder's Roster Summary rows). */
+  summary: ReviewRow[];
+}
+export interface ReviewContext {
+  teams: TeamInfo[];
+  view: ViewState;
+  sevens: boolean;
+  /** The base a field's shown value is inherited from (null when the package sets it itself). */
+  inheritedFrom?: (path: Path) => string | null;
+  problems?: number;
+}
+
+/** Gold for the summary page: "600k", "1,150k"; `none` for null. */
+// 0 reads "Free" ("0k" in the band font reads like "OK").
+const reviewGold = (value: unknown, none = "No cap"): string => (value == null || value === "" ? none : Number(value) === 0 ? "Free" : overviewGold(value));
+const capText = (value: unknown, none = "No cap"): string => (value == null ? none : String(value));
+const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
+
+/** Everything the summary page shows, grouped (Overview, Team building, Skills & advancement, Inducements & stars,
+ *  Special rules), read from the editing model (inherited values marked). Pure. */
+export function packageReview(pkg: Pkg | null, ctx: ReviewContext): PackageReview | null {
+  if (!pkg) return null;
+  const inh = (...paths: Path[]): boolean => paths.some((p) => Boolean(ctx.inheritedFrom?.(p)));
+  const sevens = ctx.sevens;
+  const s = pkg.special;
+  const a = pkg.skillAllotment;
+  const allRaces = safeArray(pkg.eligibleRosters).includes("*");
+  const races = allRaces ? ctx.teams.length || null : safeArray(pkg.eligibleRosters).length;
+  const system = ctx.view.system;
+  const systemText = system === "tiers" ? plural(pkg.tiers.length, "tier", "tiers")
+    : system === "packages" ? plural(pkg.skillPackages.length, "pack", "packs")
+      : system === "matrix" ? "Matrix" : "Flat";
+  const count = ctx.view.skillMode === "count";
+  const skillModel = pkg.goldCapIncludesAddedSkills ? "In gold budget"
+    : system === "tiers" ? "By tier" : system === "packages" ? "Skill packs" : system === "matrix" ? "By cell"
+      : count ? `${a.maxPrimary ?? "any"} pri + ${a.maxSecondary ?? "any"} sec` : `${a.skillPointBudget ?? 0} SP`;
+  const minP = s.minPlayers ?? (sevens ? 7 : 11);
+  const maxP = s.maxPlayers ?? (sevens ? 11 : 16);
+  const defs = inducementDefs(pkg);
+  const allowedList = safeArray<string>(pkg.inducements.allowed);
+  const allowedIds = allowedList.includes("*") ? defs.map((d) => d.id) : defs.filter((d) => allowedList.includes(d.id)).map((d) => d.id);
+  const caps = pkg.inducements.caps ?? {};
+  const starsOn = !sevens && pkg.starPlayers.allowed === true;
+  const statRules = (isObj(s.statIncreaseRules) ? s.statIncreaseRules : {}) as StatRuleDoc;
+  const banned = safeArray<string>(s.bannedSkills);
+  const starPacks = safeArray<StarPack>(pkg.starPacks);
+  const priced = sevens || pkg.staffPrices != null;
+  const sl = pkg.sideline;
+  const PRICES = [["reRoll", "Reroll"], ["assistantCoach", "Assistant coach"], ["cheerleader", "Cheerleader"], ["apothecary", "Apothecary"], ["dedicatedFan", "Dedicated fan"]] as const;
+  const SIDELINE = [["maxReRolls", "Team rerolls"], ["maxApothecary", "Apothecary"], ["maxCheerleaders", "Cheerleaders"], ["maxAssistantCoaches", "Assistant coaches"], ["maxDedicatedFans", "Dedicated fans"]] as const;
+
+  const overview: ReviewSection = {
+    id: "overview", title: "Overview", cap: sevens ? "Sevens" : "Standard",
+    tiles: [
+      { key: "format", label: "Format", value: sevens ? "Sevens" : "Standard" },
+      { key: "races", label: "Races", value: races == null ? "All" : String(races), inherited: inh(["eligibleRosters"]) },
+    ],
+    rows: [
+      { key: "name", label: "Name", value: String(pkg.name || "").trim() || "Unnamed package" },
+      ...(pkg.date ? [{ key: "date", label: "Date", value: pkg.date }] : []),
+      ...(pkg.extends ? [{ key: "extends", label: "Based on", value: pkg.extends }] : []),
+      { key: "rules", label: "Rules", value: sevens ? "Blood Bowl Sevens (tabletop only)" : "BB2025" },
+      { key: "eligible", label: "Eligible races", value: allRaces ? "Every race" : `${races} chosen`, inherited: inh(["eligibleRosters"]) },
+    ],
+    chips: [
+      { key: "standard", label: "Standard", on: !sevens },
+      { key: "sevens", label: "Sevens", on: sevens },
+    ],
+    note: pkg.description ? String(pkg.description) : undefined,
+  };
+
+  const team: ReviewSection = {
+    id: "team", title: "Team building", cap: systemText,
+    tiles: [
+      { key: "budget", label: "Budget", value: reviewGold(pkg.goldBudget), gold: true, inherited: inh(["goldBudget"]) },
+      { key: "players", label: "Players", value: `${minP}–${maxP}`, inherited: inh(["special", "minPlayers"], ["special", "maxPlayers"]) },
+      { key: "system", label: "System", value: systemText },
+      ...(sevens ? [{ key: "nonLineman", label: "Non-Linemen", value: s.maxNonLineman == null ? "No cap" : `Max ${s.maxNonLineman}`, inherited: inh(["special", "maxNonLineman"]) }] : []),
+      ...(pkg.teamRules.length ? [{ key: "teamRules", label: "Team rules", value: String(pkg.teamRules.length) }] : []),
+    ],
+    rows: [
+      ...SIDELINE.map(([k, label]) => ({ key: k, label, value: capText(sl[k]), inherited: inh(["sideline", k]) })),
+      ...(priced ? [{ key: "dedicatedFansStart", label: "Free fans at start", value: String(sl.dedicatedFansStart ?? (sevens ? 0 : 1)), inherited: inh(["sideline", "dedicatedFansStart"]) }] : []),
+      ...(priced ? PRICES.map(([k, label]) => ({ key: `price-${k}`, label: `${label} price`, value: reviewGold(pkg.staffPrices?.[k], "Roster price"), tone: "gold" as const, inherited: inh(["staffPrices", k]) })) : []),
+    ],
+    chips: [
+      { key: "capIncludesSkills", label: "Skills count against the budget", on: pkg.goldCapIncludesAddedSkills === true, inherited: inh(["goldCapIncludesAddedSkills"]) },
+      ...(sevens ? [{ key: "veteran", label: "Veteran required", on: s.veteran === true, inherited: inh(["special", "veteran"]) }] : []),
+    ],
+  };
+
+  const skills: ReviewSection = {
+    id: "skills", title: "Skills & advancement", cap: skillModel,
+    tiles: [
+      { key: "model", label: "Skills", value: skillModel },
+      { key: "perPlayer", label: "Per player", value: capText(a.maxPerPlayer, "Any"), inherited: inh(["skillAllotment", "maxPerPlayer"]) },
+      { key: "elite", label: "Elite max", value: capText(a.eliteMaxTotal, "Any"), inherited: inh(["skillAllotment", "eliteMaxTotal"]) },
+    ],
+    rows: [
+      { key: "primaryCostGold", label: "Primary skill", value: reviewGold(a.primaryCostGold ?? DEFAULT_GOLD_COSTS.primaryCostGold, "—"), tone: "gold", inherited: inh(["skillAllotment", "primaryCostGold"]) },
+      { key: "secondaryCostGold", label: "Secondary skill", value: reviewGold(a.secondaryCostGold ?? DEFAULT_GOLD_COSTS.secondaryCostGold, "—"), tone: "gold", inherited: inh(["skillAllotment", "secondaryCostGold"]) },
+      { key: "eliteSurchargeGold", label: "Elite surcharge", value: reviewGold(a.eliteSurchargeGold ?? DEFAULT_GOLD_COSTS.eliteSurchargeGold, "—"), tone: "gold", inherited: inh(["skillAllotment", "eliteSurchargeGold"]) },
+      { key: "bannedSkills", label: "Banned skills", value: banned.length ? banned.join(", ") : "None", inherited: inh(["special", "bannedSkills"]) },
+      ...(s.statIncreasesAllowed === true
+        ? [
+          { key: "statPerTeam", label: "Stat increases per team", value: capText(statRules.maxPerTeam) },
+          { key: "statBlocked", label: "Blocked stats", value: safeArray<{ stat: string }>(statRules.blockedStats).map((b) => b.stat).join(", ") || "None" },
+          { key: "statExcluded", label: "Never advance", value: [...safeArray<{ position: string }>(statRules.excludePositions).map((p) => p.position), ...safeArray<string>(statRules.excludeKeywords)].join(", ") || "None" },
+        ]
+        : []),
+    ],
+    chips: [
+      { key: "statIncreasesAllowed", label: "Stat increases", on: s.statIncreasesAllowed === true, inherited: inh(["special", "statIncreasesAllowed"]) },
+      ...(count ? [{ key: "secondarySwap", label: "Secondary swap", on: a.secondarySwap === true, inherited: inh(["skillAllotment", "secondarySwap"]) }] : []),
+    ],
+  };
+
+  const inducements: ReviewSection = {
+    id: "inducements", title: "Inducements & stars", cap: sevens ? "Sevens list" : "Core list",
+    tiles: [
+      { key: "inducements", label: "Inducements", value: `${allowedIds.length} / ${defs.length}`, inherited: inh(["inducements", "allowed"]) },
+      { key: "stars", label: "Stars", value: !starsOn ? "None" : pkg.starPlayers.maxCount == null ? "Any" : `Max ${pkg.starPlayers.maxCount}`, inherited: inh(["starPlayers", "allowed"], ["starPlayers", "maxCount"]) },
+      ...(starPacks.length ? [{ key: "starPacks", label: "Star packs", value: String(starPacks.length) }] : []),
+    ],
+    rows: [
+      ...(Object.keys(caps).length
+        ? [{ key: "caps", label: "Changed caps", value: Object.entries(caps).map(([id, n]) => `${defs.find((d) => d.id === id)?.label ?? humanizeId(id)} 0-${n}`).join(", "), inherited: inh(["inducements", "caps"]) }]
+        : []),
+      ...(starsOn
+        ? [
+          { key: "maxCombinedCost", label: "Star budget", value: reviewGold(pkg.starPlayers.maxCombinedCost), tone: "gold" as const },
+          { key: "bannedStars", label: "Banned stars", value: pkg.bannedStars.length ? String(pkg.bannedStars.length) : "None" },
+        ]
+        : []),
+    ],
+    chips: [
+      ...defs.map((d) => ({ key: `ind-${d.id}`, label: d.label, on: allowedIds.includes(d.id), inherited: inh(["inducements", "allowed"]) })),
+      { key: "starsAllowed", label: sevens ? "No Star Players (Sevens)" : "Star Players", on: starsOn, inherited: inh(["starPlayers", "allowed"]) },
+    ],
+  };
+
+  const specialChips: ReviewChip[] = [
+    { key: "insignificantTraitConstraint", label: "Insignificant-trait constraint", on: s.insignificantTraitConstraint === true, inherited: inh(["special", "insignificantTraitConstraint"]) },
+    { key: "stalling", label: "Stalling allowed", on: s.stalling === true, inherited: inh(["special", "stalling"]) },
+    ...(sevens
+      ? [{ key: "veteranRule", label: "Veteran (MA −1, one reroll)", on: s.veteran === true, inherited: inh(["special", "veteran"]) }]
+      : [
+        { key: "slannAllowed", label: "Slann allowed", on: s.slannAllowed === true, inherited: inh(["special", "slannAllowed"]) },
+        { key: "starsEleventh", label: "Stars are the 11th player", on: Number(s.minPlayers) <= 10, inherited: inh(["special", "minPlayers"]) },
+      ]),
+  ];
+  const special: ReviewSection = {
+    id: "special", title: "Special rules", cap: `${specialChips.filter((c) => c.on).length} on`, tiles: [], rows: [], chips: specialChips,
+  };
+
+  const problems = ctx.problems ?? 0;
+  return {
+    sevens,
+    name: String(pkg.name || "").trim() || "Unnamed package",
+    sections: [overview, team, skills, inducements, special],
+    summary: [
+      { key: "format", label: "Format", value: sevens ? "Sevens" : "Standard" },
+      { key: "budget", label: "Budget", value: reviewGold(pkg.goldBudget), tone: "gold" },
+      { key: "players", label: "Players", value: `${minP}–${maxP}` },
+      { key: "skills", label: "Skills", value: skillModel },
+      { key: "inducements", label: "Inducements", value: `${allowedIds.length} / ${defs.length}` },
+      { key: "stars", label: "Stars", value: starsOn ? "On" : "Off", tone: starsOn ? "ok" : "off" },
+      { key: "valid", label: "Validation", value: problems ? plural(problems, "problem", "problems") : "OK", tone: problems ? "off" : "ok" },
+    ],
+  };
 }
 
 /** The document part of the Creator's query: ?package=<name> (a saved package) or ?new=1 (an unsaved document). */

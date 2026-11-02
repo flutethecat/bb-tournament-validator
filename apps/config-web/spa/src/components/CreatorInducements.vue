@@ -3,7 +3,7 @@
 // package sets one) and roster restrictions. Inducement ids the editor does not list (kept from the file) still show.
 // A Sevens package lists the Sevens inducements (SJ22, incl. Desperate Measures): organisers drop items or change caps.
 import { computed, inject } from "vue";
-import { humanizeId, inducementDefs, isSevens, safeArray } from "../tournaments/creatorCore";
+import { humanizeId, inducementDefs, safeArray } from "../tournaments/creatorCore";
 import { TOURNAMENT_CREATOR_KEY } from "../tournaments/creator";
 import CreatorMulti from "./CreatorMulti.vue";
 
@@ -11,7 +11,10 @@ const c = inject(TOURNAMENT_CREATOR_KEY)!;
 const { state } = c;
 const ro = computed(() => Boolean(state.readOnly));
 const ind = computed(() => state.pkg!.inducements);
-const sevens = computed(() => isSevens(state.pkg));
+// The EFFECTIVE format (an inherited Sevens counts); the list itself comes from the package's (or inherited) inducements.set.
+const sevens = computed(() => c.sevens());
+const listFrom = computed(() => c.inheritedFrom(["inducements", "allowed"]));
+const capsFrom = computed(() => c.inheritedFrom(["inducements", "caps"]));
 const defs = computed(() => inducementDefs(state.pkg));
 const items = computed(() => {
   const known = new Set(defs.value.map((i) => i.id));
@@ -26,6 +29,7 @@ const rosterItems = computed(() => state.teams.map((t) => ({ value: t.name, labe
   <section class="hm-panel" aria-labelledby="cr-ind-h">
     <header class="hm-band"><h2 id="cr-ind-h">{{ sevens ? "Sevens inducements" : "Inducements" }}</h2><span class="hm-cap">allowed, caps, roster restrictions</span></header>
     <p v-if="sevens" class="cr-hint">The Sevens list replaces the core list. Untick an item to drop it, or change its cap. No Star Players or Mercenaries.</p>
+    <p v-if="listFrom || capsFrom" class="cr-hint" data-inherited-note>Ticks and caps inherited from {{ listFrom || capsFrom }}<small class="cr-inh">inherited</small>. Changing one saves the list in this package.</p>
     <ul class="cr-ind-list">
       <li v-for="item in items" :key="item.id" class="cr-ind-row" :data-allowed="c.inducementAllowed(item.id) ? 'true' : 'false'">
         <button
@@ -34,7 +38,7 @@ const rosterItems = computed(() => state.teams.map((t) => ({ value: t.name, labe
         <span class="cr-grow cr-ind-name">{{ item.label }}</span>
         <span class="cr-stepper">
           <button type="button" class="cr-step" :aria-label="`Lower ${item.label} cap`" :disabled="ro" @click="c.stepInducement(item.id, -1)">−</button>
-          <span class="cr-num" :title="ind.caps?.[item.id] != null ? 'package cap' : 'dataset maximum'">0-{{ ind.caps?.[item.id] ?? item.max }}</span>
+          <span class="cr-num" :title="ind.caps?.[item.id] != null ? (capsFrom ? `cap inherited from ${capsFrom}` : 'package cap') : 'dataset maximum'">0-{{ ind.caps?.[item.id] ?? item.max }}</span>
           <button type="button" class="cr-step" :aria-label="`Raise ${item.label} cap`" :disabled="ro" @click="c.stepInducement(item.id, 1)">+</button>
         </span>
         <CreatorMulti label="Rosters" :path="['inducements', 'rosterOnly', item.id]" :items="rosterItems" all-label="Any roster" />

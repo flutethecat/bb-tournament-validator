@@ -11,6 +11,8 @@ const props = withDefaults(defineProps<{
 const c = inject(TOURNAMENT_CREATOR_KEY)!;
 const value = computed(() => (c.state.pkg ? getPath(c.state.pkg, props.path) : undefined));
 const mode = computed<OverrideMode>(() => c.overrideMode(props.path));
+/** The extends base this value comes from (a package with no format of its own): tagged "inherited". */
+const from = computed(() => c.inheritedFrom(props.path));
 const display = computed(() => (mode.value !== "set" ? "" : String(props.kind === "gold" ? goldToK(value.value) : value.value ?? "")));
 const hint = computed(() => {
   if (mode.value === "none") return props.noneLabel;
@@ -26,7 +28,7 @@ const onValue = (e: Event): void => c.setBound(props.path, props.kind, "delete",
 
 <template>
   <label class="cr-field cr-override">
-    <span class="cr-label">{{ label }}</span>
+    <span class="cr-label">{{ label }}<small v-if="from" class="cr-inh" :title="`Inherited from ${from}`" data-inherited>inherited</small></span>
     <span class="cr-input">
       <select class="cr-mode" :value="mode" :aria-label="`${label} mode`" :disabled="Boolean(c.state.readOnly)" @change="onMode">
         <option value="inherit">{{ inheritText }}</option>

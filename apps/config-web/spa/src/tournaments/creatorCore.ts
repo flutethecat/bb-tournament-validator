@@ -303,25 +303,35 @@ function objectAt(target: Record<string, unknown>, key: string): Record<string, 
 }
 
 /** Editing model: a clone of the raw package with ABSENT keys filled (validator defaults); `filled` collects the path
- *  of every filled key, so the controls can show those values as defaults (placeholders). */
-export function normalizePackage(raw: unknown, filled?: Set<string>): Pkg {
+ *  of every filled key, so the controls can show those values as defaults (placeholders).
+ *  `inherit` is the `extends` base AS RESOLVED by the server (GET /api/packages/<base> `pkg`: defaults, the Sevens profile
+ *  and the base's own chain), for a package with no format of its own: absent keys then fill from the base, so the tabs
+ *  show the inherited values (and the inherited format's controls). Filled keys are still pruned on save. */
+export function normalizePackage(raw: unknown, filled?: Set<string>, inherit?: RawDoc | null): Pkg {
   const pkg: Record<string, unknown> = isObj(raw) ? clone(raw) : {};
+  const base: RawDoc = isObj(inherit) && pkg.format === undefined ? inherit : {};
   // A Sevens document fills its absent keys with the Sevens profile (what the validator applies), not the 11s defaults.
-  const sevens = pkg.format === "sevens";
+  const sevens = pkg.format === "sevens" || (pkg.format === undefined && base.format === "sevens");
+  const from = (key: string, fallback: unknown): unknown => (base[key] !== undefined ? base[key] : fallback);
+  const block = (key: string): RawDoc => (isObj(base[key]) ? base[key] : {});
   fill(pkg, "name", "", filled);
   fill(pkg, "ruleset", "bb2025-default", filled);
   OPTIONAL_STRINGS.forEach((key) => fill(pkg, key, "", filled));
-  fill(pkg, "eligibleRosters", sevens ? SEVENS_TEAMS : ["*"], filled);
-  fill(pkg, "goldBudget", sevens ? SEVENS_DEFAULTS.goldBudget : null, filled);
-  fill(pkg, "goldCapIncludesAddedSkills", false, filled);
-  if (sevens) {
+  fill(pkg, "eligibleRosters", from("eligibleRosters", sevens ? SEVENS_TEAMS : ["*"]), filled);
+  fill(pkg, "goldBudget", from("goldBudget", sevens ? SEVENS_DEFAULTS.goldBudget : null), filled);
+  fill(pkg, "goldCapIncludesAddedSkills", from("goldCapIncludesAddedSkills", false), filled);
+  if (sevens || isObj(base.staffPrices)) {
     const prices = objectAt(pkg, "staffPrices");
-    Object.entries(SEVENS_STAFF_PRICES).forEach(([key, value]) => fill(prices, key, value, filled, ["staffPrices"]));
+    Object.entries({ ...(sevens ? SEVENS_STAFF_PRICES : {}), ...block("staffPrices") }).forEach(([key, value]) => fill(prices, key, value, filled, ["staffPrices"]));
   }
   const allotment = objectAt(pkg, "skillAllotment");
-  Object.entries({ ...DEFAULT_SKILL_ALLOTMENT, ...(sevens ? SEVENS_DEFAULTS.skillAllotment : {}) }).forEach(([key, value]) => fill(allotment, key, value, filled, ["skillAllotment"]));
+  Object.entries({ ...DEFAULT_SKILL_ALLOTMENT, ...(sevens ? SEVENS_DEFAULTS.skillAllotment : {}), ...block("skillAllotment") })
+    .forEach(([key, value]) => fill(allotment, key, value, filled, ["skillAllotment"]));
   ["skillPackages", "tiers", "teamRules", "bannedStars"].forEach((key) => {
-    if (!Array.isArray(pkg[key])) pkg[key] = [];
+    if (Array.isArray(pkg[key])) return;
+    // An inherited list (the base's tiers...) fills as a whole: editing it writes the whole list into this package.
+    if (pkg[key] === undefined && Array.isArray(base[key]) && (base[key] as unknown[]).length) fill(pkg, key, base[key], filled);
+    else pkg[key] = [];
   });
   const blocks: Array<[string, Record<string, unknown>]> = sevens
     ? [
@@ -329,9 +339,9 @@ export function normalizePackage(raw: unknown, filled?: Set<string>): Pkg {
       ["sideline", { ...DEFAULT_SIDELINE, ...SEVENS_DEFAULTS.sideline }], ["special", { ...DEFAULT_SPECIAL, ...SEVENS_DEFAULTS.special }],
     ]
     : [["starPlayers", DEFAULT_STAR_PLAYERS], ["inducements", DEFAULT_INDUCEMENTS], ["sideline", DEFAULT_SIDELINE], ["special", DEFAULT_SPECIAL]];
-  for (const [block, defaults] of blocks) {
-    const target = objectAt(pkg, block);
-    Object.entries(defaults).forEach(([key, value]) => fill(target, key, value, filled, [block]));
+  for (const [name, defaults] of blocks) {
+    const target = objectAt(pkg, name);
+    Object.entries({ ...defaults, ...block(name) }).forEach(([key, value]) => fill(target, key, value, filled, [name]));
   }
   return pkg as Pkg;
 }

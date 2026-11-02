@@ -14,6 +14,8 @@ const c = inject(TOURNAMENT_CREATOR_KEY)!;
 const { state } = c;
 const ro = computed(() => Boolean(state.readOnly));
 const pkg = computed(() => state.pkg!);
+/** Blood Bowl Sevens (own or inherited along the extends chain) has no Star Players. */
+const sevens = computed(() => c.sevens());
 const banned = computed(() => new Set(pkg.value.bannedStars));
 const rows = computed(() => {
   const names = state.stars.map((s) => s.name);
@@ -56,9 +58,9 @@ function onDrop(zone: "banned" | "allowed", e: DragEvent): void {
 <template>
   <section class="hm-panel" aria-labelledby="cr-stars-h">
     <header class="hm-band"><h2 id="cr-stars-h">Star players</h2><span class="hm-cap">{{ pkg.starPlayers.allowed ? "allowed" : "not allowed" }}</span></header>
-    <p v-if="pkg.format === 'sevens'" class="cr-hint">Sevens has no Star Players or Mercenaries, so stars stay off.</p>
+    <p v-if="sevens" class="cr-hint">Sevens has no Star Players or Mercenaries, so stars stay off.</p>
     <div class="cr-row">
-      <button type="button" class="cr-chip" :aria-pressed="pkg.starPlayers.allowed === true" :disabled="ro || pkg.format === 'sevens'" @click="c.toggleStarsAllowed()">Stars allowed</button>
+      <button type="button" class="cr-chip" :aria-pressed="pkg.starPlayers.allowed === true" :disabled="ro || sevens" @click="c.toggleStarsAllowed()">Stars allowed</button>
       <CreatorOverride label="Max count" :path="['starPlayers', 'maxCount']" kind="int" none flat />
       <CreatorOverride label="Max combined cost" :path="['starPlayers', 'maxCombinedCost']" kind="gold" none none-label="no cap" flat />
     </div>

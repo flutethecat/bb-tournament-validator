@@ -9,6 +9,7 @@ import { usePageTitle } from "../shell/pageTitle";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
+import CreatorActions from "../components/CreatorActions.vue";
 import CreatorAdvanced from "../components/CreatorAdvanced.vue";
 import CreatorInducements from "../components/CreatorInducements.vue";
 import CreatorOverview from "../components/CreatorOverview.vue";
@@ -38,7 +39,6 @@ const docQuery = computed(() => creatorDocQuery(route.query));
 const here = (t: CreatorTab = tab.value) => ({ name: "tournament-creator", query: { ...docQuery.value, ...(t === "overview" ? {} : { tab: t }) } });
 const withTab = (doc: Record<string, string>) => ({ name: "tournament-creator", query: { ...doc, ...(tab.value === "overview" ? {} : { tab: tab.value }) } });
 const title = computed(() => (state.pkg?.name?.trim() ? state.pkg.name : state.selected || "New package"));
-const dirty = computed(() => creator.dirty());
 const presetPick = ref("");
 
 /** Bring the editor in line with the URL (see syncCreatorToQuery); a first visit with no package lands on one. */
@@ -72,7 +72,7 @@ usePageTitle(() => (allowed.value && state.pkg ? `Tournament Creator · ${title.
 </script>
 
 <template>
-  <div class="hm-page cr-page">
+  <div class="hm-page cr-page" :class="{ 'cr-page-wide': tab === 'preview' }">
     <RouterLink class="tn-back" to="/tournaments">All tournaments</RouterLink>
 
     <section v-if="!allowed" class="hm-panel" aria-labelledby="cr-denied-h">
@@ -113,30 +113,8 @@ usePageTitle(() => (allowed.value && state.pkg ? `Tournament Creator · ${title.
         ><b class="cr-num">{{ i + 1 }}</b>{{ t.label }}</RouterLink>
       </nav>
 
-      <section class="hm-panel cr-actions" aria-labelledby="cr-actions-h">
-        <header class="hm-band" :data-tone="state.problems.length ? 'admin' : undefined">
-          <h2 id="cr-actions-h">{{ state.selected ? "Saved package" : "Unsaved package" }}</h2>
-          <span class="hm-cap">{{ dirty ? "Unsaved changes" : state.selected ? "No changes" : "Not saved yet" }}</span>
-        </header>
-        <p v-if="state.readOnly" class="cr-notice" role="status">{{ state.readOnly }}</p>
-        <div v-if="state.conflict" class="cr-problems" role="alert">
-          <strong>Changed on the server</strong>
-          <p>{{ state.conflict }}</p>
-          <button type="button" class="cr-btn" @click="reload">Reload from the server</button>
-        </div>
-        <div class="cr-row">
-          <button type="button" class="cr-btn primary" :disabled="state.busy || Boolean(state.readOnly)" @click="save">{{ state.busy ? "Working..." : "Save package" }}</button>
-          <button type="button" class="cr-btn" :disabled="state.busy || !dirty" @click="creator.revert()">Revert</button>
-          <button type="button" class="cr-btn" :disabled="state.busy" @click="creator.exportSheet()">Export printable rules sheet</button>
-        </div>
-        <div v-if="state.problems.length" class="cr-problems" role="alert">
-          <strong>Validation: {{ state.problems.length }} problem{{ state.problems.length === 1 ? "" : "s" }}</strong>
-          <ul><li v-for="(p, i) in state.problems" :key="i">{{ p }}</li></ul>
-        </div>
-        <p v-if="state.saved" class="hm-notice" role="status">Saved {{ state.saved.file }}: 0 problems. Coaches' teams will validate against this package.</p>
-        <p v-if="state.exported" class="hm-notice" role="status">Printable rules sheet opened in a new tab.</p>
-        <p v-for="n in state.catalogNotices" :key="n" class="cr-notice">{{ n }}</p>
-      </section>
+      <!-- the summary page (Preview) carries the save panel in its right column, styled like the Roster Builder's -->
+      <CreatorActions v-if="tab !== 'preview'" @save="save" @reload="reload" />
 
       <div class="cr-pane" role="region" :aria-label="`${CREATOR_TABS.find((t) => t.id === tab)?.label} section`">
         <CreatorOverview v-if="tab === 'overview'" />
@@ -146,7 +124,9 @@ usePageTitle(() => (allowed.value && state.pkg ? `Tournament Creator · ${title.
         <CreatorStars v-else-if="tab === 'stars'" />
         <CreatorInducements v-else-if="tab === 'inducements'" />
         <CreatorAdvanced v-else-if="tab === 'advanced'" />
-        <CreatorPreview v-else />
+        <CreatorPreview v-else>
+          <template #actions><CreatorActions variant="summary" @save="save" @reload="reload" /></template>
+        </CreatorPreview>
       </div>
     </template>
   </div>

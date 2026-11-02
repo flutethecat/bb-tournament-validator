@@ -11,6 +11,8 @@ const props = withDefaults(defineProps<{
 const c = inject(TOURNAMENT_CREATOR_KEY)!;
 const raw = computed(() => (c.state.pkg ? getPath(c.state.pkg, props.path) : undefined));
 const inherited = computed(() => c.isInherited(props.path));
+/** The extends base this value comes from (a package with no format of its own): tagged "inherited". */
+const from = computed(() => c.inheritedFrom(props.path));
 const display = computed(() => {
   const v = props.kind === "gold" ? goldToK(raw.value) : raw.value ?? "";
   return inherited.value ? "" : String(v);
@@ -22,7 +24,7 @@ const onChange = (e: Event): void => c.setBound(props.path, props.kind, props.bl
 
 <template>
   <label class="cr-field">
-    <span class="cr-label">{{ label }}</span>
+    <span class="cr-label">{{ label }}<small v-if="from" class="cr-inh" :title="`Inherited from ${from}`" data-inherited>inherited</small></span>
     <span class="cr-input">
       <input type="number" :min="min" :step="step" :value="display" :placeholder="hint" :aria-label="aria ?? label" :disabled="Boolean(c.state.readOnly)" @change="onChange" />
       <span v-if="unit" class="cr-unit">{{ unit }}</span>

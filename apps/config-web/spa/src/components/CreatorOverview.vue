@@ -19,7 +19,7 @@ const races = computed(() => state.teams.map((team) => {
   return { name: team.name, active: all.value || selected.value.has(team.name), tier: shown, tierClass: tierClass(shown), fromDataset: assigned == null };
 }));
 const count = computed(() => (all.value ? `all ${state.teams.length} races eligible` : `${safeArray(pkg.value.eligibleRosters).length} of ${state.teams.length} selected`));
-const summary = computed(() => packageSummary(state));
+const summary = computed(() => packageSummary(state, sevens.value));
 const extendsOptions = computed(() => state.packageNames.filter((n) => n !== state.selected || n === pkg.value.extends));
 // Format toggle (Sevens spec 11-02): Sevens applies the Sevens defaults at once; Standard overwrites the rules, so it asks first.
 // The EFFECTIVE format: a package with no format of its own that extends a Sevens base is Sevens (read-only hint below).
