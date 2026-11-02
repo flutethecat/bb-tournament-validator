@@ -5,13 +5,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { leagueApi, type LeagueApiDeps, type LeagueApiIdentity, type LeagueApiResult } from "../src/leagues/api";
 import { myAwards } from "../src/leagues/awards";
 import { resolveLeaguePackage } from "../src/leagues/leagueBuilder";
-import { canMoveStage, isDraftLeague, leagueVisibleTo, seasonStage } from "../src/leagues/lifecycle";
+import { canMoveStage, draftAwareNotify, isDraftLeague, leagueVisibleTo, seasonStage } from "../src/leagues/lifecycle";
 import { clearMyLeaguesIndex, myLeagues } from "../src/leagues/myLeagues";
 import { checkLeagueRegistration } from "../src/leagues/registrationCheck";
 import { parseSeasonRegistration, seasonRegistrationOf, seasonSnapshot, seasonWindowStatus } from "../src/leagues/seasonRegistration";
 import { LeagueStore } from "../src/leagues/store";
 import type { LeagueRecord, LeagueTeam, SeasonRecord } from "../src/leagues/types";
-import { slugifyLeagueName, testSessionMayWriteLeaguePath } from "../src/leagues/wizard";
+import { draftLeagueMatch, slugifyLeagueName, testSessionMayWriteLeaguePath } from "../src/leagues/wizard";
 
 // League creation wizard + lifecycle (registration spec 11-02 §4 (b), lane L5): POST /api/leagues, PATCH .../draft,
 // Publish, season stages, per-season registration settings through the registration core's window, draft visibility on
@@ -231,11 +231,11 @@ describe("draft visibility on every read path", () => {
       expect(list.leagues.map((l) => l.id)).not.toContain(id);
       for (const path of READS(id)) {
         const r = await call("GET", path, viewer);
-        expect(r.status, `${path} as ${viewer?.coach ?? "anonymous"}`).toBe(404);
+        expect(r.status === 404 || (!viewer && r.status === 401), `${path} as ${viewer?.coach ?? "anonymous"}: ${r.status}`).toBe(true); // as for an unknown league
         expect(JSON.stringify(r.body)).not.toContain("Secret");
       }
       // Writes too: the league does not exist for them.
-      expect((await call("PATCH", `/api/leagues/${id}/settings`, viewer, { revision: 1, information: { name: "Mine" } })).status).toBe(404);
+      expect((await call("PATCH", `/api/leagues/${id}/settings`, viewer, { revision: 1, information: { name: "Mine" } })).status).toBe(viewer ? 404 : 401);
       expect((await call("POST", `/api/leagues/${id}/publish`, viewer, {})).status).toBe(404);
     }
     for (const viewer of [OLGA, ROOT]) {
@@ -490,5 +490,80 @@ describe("test sign-in sessions (Q13)", () => {
     // A real organiser session is unaffected by a test league's flag.
     expect((await call("POST", "/api/leagues", OLGA, { name: "Real" })).status).toBe(201);
     expect(store.league("real")?.test).toBeUndefined();
+  });
+});
+
+describe("draft privacy across the other emit and read paths (review round 3)", () => {
+  async function draftWithTeams(): Promise<string> {
+    const d = await createDraft();
+    const s = store.season(d.id, "season-1")!;
+    s.teams = [teamOf("a", "Orc", "Pat"), teamOf("b", "Human", "Bea")];
+    store.putSeason(s);
+    return d.id;
+  }
+
+  it("Message members (scope all) on a draft sends nothing: no notification, no email", async () => {
+    const { leagueMessagesRoute } = await import("../src/mail/leagueMessages");
+    const id = await draftWithTeams();
+    const sent: string[] = [];
+    const deps = { store, notify: (c: string) => { sent.push(c); }, enqueue: () => { sent.push("email"); return { added: 1 }; } } as never;
+    const r = leagueMessagesRoute("POST", `/api/leagues/${id}/messages`, { coach: "Olga", admin: false }, { scope: "all", subject: "Hi", body: "Welcome" }, deps);
+    expect(r).toMatchObject({ status: 409, body: { error: "Publish the league before messaging its members." } });
+    expect(sent).toEqual([]);
+  });
+
+  it("recorder announcements skip a draft league's fixture", async () => {
+    const id = await draftWithTeams();
+    seedImported();
+    expect(draftLeagueMatch(store, { fixtureRef: `league:${id}:season-1:f1` })).toBe(true);
+    expect(draftLeagueMatch(store, { leagueSeason: { leagueId: id } })).toBe(true);
+    expect(draftLeagueMatch(store, { fixtureRef: "league:tabbl:season-6:f1" })).toBe(false);
+    expect(draftLeagueMatch(store, {})).toBe(false);
+    await call("POST", `/api/leagues/${id}/publish`, OLGA, {});
+    expect(draftLeagueMatch(store, { fixtureRef: `league:${id}:season-1:f1` })).toBe(false);
+  });
+
+  it("GET /api/me/leagues/sharing never lists a draft to a coach on its team; its organisers and admins still see it", async () => {
+    const { leagueSharingView } = await import("../src/auth/leagueSharing");
+    const id = await draftWithTeams();
+    seedImported();
+    const sources = { leagues: store, tournaments: { tournament: () => undefined, entrants: () => [] } } as never;
+    const record = (coach: string, level = "player", leagues: Record<string, unknown> = {}) =>
+      ({ ffbCoachId: coach, level, consent: { leagues }, contact: { phones: [] }, identities: {}, profile: {} }) as never;
+    expect(leagueSharingView(record("Pat", "player", { [id]: { at: clock } }), sources).leagues.map((l) => l.id)).toEqual(["tabbl"]);
+    store.updateLeague(id, (l) => { l.organisers.push("Pat"); });
+    expect(leagueSharingView(record("Pat"), sources).leagues.map((l) => l.id).sort()).toEqual([id, "tabbl"].sort());
+    expect(leagueSharingView(record("Bea", "admin"), sources).leagues.map((l) => l.id)).toEqual([id]);
+    store.updateLeague(id, (l) => { l.organisers = l.organisers.filter((o) => o !== "Pat"); });
+    await call("POST", `/api/leagues/${id}/publish`, OLGA, {});
+    expect(leagueSharingView(record("Pat"), sources).leagues.map((l) => l.id).sort()).toEqual([id, "tabbl"].sort());
+  });
+
+  it("a hidden draft answers exactly like an unknown league (anonymous 401 where routes sign in first)", async () => {
+    const id = await draftWithTeams();
+    const paths = ["/settings", "/draft", "/seasons/season-1/participants", "/honours", "/seasons/season-1", "/logo", "/seasons/season-1/registration", "/stats"];
+    for (const viewer of [undefined, PAT]) {
+      for (const p of paths) {
+        const draft = await call("GET", `/api/leagues/${id}${p}`, viewer);
+        const unknown = await call("GET", `/api/leagues/no-such-league${p}`, viewer);
+        expect([p, viewer?.coach, draft.status, draft.body], p).toEqual([p, viewer?.coach, unknown.status, unknown.body]);
+      }
+      const w1 = await call("PATCH", `/api/leagues/${id}/settings`, viewer, { revision: 0, information: { name: "X" } });
+      const w2 = await call("PATCH", "/api/leagues/no-such-league/settings", viewer, { revision: 0, information: { name: "X" } });
+      expect([w1.status, w1.body]).toEqual([w2.status, w2.body]);
+    }
+    expect((await call("GET", `/api/leagues/${id}/settings`)).status).toBe(401);
+  });
+
+  it("notifications judge visibility when they are sent: none to coaches before Publish, delivered after", () => {
+    const sent: string[] = [];
+    store.upsertLeague({ id: "span", name: "Span", fullName: "", slug: "span", organisers: ["Olga"], visibility: "draft" });
+    const notify = draftAwareNotify(store, "span", (c: string) => { sent.push(c); }, (c) => c === "Root");
+    notify("Pat", {});
+    notify("Olga", {});
+    notify("Root", {});
+    store.updateLeague("span", (l) => { l.visibility = "published"; });
+    notify("Pat", {});
+    expect(sent).toEqual(["Olga", "Root", "Pat"]);
   });
 });

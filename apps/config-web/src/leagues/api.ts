@@ -74,7 +74,7 @@ import { leagueStats, isStatsScope, type LeagueStats, type StatsScope } from "./
 import { clearStandingsCache, podiumAwards, PODIUM_SLOTS, proposePodium, withStandings, type PodiumPlace } from "./standings.js";
 import { fixturePlayed } from "./tourplay.js";
 import { ORGANISER_LOG_KINDS } from "./teamValue.js";
-import { isDraftLeague, leagueVisibleTo, managesLeague, seasonStage, visibleLeagues, type SeasonStage } from "./lifecycle.js";
+import { draftAwareNotify, isDraftLeague, leagueVisibleTo, seasonStage, storeWithoutLeague, visibleLeagues, type SeasonStage } from "./lifecycle.js";
 import { defaultSeasonRegistration } from "./seasonRegistration.js";
 import { createLeagueRoute, leagueLifecycleRoutes } from "./wizard.js";
 import { TEST_SESSION_REFUSAL, testSessionMayWrite } from "../registration/testSession.js";
@@ -342,17 +342,21 @@ export async function leagueApi(
     const privateList = leagues.some((l) => isDraftLeague(l));
     return { status: 200, ...(privateList ? { headers: { "cache-control": "private, no-store" } } : {}), body: { leagues: leagues.map((l) => leagueSummary(l, store.seasons(l.id))) } };
   }
-  const found = store.league(route.id);
+  let found = store.league(route.id);
   // Lane L5 visibility gate: a draft league does not exist for anyone but its organisers and site admins, on every route
-  // below (reads and writes alike), and a test sign-in writes only in a test league (Q13).
-  if (found && !leagueVisibleTo(found, auth)) return { status: 404, headers: { "cache-control": "private, no-store" }, body: { error: "League not found." } };
+  // below (reads and writes alike): the routes see a store without it, so they answer exactly as for an unknown league.
+  if (found && !leagueVisibleTo(found, auth)) {
+    deps = { ...deps, store: storeWithoutLeague(store, found.id) };
+    found = undefined;
+  }
+  // A test sign-in writes only in a test league (Q13).
   if (found && !read && !testSessionMayWrite(auth, found)) return { status: 403, body: { error: TEST_SESSION_REFUSAL } };
   const league = found;
-  // While a draft, notifications about it reach only its organisers and site admins (no coach hears of a hidden league).
-  if (found && isDraftLeague(found) && deps.notify) {
-    const notify = deps.notify;
+  // Notifications about a league reach only its organisers and site admins while it is a draft, judged when each one is
+  // sent (a request that spans Publish neither leaks before it nor drops after it).
+  if (found && deps.notify) {
     const admins = new Set(siteAdmins(deps).map((c) => c.trim().toLowerCase()));
-    deps = { ...deps, notify: (coach, input) => { if (managesLeague(found, { coach, admin: admins.has(coach.trim().toLowerCase()) })) notify(coach, input); } };
+    deps = { ...deps, notify: draftAwareNotify(store, found.id, deps.notify, (c) => admins.has(c.trim().toLowerCase())) };
   }
   const [first, second, ...extra] = route.rest;
   const lifecycle = await leagueLifecycleRoutes(method, route.rest, league, auth, deps);

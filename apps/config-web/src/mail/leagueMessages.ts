@@ -168,6 +168,8 @@ export function leagueMessagesRoute(
   for (const [k, v] of recentRequests) if (now - v.at > 600_000) recentRequests.delete(k);
   if (replayKey && recentRequests.has(replayKey)) return recentRequests.get(replayKey)!.result;
 
+  // Lane L5: a draft league messages nobody (email or notification): its members must not hear of a hidden league.
+  if (isDraftLeague(deps.store.league(lg.id) ?? lg)) return fail(409, "Publish the league before messaging its members.");
   const recipients = leagueRecipients(deps.store, lg, who.coach, input);
   if (!recipients.ok) return recipients.result;
   if (!recipients.coaches.length) return fail(409, "No other members have a coach account to message yet.");

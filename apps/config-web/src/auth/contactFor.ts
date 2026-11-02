@@ -34,7 +34,7 @@ export interface MailerRecipient {
   phones: CoachPhone[];
 }
 
-export interface LeagueSummary { id: string; name: string; organisers: string[]; owner?: string }
+export interface LeagueSummary { id: string; name: string; organisers: string[]; owner?: string; visibility?: "draft" | "published" }
 
 /** The membership sources (the live stores satisfy these; tests pass fakes). */
 export interface MembershipSources {

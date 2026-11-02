@@ -346,7 +346,7 @@ import { parseTeamRef, saveCaptainError, teamFileFromLibraryDetail, teamFileFrom
 import { settleNafOwedEntries, tournamentApi } from "./tournaments/api.js";
 import { tournamentBannerApi, tournamentBannerPath } from "./tournaments/page.js";
 import { leagueApi, leaguePath } from "./leagues/api.js";
-import { testSessionMayWriteLeaguePath } from "./leagues/wizard.js";
+import { draftLeagueMatch, testSessionMayWriteLeaguePath } from "./leagues/wizard.js";
 import { seriesApi, seriesPath } from "./tournaments/series.js";
 import { canSeeTournament, hiddenTournamentPath, testSessionTournamentRefusal } from "./tournaments/publication.js";
 import { isLeagueOrganiser, LeagueStore } from "./leagues/store.js";
@@ -934,7 +934,11 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
     publishClock: (matchId, payload) => superService?.publishTabletopClock(matchId, payload),
     // the spectator view follows the game pages' player-lines policy (read here: tabletopDeps can run before that const)
     publicPlayerLines: publicPlayerLinesFromEnv(process.env.GAME_PAGES_PUBLIC_PLAYER_LINES),
-    ...(recorderWebhook ? { announce: (a) => { const body = recorderAnnouncement(a, { baseUrl: PUBLIC_BASE_ORIGIN }); if (body) recorderWebhook.post(body); } } : {}),
+    ...(recorderWebhook ? { announce: (a) => {
+      // Lane L5: nothing about a draft league's fixture reaches the recorder channel (pregame or result).
+      if (draftLeagueMatch(leagueStore, a.match)) return;
+      const body = recorderAnnouncement(a, { baseUrl: PUBLIC_BASE_ORIGIN }); if (body) recorderWebhook.post(body);
+    } } : {}),
     notify: (coach, input) => tournamentNotifier.coach(coach, input),
     listSaves: (coach) => readSaves(BUILDER_SAVES_DIR, coach).map((s) => ({ id: s.id, name: s.name })),
     listTeams: (coach) => {

@@ -80,3 +80,40 @@ export const STAGE_ACTION_LABEL: Readonly<Record<"setup" | "registration" | "act
   registration: "Open registration",
   active: "Start season",
 };
+
+/**
+ * A notifier that checks the league's visibility when it emits (a fresh read, so a request that spans Publish neither
+ * leaks before nor drops after): while the league is a draft only its organisers and site admins are notified.
+ */
+export function draftAwareNotify<I>(
+  store: { league(id: string): Pick<LeagueRecord, "visibility" | "organisers" | "owner"> | undefined },
+  leagueId: string,
+  notify: (coach: string, input: I) => void,
+  isAdmin: (coach: string) => boolean,
+): (coach: string, input: I) => void {
+  return (coach, input) => {
+    const lg = store.league(leagueId);
+    if (lg && isDraftLeague(lg) && !managesLeague(lg, { coach, admin: isAdmin(coach) })) return;
+    notify(coach, input);
+  };
+}
+
+/**
+ * The store as a viewer who may not see draft `leagueId` gets it: that league does not exist (league / season / seasons /
+ * secrets / list), so every route answers exactly as for an unknown league (401 before 404 where a route signs in first).
+ */
+export function storeWithoutLeague<S extends object>(store: S, leagueId: string): S {
+  return new Proxy(store, {
+    get(target, prop) {
+      const v = Reflect.get(target, prop, target) as unknown;
+      if (typeof v !== "function") return v;
+      const fn = v as (...args: unknown[]) => unknown;
+      if (prop === "league") return (id: string) => (id === leagueId ? undefined : fn.call(target, id));
+      if (prop === "season") return (id: string, seasonId: string) => (id === leagueId ? undefined : fn.call(target, id, seasonId));
+      if (prop === "seasons") return (id: string) => (id === leagueId ? [] : fn.call(target, id));
+      if (prop === "secrets") return (id: string) => (id === leagueId ? {} : fn.call(target, id));
+      if (prop === "list") return () => (fn.call(target) as Array<{ id: string }>).filter((l) => l.id !== leagueId);
+      return fn.bind(target);
+    },
+  });
+}

@@ -20,6 +20,7 @@ import { ContactValidationError } from "./contactSchema.js";
 import { leaguesOf, type MembershipSources } from "./contactFor.js";
 import { SharingError, withGrant } from "./sharing.js";
 import { normalizeFfbCoachId, ownIdentityRecord, readIdentities, upsertIdentity, withIdentitiesFile, type CoachIdentityRecord } from "./identitiesStore.js";
+import { leagueVisibleTo } from "../leagues/lifecycle.js";
 
 export const LEAGUE_SHARING_PATH = "/api/me/leagues/sharing";
 
@@ -40,11 +41,14 @@ export interface LeagueSharingRow {
 export interface LeagueSharingView { version: string; phoneOnFile: boolean; leagues: LeagueSharingRow[] }
 
 export function leagueSharingView(record: CoachIdentityRecord, sources: MembershipSources): LeagueSharingView {
-  const onRoster = leaguesOf(record.ffbCoachId, sources);
+  // Lane L5: a draft league is listed only to its organisers and site admins (a coach on a draft team never sees it).
+  const viewer = { coach: record.ffbCoachId, admin: record.level === "admin" };
+  const visible = (id: string): boolean => { const lg = sources.leagues.league(id); return !lg || leagueVisibleTo(lg, viewer); };
+  const onRoster = leaguesOf(record.ffbCoachId, sources).filter((l) => visible(l.id));
   const ids = new Set(onRoster.map((l) => l.id));
   const rows: LeagueSharingRow[] = onRoster.map((l) => row(record, l.id, l.name, true));
   for (const id of Object.keys(record.consent?.leagues ?? {})) {
-    if (ids.has(id)) continue;
+    if (ids.has(id) || !visible(id)) continue;
     rows.push(row(record, id, sources.leagues.league(id)?.name ?? id, false));
   }
   return { version: LEAGUE_SHARE_VERSION, phoneOnFile: contactOf(record).phones.length > 0, leagues: rows };
@@ -72,6 +76,9 @@ export function setLeagueSharing(coach: string, body: unknown, sources: Membersh
   const fields = parseShareFields(b.fields);
   if (!b.share && b.fields !== undefined) throw new ContactValidationError("fields are sent only when sharing.");
   let previous = ownIdentityRecord(coach);
+  const target = sources.leagues.league(leagueId);
+  // Lane L5: a draft league is not one a coach can answer for (it does not exist for them).
+  if (target && !leagueVisibleTo(target, { coach: previous.ffbCoachId, admin: previous.level === "admin" })) throw new SharingError(403, "You are not on that league.");
   const onRoster = leaguesOf(previous.ffbCoachId, sources).some((l) => l.id === leagueId);
   // Declining needs a seat too (or an acknowledgement to withdraw): a stranger cannot answer for a league.
   if (!b.share && !onRoster && !sharesWithLeague(previous, leagueId)) throw new SharingError(403, "You are not on that league.");

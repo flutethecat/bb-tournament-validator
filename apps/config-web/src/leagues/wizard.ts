@@ -28,6 +28,7 @@ import { readJsonObject, requestRevision } from "./http.js";
 import { fixturePlayed } from "./tourplay.js";
 import { canMoveStage, isDraftLeague, MIN_TEAMS_TO_START, leagueVisibility, managesLeague, SEASON_STAGE_LABEL, seasonStage, STAGE_ACTION_LABEL, type SeasonStage } from "./lifecycle.js";
 import { seasonTeamEntries } from "./registrationCheck.js";
+import { LEAGUE_FIXTURE_REF } from "./tabletopFixtures.js";
 import { defaultSeasonRegistration, parseSeasonRegistration, seasonRegistrationOf, seasonWindow, seasonWindowStatus, type SeasonRegistration } from "./seasonRegistration.js";
 import {
   DEFAULT_REGISTRATIONS, parseConnections, parseInformation, parseRegistrations, parseTeamBuilding, registrationsOf, SettingsError, teamBuildingTable,
@@ -448,4 +449,10 @@ export function testSessionMayWriteLeaguePath(store: Pick<LeagueApiDeps["store"]
   if (!route) return false;
   if (!route.id) return route.rest.length === 0;
   return store.league(route.id)?.test === true;
+}
+
+/** A recorder match played for a draft league's fixture (its Discord announcements are skipped: lane L5). */
+export function draftLeagueMatch(store: Pick<LeagueApiDeps["store"], "league">, match: { fixtureRef?: string; leagueSeason?: { leagueId: string } }): boolean {
+  const leagueId = match.leagueSeason?.leagueId ?? (match.fixtureRef ? LEAGUE_FIXTURE_REF.exec(match.fixtureRef)?.[1] : undefined);
+  return Boolean(leagueId && isDraftLeague(store.league(leagueId)));
 }

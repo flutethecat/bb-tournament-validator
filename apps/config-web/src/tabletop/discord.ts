@@ -27,6 +27,9 @@ export type ResultSummary = Record<Side, ResultSide>;
 export interface AnnouncementMatch {
   id: string;
   test?: boolean;
+  /** The league fixture it was played for (the server posts nothing for a draft league, lane L5). */
+  fixtureRef?: string;
+  leagueSeason?: { leagueId: string };
   home: { coach: string; teamName: string };
   away: { coach: string; teamName: string };
 }
