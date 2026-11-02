@@ -36,6 +36,19 @@ describe("shortPositionName — full BB2025 dataset", () => {
   });
 });
 
+describe("shortPositionName — display overrides", () => {
+  it("Amazon's Jaguar Warrior Blocker shows as Jaguar Warrior in the builder data and on the sheet; the dataset keeps the full name", () => {
+    const amazon = bb2025.rosters["Amazon"]!;
+    const jaguar = amazon.positions.find((p) => p.name === "Jaguar Warrior Blocker")!;
+    expect(core.shortPositionName(jaguar, amazon)).toBe("Jaguar Warrior");
+    expect(shortPositionName(jaguar, amazon)).toBe("Jaguar Warrior");
+    const model = core.rosterSheetModel({ raceName: "Amazon", players: [{ position: jaguar, chosenSkills: [], chosenStatIncreases: [], chosenStats: null, captain: false }] });
+    expect(model.rows[0].position).toBe("Jaguar Warrior");
+    expect(model.rows[0].positionFull).toBe("Jaguar Warrior Blocker");
+    expect(core.shortPositionName({ name: "Jaguar Warrior" }, amazon)).toBe("Jaguar Warrior");
+  });
+});
+
 describe("shortPositionName — the client rule", () => {
   const both = (position: object, roster: object): string => {
     const js = core.shortPositionName(position, roster);

@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-01",
+    "title": "Jaguar Warrior name",
+    "body": "Amazon's Jaguar Warrior Blocker now shows as just Jaguar Warrior in the Roster Builder, the Sheet and PDF, and the team pages. The full name stays as the tooltip.",
+    "links": [
+      {
+        "label": "Roster Builder",
+        "href": "/app/tournament-team-builder"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-01",
     "title": "Players by position in the Roster summary",
     "body": "Under Players, the Roster summary now lists how many of each position you have, such as 2× Jaguar Warrior, in the hire list's order with star players after. It updates as you hire and fire.",
     "links": [

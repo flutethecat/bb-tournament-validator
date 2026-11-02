@@ -15,9 +15,17 @@ export interface ShortNameRoster {
   raceName?: string | null;
 }
 
+/**
+ * Explicit display overrides, applied AFTER the race-prefix rule (owner 11-01: "rename Jaguar Warriors to just
+ * 'Jaguar Warrior' not Blocker"). Keyed by the dataset's full position name; display only. Twin of
+ * Core.POSITION_DISPLAY_OVERRIDES in public/team-builder.js.
+ */
+export const POSITION_DISPLAY_OVERRIDES: Readonly<Record<string, string>> = { "Jaguar Warrior Blocker": "Jaguar Warrior" };
+
 export function shortPositionName(position: ShortNamePosition | null | undefined, roster: ShortNameRoster | null | undefined): string {
   const rawPosition = String(position?.name ?? "");
   const race = String(roster?.name ?? roster?.raceName ?? "").trim();
   const startsWithRace = !!race && rawPosition.toLowerCase().startsWith(race.toLowerCase() + " ");
-  return startsWithRace ? rawPosition.slice(race.length + 1).trim() || rawPosition : rawPosition;
+  const short = startsWithRace ? rawPosition.slice(race.length + 1).trim() || rawPosition : rawPosition;
+  return Object.prototype.hasOwnProperty.call(POSITION_DISPLAY_OVERRIDES, short) ? POSITION_DISPLAY_OVERRIDES[short]! : short;
 }

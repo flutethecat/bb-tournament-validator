@@ -928,11 +928,13 @@ ${rosterSheetHtml(model)}
      * unchanged). Display only — the wire, ids, XML and validator keep the full name; callers show it as a
      * tooltip. `roster` is {name|raceName}. TypeScript twin: src/positionNames.ts (parity-tested).
      */
+    const POSITION_DISPLAY_OVERRIDES = { "Jaguar Warrior Blocker": "Jaguar Warrior" }; // owner 11-01; applied after the race-prefix rule
     function shortPositionName(position, roster) {
       const rawPosition = String(position?.name ?? "");
       const race = String(roster?.name ?? roster?.raceName ?? "").trim();
       const startsWithRace = !!race && rawPosition.toLowerCase().startsWith(race.toLowerCase() + " ");
-      return startsWithRace ? rawPosition.slice(race.length + 1).trim() || rawPosition : rawPosition;
+      const short = startsWithRace ? rawPosition.slice(race.length + 1).trim() || rawPosition : rawPosition;
+      return Object.prototype.hasOwnProperty.call(POSITION_DISPLAY_OVERRIDES, short) ? POSITION_DISPLAY_OVERRIDES[short] : short;
     }
 
     /**
