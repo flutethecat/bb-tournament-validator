@@ -5,7 +5,12 @@
 .tt-matches { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 .tt-match { width: 100%; text-align: left; }
 .tt-fixtures { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.sf-btn.tt-fixture, .sf-btn.tt-match { justify-content: flex-start; white-space: normal; text-transform: none; letter-spacing: 0; font: 15px/1.35 var(--font-body, sans-serif); padding-block: 8px; }
 .tt-fixture { width: 100%; text-align: left; line-height: 1.35; }
+.tt-fixture-text { display: block; min-width: 0; text-align: left; overflow-wrap: anywhere; }
+.tt-fixture-text b { font-weight: 700; }
+.tt-list { display: grid; gap: 8px; }
+.tt-list-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .tt-table td, .tt-table th { padding: 8px 6px; }
 .tt-check-box { width: 24px; height: 24px; min-height: 0; }
 .tt-players, .tt-undo { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }

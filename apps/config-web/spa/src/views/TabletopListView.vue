@@ -112,82 +112,87 @@ onMounted(() => {
 </script>
 
 <template>
-  <section class="lobby-card">
-    <h2>Your fixtures</h2>
-    <p v-if="state.fixturesError" class="lobby-error" role="alert">{{ state.fixturesError }}</p>
-    <p v-else-if="state.fixturesLoaded && !state.fixtures.length" class="muted">No fixtures scheduled for you.</p>
-    <ul v-else class="tt-fixtures">
-      <li v-for="f in state.fixtures" :key="f.fixtureRef">
-        <button class="lobby-btn tt-tap tt-fixture" type="button" :disabled="creating" @click="onFixture(f.fixtureRef)">
-          <b>{{ f.tournament.name }}</b> round {{ f.round }}<br />
-          {{ f.home.teamName ?? f.home.coach }} ({{ f.home.coach }}) vs {{ f.away.teamName ?? f.away.coach }} ({{ f.away.coach }})
-        </button>
-      </li>
-    </ul>
-    <p v-if="fixtureErr" class="lobby-error" role="alert">{{ fixtureErr }}</p>
-  </section>
-
-  <section class="lobby-card">
-    <h2>Casual match</h2>
-    <p class="muted">Record a tabletop game. You are home; your opponent is away.</p>
-    <form class="lobby-form tt-form" @submit.prevent="onCreate">
-      <label for="tt-mine">Your team</label>
-      <select id="tt-mine" v-model="myTeam" aria-label="Your team">
-        <option v-if="!myTeams.length" value="">No teams found</option>
-        <option v-for="t in myTeams" :key="t.ref" :value="t.ref">{{ teamLabel(t) }}</option>
-      </select>
-      <p v-if="myTeamsErr" class="lobby-error" role="alert">{{ myTeamsErr }}</p>
-      <label for="tt-opp">Opponent coach</label>
-      <input
-        id="tt-opp"
-        :value="sState.query"
-        type="text"
-        maxlength="40"
-        autocomplete="off"
-        placeholder="Type 2 or more letters"
-        role="combobox"
-        aria-expanded="false"
-        aria-controls="tt-opp-list"
-        @input="onType(($event.target as HTMLInputElement).value)"
-        @keydown.enter.prevent="pickFirst"
-      />
-      <ul v-if="sState.matches.length" id="tt-opp-list" class="tt-matches" role="listbox" aria-label="Matching coaches">
-        <li v-for="c in sState.matches" :key="c" role="option">
-          <button class="lobby-btn tt-tap tt-match" type="button" @click="pickCoach(c)">{{ c }}</button>
+  <div class="hm-page">
+    <section class="hm-panel" aria-labelledby="tt-fx-h">
+      <header class="hm-band"><h2 id="tt-fx-h">Your fixtures</h2><span v-if="state.fixturesLoaded && state.fixtures.length" class="hm-cap">({{ state.fixtures.length }})</span></header>
+      <p v-if="state.fixturesError" class="sf-error" role="alert">{{ state.fixturesError }}</p>
+      <p v-else-if="state.fixturesLoaded && !state.fixtures.length" class="hm-empty">No fixtures scheduled for you.</p>
+      <ul v-else class="tt-fixtures">
+        <li v-for="f in state.fixtures" :key="f.fixtureRef">
+          <button class="sf-btn tt-tap tt-fixture" type="button" :disabled="creating" @click="onFixture(f.fixtureRef)">
+            <span class="tt-fixture-text">
+              <b>{{ f.tournament.name }}</b> round {{ f.round }}<br />
+              {{ f.home.teamName ?? f.home.coach }} ({{ f.home.coach }}) vs {{ f.away.teamName ?? f.away.coach }} ({{ f.away.coach }})
+            </span>
+          </button>
         </li>
       </ul>
-      <p v-else-if="sState.searched" class="muted" role="status">No coaches match</p>
-      <p v-if="sState.error" class="lobby-error" role="alert">{{ sState.error }}</p>
-      <p v-if="opponent" class="muted" role="status">Opponent: <strong>{{ opponent }}</strong></p>
-      <p v-if="lookupErr" class="lobby-error" role="alert">{{ lookupErr }}</p>
-      <select id="tt-theirs" v-model="theirTeam" aria-label="Their team" :disabled="looking">
-        <option value="">{{ lookedUp ? (saves.length ? "Pick their team" : "No saved teams found") : "Pick an opponent first" }}</option>
-        <option v-for="t in saves" :key="t.ref" :value="t.ref">{{ teamLabel(t) }}</option>
-      </select>
-      <label for="tt-post">After the match</label>
-      <select id="tt-post" v-model="postMatch">
-        <option v-for="(label, key) in POST_MATCH_LABELS" :key="key" :value="key">{{ label }}</option>
-      </select>
-      <button class="lobby-btn primary tt-tap" type="submit" :disabled="creating">New match</button>
-    </form>
-    <p v-if="err" class="lobby-error" role="alert">{{ err }}</p>
-  </section>
+      <p v-if="fixtureErr" class="sf-error" role="alert">{{ fixtureErr }}</p>
+    </section>
 
-  <TabletopTestMatchCard />
-  <AdminDeleteCoachCard />
+    <section class="hm-panel" aria-labelledby="tt-casual-h">
+      <header class="hm-band"><h2 id="tt-casual-h">Casual match</h2><span class="hm-cap">You are home</span></header>
+      <p class="muted">Record a tabletop game. You are home; your opponent is away.</p>
+      <form class="sf-form tt-form" @submit.prevent="onCreate">
+        <label class="sf-k" for="tt-mine">Your team</label>
+        <select id="tt-mine" v-model="myTeam" class="sf-input" aria-label="Your team">
+          <option v-if="!myTeams.length" value="">No teams found</option>
+          <option v-for="t in myTeams" :key="t.ref" :value="t.ref">{{ teamLabel(t) }}</option>
+        </select>
+        <p v-if="myTeamsErr" class="sf-error" role="alert">{{ myTeamsErr }}</p>
+        <label class="sf-k" for="tt-opp">Opponent coach</label>
+        <input
+          id="tt-opp"
+          class="sf-input"
+          :value="sState.query"
+          type="text"
+          maxlength="40"
+          autocomplete="off"
+          placeholder="Type 2 or more letters"
+          role="combobox"
+          aria-expanded="false"
+          aria-controls="tt-opp-list"
+          @input="onType(($event.target as HTMLInputElement).value)"
+          @keydown.enter.prevent="pickFirst"
+        />
+        <ul v-if="sState.matches.length" id="tt-opp-list" class="tt-matches" role="listbox" aria-label="Matching coaches">
+          <li v-for="c in sState.matches" :key="c" role="option">
+            <button class="sf-btn tt-tap tt-match" type="button" @click="pickCoach(c)">{{ c }}</button>
+          </li>
+        </ul>
+        <p v-else-if="sState.searched" class="muted" role="status">No coaches match</p>
+        <p v-if="sState.error" class="sf-error" role="alert">{{ sState.error }}</p>
+        <p v-if="opponent" class="muted" role="status">Opponent: <strong>{{ opponent }}</strong></p>
+        <p v-if="lookupErr" class="sf-error" role="alert">{{ lookupErr }}</p>
+        <select id="tt-theirs" v-model="theirTeam" class="sf-input" aria-label="Their team" :disabled="looking">
+          <option value="">{{ lookedUp ? (saves.length ? "Pick their team" : "No saved teams found") : "Pick an opponent first" }}</option>
+          <option v-for="t in saves" :key="t.ref" :value="t.ref">{{ teamLabel(t) }}</option>
+        </select>
+        <label class="sf-k" for="tt-post">After the match</label>
+        <select id="tt-post" v-model="postMatch" class="sf-input">
+          <option v-for="(label, key) in POST_MATCH_LABELS" :key="key" :value="key">{{ label }}</option>
+        </select>
+        <button class="sf-btn primary tt-tap" type="submit" :disabled="creating">New match</button>
+      </form>
+      <p v-if="err" class="sf-error" role="alert">{{ err }}</p>
+    </section>
 
-  <section class="lobby-card">
-    <h2>My matches</h2>
-    <RouterLink v-if="session.state.info?.organizer === true" class="tt-tap-link" to="/tabletop/organiser">Organiser console</RouterLink>
-    <div class="lobby-list">
-      <p v-if="state.error" class="lobby-error" role="alert">{{ state.error }}</p>
-      <template v-else-if="state.loaded">
-        <p v-if="!state.matches.length" class="muted">No matches yet.</p>
-        <div v-for="m in state.matches" :key="m.id" class="lobby-row">
-          <RouterLink class="tt-tap-link" :to="{ name: 'tabletop-match', params: { id: m.id } }">{{ m.home.teamName }} vs {{ m.away.teamName }}</RouterLink>
-          <span class="muted">{{ stateLabel(m.state) }}</span>
-        </div>
-      </template>
-    </div>
-  </section>
+    <TabletopTestMatchCard />
+    <AdminDeleteCoachCard />
+
+    <section class="hm-panel" aria-labelledby="tt-mm-h">
+      <header class="hm-band"><h2 id="tt-mm-h">My matches</h2><span v-if="state.loaded && state.matches.length" class="hm-cap">({{ state.matches.length }})</span></header>
+      <RouterLink v-if="session.state.info?.organizer === true" class="tt-tap-link" to="/tabletop/organiser">Organiser console</RouterLink>
+      <div class="tt-list">
+        <p v-if="state.error" class="sf-error" role="alert">{{ state.error }}</p>
+        <template v-else-if="state.loaded">
+          <p v-if="!state.matches.length" class="hm-empty">No matches yet.</p>
+          <div v-for="m in state.matches" :key="m.id" class="tt-list-row">
+            <RouterLink class="tt-tap-link" :to="{ name: 'tabletop-match', params: { id: m.id } }">{{ m.home.teamName }} vs {{ m.away.teamName }}</RouterLink>
+            <span class="muted">{{ stateLabel(m.state) }}</span>
+          </div>
+        </template>
+      </div>
+    </section>
+  </div>
 </template>

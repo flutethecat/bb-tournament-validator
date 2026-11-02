@@ -42,7 +42,7 @@ onServerPrefetch(() => props.editor.load());
             id="acc-name" v-model="state.form.preferredName" type="text" autocomplete="nickname" :maxlength="PREFERRED_NAME_MAX"
             :aria-invalid="show('name', problems.preferredName) ? 'true' : undefined" aria-describedby="acc-name-help" @blur="touched.name = true"
           />
-          <small id="acc-name-help" class="ob-help" :class="{ 'lobby-error': show('name', problems.preferredName) }">{{ show('name', problems.preferredName) || "What organisers and other coaches call you." }}</small>
+          <small id="acc-name-help" class="ob-help" :class="{ 'sf-error': show('name', problems.preferredName) }">{{ show('name', problems.preferredName) || "What organisers and other coaches call you." }}</small>
         </div>
         <div class="ob-field">
           <label class="ob-label" for="acc-email">Email</label>
@@ -50,7 +50,7 @@ onServerPrefetch(() => props.editor.load());
             id="acc-email" v-model="state.form.email" type="email" autocomplete="email" maxlength="200"
             :aria-invalid="show('email', problems.email) ? 'true' : undefined" aria-describedby="acc-email-help" @blur="touched.email = true"
           />
-          <small id="acc-email-help" class="ob-help" :class="{ 'lobby-error': show('email', problems.email) }">{{ show('email', problems.email) || emailNote }}</small>
+          <small id="acc-email-help" class="ob-help" :class="{ 'sf-error': show('email', problems.email) }">{{ show('email', problems.email) || emailNote }}</small>
         </div>
         <div class="ob-field">
           <label class="ob-label" for="acc-country">Country</label>
@@ -58,7 +58,7 @@ onServerPrefetch(() => props.editor.load());
             id="acc-country" v-model="state.form.country" :invalid="Boolean(show('country', problems.country))"
             describedby="acc-country-help" @blur="touched.country = true"
           />
-          <small id="acc-country-help" class="ob-help" :class="{ 'lobby-error': show('country', problems.country) }">{{ show('country', problems.country) || "Sets the prefix for a new phone number. A saved number keeps its own." }}</small>
+          <small id="acc-country-help" class="ob-help" :class="{ 'sf-error': show('country', problems.country) }">{{ show('country', problems.country) || "Sets the prefix for a new phone number. A saved number keeps its own." }}</small>
         </div>
         <button v-if="!state.form.phones.length" class="ob-btn small ob-phone-open" type="button" @click="addPhone">Add a phone number (optional)</button>
         <PhoneField
@@ -91,9 +91,9 @@ onServerPrefetch(() => props.editor.load());
         <span v-if="state.notice" class="hm-notice" role="status">{{ state.notice }}</span>
         <span v-else-if="editor.dirty()" class="muted hm-small">Unsaved changes.</span>
       </div>
-      <p v-if="state.error" class="lobby-error hm-small" role="alert">{{ state.error }}</p>
+      <p v-if="state.error" class="sf-error" role="alert">{{ state.error }}</p>
     </form>
-    <p v-else class="lobby-error hm-small" role="alert">
+    <p v-else class="sf-error" role="alert">
       {{ state.error }}
       <button class="ob-btn small hm-retry" type="button" @click="editor.load()">Retry</button>
     </p>

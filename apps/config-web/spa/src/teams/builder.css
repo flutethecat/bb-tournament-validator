@@ -209,7 +209,7 @@
 .tb-name-line { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .tb-who .tb-pname { min-width: 0; margin: 0; padding: 0; font-size: inherit; line-height: inherit; text-align: left; background: none; border: 0; border-radius: 2px; cursor: text; }
 .tb-who button.tb-pname:hover { text-decoration: underline dotted; text-underline-offset: 3px; }
-.tb-who .tb-psub { font: 10px/1.3 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); overflow-wrap: anywhere; }
+.tb-who .tb-psub { font: 10px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); overflow-wrap: anywhere; }
 .tb-reroll { flex: none; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; font: 15px/1 system-ui, sans-serif; color: var(--ui-muted); background: none; border: 1px solid transparent; border-radius: 2px; cursor: pointer; }
 .tb-reroll:hover { color: var(--ui-text); border-color: var(--sf-panel-line); }
 .tb-name-input { width: 100%; max-width: 32ch; min-width: 0; box-sizing: border-box; padding: 2px 6px; font-family: var(--font-heading, sans-serif); font-weight: 500; font-size: inherit; line-height: 1.2; letter-spacing: .03em; color: var(--ui-position, var(--ui-text)); background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-radius: 2px; }
@@ -231,7 +231,7 @@
 .tb-position .tb-stat b { font-size: clamp(16px, 6.4cqi, 24px); } /* hireable cards: the strip spans the card, so it scales with the panel */
 .tb-stat.up b { color: var(--ui-skill-general); }
 
-.tb-rows { position: relative; list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; align-content: start; }
+.tb-rows { position: relative; list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; align-content: start; }
 /* The roster scroller (owner 10-31): in the three-column layout the list scrolls inside the panel, as tall as the viewport
    below the panel header (max-height measured in TournamentBuilderRoster.vue); stacked, it is page scroll only. */
 @media (min-width: 1180px) {
@@ -247,7 +247,7 @@
 .tb-row {
   position: relative; display: grid; grid-template-columns: 14px 34px auto minmax(0, 1fr) auto auto;
   grid-template-areas: "grip num sprite who cost x" "grip num sprite line2 line2 line2" "grip num skills skills skills skills";
-  column-gap: 8px; row-gap: 0; align-items: center; padding: 0 6px 4px 0; background: var(--ui-surface-2); border: 1px solid var(--sf-panel-line); border-radius: 2px;
+  column-gap: 8px; row-gap: 0; align-items: center; padding: 0 6px 3px 0; background: var(--ui-surface-2); border: 1px solid var(--sf-panel-line); border-radius: 2px;
   scroll-margin-top: calc(var(--sf-top-h, 56px) + 12px); scroll-margin-bottom: 12px;
 }
 .tb-row.captain { border-color: var(--ui-gold); }
@@ -256,7 +256,7 @@
 .tb-row > .tb-grip { grid-area: grip; grid-row: 1 / -1; align-self: stretch; }
 .tb-row > .tb-num { grid-area: num; padding-top: 4px; align-self: center; }
 .tb-row > .tb-sprite { grid-area: sprite; margin-top: 4px; align-self: center; }
-.tb-row > .tb-who { grid-area: who; display: grid; align-content: center; min-width: 0; padding-top: 4px; }
+.tb-row > .tb-who { grid-area: who; display: grid; align-content: center; min-width: 0; padding-top: 2px; line-height: 1.15; }
 .tb-row > .tb-cost { grid-area: cost; padding-top: 4px; }
 .tb-row > .tb-fire-x { grid-area: x; align-self: start; justify-self: end; }
 .tb-row > .tb-row-line2 { grid-area: line2; margin-top: 2px; }
@@ -532,16 +532,17 @@
   .tb-row .tb-stat { padding: 2px 1px 1px; }
   .tb-row .tb-stat b { font-size: 22px; }
   .tb-row .tb-stat small { font-size: 10px; }
-  .tb-row > .tb-row-skills { min-height: 24px; padding: 2px 8px; margin-top: 3px; }
+  .tb-row > .tb-row-skills { min-height: 24px; padding: 1px 8px; margin-top: 3px; }
   .tb-row .tb-advance { --tb-adv-size: 39px; } /* the compact tiles: 22 px value + 17 px */
 }
 /* wide roster (660 px of panel and up, e.g. 1920): one line per player (name, captain, stats, Add Skill, cost, fire X) with
    the skills band beside the portrait under it, so more rows fit in the roster scroller */
 @container tbpanel (min-width: 660px) {
-  .tb-row { grid-template-columns: 14px 34px auto minmax(90px, 1fr) auto auto auto; grid-template-areas: "grip num sprite who line2 cost x" "grip num skills skills skills skills skills"; column-gap: 8px; }
-  .tb-row > .tb-row-line2 { margin-top: 4px; flex-wrap: nowrap; }
+  .tb-row { grid-template-columns: 14px 34px auto minmax(90px, 1fr) auto auto auto; grid-template-areas: "grip num sprite who line2 cost x" "grip num sprite skills skills skills skills"; column-gap: 8px; }
+  .tb-row > .tb-row-line2 { margin-top: 3px; flex-wrap: nowrap; }
   .tb-row-line2 > .tb-row-stats { flex: none; width: 216px; min-width: 0; }
-  .tb-row > .tb-fire-x { margin-top: 4px; }
+  .tb-row > .tb-fire-x { margin-top: 3px; }
+  .tb-row > .tb-sprite { margin-top: 3px; }
 }
 /* narrow roster (under 520 px of panel: nav open at 1280, phones): the stat line starts under the number instead of beside
    the portrait; Add Skill / Add Stat stay at its right end while they fit, else wrap under the stats */

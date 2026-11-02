@@ -47,7 +47,7 @@
 .ob-field input[aria-invalid="true"] { border-color: var(--ui-danger); }
 .ob-field input:disabled, .ob-field select:disabled { opacity: .6; }
 .ob-help { margin: 0; font-size: 12px; line-height: 1.4; color: var(--ui-muted); }
-.ob-help.lobby-error { color: var(--ui-danger); }
+.ob-help.lobby-error, .ob-help.sf-error { color: var(--ui-danger); font-size: 12px; }
 /* Email shown as a read-only value in the same field box, with a small Edit button. */
 .ob-email-show { display: flex; align-items: stretch; gap: 8px; min-width: 0; }
 .ob-readonly { display: flex; align-items: center; flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; color: var(--ui-text); border-style: dashed; }

@@ -1886,7 +1886,7 @@ describe("tabletop routes (server-rendered)", () => {
     const rows = await withState({ query: "bo", matches: ["Bobby", "Bobcat"] });
     expect(rows.html).toContain(">Bobby</button>");
     expect(rows.html).toContain(">Bobcat</button>");
-    expect(rows.html).toContain('class="lobby-btn tt-tap tt-match"');
+    expect(rows.html).toContain('class="sf-btn tt-tap tt-match"');
     expect((await withState({ query: "zz", searched: true })).html).toContain("No coaches match");
     expect((await withState({ query: "zz", error: "Fork DB not configured on this host (set FORK_DB_HOST)." })).html).toContain("Fork DB not configured");
   });
