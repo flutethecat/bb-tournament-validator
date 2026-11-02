@@ -76,7 +76,7 @@ usePageTitle(() => (allowed.value && state.pkg ? `Tournament Creator · ${title.
 </script>
 
 <template>
-  <div class="hm-page cr-page" :class="{ 'cr-page-wide': tab === 'preview' }">
+  <div class="hm-page cr-page sf-fit" :class="{ 'cr-page-wide': tab === 'preview' }">
     <RouterLink v-if="returnToWizard" class="tn-back" :to="{ name: 'tournament-new' }">Back to the new tournament</RouterLink>
     <RouterLink v-else class="tn-back" to="/tournaments">All tournaments</RouterLink>
 
@@ -121,7 +121,8 @@ usePageTitle(() => (allowed.value && state.pkg ? `Tournament Creator · ${title.
       <!-- the summary page (Preview) carries the save panel in its right column, styled like the Roster Builder's -->
       <CreatorActions v-if="tab !== 'preview'" @save="save" @reload="reload" />
 
-      <div class="cr-pane" role="region" :aria-label="`${CREATOR_TABS.find((t) => t.id === tab)?.label} section`">
+      <!-- fit to 1920x1080 (owner 11-02): the shelf, tabs and save panel stay; the section scrolls here (Preview: its columns scroll) -->
+      <div class="cr-pane sf-fill" :class="tab === 'preview' ? 'cr-pane-fit' : 'sf-scroll sf-col'" role="region" :aria-label="`${CREATOR_TABS.find((t) => t.id === tab)?.label} section`">
         <CreatorOverview v-if="tab === 'overview'" />
         <CreatorTiers v-else-if="tab === 'tiers'" />
         <CreatorTeamRules v-else-if="tab === 'team-rules'" />

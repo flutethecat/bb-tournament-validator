@@ -243,3 +243,14 @@
   .cr-override .cr-mode { max-width: 52%; }
   .cr-field.cr-inline { flex: 1 1 100%; }
 }
+
+/* ---- Fit to 1920x1080 (owner 11-02, home.css "Fit to 1920x1080"): the shelf, tabs and save panel stay; a section scrolls
+   in .cr-pane. The summary page (Preview) keeps its identity strip and scrolls each column on its own, with the ruleset
+   panel's band held at the top of the middle column. */
+@media (min-width: 1367px) and (min-height: 700px) {
+  .cr-pool { top: 0; }
+  .cr-pane-fit { display: flex; flex-direction: column; }
+  .cr-pane-fit > .cr-review { flex: 1 1 0; min-height: 0; grid-template-rows: auto minmax(0, 1fr); align-items: stretch; }
+  .cr-pane-fit .cr-review-col { position: relative; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 2px 6px 8px 2px; margin: -2px -6px 0 -2px; }
+  .cr-review-main > .hm-panel > .hm-band { position: sticky; top: -2px; z-index: 2; background: linear-gradient(var(--sf-panel-top), var(--sf-panel-top)), var(--ui-surface); }
+}

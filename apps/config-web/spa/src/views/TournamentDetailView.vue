@@ -70,7 +70,7 @@ usePageTitle(() => state.tournament?.name);
 </script>
 
 <template>
-  <div class="hm-page tn-page">
+  <div class="hm-page tn-page sf-fit">
     <RouterLink class="tn-back" to="/tournaments">All tournaments</RouterLink>
     <p v-if="state.error" class="sf-error" role="alert">{{ state.error }}</p>
     <p v-else-if="!state.loaded || !state.tournament" class="hm-empty" role="status">Loading tournament...</p>
@@ -84,6 +84,8 @@ usePageTitle(() => state.tournament?.name);
           :to="{ name: 'tournament-detail', params: { id }, query: t.id === 'overview' ? {} : { tab: t.id } }" replace
         >{{ t.label }}</RouterLink>
       </nav>
+      <!-- fit to 1920x1080 (owner 11-02): the front and tabs stay; the tab content scrolls in this pane (tournaments.css) -->
+      <div class="tn-tab-body sf-fill">
       <TournamentOverview v-if="tab === 'overview'" :tournament="state.tournament"><TournamentMyEntry /></TournamentOverview>
       <TournamentEntrants v-else-if="tab === 'entrants'" :entrants="state.entrants" />
       <TournamentRounds v-else-if="tab === 'rounds'" :data="state" />
@@ -92,6 +94,7 @@ usePageTitle(() => state.tournament?.name);
       <TournamentHonours v-else-if="tab === 'honours'" :id="id" />
       <TournamentAwards v-else-if="tab === 'awards'" :id="id" :writes="writesAllowed(session)" />
       <TournamentManage v-else />
+      </div>
     </template>
   </div>
 </template>

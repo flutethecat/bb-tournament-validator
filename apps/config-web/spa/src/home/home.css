@@ -144,23 +144,26 @@
   .sf-body > .shell-main { position: relative; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; } /* relative: visually hidden (absolute) text stays inside the scroller */
   .sf-body > .shell-main > * { flex: none; }
   .sf-body > .shell-main > .sf-fit { flex: 1 1 auto; }
-  .sf-fit { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
-  .sf-fit > * { flex: none; min-height: 0; }
-  .sf-fit > .sf-fill, .sf-pane > .sf-fill { flex: 1 1 0; min-height: 0; }
+  .shell-main .sf-fit { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+  .shell-main .sf-fit > * { flex: none; min-height: 0; }
+  .shell-main .sf-fit > .sf-fill, .shell-main .sf-pane > .sf-fill { flex: 1 1 0; min-height: 0; }
   /* a notice above the page can leave too little room: the pane keeps a usable height and the content area scrolls */
-  .sf-fit > .sf-fill { min-height: 280px; }
-  .sf-pane { display: flex; flex-direction: column; min-height: 0; }
-  .sf-pane > * { flex: none; }
-  .sf-pane > .sf-pane-body { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; }
-  .sf-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  .shell-main .sf-fit > .sf-fill { min-height: 280px; }
+  .shell-main .sf-pane { display: flex; flex-direction: column; min-height: 0; }
+  .shell-main .sf-pane > * { flex: none; }
+  .shell-main .sf-pane > .sf-pane-body { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+  .shell-main .sf-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  /* every scroller is the containing block of its visually hidden (absolute) text, so that text never stretches the
+     content area */
+  .shell-main .sf-scroll, .shell-main .sf-pane > .sf-pane-body, .shell-main .sf-cols > .hm-col { position: relative; }
   /* scrolling columns: room for the panels' 4 px drop shadow and focus rings, which the scroller would clip */
-  .sf-cols > .hm-col, .sf-scroll.sf-col { padding: 2px 6px 8px 2px; margin: -2px -6px 0 -2px; }
-  .sf-cols { align-items: stretch; min-height: 0; }
-  .sf-cols > .hm-col { min-height: 0; overflow-y: auto; overscroll-behavior: contain; align-content: start; }
+  .shell-main .sf-cols > .hm-col, .shell-main .sf-scroll.sf-col { padding: 2px 6px 8px 2px; margin: -2px -6px 0 -2px; }
+  .shell-main .sf-cols { align-items: stretch; min-height: 0; }
+  .shell-main .sf-cols > .hm-col { min-height: 0; overflow-y: auto; overscroll-behavior: contain; align-content: start; }
   /* a table header stays in view while its pane scrolls */
-  .sf-pane-body thead th, .sf-scroll thead th { position: sticky; top: 0; z-index: 1; background: var(--ui-surface); }
+  .shell-main .sf-pane-body thead th, .shell-main .sf-scroll thead th { position: sticky; top: 0; z-index: 1; background: var(--ui-surface); }
   /* hash targets land at the top of their pane, not under a top bar */
-  .sf-fit .hm-panel { scroll-margin-top: 8px; }
+  .shell-main .sf-fit .hm-panel { scroll-margin-top: 8px; }
 }
 
 /* ---- nav trees */

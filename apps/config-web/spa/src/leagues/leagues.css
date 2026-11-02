@@ -654,6 +654,6 @@ button.lg-cog { margin: 0; padding: 0; font: inherit; color: inherit; cursor: po
   .lg-tab-body > .lg-stack:has(> .hm-panel:only-child > .lg-scroll) { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
   .lg-tab-body > .lg-stack > .hm-panel:only-child:has(> .lg-scroll), .lg-tab-body > .lg-part { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
   .lg-tab-body > .lg-stack > .hm-panel:only-child > *, .lg-tab-body > .lg-part > * { flex: none; }
-  .lg-tab-body > .lg-stack > .hm-panel:only-child > .lg-scroll, .lg-tab-body > .lg-part .lg-part-wrap { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  .lg-tab-body > .lg-stack > .hm-panel:only-child > .lg-scroll, .lg-tab-body > .lg-part .lg-part-wrap { position: relative; flex: 1 1 auto; min-height: 0; overflow: auto; }
   .lg-tab-body > .lg-stack > .hm-panel:only-child > .lg-scroll thead th, .lg-part-wrap thead th { position: sticky; top: 0; z-index: 1; background: var(--ui-surface); }
 }
