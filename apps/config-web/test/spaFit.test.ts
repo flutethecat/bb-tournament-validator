@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
-import { createPaneScrollMemory, FIT_QUERY, nodeAt, nodePath, type ScrollNode } from "../spa/src/shell/fit";
+import { createHashReveal, createPaneScrollMemory, entryKey, FIT_QUERY, nodeAt, nodePath, type ScrollNode } from "../spa/src/shell/fit";
 import { scrollToHashAfter, type HashScrollDeps } from "../spa/src/tournaments/scroll";
 
 // Fit to 1920x1080 (owner 11-02, laws 18a): on a desktop screen the shell is one viewport tall and pages scroll inside
@@ -49,6 +49,26 @@ describe("fit to 1920x1080: the shell", () => {
     expect(block).toMatch(/\.shell-main \.sf-scroll, \.shell-main \.sf-pane > \.sf-pane-body, \.shell-main \.sf-cols > \.hm-col \{ position: relative; \}/);
     // table headers stay in view inside a pane
     expect(block).toMatch(/\.sf-pane-body thead th[^{]*\{[^}]*position: sticky;/);
+  });
+
+  it("any desktop-size media block that sets a viewport height or a scrolling overflow is screen-only (print keeps the natural flow)", () => {
+    const offenders: string[] = [];
+    for (const file of cssFiles(".")) {
+      const css = src(file.replace(/^\.\//, ""));
+      for (const m of css.matchAll(/@media([^{]*)\{/g)) {
+        const query = m[1]!.trim();
+        if (!/min-(width|height)/.test(query) || /^screen\b|\bprint\b/.test(query)) continue;
+        let depth = 0, i = m.index! + m[0].length - 1;
+        const start = i;
+        for (; i < css.length; i++) { if (css[i] === "{") depth++; else if (css[i] === "}" && --depth === 0) break; }
+        const body = css.slice(start, i);
+        if (!/\b100d?vh\b|overflow(-[xy])?:\s*(auto|scroll)/.test(body)) continue;
+        // the match recorder is a position: fixed full-screen app at every size (tabletop.css .tt-rec); it is never a page
+        if (file.endsWith("tabletop/tabletop.css") && /\.tt-rec\b|\.tt-rail\b/.test(body)) continue;
+        offenders.push(`${file}: @media ${query}`);
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 
   it("every page-level fit block uses the same media query as the shell (no drifting breakpoints)", () => {
@@ -134,6 +154,19 @@ describe("fit to 1920x1080: Back / Forward restores pane scroll", () => {
     const main = node(2000, [node(100), node(500, [node(10), pane])]);
     return { main, pane };
   }
+  /** A fake browser history: one state object per entry; push drops the forward entries; back / forward move. */
+  function fakeHistory() {
+    let ids = 0;
+    const stack: Array<Record<string, unknown>> = [{ position: 0 }];
+    let at = 0;
+    return {
+      get state() { return stack[at]!; },
+      push() { stack.splice(at + 1); stack.push({ position: at + 1 }); at += 1; },
+      back() { at -= 1; },
+      forward() { at += 1; },
+      key: () => entryKey(stack[at], () => {}, () => `k${++ids}`),
+    };
+  }
 
   it("addresses a pane by its child-index path under the content area", () => {
     const { main, pane } = shell();
@@ -144,19 +177,28 @@ describe("fit to 1920x1080: Back / Forward restores pane scroll", () => {
     expect(nodeAt(main, [4])).toBeNull();
   });
 
-  it("remembers each entry's offsets and puts them back on the new page once it is tall enough; navigation pauses recording", async () => {
-    let entry = 1;
+  it("keys an entry by a random id kept in its own state, created once and persisted", () => {
+    const persisted: string[] = [];
+    const state: Record<string, unknown> = { position: 3 };
+    expect(entryKey(state, (k) => persisted.push(k), () => "abc")).toBe("abc");
+    expect(entryKey(state, (k) => persisted.push(k), () => "zzz")).toBe("abc");
+    expect(persisted).toEqual(["abc"]);
+    expect(entryKey(null, () => {}, () => "x")).toBeUndefined();
+  });
+
+  it("remembers each entry's offsets and puts them back once the page is tall enough; navigation pauses recording", async () => {
+    const h = fakeHistory();
     let page = shell();
-    const memory = createPaneScrollMemory({ root: () => page.main, entry: () => entry, wait: async () => {} });
+    const memory = createPaneScrollMemory({ root: () => page.main, entry: h.key, position: () => h.state.position as number, wait: async () => {} });
     page.main.scrollTop = 300; memory.record(page.main);
     page.pane.scrollTop = 1200; memory.record(page.pane);
-    // navigate away: the outgoing page's teardown (main clamped to 0) must not overwrite entry 1
+    // navigate away: the outgoing page's teardown (main clamped to 0) must not overwrite this entry
     memory.pause();
     page.main.scrollTop = 0; memory.record(page.main);
-    entry = 2; memory.resume();
-    page = shell(); memory.record(page.main); // the new page at the top
-    // Back: entry 1 renders again, its pane still filling in (too short for 1200 on the first try)
-    entry = 1;
+    h.push(); memory.pushed(); memory.resume();
+    page = shell(); memory.record(page.main);
+    // Back: the first page renders again, its pane still filling in (too short for 1200 on the first try)
+    memory.pause(); h.back();
     page = shell();
     page.pane.scrollHeight = 900;
     const done = memory.restore({ tries: 5, delay: 0 });
@@ -164,18 +206,83 @@ describe("fit to 1920x1080: Back / Forward restores pane scroll", () => {
     expect(await done).toBe(true);
     expect(page.main.scrollTop).toBe(300);
     expect(page.pane.scrollTop).toBe(1200);
-    // an entry with nothing recorded restores nothing
-    entry = 9;
-    expect(await memory.restore({ tries: 2, delay: 0 })).toBe(false);
   });
 
-  it("a newer navigation cancels a pending restore", async () => {
+  it("branching: a page pushed after Back never gets the abandoned entry's offsets (Sol review 1)", async () => {
+    const h = fakeHistory();
     let page = shell();
-    const memory = createPaneScrollMemory({ root: () => page.main, entry: () => 1, wait: async () => { memory.pause(); } });
-    page.pane.scrollTop = 1200; memory.record(page.pane);
-    page = shell();
-    page.pane.scrollHeight = 600; // never tall enough before the next navigation starts
-    expect(await memory.restore({ tries: 5, delay: 0 })).toBe(false);
+    const memory = createPaneScrollMemory({ root: () => page.main, entry: h.key, position: () => h.state.position as number, wait: async () => {} });
+    // A -> Privacy (scrolled) -> Back -> push What's new (not scrolled) -> Back -> Forward
+    memory.pause(); h.push(); memory.pushed(); memory.resume();
+    page = shell(); page.pane.scrollTop = 1500; memory.record(page.pane);
+    memory.pause(); h.back(); page = shell(); await memory.restore({ tries: 2, delay: 0 });
+    memory.pause(); h.push(); memory.pushed(); memory.resume(); page = shell();
+    memory.pause(); h.back(); page = shell(); await memory.restore({ tries: 2, delay: 0 });
+    memory.pause(); h.forward(); page = shell();
+    page.pane.scrollTop = 40; // a reused pane left scrolled
+    expect(await memory.restore({ tries: 2, delay: 0 })).toBe(true);
     expect(page.pane.scrollTop).toBe(0);
+    expect(page.main.scrollTop).toBe(0);
+  });
+
+  it("an entry that was never scrolled restores zeros: the content area and every reused pane go back to the top (Sol review 2)", async () => {
+    const page = shell();
+    const memory = createPaneScrollMemory({ root: () => page.main, entry: () => "never", position: () => 0, wait: async () => {} });
+    page.main.scrollTop = 120; page.pane.scrollTop = 900;
+    expect(await memory.restore({ tries: 2, delay: 0 })).toBe(true);
+    expect(page.main.scrollTop).toBe(0);
+    expect(page.pane.scrollTop).toBe(0);
+  });
+
+  it("the user taking over (input, or scrolling a restored pane) cancels pending retries and records again (Sol review 3)", async () => {
+    let page = shell();
+    let waits = 0;
+    let onWait: () => void = () => {};
+    const memory = createPaneScrollMemory({ root: () => page.main, entry: () => "a", position: () => 0, wait: async () => { waits++; onWait(); } });
+    page.main.scrollTop = 200; memory.record(page.main);
+    page.pane.scrollTop = 1200; memory.record(page.pane);
+    // the page comes back with a short pane: the restore sets main, then waits for the pane to grow
+    memory.pause();
+    page = shell(); page.pane.scrollHeight = 600;
+    onWait = () => memory.userActed(); // the user wheels during the first wait
+    expect(await memory.restore({ tries: 5, delay: 0 })).toBe(false);
+    expect(waits).toBe(1);
+    page.pane.scrollHeight = 3000;
+    expect(page.pane.scrollTop).toBe(0); // never pulled to 1200 after the user acted
+    page.pane.scrollTop = 1200; memory.record(page.pane); // recording is back on
+    // a scroll that is not the restore's own (a restored node moved away from the offset it set) also cancels
+    memory.pause();
+    page = shell(); page.pane.scrollHeight = 600;
+    onWait = () => { page.main.scrollTop = 30; memory.record(page.main); };
+    expect(await memory.restore({ tries: 5, delay: 0 })).toBe(false);
+    expect(page.main.scrollTop).toBe(30);
+  });
+});
+
+describe("fit to 1920x1080: hash reveal", () => {
+  it("reveals now, retries while the target is out of view, and the next navigation cancels the retries (Sol review 4)", () => {
+    const timers = new Map<number, () => void>();
+    let next = 0;
+    const revealed: string[] = [];
+    let top = 2000;
+    const hash = createHashReveal({
+      find: (id) => id, top: () => top, viewport: () => 1080, reveal: (el) => revealed.push(el as string),
+      later: (fn) => { timers.set(++next, fn); return next; }, cancel: (t) => timers.delete(t as number),
+    });
+    hash.reveal("deadlines");
+    expect(revealed).toEqual(["deadlines"]);
+    expect(timers.size).toBe(2);
+    [...timers.values()][0]!(); // 250 ms: still out of view, revealed again
+    expect(revealed).toEqual(["deadlines", "deadlines"]);
+    top = 100;
+    [...timers.values()][1]!(); // 800 ms: in view, left alone
+    expect(revealed).toHaveLength(2);
+    hash.reveal("my-teams");
+    const stale = [...timers.values()];
+    hash.cancel(); // the next navigation
+    expect(timers.size).toBe(0);
+    top = 2000;
+    for (const fn of stale) fn(); // a timer that fired anyway is ignored (generation tag)
+    expect(revealed).toEqual(["deadlines", "deadlines", "my-teams"]);
   });
 });

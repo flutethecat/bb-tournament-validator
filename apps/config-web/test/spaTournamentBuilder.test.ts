@@ -1493,7 +1493,7 @@ describe("roster scroller, reveal and drag edge (owner 10-31)", () => {
 
   it("builder.css: the roster scroller only in the three-column layout; the skills band and badges use tokens defined in both theme blocks", () => {
     const css = readFileSync(new URL("../spa/src/teams/builder.css", import.meta.url), "utf8").replace(/\r\n/g, "\n");
-    expect(css).toMatch(/@media \(min-width: 1180px\) \{\n  \.tb-roster-scroll \{ overflow-y: auto; overscroll-behavior: contain;/);
+    expect(css).toMatch(/@media screen and \(min-width: 1180px\) \{\r?\n  \.tb-roster-scroll \{ overflow-y: auto; overscroll-behavior: contain;/);
     expect(css).not.toMatch(/^\.tb-roster-scroll \{[^}]*overflow/m); // never a nested scroller when stacked
     const dark = css.match(/^\.tb-page \{\n[^}]*\}/m)?.[0] ?? "";
     const light = css.match(/^:root\[data-theme="light"\] \.tb-page \{\n[^}]*\}/m)?.[0] ?? "";

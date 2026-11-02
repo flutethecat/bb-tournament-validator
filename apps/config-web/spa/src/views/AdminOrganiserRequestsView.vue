@@ -23,7 +23,7 @@ onMounted(() => { if (isAdmin.value) void queue.load("pending"); });
 </script>
 
 <template>
-  <div class="hm-page or-page or-fit or-fit-queue">
+  <div class="hm-page or-page or-fit or-fit-queue sf-fit">
     <section class="hm-panel" aria-labelledby="oq-h">
       <header class="hm-band" data-tone="admin"><h2 id="oq-h">Organiser requests</h2><span v-if="isAdmin && state.loaded" class="hm-cap">{{ state.pending }} waiting</span></header>
       <p v-if="!isAdmin" class="hm-empty" role="status">Admins only. Sign in with an admin account to review organiser requests.</p>
@@ -40,7 +40,7 @@ onMounted(() => { if (isAdmin.value) void queue.load("pending"); });
       <template v-else>
         <p v-if="state.notice" class="sf-notice" role="status">{{ state.notice }}</p>
         <section v-if="!state.requests.length" class="hm-panel"><p class="hm-empty">{{ state.view === "pending" ? "No requests waiting." : "No decided requests yet." }}</p></section>
-        <ul v-else class="or-queue">
+        <ul v-else class="or-queue sf-shrink">
           <li v-for="r in state.requests" :key="r.id" class="or-card" :data-status="r.status">
             <div class="or-card-head">
               <h3>{{ r.coach }}</h3>

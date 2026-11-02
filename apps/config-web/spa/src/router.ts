@@ -4,7 +4,7 @@
 import { createRouter, type RouteLocationNormalized, type RouteRecordRaw, type RouterHistory } from "vue-router";
 import { LOBBY_ID_PATTERN } from "./shared/format";
 import type { SessionStore } from "./session";
-import { contentArea, createPaneScrollMemory, fitMode, revealInPane, type ScrollNode } from "./shell/fit";
+import { contentArea, createHashReveal, createPaneScrollMemory, entryKey, fitMode, revealInPane, type ScrollNode } from "./shell/fit";
 import { hashId } from "./tournaments/scroll";
 import AccountView from "./views/AccountView.vue";
 import AdminOrganiserRequestsView from "./views/AdminOrganiserRequestsView.vue";
@@ -203,30 +203,37 @@ export function gateFor(route: Pick<RouteLocationNormalized, "meta">, session: S
   return session.signedIn() ? "allow" : "signin";
 }
 
-/** Fitted shell: reveal a hash target in its pane now, and again shortly while the page is still filling in (panels above
- *  it grow as their data arrives) unless it already sits in view. */
-function revealHashSoon(id: string): void {
-  if (!id) return;
-  const reveal = (force: boolean) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    const top = el.getBoundingClientRect().top;
-    if (force || top < 48 || top > window.innerHeight - 120) revealInPane(el);
-  };
-  reveal(true);
-  for (const ms of [250, 800]) setTimeout(() => reveal(false), ms);
-}
+/** Fitted shell: a hash target is revealed in its pane now and again shortly while the page fills in (shell/fit.ts). */
+const hashReveal = typeof document !== "undefined"
+  ? createHashReveal({
+    find: (id) => document.getElementById(id),
+    top: (el) => (el as HTMLElement).getBoundingClientRect().top,
+    viewport: () => window.innerHeight,
+    reveal: (el) => revealInPane(el as Element),
+    later: (fn, ms) => setTimeout(fn, ms),
+    cancel: (t) => clearTimeout(t as ReturnType<typeof setTimeout>),
+  })
+  : null;
 
 export function createAppRouter(history: RouterHistory, session: SessionStore) {
   // Fitted desktop shell: pane scroll offsets per history entry, put back on Back / Forward (shell/fit.ts). Browser only.
+  // Each entry's key is a random id in its own history state (shell/fit.ts entryKey), never the reused position number.
   const panes = typeof window !== "undefined" && typeof document !== "undefined"
     ? createPaneScrollMemory({
       root: () => contentArea() as ScrollNode | null,
-      entry: () => (window.history.state as { position?: number } | null)?.position,
+      entry: () => entryKey(history.state as Record<string, unknown> | null, (key) => {
+        try { window.history.replaceState({ ...(window.history.state as object | null), sfPane: key }, ""); } catch { /* the id lives on in the router's state */ }
+      }, () => Math.random().toString(36).slice(2, 12)),
+      position: () => (history.state as { position?: number } | null)?.position,
       wait: (ms) => new Promise((r) => setTimeout(r, ms)),
     })
     : null;
-  if (panes) document.addEventListener("scroll", (e) => panes.record(e.target), { capture: true, passive: true });
+  if (panes) {
+    document.addEventListener("scroll", (e) => panes.record(e.target), { capture: true, passive: true });
+    // the user takes over: a pending restore must not pull the pane back
+    for (const type of ["wheel", "touchstart", "keydown", "pointerdown"]) document.addEventListener(type, () => panes.userActed(), { capture: true, passive: true });
+  }
+  let lastPosition: number | undefined;
   const router = createRouter({
     history,
     routes,
@@ -234,12 +241,16 @@ export function createAppRouter(history: RouterHistory, session: SessionStore) {
     // Fitted desktop shell (shell/fit.ts): the window never scrolls, so a new page resets the content area and a hash
     // target is revealed inside its pane; Back / Forward (saved is set) puts the entry's pane offsets back instead.
     scrollBehavior: (to, from, saved) => {
+      const position = (history.state as { position?: number } | null)?.position;
+      const pushed = !saved && position !== lastPosition; // a replace keeps the position; Back / Forward passes saved
+      lastPosition = position;
+      if (pushed) panes?.pushed();
       if (!fitMode()) { panes?.resume(); return to.hash ? { el: to.hash, top: 72 } : saved ?? undefined; }
       if (saved && panes) { void panes.restore(); return false; }
       panes?.resume();
       const main = contentArea();
       if (main && to.path !== from.path) main.scrollTop = 0;
-      if (to.hash) revealHashSoon(hashId(to.hash));
+      if (to.hash) hashReveal?.reveal(hashId(to.hash));
       return false;
     },
   });
@@ -247,6 +258,7 @@ export function createAppRouter(history: RouterHistory, session: SessionStore) {
   // failed read does not block navigation: the shell shows the error with a retry.
   router.beforeEach(async () => {
     panes?.pause();
+    hashReveal?.cancel();
     await session.load();
     return true;
   });

@@ -70,20 +70,19 @@
 }
 .or-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
 
-/* Fit to 1920x1080 (owner 11-02, laws 18a): on a desktop-sized screen the page fills the content area and never scrolls;
-   pane bodies (the form, the request facts, the queue list) scroll inside while the bands and primary actions stay put.
-   Smaller screens fall back to normal vertical page scroll. */
+/* Fit to 1920x1080 (owner 11-02, laws 18a; home.css "Fit to 1920x1080"): the page is a .sf-fit root (the request grid its
+   .sf-fill, the queue list its .sf-shrink), so it fills the content area; pane bodies (the form, the request facts, the
+   queue list) scroll inside while the bands and primary actions stay put. Screen only; smaller screens and print fall back
+   to normal vertical page flow. */
 .or-form-pane { display: grid; gap: 10px; }
 .or-foot { padding-top: 10px; border-top: 1px solid var(--sf-panel-line); }
-@media (min-width: 901px) and (min-height: 600px) {
-  .or-fit { height: calc(100dvh - var(--sf-top-h) - 32px); min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
-  .or-fit > * { flex: none; }
-  .or-fit > .or-grid { flex: 1 1 auto; min-height: 0; grid-template-rows: minmax(0, 1fr); align-items: stretch; }
+@media screen and (min-width: 1367px) and (min-height: 700px) {
+  .or-fit > .or-grid { grid-template-rows: minmax(0, 1fr); align-items: stretch; }
   .or-fit .or-grid > .hm-col { min-height: 0; max-height: 100%; display: flex; flex-direction: column; }
   .or-fit .or-pane { display: flex; flex-direction: column; min-height: 0; max-height: 100%; box-sizing: border-box; }
   .or-fit .or-pane > .hm-band { flex: none; }
   .or-fit .or-pane-body { flex: 0 1 auto; min-height: 0; overflow: auto; }
   .or-fit .or-form-pane { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
   .or-fit .or-form-pane > :not(.or-pane-body) { flex: none; }
-  .or-fit-queue > .or-queue { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 0 2px 6px; align-content: start; }
+  .or-fit.or-fit-queue > .or-queue { position: relative; overflow: auto; padding: 0 2px 6px; align-content: start; }
 }

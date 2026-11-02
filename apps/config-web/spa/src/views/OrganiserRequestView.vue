@@ -47,10 +47,10 @@ function onKindKey(e: KeyboardEvent): void {
 </script>
 
 <template>
-  <div class="hm-page or-page or-fit">
+  <div class="hm-page or-page or-fit sf-fit">
     <p v-if="state.error" class="sf-error" role="alert">{{ state.error }}</p>
     <p v-else-if="!state.loaded" class="muted" role="status">Loading...</p>
-    <div v-else class="or-grid">
+    <div v-else class="or-grid sf-fill">
       <div class="hm-col">
         <!-- Already an organiser -->
         <section v-if="isOrganiser" class="hm-panel" aria-labelledby="or-done-h" data-testid="organiser-done">

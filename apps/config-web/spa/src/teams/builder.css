@@ -255,7 +255,7 @@
 .tb-rows { position: relative; list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; align-content: start; }
 /* The roster scroller (owner 10-31): in the three-column layout the list scrolls inside the panel, as tall as the viewport
    below the panel header (max-height measured in TournamentBuilderRoster.vue); stacked, it is page scroll only. */
-@media (min-width: 1180px) {
+@media screen and (min-width: 1180px) {
   .tb-roster-scroll { overflow-y: auto; overscroll-behavior: contain; padding: 2px 4px 2px 2px; scrollbar-gutter: stable; }
 }
 /* the roster footer: the skill legend left, the player count right (wraps under the legend when narrow) */
@@ -630,7 +630,7 @@
 .tb-league-ind .tb-who small { font-size: 13px; line-height: 1.35; color: var(--ui-muted); }
 @media (min-width: 1180px) { .tb-rsflow.tb-league { grid-template-rows: auto; grid-template-areas: "race summary"; } }
 /* 1920x1080 with no page scroll (design.md §6): the league race grid and the league inducement list scroll inside their panes. */
-@media (min-width: 1180px) { .tb-league-races { max-height: max(280px, calc(100vh - 340px)); overflow-y: auto; overscroll-behavior: contain; padding-right: 2px; } }
+@media screen and (min-width: 1180px) { .tb-league-races { max-height: max(280px, calc(100vh - 340px)); overflow-y: auto; overscroll-behavior: contain; padding-right: 2px; } }
 .tb-league-ind { max-height: 300px; overflow-y: auto; overscroll-behavior: contain; }
 
 /* ---- Fit to 1920x1080 (owner 11-02, home.css "Fit to 1920x1080"): the summary bar stays; the Ruleset and Sheet steps scroll
