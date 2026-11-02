@@ -128,6 +128,9 @@ export function assertRegistrationOrder(registration: TournamentRegistrationSett
   if (ciOpens !== undefined && ciCloses !== undefined && ciOpens >= ciCloses) bad("Check-in must open before it closes.");
   const start = t(startsAt);
   if (closes !== undefined && start !== undefined && closes > start) bad("Registration must close by the start.");
+  // A blank close means the start (tournamentRegistrationWindow): validate against that effective close too.
+  if (closes === undefined && opens !== undefined && start !== undefined && opens >= start) bad("Registration must open before the tournament starts.");
+  if (ciCloses === undefined && ciOpens !== undefined && start !== undefined && ciOpens >= start) bad("Check-in must open before the tournament starts.");
 }
 
 /** The tournament's registration window in the core's shape (close values from deadlines, cap from maxPlayers). */

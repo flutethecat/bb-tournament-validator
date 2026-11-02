@@ -3965,6 +3965,8 @@ async function handleApi(
     // An unpublished draft's settings reach only its managers and admins (lane L3).
     if (optInRecord && !canSeeTournament(optInRecord, requestIdentity(req))) return sendJson(res, 404, { error: "Tournament not found." });
     const optIns = optInRecord?.inducementOptIns ?? [];
+    // A draft's settings depend on who asks: never in a shared cache (as its banner).
+    if (optInRecord?.unpublished === true) { res.setHeader("cache-control", "private, no-store"); res.setHeader("vary", "Cookie, Authorization"); }
     return sendJson(res, 200, { inducements: teamBuilderInducementCatalog(resolvedPkg.pkg, bb2025, optIns) });
   }
 

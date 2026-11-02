@@ -185,6 +185,7 @@ describe("wizard controller (lane L3)", () => {
     expect(stepProblem("registration", { ...form, maxPlayers: 1 })).toContain("at least 2");
     expect(stepProblem("registration", { ...form, opensAt: "2026-12-02T00:00", closesAt: "2026-12-01T00:00" })).toBe("Registration must open before it closes.");
     expect(stepProblem("registration", { ...form, startsAt: "2026-12-01T00:00", closesAt: "2026-12-02T00:00" })).toBe("Registration must close by the start.");
+    expect(stepProblem("registration", { ...form, startsAt: "2026-12-01T00:00", opensAt: "2026-12-02T00:00" })).toBe("Registration must open before the tournament starts.");
     expect(stepProblem("registration", form)).toBe("");
     const w = createTournamentWizard({ api: mockFetcher({}) });
     w.start({ restore: false });

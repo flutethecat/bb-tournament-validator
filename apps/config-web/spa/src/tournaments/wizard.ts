@@ -159,6 +159,8 @@ export function stepProblem(step: WizardStep, form: WizardForm): string {
     if (before(form.opensAt, form.closesAt)) return "Registration must open before it closes.";
     if (form.closesAt && form.startsAt && form.closesAt > form.startsAt) return "Registration must close by the start.";
     if (form.selfCheckIn && before(form.checkInOpensAt, form.checkInClosesAt)) return "Check-in must open before it closes.";
+    if (!form.closesAt && before(form.opensAt, form.startsAt)) return "Registration must open before the tournament starts.";
+    if (form.selfCheckIn && !form.checkInClosesAt && before(form.checkInOpensAt, form.startsAt)) return "Check-in must open before the tournament starts.";
     if (form.entryFee.length > 40) return "The entry fee can be at most 40 characters.";
     return "";
   }

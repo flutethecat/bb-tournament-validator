@@ -296,6 +296,24 @@ describe("registration and the publication / window", () => {
     expect((await call(store, "POST", `/api/tournaments/${upcoming.id}/entrants`, coach("Alice"), { teamId: "team-alice" }))?.status).toBe(201);
   });
 
+  it("a blank close is the start, and the window is checked against it (create and PATCH)", async () => {
+    const store = newStore();
+    const res = await call(store, "POST", "/api/tournaments", owner, { name: "Late", packageName: "Spike 2026", maxPlayers: 4, format: "swiss", publish: true, startsAt: "2026-12-01T00:00:00.000Z", registration: { opensAt: "2026-12-02T00:00:00.000Z" } });
+    expect(res?.status).toBe(400);
+    expect((res?.body as { error: string }).error).toBe("Registration must open before the tournament starts.");
+    const ci = await call(store, "POST", "/api/tournaments", owner, { name: "Late", packageName: "Spike 2026", maxPlayers: 4, format: "swiss", publish: true, startsAt: "2026-12-01T00:00:00.000Z", registration: { checkIn: { self: true, opensAt: "2026-12-01T00:00:00.000Z" } } });
+    expect((ci?.body as { error: string }).error).toBe("Check-in must open before the tournament starts.");
+    expect(store.tournaments(["draft"])).toHaveLength(0);
+    const t = await createDraft(store, { startsAt: "2026-12-01T00:00:00.000Z", registration: { opensAt: "2026-11-20T00:00:00.000Z" } });
+    const moved = await call(store, "PATCH", `/api/tournaments/${t.id}`, owner, { registration: { opensAt: "2026-12-02T00:00:00.000Z" } });
+    expect(moved?.status).toBe(400);
+    expect((moved?.body as { error: string }).error).toBe("Registration must open before the tournament starts.");
+    const earlier = await call(store, "PATCH", `/api/tournaments/${t.id}`, owner, { startsAt: "2026-11-15T00:00:00.000Z" });
+    expect(earlier?.status).toBe(400);
+    expect(store.tournament(t.id)!.registration?.opensAt).toBe("2026-11-20T00:00:00.000Z");
+    expect(store.tournament(t.id)!.startsAt).toBe("2026-12-01T00:00:00.000Z");
+  });
+
   it("an unpublished draft cannot be started", () => {
     const store = newStore();
     const t = store.createTournament({ name: "S", packageName: "Spike 2026", maxPlayers: 4, format: "swiss", organizerCoachId: "Veers", publication: "draft" }, now);

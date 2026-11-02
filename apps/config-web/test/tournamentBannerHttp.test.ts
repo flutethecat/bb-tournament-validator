@@ -105,11 +105,25 @@ describe("unpublished draft over HTTP (lane L3)", () => {
     expect(own.headers.get("vary")).toContain("Cookie");
     expect((await fetch(banner)).status).toBe(404);
     expect((await fetch(banner, { headers: { cookie: otherCookie } })).status).toBe(404);
-    const published = await fetch(url());
-    if (published.status === 200) expect(published.headers.get("cache-control")).toBe("public, max-age=3600");
-    const ind = (cookie?: string) => fetch(`${origin}/api/fork/team-builder/inducements?tournamentId=${draft.id}`, { headers: cookie ? { cookie } : {} });
-    expect((await ind()).status).toBe(404);
-    expect((await ind(otherCookie)).status).toBe(404);
-    expect((await ind(ownerCookie)).status).not.toBe(404);
+    const ind = (id: string, cookie?: string) => fetch(`${origin}/api/fork/team-builder/inducements?tournamentId=${id}`, { headers: cookie ? { cookie } : {} });
+    expect((await ind(draft.id)).status).toBe(404);
+    expect((await ind(draft.id, otherCookie)).status).toBe(404);
+    const mine = await ind(draft.id, ownerCookie);
+    expect(mine.status).toBe(200);
+    expect(mine.headers.get("cache-control")).toBe("private, no-store");
+    expect(mine.headers.get("vary")).toContain("Cookie");
+  });
+
+  it("a published tournament's banner stays publicly cached; its inducements read carries no private marker", async () => {
+    const store = new TournamentStore(join(root, "tournaments"));
+    const open = store.createTournament({ name: "Open Cup", packageName: "Rules", maxPlayers: 8, format: "swiss", organizerCoachId: "Alice", publication: "published" });
+    const banner = `${origin}/api/tournaments/${open.id}/banner`;
+    expect((await fetch(banner, { method: "PUT", headers: { cookie: ownerCookie, "x-cw-auth": "1", "content-type": "image/png" }, body: new Uint8Array(png(1600, 400, 16)) })).status).toBe(200);
+    const read = await fetch(banner);
+    expect(read.status).toBe(200);
+    expect(read.headers.get("cache-control")).toBe("public, max-age=3600");
+    const ind = await fetch(`${origin}/api/fork/team-builder/inducements?tournamentId=${open.id}`);
+    expect(ind.status).toBe(200);
+    expect(ind.headers.get("cache-control")).not.toBe("private, no-store");
   });
 });
