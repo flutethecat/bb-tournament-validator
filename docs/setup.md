@@ -22,6 +22,11 @@ Environment keys (`apps/config-web/.env`):
 - [ ] `POSTMARK_WEBHOOK_SECRET`: a random string; the webhook password.
 - [ ] `DISCORD_BOT_TOKEN`: the bot's token, the same value as `DISCORD_TOKEN` in `apps/discord-bot/.env`
       ([Discord DMs](#discord-dms)).
+- [ ] `DISCORD_INVITE_URL`: optional; the Super FUMBBL Discord invite (`https://discord.gg/<code>`) shown to coaches who
+      share no server with the bot ([Discord DMs](#discord-dms)). Unset = no invite line.
+- [ ] `DISCORD_CLIENT_ID`: optional; the bot application's id, for the "Add the Super FUMBBL bot to your server" button in
+      league settings ([Competition Discord](#competition-discord)). Unset = the button is hidden. (The same key Discord
+      sign-in already uses.)
 
 Outside steps:
 
@@ -113,6 +118,15 @@ closed, no shared server, unknown user) is dead-lettered and falls back to ONE e
 dead-lettered without email. Coach, team and competition names are Markdown-escaped, so the action link is the only link. The outbox never
 stores the coach's Discord id (it is looked up at send time), and logs never carry it or the token.
 
+**Queue and pacing.** DMs go out at most 3 per second (the outbox's `discord` channel pace, on top of the global 10 per
+second); a 429 from Discord holds the route for Discord's `retry_after` and longer waits go back to the outbox backoff
+(30 s, 2 min, 8 min ...). The journal survives restarts. With no `DISCORD_BOT_TOKEN` nothing is queued.
+
+**Registration notice.** Registration forms show "We'll message you about this event on Discord. You can turn this off in
+Account." When the token is set, config-web asks Discord whether the coach shares a server with the bot
+(`GET /api/me/discord-reach`, cached 10 minutes; the coach's Discord id and the token are never answered or logged); if not,
+and `DISCORD_INVITE_URL` is set, the form adds "Join the Super FUMBBL Discord to get messages" with the invite.
+
 **Test.** With two accounts that share a server with the bot, propose a time from one to the other; the second gets a DM
 "<coach> proposed times for <fixture>. Accept or decline: <link>". Turn the setting off on the Account page and propose
 again: no DM.
@@ -143,3 +157,27 @@ pnpm --filter config-web exec tsx scripts/seed-demo-leagues.ts <state dir> --rem
   the marker lists it, its stamp matches the marker's run, and it is still a test league named "Demo ..."; every other
   league is left alone. An existing league with a demo id that is not the script's own stamped record is never
   overwritten.
+
+## Competition Discord
+
+Leagues, their seasons (and later ladders) and tournaments each post to their own Discord webhook. Nothing here needs an
+environment key: organisers paste webhook URLs in the app, where they are stored server-side and only ever shown masked.
+
+- **Where.** League settings, External connections (league webhook, Weekly Digest, season webhooks); tournament Manage,
+  Discord; the tournament wizard's Registration step. A blank season webhook uses the league's; a blank tournament webhook
+  uses its series' when the series has one. A new season copies the league's webhook and options when it is made.
+- **Events.** One toggle per event. Tournaments start in tournament mode (published, registration closing in 24 hours,
+  check-in open, pairings posted, match end, round summary, final standings). In-game events come only from recorded games
+  (the tabletop recorder, Super FUMBBL results); deaths and sent-offs post live, the rest go in the end-of-game digest unless
+  switched to live. Hand-entered results are never announced. Drafts never post. Coach-typed text is always posted with
+  listed words starred (***).
+- **Weekly Digest.** On by default for a league with a webhook: Sunday 10:00 in the league's time zone (UTC until set),
+  or every 2 / 4 weeks, or after each round. Weeks without games are skipped. The last run is stored in
+  `<FORK_STATE_DIR>/discord/ledger.json`, so a restart never posts twice.
+- **State.** `<FORK_STATE_DIR>/discord/` holds tournament options (`competitions.json`), tournament / series webhooks
+  (`secrets.json`, keep it out of shared backups like the league `secrets.json` files) and the posted-events ledger.
+- **Optional bot invite.** With `DISCORD_CLIENT_ID` set, league settings show "Add the Super FUMBBL bot to your server"
+  (OAuth invite with View Channels, Send Messages and Embed Links). Posting through the bot instead of the webhook is a later
+  step; today every competition post goes through its webhook.
+- **Test.** In a test league with a webhook to a test channel: "Send test post", then "Send samples of every event"
+  (one "[TEST]" sample per ticked event, at most once every 10 minutes per competition), then Weekly Digest "Preview".

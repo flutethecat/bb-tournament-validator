@@ -1,6 +1,15 @@
 [
   {
     "date": "2026-11-02",
+    "title": "Discord for every league, season and tournament",
+    "body": "Each season and tournament can now post to its own Discord channel (a blank one uses the league's), with a toggle for every event: registrations, pairings, results, standings, champions, awards and news. Games recorded on the tabletop recorder or played on Super FUMBBL post deaths and sent-offs live and finish with an end-of-game digest that includes each coach's comment from the end of the match. Leagues also get a Weekly Digest with standings, results and highlights. Rude words are always shown as *** on Discord, and on the site when you keep Filter profanity on in Account.",
+    "links": [
+      { "label": "Leagues", "href": "/app/leagues" },
+      { "label": "Account", "href": "/app/account" }
+    ]
+  },
+  {
+    "date": "2026-11-02",
     "title": "Browse leagues: bigger cards, a table and search",
     "body": "The leagues list is now Browse leagues: large cards with each league’s header art, crest, status, current season, ruleset, teams, dates, region and where it is played, plus a Registration open button when you can join. Switch to a sortable table, filter by status, play mode or open registration, and search by league, team, coach, organiser, region, ruleset or season.",
     "links": [
