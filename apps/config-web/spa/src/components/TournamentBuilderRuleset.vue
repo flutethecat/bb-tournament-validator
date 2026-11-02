@@ -3,7 +3,8 @@
 // only; the organiser's free text sits under "Organiser notes"), and the per-team tier table whose team cells pick the race
 // (the shared core's overview / legacy tier table markup, every value escaped by the core). Free Create (owner 10-31) is the
 // first card: it has no rules summary (its one-line description instead) and its race step is a plain grid of every base
-// roster.
+// roster. Sevens Free Create (Sevens spec 11-02) sits next to it, same card style and the same plain grid (the Sevens
+// teams); every Sevens ruleset card wears a "Sevens" badge.
 import { computed, inject, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { currentMotion, FADE_MS, POP_DELAY_MS, POP_MS, QUICK_MS, SLIDE_MS, SWAP_MS, type RulesetMotion } from "../teams/rulesetMotion";
 import { TOURNAMENT_BUILDER_KEY } from "../teams/builder";
@@ -14,12 +15,15 @@ const builder = inject(TOURNAMENT_BUILDER_KEY)!;
 const { state } = builder;
 
 const free = computed(() => builder.free());
+/** The race step is the plain grid (Free Create, Sevens Free Create). */
+const grid = computed(() => free.value || builder.sevensFree());
 const cards = computed(() => builder.rulesetCards());
-const freeRaces = computed(() => (free.value ? builder.freeRaces() : []));
+const chosenCard = computed(() => cards.value.find((c) => c.name === state.packageName) ?? null);
+const freeRaces = computed(() => (grid.value ? builder.freeRaces() : []));
 const summaryHtml = computed(() => core.overviewSummaryHtml(state.packageRules?.overview ?? null));
-const description = computed(() => (free.value ? "" : state.packageDoc?.description || state.packages.find((p) => p.name === state.packageName)?.description || ""));
+const description = computed(() => (grid.value ? "" : state.packageDoc?.description || state.packages.find((p) => p.name === state.packageName)?.description || ""));
 const note = computed(() => state.packageRules?.dataNote || state.packageDoc?.dataNote || "");
-const table = computed(() => (state.packageName && !free.value ? builder.raceTable() : { html: "", legacy: false, selectable: false }));
+const table = computed(() => (state.packageName && !grid.value ? builder.raceTable() : { html: "", legacy: false, selectable: false }));
 
 // First ruleset pick only (a click from the empty state): the Rulesets panel slides from the left column to the right (FLIP: its
 // rect is measured before and after the layout flips, then a transform from the old spot to none is played) while Pick a race
@@ -119,14 +123,14 @@ function onTableClick(e: MouseEvent): void {
       <button
         v-for="c in cards" :key="c.name" type="button" role="listitem" class="tb-card" :class="{ 'tb-card-free': c.free }" :data-ruleset="c.name"
         :aria-pressed="c.name === state.packageName ? 'true' : 'false'" @click="onPick(c.name)"
-      ><strong>{{ c.label }}</strong></button>
+      ><strong>{{ c.label }}</strong><span v-if="c.sevens" class="tb-card-badge">Sevens</span></button>
     </div>
-    <p v-if="cards.length === 1" class="hm-empty">No tournament packages are saved yet.</p>
+    <p v-if="cards.every((c) => c.free)" class="hm-empty">No tournament packages are saved yet.</p>
   </section>
 
   <section v-if="state.packageName" ref="summaryEl" class="hm-panel tb-panel tb-area-summary" aria-labelledby="tb-package-h">
     <header class="hm-band"><h2 id="tb-package-h">{{ builder.rulesetLabel() }}</h2><span class="hm-cap">Ruleset</span></header>
-    <p v-if="free" class="tb-free-note">{{ cards[0]!.description }}</p>
+    <p v-if="grid && chosenCard" class="tb-free-note">{{ chosenCard.description }}</p>
     <dl v-if="summaryHtml" class="tt-summary tb-summary" v-html="summaryHtml"></dl>
     <details v-if="description" class="tb-notes">
       <summary>Organiser notes</summary>
@@ -140,8 +144,8 @@ function onTableClick(e: MouseEvent): void {
 
   <section v-if="state.packageName" ref="raceEl" class="hm-panel tb-panel tb-area-race" aria-labelledby="tb-race-h">
     <header class="hm-band"><h2 id="tb-race-h">Pick a race</h2><span class="hm-cap">Step 2</span></header>
-    <template v-if="free">
-    <p class="muted tb-hint">Every BB2025 roster. Pick one to start.</p>
+    <template v-if="grid">
+    <p class="muted tb-hint">{{ free ? "Every BB2025 roster. Pick one to start." : "Every Blood Bowl Sevens team. Pick one to start." }}</p>
     <div class="tb-free-races" role="list" aria-label="Races">
       <button v-for="r in freeRaces" :key="r.rosterId" type="button" role="listitem" class="tb-free-race" :data-tt-race="r.rosterId"
         :aria-pressed="r.selected ? 'true' : 'false'" @click="emit('race', r.rosterId)">

@@ -18,7 +18,11 @@ export interface SheetRulesetInput {
   budget?: number | null;
   /** Free Create's "Ignore in-game limits" (only read for Free Create). */
   ignoreLimits?: boolean;
+  /** Blood Bowl Sevens (Roster Builder lane): the package's display name (Sevens Free Create's marker reads as its label)
+   *  and the format rows read from the package limits. Absent for standard rulesets. */
+  sevens?: SheetSevens | null;
 }
+export interface SheetSevens { label: string; minPlayers: number; maxPlayers: number; maxNonLineman: number | null; veteran: boolean }
 /** The sheet model plus the ruleset rows: the one object both the on-screen sheet and the PDF consume. */
 export type PrintSheetModel = SheetModel & { ruleset?: SheetRulesetRow[] };
 
@@ -76,9 +80,15 @@ export function sheetRulesetRows(input: SheetRulesetInput): SheetRulesetRow[] {
   const system = race?.skillSystem ?? null;
   const mode = system?.mode ?? (race?.packs.length ? "packs" : "points");
   // A trailing parenthetical note on the tier label ("Gold Budget 1,160,000 (SPP, stacking … per team)") stays off the box.
-  const rows: SheetRulesetRow[] = [["Package", input.packageName], ["Tier", input.tierLabel.replace(/\s*\([^()]*\)\s*$/, "")]];
+  const sevens = input.sevens ?? null;
+  // Sevens: the sheet's title line already says "Blood Bowl Sevens", so the box starts with the package as usual.
+  const rows: SheetRulesetRow[] = [["Package", sevens?.label || input.packageName], ["Tier", input.tierLabel.replace(/\s*\([^()]*\)\s*$/, "")]];
   const cap = pack?.gold ?? race?.gold ?? input.budget ?? null;
   if (isNum(cap)) rows.push(["TV cap", core.gold(cap)]);
+  if (sevens) {
+    rows.push(["Players", `${sevens.minPlayers}–${sevens.maxPlayers}${isNum(sevens.maxNonLineman) ? `, max ${sevens.maxNonLineman} non-Linemen` : ""}`]);
+    if (sevens.veteran) rows.push(["Veteran", "1 Lineman, MA −1"]);
+  }
 
   // The team-wide secondary allowance in force: the count allotment, else the selected pack and the tier limit.
   let secondary: number | null;
@@ -101,7 +111,7 @@ export function sheetRulesetRows(input: SheetRulesetInput): SheetRulesetRow[] {
       rows.push(["SP budget", `${race.skillPointBudget} SP`]);
       const c = race.skillCosts;
       if (c) rows.push(["SP prices", [`primary ${c.primary}`, `secondary ${c.secondary}`, c.eliteSurcharge ? `elite +${c.eliteSurcharge}` : "", c.stackSurcharge ? `stacking +${c.stackSurcharge}` : ""].filter(Boolean).join(" · ")]);
-    } else if (race) rows.push(["Added skills", "None"]);
+    } else if (race || sevens) rows.push(["Added skills", "None"]);
     if (isNum(secondary)) rows.push(["Secondary skills", secondary === 0 ? "none" : `max ${secondary}`]);
   }
 
@@ -127,7 +137,7 @@ export function sheetRulesetRows(input: SheetRulesetInput): SheetRulesetRow[] {
   line("Characteristics");
   line("Star packs");
   const maxStars = tier?.maxStars ?? race?.stars?.maxCount ?? null;
-  if (race?.stars && !race.stars.allowed) rows.push(["Star players", "None"]);
+  if (sevens || (race?.stars && !race.stars.allowed)) rows.push(["Star players", "None"]);
   else if (pack?.starPlayersAllowed === false) rows.push(["Star players", "None with this pack"]);
   else if (maxStars === 0) rows.push(["Star players", "None"]);
   else if (race?.stars || isNum(maxStars)) {

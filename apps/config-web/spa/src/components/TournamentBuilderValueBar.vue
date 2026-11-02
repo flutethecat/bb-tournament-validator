@@ -14,7 +14,7 @@ const breakdown = computed(() => builder.positionBreakdown());
 
 <template>
   <section class="tv-totals tb-value" aria-label="Team value">
-    <div><span>Players</span><b>{{ t.players }} <small>/ {{ core.MAX_PLAYERS }}</small></b>
+    <div><span>Players</span><b>{{ t.players }} <small>/ {{ builder.maxPlayers() }}</small></b>
       <ul v-if="breakdown.length" class="tb-posbreak" aria-label="Players by position">
         <li v-for="r in breakdown" :key="r.positionId" :data-star="r.star ? '1' : undefined"><b>{{ r.count }}×</b> {{ r.name }}</li>
       </ul>

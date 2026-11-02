@@ -42,6 +42,15 @@ const captainTone = (s: Slot): "gold" | "grey" => (captainOn(s) ? "gold" : "grey
 const captainSrc = (s: Slot, px: 24 | 32 | 48 | 64): string => `/icons/builder/team-captain-${captainTone(s)}-${px}.png`;
 const brokenIcon = reactive<Record<string, boolean>>({});
 
+// ── Blood Bowl Sevens Veteran (spec 11-02): a captain-style toggle on Lineman-keyword rows, one per team. While a Veteran is
+// set only its row shows the chip (click to clear); then every eligible row offers "Make Veteran" again. The Veteran's stat
+// strip prints MA one lower. ──
+const VETERAN_ON_HINT = "Veteran: MA −1, one reroll a game. Click to choose another player.";
+const VETERAN_OFF_HINT = "Make this Lineman the Veteran (MA −1, one reroll a game)";
+const veteranAt = computed(() => builder.veteranIndex());
+const showVeteran = (s: Slot, i: number): boolean => builder.canVeteran(s) && (veteranAt.value < 0 || veteranAt.value === i);
+const veteranOn = (i: number): boolean => veteranAt.value === i;
+
 // ── a hire scrolls its newest row into view and flashes it (owner 10-31); never on reorder, fire, load or remount ──
 const ui = inject(TOURNAMENT_BUILDER_UI_KEY, null);
 const rowEls = new Map<number, HTMLElement>();
@@ -231,13 +240,17 @@ function onGripKey(e: KeyboardEvent, index: number): void {
         <span class="tb-cost">{{ core.gold(position(s)?.cost) }}</span>
         <button type="button" class="tb-fire-x" :aria-label="`Fire ${position(s)?.name ?? 'player'} #${i + 1}`" title="Fire" @click="builder.removeSlot(i)"><span aria-hidden="true">×</span></button>
         <span class="tb-row-line2">
-          <TournamentBuilderStats :position="position(s)" :increases="builder.slotLocks(i).liveStats" class="tb-row-stats" />
+          <TournamentBuilderStats :position="builder.displayPosition(s)" :increases="builder.slotLocks(i).liveStats" :down="veteranOn(i) ? ['MA'] : undefined" class="tb-row-stats" />
           <span v-if="advance(i).offered" class="tb-row-actions">
             <button type="button" class="tb-advance" :disabled="Boolean(advance(i).reason)" :title="advance(i).reason || (advance(i).stats ? 'Add a skill or a stat increase' : 'Add a skill')"
               :aria-label="`${advance(i).stats ? 'Add skill or stat increase' : 'Add skill'} for #${i + 1} ${builder.shortName(position(s))}`" aria-haspopup="dialog" @click="openAdvance(i, $event)"><span aria-hidden="true">+</span></button>
           </span>
         </span>
         <span class="row-skills tb-row-skills">
+          <button v-if="showVeteran(s, i)" type="button" class="tb-vet" :aria-pressed="veteranOn(i) ? 'true' : 'false'"
+            :title="veteranOn(i) ? VETERAN_ON_HINT : VETERAN_OFF_HINT"
+            :aria-label="`${veteranOn(i) ? 'Veteran' : 'Make Veteran'}: ${builder.shortName(position(s))}, player ${i + 1}`" @click="builder.toggleVeteran(i)"
+          >{{ veteranOn(i) ? "Veteran" : "Make Veteran" }}</button>
           <span v-for="k in printed(position(s))" :key="`p-${k}`" :class="[builder.skillClass(k), { 'tb-elite-chip': builder.eliteMark(k) }]" :title="builder.eliteMark(k) ? 'Elite skill' : undefined"><img v-if="builder.eliteMark(k)" class="tb-elite-dot" :src="ELITE_ICON" alt="Elite skill" width="12" height="12" />{{ k }}</span>
           <template v-if="captainOn(s)"><span class="skill skill-trait tb-free" title="Team Captain: gains Pro for free">{{ core.TEAM_CAPTAIN }}</span><span class="skill skill-trait tb-free" title="Free with Team Captain">Pro</span></template>
           <span v-for="k in s.chosenSkills" :key="`a-${k}`" :class="[builder.skillClass(k), 'tb-added', 'tb-bought', `access-${builder.accessOf(s.positionId, k)}`, { 'tb-elite-chip': builder.eliteMark(k) }]" :title="builder.eliteMark(k) ? 'Elite skill' : undefined">
@@ -256,7 +269,7 @@ function onGripKey(e: KeyboardEvent, index: number): void {
         <span class="skill skill-passing">Passing</span><span class="skill skill-mutation">Mutation</span><span class="skill skill-trait">Trait</span>
         <span class="skill skill-general tb-added access-primary">Primary</span><span class="skill skill-general tb-added access-secondary">Secondary</span>
       </p>
-      <span class="hm-cap tb-player-count">{{ state.slots.length }} / {{ core.MAX_PLAYERS }} players</span>
+      <span class="hm-cap tb-player-count">{{ state.slots.length }} / {{ builder.maxPlayers() }} players</span>
     </div>
   </section>
   <TournamentBuilderSkillPicker ref="picker" />

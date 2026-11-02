@@ -58,6 +58,8 @@
 .ps-psub { display: block; font-size: 9.5px; color: var(--ps-muted); white-space: nowrap; }
 .ps-mark-star { margin-left: 6px; font-size: 10px; color: var(--ps-muted); }
 .ps-mark-captain { margin-left: 6px; font-size: 10px; font-weight: 700; }
+.ps-mark-veteran { margin-left: 6px; font-size: 10px; font-weight: 700; }
+.ps-format { font-size: 12px; font-weight: 700; letter-spacing: .06em; margin-bottom: 2px; }
 .ps-paper .ps-improved { font-weight: 700; color: var(--ps-blue); }
 .ps-paper .ps-trait { color: var(--ps-trait); }
 .ps-paper .ps-primary { font-style: italic; color: var(--ps-blue); }

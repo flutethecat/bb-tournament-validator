@@ -107,7 +107,7 @@ describe("Free Create: controller", () => {
     const b = make(mockFetcher(routes()));
     await b.init({});
     const cards = b.rulesetCards();
-    expect(cards.map((c) => c.label)).toEqual(["Free Create", "Test Cup"]);
+    expect(cards.map((c) => c.label)).toEqual(["Free Create", "Sevens Free Create", "Test Cup"]);
     expect(cards[0]).toMatchObject({ name: "free-create", free: true, description: "Build any roster. No tournament rules, no validation." });
   });
 
@@ -686,7 +686,7 @@ describe("Free Create: page (server-rendered)", () => {
   it("Ruleset tab: the Free Create card leads with its description, BB2025 Default is gone; the race step is a grid of every roster", async () => {
     const html = await render("/tournament-team-builder?tab=ruleset", mockFetcher(routes()));
     const cards = [...html.matchAll(/data-ruleset="([^"]+)"/g)].map((m) => m[1]);
-    expect(cards).toEqual(["free-create", "Test Cup"]);
+    expect(cards).toEqual(["free-create", "sevens-free-create", "Test Cup"]);
     expect(html).not.toContain('class="tb-card-desc"'); // owner 10-31: no description line on the card
     expect(html).not.toContain("<strong>BB2025 Default</strong>");
     expect([...html.matchAll(/class="tb-free-race" data-tt-race="(\w+)"/g)].map((m) => m[1])).toEqual(["human", "orc"]);

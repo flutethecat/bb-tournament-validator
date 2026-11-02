@@ -49,6 +49,8 @@ export interface Slot {
   name?: string;
   isStar?: boolean;
   captain?: boolean;
+  /** Blood Bowl Sevens Veteran (one Lineman, MA -1). Rides its own pick as `veteran: true`. */
+  veteran?: boolean;
   chosenSkills: string[];
   chosenStatIncreases: string[];
   chosenStats?: Partial<Record<Stat, number>>;
@@ -62,6 +64,7 @@ export interface TeamPick {
   chosenStatIncreases?: string[];
   chosenStats?: Partial<Record<Stat, number>>;
   captain?: boolean;
+  veteran?: boolean;
   /** One player name per player of the pick ("" = unnamed). */
   names?: string[];
 }
@@ -187,8 +190,11 @@ export interface SheetPlayerInput {
   chosenStatIncreases: string[];
   chosenStats: Partial<Record<Stat, number>> | null;
   captain: boolean;
+  veteran?: boolean;
   accessOf: (skill: string) => "primary" | "secondary";
 }
+/** Sevens staff prices for the sheet's Sideline box: per line, the price and the free units. */
+export type SheetStaffPrices = Partial<Record<keyof Staff, { price: number; free?: number }>>;
 export interface SheetInput {
   raceName: string;
   coach: string;
@@ -203,6 +209,11 @@ export interface SheetInput {
   summary: Record<string, number> | null;
   costs: { players: number; stars: number; sideline: number; skills: number; inducements: number };
   budget?: number;
+  /** Blood Bowl Sevens: the title line, the Veteran's MA change, the non-Lineman count and the staff prices. */
+  formatTitle?: string;
+  veteranMaDelta?: number;
+  nonLineman?: { count: number; max: number };
+  staffPrices?: SheetStaffPrices;
 }
 export interface SheetRow {
   number: number;
@@ -214,6 +225,7 @@ export interface SheetRow {
   printed: string[];
   added: Array<{ name: string; access: string }>;
   captain: boolean;
+  veteran?: boolean;
   free: string[];
   statIncreases: string[];
   cost: number | null;
@@ -225,6 +237,7 @@ export interface SheetModel {
   coach: string;
   teamName: string;
   rulesetName: string;
+  formatTitle?: string;
   sideline: Array<[string, string]>;
   inducements: Array<{ label: string; count: number }>;
   specialRules: string[];

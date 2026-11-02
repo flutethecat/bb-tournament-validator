@@ -120,6 +120,9 @@ export interface CreatorState {
   preview: PreviewState;
   /** One-line notice after the Format toggle applied a format's defaults ("" otherwise). */
   formatNotice: string;
+  /** The `extends` base's RESOLVED format (GET /api/packages/<base> `pkg.format`, resolved along its own chain), for a
+   *  package with no format of its own: the Format toggle shows "Sevens (inherited from <base>)". Null when unknown. */
+  inherited: { base: string; format: PackageFormat } | null;
 }
 
 export interface CreatorDeps {
@@ -183,6 +186,7 @@ export function createTournamentCreator(deps: CreatorDeps) {
     problems: [], saved: null, exported: false, busy: false, revision: null, conflict: "", readOnly: "", authBlocked: "",
     preview: { key: "", data: null, overview: null, problems: [], error: "", loading: false },
     formatNotice: "",
+    inherited: null,
   });
 
   // ---------- document bookkeeping ----------
@@ -207,6 +211,30 @@ export function createTournamentCreator(deps: CreatorDeps) {
     state.saved = null;
     state.exported = false;
     state.formatNotice = "";
+    void refreshInherited();
+  }
+  /** Look up the extends base's resolved format (only for a package without a format of its own). */
+  async function refreshInherited(): Promise<void> {
+    const base = typeof state.pkg?.extends === "string" ? state.pkg.extends : "";
+    if (!base || state.pkg?.format) { state.inherited = null; return; }
+    if (state.inherited?.base === base) return;
+    state.inherited = null;
+    try {
+      const result = await api<Record<string, unknown>>(`/api/packages/${encodeURIComponent(base)}`);
+      const resolved = isObj(result.pkg) ? (result.pkg as { format?: unknown }) : null;
+      if (state.pkg?.extends === base) state.inherited = { base, format: resolved?.format === "sevens" ? "sevens" : "standard" };
+    } catch {
+      /* unknown: the toggle shows the package's own format */
+    }
+  }
+  /** The format the package resolves to: its own, else the extends base's (Sevens spec 11-02, Creator display gap). */
+  function effectiveFormat(): { format: PackageFormat; inheritedFrom: string | null } {
+    const pkg = state.pkg;
+    if (!pkg) return { format: "standard", inheritedFrom: null };
+    if (pkg.format) return { format: isSevens(pkg) ? "sevens" : "standard", inheritedFrom: null };
+    const inh = state.inherited;
+    if (inh && pkg.extends && inh.base === pkg.extends) return { format: inh.format, inheritedFrom: inh.base };
+    return { format: "standard", inheritedFrom: null };
   }
 
   function serialize(): RawDoc {
@@ -284,6 +312,7 @@ export function createTournamentCreator(deps: CreatorDeps) {
   }
   function setField(field: "name" | "date" | "description" | "extends" | "dataNote", value: string): void {
     edit((pkg) => { pkg[field] = value; }, [field]);
+    if (field === "extends") void refreshInherited();
   }
 
   // ---------- races, gold, systems ----------
@@ -330,7 +359,8 @@ export function createTournamentCreator(deps: CreatorDeps) {
   /** The Format toggle (Sevens spec 11-02): Sevens writes the Sevens defaults into the document (every one stays editable);
    *  Standard resets the package to a blank package's rules, keeping its details (the view asks for a confirm first). */
   function setFormat(format: PackageFormat): void {
-    if (!state.pkg || state.readOnly || (format === "sevens") === isSevens(state.pkg)) return;
+    // The effective format: an inherited Sevens counts as Sevens (Standard then overrides it and drops the extends).
+    if (!state.pkg || state.readOnly || (format === "sevens") === (effectiveFormat().format === "sevens")) return;
     edit((pkg) => {
       if (format === "sevens") applySevensDefaults(pkg);
       else applyStandardDefaults(pkg);
@@ -921,7 +951,7 @@ export function createTournamentCreator(deps: CreatorDeps) {
     state,
     serialize, dirty, isInherited, inheritedHint, isAllRaces, inducementAllowed, overrideMode,
     edit, setAt, setBound, setOverrideMode, toggleMulti, setMultiAll, setField,
-    toggleAllRaces, toggleRace, setCapIncludesSkills, setSystem, setSkillMode, toggleSecondarySwap, setFormat,
+    toggleAllRaces, toggleRace, setCapIncludesSkills, setSystem, setSkillMode, toggleSecondarySwap, setFormat, effectiveFormat,
     addSpOverride, removeSpOverride, addGoldOverride, removeGoldOverride, addBannedSkill, removeBannedSkill,
     selectTier, addTier, removeTier, setTierField, toggleTierStars, assignTeamToTier, removeTeamFromTier,
     tierPackAdd, tierPackRemove, tierPackGenerate, setTierPackField,

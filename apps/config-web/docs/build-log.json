@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-02",
+    "title": "Blood Bowl Sevens in the Roster Builder",
+    "body": "Build Blood Bowl Sevens teams: pick Sevens Free Create (next to Free Create) or the Blood Bowl Sevens (Matched Play) ruleset. The builder follows the ruleset: 7 to 11 players, a Non-Linemen 3 / 4 counter, Sevens staff prices, the Sevens inducements (incl. Desperate Measures) and Skill Points by tier. Make one Lineman your Veteran (MA −1). Star Players and the fork aren't offered: Sevens is tabletop only. The team sheet and PDF print the Sevens title and mark the Veteran.",
+    "links": [
+      {
+        "label": "Roster Builder",
+        "href": "/app/tournament-team-builder"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-02",
     "title": "Blood Bowl Sevens in the Tournament Creator",
     "body": "The Tournament Creator has a Format switch: pick Sevens to apply the Blood Bowl Sevens defaults (600k, 7 to 11 players, at most 4 non-Linemen, one Veteran, Sevens staff prices and inducements, no stars), then change any of them. There is also a ready-made Blood Bowl Sevens (Matched Play) package with the Sevens tier list. Sevens is tabletop only.",
     "links": [

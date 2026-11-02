@@ -24,6 +24,8 @@ const valid = computed(() => free.value || v.value.tone === "valid");
 const gate = computed(() => ui.nameGate && !builder.named());
 const signedIn = computed(() => builder.signedIn());
 const buildLabel = computed(() => (state.buildBusy ? (state.editingTeamId ? "Saving..." : "Creating...") : state.editingTeamId ? "Save team on Fork" : "Create team on Fork"));
+/** Blood Bowl Sevens is tabletop only (owner Q12): no fork button, a short note in its place. */
+const forkNote = computed(() => builder.forkBlocked());
 </script>
 
 <template>
@@ -43,13 +45,14 @@ const buildLabel = computed(() => (state.buildBusy ? (state.editingTeamId ? "Sav
       <template v-if="signedIn">
         <button type="button" class="tb-btn" :disabled="!builder.canSave()" @click="builder.saveTeam()">{{ state.saveBusy ? "Saving..." : "Save Team" }}</button>
         <button v-if="valid && state.currentSave && !state.shareUrl" type="button" class="tb-btn" :disabled="state.shareBusy || (free && !builder.canShare())" @click="builder.share()">Share link</button>
-        <button v-if="valid" type="button" class="tb-btn" :disabled="!builder.canBuild()" @click="builder.build()">{{ buildLabel }}</button>
+        <button v-if="valid && !forkNote" type="button" class="tb-btn" :disabled="!builder.canBuild()" @click="builder.build()">{{ buildLabel }}</button>
       </template>
       <template v-else>
-        <a v-if="props.ssoEnabled" class="tb-btn" :href="props.signInHref">Sign in to save or create on Fork</a>
+        <a v-if="props.ssoEnabled" class="tb-btn" :href="props.signInHref">{{ forkNote ? "Sign in to save" : "Sign in to save or create on Fork" }}</a>
         <span v-else class="lobby-error">Discord sign-in is not available on this server right now.</span>
       </template>
     </div>
+    <p v-if="forkNote" class="muted tb-fork-note">{{ forkNote }}</p>
     <!-- pack rulesets: back to the pack list, under the buttons (and so under the issues list too) -->
     <button v-if="props.changePack" type="button" class="tb-btn small tb-change-pack" aria-controls="tb-team-packs" @click="emit('change-pack')">Change skill pack</button>
     <ul v-if="valid && v.warnings.length" class="tb-findings">

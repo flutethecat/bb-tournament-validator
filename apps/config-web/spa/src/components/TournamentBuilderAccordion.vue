@@ -34,7 +34,8 @@ function title(p: LeftPanel): string {
   if (p === "hire") return "Hireable players";
   if (p === "staff") return "Sideline staff";
   if (p === "inducements") return "Inducements";
-  return noStars.value ? "NO STAR ACCESS" : "Star Players";
+  // Blood Bowl Sevens has no Star Players or Mercenaries (the bar's tooltip says so).
+  return noStars.value ? (builder.sevens() ? "NO STAR PLAYERS" : "NO STAR ACCESS") : "Star Players";
 }
 function cap(p: LeftPanel): string {
   const t = builder.totals();
@@ -66,7 +67,7 @@ async function toggle(p: LeftPanel): Promise<void> {
         <button
           :id="`tb-acc-${p}`" type="button" class="tb-acc-btn" :aria-expanded="open === p ? 'true' : 'false'"
           :aria-controls="disabled(p) ? undefined : `tb-acc-body-${p}`" :aria-disabled="disabled(p) ? 'true' : undefined"
-          :title="disabled(p) ? 'This race has no access to star players under this ruleset.' : undefined" @click="toggle(p)"
+          :title="disabled(p) ? builder.starsOffReason() : undefined" @click="toggle(p)"
         >
           <span class="tb-acc-title">{{ title(p) }}</span>
           <span v-if="cap(p)" class="hm-cap">{{ cap(p) }}</span>

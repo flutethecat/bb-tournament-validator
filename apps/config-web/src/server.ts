@@ -23,6 +23,7 @@ import { ConnectionError, NAF_CONNECTION_ENDPOINT, nafProvider } from "./auth/co
 import {
   composeTeam,
   composeTeamIntrinsic,
+  effectiveRosterLimits,
   effectiveStaffPrices,
   findPosition,
   findRoster,
@@ -408,6 +409,7 @@ const PUBLIC_PATHS = new Set([
   "/api/fork/team-builder/legal-skills",
   "/api/fork/team-builder/inducements",
   "/api/fork/team-builder/tiers",
+  "/api/fork/team-builder/limits",
   "/api/fork/team-builder/preview",
   "/api/fork/team-builder/build",
   // Saved builder sheets (owner 10-22): session-gated in-handler (401 without a session); the
@@ -3878,6 +3880,22 @@ async function handleApi(
     const optInTournament = query.get("tournamentId")?.trim();
     const optIns = optInTournament ? tournamentStore.tournament(optInTournament)?.inducementOptIns ?? [] : [];
     return sendJson(res, 200, { inducements: teamBuilderInducementCatalog(resolvedPkg.pkg, bb2025, optIns) });
+  }
+
+  // Roster Builder limits (Sevens spec 11-02, Roster Builder lane): the package's format, its eligible rosters and (with
+  // ?roster=) that race's effective limits (players, non-Linemen, Veteran, staff prices and caps, inducement list, skill
+  // knobs), from the same resolution validate() uses. Open read like /tiers; also answers for the Sevens Free Create marker.
+  if (path === "/api/fork/team-builder/limits" && method === "GET") {
+    const packageName = query.get("packageName")?.trim() || undefined;
+    const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, packageName);
+    if ("error" in resolvedPkg) return sendJson(res, 400, { error: resolvedPkg.error });
+    const race = query.get("roster")?.trim();
+    const limits = race ? effectiveRosterLimits(resolvedPkg.pkg, race, bb2025) : undefined;
+    return sendJson(res, 200, {
+      format: isSevensPackage(resolvedPkg.pkg) ? "sevens" : "standard",
+      eligibleRosters: [...resolvedPkg.pkg.eligibleRosters],
+      ...(limits ? { limits } : {}),
+    });
   }
 
   if (path === "/api/fork/team-builder/tiers" && method === "GET") {

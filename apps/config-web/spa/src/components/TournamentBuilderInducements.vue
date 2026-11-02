@@ -20,6 +20,8 @@ const { maxHeight: availMax } = useRowWindow(availList, () => available.value.ma
 </script>
 
 <template>
+  <!-- Blood Bowl Sevens: the Sevens list (Spike! Journal 22) replaces the core one; no Star Players or Mercenaries -->
+  <p v-if="builder.sevens()" class="muted tb-hint tb-ind-sevens">Sevens inducements (Spike! Journal 22), Desperate Measures included. No Star Players or Mercenaries.</p>
   <div v-if="selected.length" class="tb-ind-picked" role="group" aria-labelledby="tb-picked-h">
     <p class="tb-k tb-sub"><span id="tb-picked-h">Selected inducements</span><b>{{ core.gold(selectedTotal) }}</b></p>
     <ul ref="pickedList" class="tb-steppers tb-scroll-list tb-row-window" :style="pickedMax ? { maxHeight: pickedMax } : undefined">

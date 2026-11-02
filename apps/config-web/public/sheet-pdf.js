@@ -143,6 +143,8 @@
    *  ("(Star)" / "(C)" markers on the position line). A row without a name prints the position alone, as before. */
   function playerCell(row) {
     const marker = row.isStar ? [{ text: "  (Star)", color: MUTED, fontSize: 7.5 }] : row.captain ? [{ text: "  (C)", bold: true, fontSize: 7.5 }] : [];
+    // Blood Bowl Sevens Veteran (the row's MA is already printed one lower by the sheet model).
+    if (!row.isStar && row.veteran) marker.push({ text: "  Veteran", bold: true, fontSize: 7.5 });
     const name = typeof row.name === "string" ? row.name.trim() : "";
     if (!name) return { text: [{ text: row.position }, ...marker] };
     return { stack: [{ text: softBreak(name), bold: true }, { text: [{ text: row.position, color: MUTED, fontSize: 7 }, ...marker], margin: [0, 0.5, 0, 0] }] };
@@ -162,6 +164,8 @@
           width: "*",
           margin: [12, 3, 0, 0],
           stack: [
+            // Blood Bowl Sevens: the format title line ("Blood Bowl Sevens · Matched Play") above the identity lines.
+            ...(model.formatTitle ? [{ text: softBreak(model.formatTitle), style: "format", margin: [0, 0, 0, 2] }] : []),
             { text: [{ text: "COACH  ", style: "label" }, { text: softBreak(model.coach || "—") }] },
             { text: [{ text: "RACE  ", style: "label" }, { text: softBreak(model.raceName || "—") }], margin: [0, 2, 0, 0] },
           ],
@@ -273,6 +277,7 @@
       styles: {
         race: { fontSize: 18, bold: true },
         label: { fontSize: 7, bold: true, color: MUTED, characterSpacing: 0.4 },
+        format: { fontSize: 9, bold: true, characterSpacing: 0.6 },
         panelTitle: { fontSize: 7.5, bold: true, characterSpacing: 0.4 },
         th: { fontSize: 7.5, bold: true },
         keywords: { fontSize: 8, margin: [0, 6, 0, 0] },

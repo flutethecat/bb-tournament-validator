@@ -49,6 +49,8 @@ export interface SharedPlayer {
   printed: SharedSkill[];
   /** BB2025 Team Captain (https://bloodbowlbase.ru/bb2025/core_rules/the_teams/#team-captain). */
   captain: boolean;
+  /** Blood Bowl Sevens Veteran (the composer already printed MA one lower); only present when set. */
+  veteran?: true;
   /** The captain's free grants: the "Team Captain" trait and its free Pro (never added skills, never charged). */
   free: SharedSkill[];
   added: SharedSkill[];
@@ -221,6 +223,7 @@ export function sharedTeamView(input: SharedViewInput): SharedTeamView {
       stats: { MA: int(p.MA), ST: int(p.ST), AG: String(p.AG), PA: String(p.PA), AV: String(p.AV) },
       printed: printedNames.map((name) => ({ name, category: skillCategory(name) })),
       captain: grants.length > 0,
+      ...(!star && (p as { veteran?: unknown }).veteran === true ? { veteran: true as const } : {}),
       free: grants.map((name) => ({ name, category: skillCategory(name) })),
       added: addedNames.map((name) => ({
         name,

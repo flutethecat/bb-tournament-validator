@@ -51,6 +51,7 @@ const improved = (row: SheetRow, k: Stat): boolean => !row.isStar && row.stats?.
     <header class="ps-header">
       <div class="ps-race">{{ model.teamName || model.raceName || "Team" }}</div>
       <div class="ps-ident">
+        <div v-if="model.formatTitle" class="ps-format">{{ model.formatTitle }}</div>
         <div><span class="ps-label">COACH</span> {{ model.coach || "—" }}</div>
         <div><span class="ps-label">RACE</span> {{ model.raceName || "—" }}</div>
       </div>
@@ -113,7 +114,7 @@ const improved = (row: SheetRow, k: Stat): boolean => !row.isStar && row.stats?.
             <td class="ps-r">{{ row.number }}</td>
             <td class="ps-pos" :class="{ 'ps-named': row.name }" :title="row.positionFull !== row.position ? row.positionFull : undefined">
               <span v-if="row.name" class="ps-pname">{{ row.name }}</span>
-              <span :class="{ 'ps-psub': row.name }">{{ row.position }}<small v-if="row.isStar" class="ps-mark-star">(Star)</small><small v-else-if="row.captain" class="ps-mark-captain" title="Team Captain">(C)</small></span>
+              <span :class="{ 'ps-psub': row.name }">{{ row.position }}<small v-if="row.isStar" class="ps-mark-star">(Star)</small><small v-else-if="row.captain" class="ps-mark-captain" title="Team Captain">(C)</small><small v-if="!row.isStar && row.veteran" class="ps-mark-veteran" title="Veteran: MA −1, one reroll a game">Veteran</small></span>
             </td>
             <td v-for="k in STATS" :key="k" class="ps-r" :class="{ 'ps-improved': improved(row, k) }">{{ statText(row, k) }}</td>
             <td class="ps-skills"><template v-for="(p, i) in skills(row)" :key="i"><template v-if="i">, </template><span :class="p.cls || undefined">{{ p.text }}</span></template></td>

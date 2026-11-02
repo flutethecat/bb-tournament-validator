@@ -214,10 +214,12 @@
         const statsKey = STATS.filter((stat) => stat in chosenStats).map((stat) => `${stat}${chosenStats[stat]}`).join(",");
         // The Team Captain rides its own count:1 pick: never merged with identical players (or another captain).
         const captain = withCaptain && slot.captain === true && !slot.isStar;
+        // Blood Bowl Sevens Veteran (Sevens spec 11-02): its own count:1 pick with `veteran: true` (the composer prints MA -1).
+        const veteran = slot.veteran === true && !slot.isStar;
         const signature = `${slot.positionId}|${chosenSkills.join(",")}|${chosenStatIncreases.join(",")}|${statsKey}|${captain ? "captain" : ""}`;
         // Roster Builder player names (owner 11-01): one entry per player of the pick ("" = unnamed); never on stars.
         const name = !slot.isStar && typeof slot.name === "string" ? slot.name : "";
-        if (last && !captain && last.signature === signature) {
+        if (last && !captain && !veteran && !last.pick.veteran && last.signature === signature) {
           last.pick.count += 1;
           if (name || last.pick.names) last.pick.names = [...(last.pick.names ?? Array(last.pick.count - 1).fill("")), name];
           continue;
@@ -228,6 +230,7 @@
         if (chosenStatIncreases.length) pick.chosenStatIncreases = chosenStatIncreases;
         if (statsKey) pick.chosenStats = chosenStats;
         if (captain) pick.captain = true;
+        if (veteran) pick.veteran = true;
         picks.push(pick);
         last = { signature, pick };
       }
@@ -267,6 +270,7 @@
             isStar: position.isStar === true,
             ...(name ? { name } : {}),
             ...(pick.captain === true && i === 0 ? { captain: true } : {}),
+            ...(pick.veteran === true && i === 0 ? { veteran: true } : {}),
             chosenSkills: Array.isArray(pick.chosenSkills) ? pick.chosenSkills.map(String) : [],
             chosenStatIncreases: Array.isArray(pick.chosenStatIncreases)
               ? pick.chosenStatIncreases.map((stat) => String(stat).toUpperCase()).filter((stat) => STATS.includes(stat))
@@ -644,6 +648,11 @@
         const stats = improvedStats(position, chosenStatIncreases, star ? null : player.chosenStats);
         const added = (star ? [] : player.chosenSkills ?? []).map((skill) => ({ name: skill, access: player.accessOf ? player.accessOf(skill) : "primary" }));
         const captain = !star && player.captain === true;
+        // Blood Bowl Sevens Veteran: marked on the row, printed MA moved by the package's delta (-1; never below 1).
+        const veteran = !star && player.veteran === true;
+        if (veteran && isNum(input.veteranMaDelta) && isNum(num(stats.MA?.value))) {
+          stats.MA = { ...stats.MA, value: Math.max(1, num(stats.MA.value) + input.veteranMaDelta) };
+        }
         const row = {
           // The Roster Builder's player name (owner 11-01); the position becomes the subheader under it.
           name: !star && typeof player.name === "string" ? player.name.trim() : "",
@@ -654,6 +663,7 @@
           added,
           // Team Captain grants: the trait and its free Pro (no cost, never an added skill).
           captain,
+          ...(veteran ? { veteran: true } : {}),
           free: captain ? [TEAM_CAPTAIN, CAPTAIN_FREE_SKILL] : [],
           statIncreases: (chosenStatIncreases ?? []).map((s) => String(s).toUpperCase()),
           cost: position.cost ?? null,
@@ -685,17 +695,33 @@
         const captainRow = rows.find((row) => row.captain);
         summaryRows.push(["Team Captain", captainRow ? `#${captainRow.number} ${captainRow.position}` : "Not nominated"]);
       }
+      // Blood Bowl Sevens: the non-Lineman count against its cap, and the Veteran.
+      if (input.nonLineman && isNum(input.nonLineman.count) && isNum(input.nonLineman.max)) {
+        summaryRows.push(["Non-Linemen", `${input.nonLineman.count} / ${input.nonLineman.max}`]);
+      }
+      if (isNum(input.veteranMaDelta)) {
+        const veteranRow = rows.find((row) => row.veteran);
+        summaryRows.push(["Veteran", veteranRow ? `#${veteranRow.number} ${veteranRow.position}` : "Not picked"]);
+      }
       if (isNum(summary?.goldUsed)) {
         const budget = isNum(input.budget) ? input.budget : summary.goldBudget;
         summaryRows.push(["Total", isNum(budget) ? `${gold(summary.goldUsed)} / ${gold(budget)}` : gold(summary.goldUsed)]);
       }
       const staff = input.staff ?? {};
+      // `staffPrices` (Blood Bowl Sevens): each line also prints what it cost at the package's prices ("2 · 200k").
+      const prices = input.staffPrices && typeof input.staffPrices === "object" ? input.staffPrices : null;
+      const priced = (key, count, text) => {
+        const row = prices?.[key];
+        if (!row || !isNum(row.price)) return text;
+        const paid = Math.max(0, (Number(count) || 0) - (isNum(row.free) ? row.free : 0)) * row.price;
+        return `${text} · ${gold(paid)}`;
+      };
       const sideline = [
-        ["Apothecary", input.apothecaryAllowed === false ? "—" : (staff.apothecary ? "Yes" : "No")],
-        ["Assistant coaches", String(staff.assistantCoaches ?? 0)],
-        ["Cheerleaders", String(staff.cheerleaders ?? 0)],
-        ["Dedicated fans", String(staff.dedicatedFans ?? 1)],
-        ["Rerolls", String(staff.reRolls ?? 0)],
+        ["Apothecary", input.apothecaryAllowed === false ? "—" : priced("apothecary", staff.apothecary ? 1 : 0, staff.apothecary ? "Yes" : "No")],
+        ["Assistant coaches", priced("assistantCoaches", staff.assistantCoaches ?? 0, String(staff.assistantCoaches ?? 0))],
+        ["Cheerleaders", priced("cheerleaders", staff.cheerleaders ?? 0, String(staff.cheerleaders ?? 0))],
+        ["Dedicated fans", priced("dedicatedFans", staff.dedicatedFans ?? 1, String(staff.dedicatedFans ?? 1))],
+        ["Rerolls", priced("reRolls", staff.reRolls ?? 0, String(staff.reRolls ?? 0))],
       ];
       const keywordRows = [];
       const seenPositions = new Set();
@@ -709,6 +735,8 @@
         coach: input.coach ?? "",
         teamName: input.teamName ?? "",
         rulesetName: input.rulesetName ?? "",
+        // The format title line ("Blood Bowl Sevens · Matched Play"); "" for standard rulesets.
+        formatTitle: typeof input.formatTitle === "string" ? input.formatTitle : "",
         sideline,
         inducements: (input.inducements ?? []).filter((item) => item.count > 0),
         specialRules: [...new Set((input.specialRules ?? []).map((rule) => String(rule).trim()).filter(Boolean))],
@@ -743,7 +771,7 @@
         : '<p class="rs-none">None</p>';
       const rows = model.rows.map((row) => `<tr${row.isStar ? ' class="rs-star"' : ""}>
         <td class="num">${row.number}</td>
-        <td class="pos"${row.positionFull && row.positionFull !== row.position ? ` title="${esc(row.positionFull)}"` : ""}>${row.name ? `<span class="rs-pname">${esc(row.name)}</span><span class="rs-psub">` : ""}${esc(row.position)}${row.isStar ? ' <small>(Star)</small>' : ""}${row.captain ? ' <span class="rs-captain" title="Team Captain" aria-label="Team Captain">C</span>' : ""}${row.name ? "</span>" : ""}</td>
+        <td class="pos"${row.positionFull && row.positionFull !== row.position ? ` title="${esc(row.positionFull)}"` : ""}>${row.name ? `<span class="rs-pname">${esc(row.name)}</span><span class="rs-psub">` : ""}${esc(row.position)}${row.isStar ? ' <small>(Star)</small>' : ""}${row.captain ? ' <span class="rs-captain" title="Team Captain" aria-label="Team Captain">C</span>' : ""}${row.veteran ? ' <span class="rs-veteran" title="Veteran: MA −1">Veteran</span>' : ""}${row.name ? "</span>" : ""}</td>
         ${["MA", "ST", "AG", "PA", "AV"].map((stat) => sheetStatCell(row.stats[stat])).join("")}
         <td class="skills">${sheetSkills(row)}</td>
         <td class="cost">${esc(row.cost != null ? gold(row.cost) : "—")}</td>
@@ -757,6 +785,7 @@
       <div class="rs-race">${esc(model.teamName || model.raceName)}</div>
       <div class="rs-label-row"><span class="rs-label">COACH NAME</span><span class="rs-value">${esc(model.coach)}</span></div>
       <div class="rs-label-row"><span class="rs-label">RACE</span><span class="rs-value">${esc(model.raceName)}</span></div>
+      ${model.formatTitle ? `<div class="rs-ruleset rs-format">${esc(model.formatTitle)}</div>` : ""}
       ${model.rulesetName ? `<div class="rs-ruleset">${esc(model.rulesetName)}</div>` : ""}
     </div>
     ${sheetBox("SIDELINE", kvRows(model.sideline))}

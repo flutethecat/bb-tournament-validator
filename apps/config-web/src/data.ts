@@ -276,16 +276,32 @@ export class PackageFiles {
     return this.files().find((entry) => canonical(entry.raw.name ?? basename(entry.path, ".json")) === want);
   }
 
-  list(): { name: string; date?: string; description?: string }[] {
+  list(): { name: string; date?: string; description?: string; format?: "sevens" }[] {
     const seen = new Set<string>();
-    const rows: { name: string; date?: string; description?: string }[] = [];
-    for (const raw of this.raws().values()) {
+    const rows: { name: string; date?: string; description?: string; format?: "sevens" }[] = [];
+    const raws = this.raws();
+    for (const raw of raws.values()) {
       const name = raw.name ?? "(unnamed)";
       if (seen.has(name)) continue;
       seen.add(name);
-      rows.push({ name, date: raw.date, description: raw.description });
+      // `format` (additive, Sevens only): the nearest format along the extends chain, so a layer over a Sevens package is
+      // listed as Sevens too (the Roster Builder's card badge).
+      const sevens = this.formatOf(raw, raws) === "sevens";
+      rows.push({ name, date: raw.date, description: raw.description, ...(sevens ? { format: "sevens" as const } : {}) });
     }
     return rows.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /** The nearest `format` set along a raw document's extends chain (cycle-safe); undefined when none sets one. */
+  private formatOf(raw: Partial<TournamentPackage>, raws: Map<string, Partial<TournamentPackage>>): string | undefined {
+    const seen = new Set<Partial<TournamentPackage>>();
+    let at: Partial<TournamentPackage> | undefined = raw;
+    while (at && !seen.has(at)) {
+      seen.add(at);
+      if (typeof at.format === "string") return at.format;
+      at = typeof at.extends === "string" && at.extends ? raws.get(at.extends) : undefined;
+    }
+    return undefined;
   }
 
   get(name: string): { pkg: TournamentPackage; problems: string[] } | undefined {

@@ -22,7 +22,10 @@ const count = computed(() => (all.value ? `all ${state.teams.length} races eligi
 const summary = computed(() => packageSummary(state));
 const extendsOptions = computed(() => state.packageNames.filter((n) => n !== state.selected || n === pkg.value.extends));
 // Format toggle (Sevens spec 11-02): Sevens applies the Sevens defaults at once; Standard overwrites the rules, so it asks first.
-const sevens = computed(() => isSevens(pkg.value));
+// The EFFECTIVE format: a package with no format of its own that extends a Sevens base is Sevens (read-only hint below).
+const effective = computed(() => c.effectiveFormat());
+const sevens = computed(() => isSevens(pkg.value) || effective.value.format === "sevens");
+const inheritedFrom = computed(() => effective.value.inheritedFrom);
 const confirmStandard = ref(false);
 // Switching to Sevens drops whatever would fight the Sevens defaults (team rules, other tiers, packs...): list it first.
 const confirmSevens = ref<string[]>([]);
@@ -84,6 +87,7 @@ const onText = (field: TextField, e: Event): void => c.setField(field, (e.target
         <button type="button" class="cr-btn primary" @click="confirmToSevens">Switch to Sevens</button>
       </div>
     </div>
+    <p v-if="inheritedFrom" class="cr-hint cr-inherited" data-inherited-format>{{ sevens ? "Sevens" : "Standard" }} (inherited from {{ inheritedFrom }})</p>
     <p v-if="state.formatNotice" class="hm-notice" role="status">{{ state.formatNotice }}</p>
     <p class="cr-hint">{{ sevens
       ? "Blood Bowl Sevens (Spike! Journal 22): 600k, 7 to 11 players, at most 4 without the Lineman keyword, one Lineman as the Veteran, Sevens staff prices and inducements, no stars. Tabletop only: Sevens teams can't be created on the fork. Change the limits in Advanced, the tier list in Tiers (add Slann there if you want it)."

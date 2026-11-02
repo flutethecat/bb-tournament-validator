@@ -132,6 +132,25 @@
 /* Free Create (owner 10-31): the first card carries its one-line description; its race step is a grid of race buttons. */
 .tb-card-free { display: flex; flex-direction: column; gap: 4px; }
 .tb-card-desc { color: var(--ui-muted); font-size: 12px; line-height: 1.35; }
+/* Blood Bowl Sevens (spec 11-02): the "Sevens" badge on Sevens ruleset cards (the .sf-chip look, info edge) */
+.tb-card-badge {
+  margin-top: 4px; padding: 1px 6px; font: 10px/16px var(--sf-band-font); text-transform: uppercase; letter-spacing: .06em; color: var(--ui-text);
+  background: color-mix(in srgb, var(--ui-info) 26%, var(--ui-surface-2)); border: 1px solid var(--ui-info); border-radius: 2px; box-shadow: var(--sf-bevel);
+}
+/* Sevens: the non-Lineman counter over the hire cards, the card's disabled reason, the Veteran toggle and its MA tile */
+.tb-nl-count { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0 0 8px; padding: 6px 10px; background: var(--ui-surface-2); border: 1px solid var(--sf-panel-line); border-left: 4px solid var(--ui-info); border-radius: 2px; }
+.tb-nl-count .tb-k { margin: 0; }
+.tb-nl-count b { font: 16px/1 var(--sf-band-font); }
+.tb-nl-count[data-tone="full"] { border-left-color: var(--ui-heading); }
+.tb-nl-count small { flex-basis: 100%; font-size: 13px; }
+.tb-hire-reason { grid-column: 1 / -1; font-size: 12px; line-height: 1.3; color: var(--ui-text); text-align: left; }
+.tb-vet {
+  flex: none; min-height: 20px; margin: 0 6px 0 0; padding: 1px 7px; vertical-align: middle; font: 10px/16px var(--sf-band-font); text-transform: uppercase; letter-spacing: .06em; cursor: pointer;
+  color: var(--ui-text); background: var(--ui-surface); border: 1px dashed var(--ui-muted); border-radius: 2px;
+}
+.tb-vet:hover { border-color: var(--ui-heading); }
+.tb-vet[aria-pressed="true"] { color: var(--ui-text); border: 1px solid var(--ui-gold); background: color-mix(in srgb, var(--ui-gold) 24%, var(--ui-surface-2)); box-shadow: var(--sf-bevel); }
+.tb-vet:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .tb-free-note { margin: 0 0 10px; }
 .tb-free-races { display: grid; gap: 6px; grid-template-columns: repeat(auto-fill, minmax(min(180px, 100%), 1fr)); margin-bottom: 10px; }
 .tb-free-race {
@@ -230,6 +249,8 @@
 .tb-stat small { font: 11px/1.1 var(--sf-band-font); color: var(--ui-muted); letter-spacing: .06em; }
 .tb-position .tb-stat b { font-size: clamp(16px, 6.4cqi, 24px); } /* hireable cards: the strip spans the card, so it scales with the panel */
 .tb-stat.up b { color: var(--ui-skill-general); }
+.tb-stat.down { border-color: var(--ui-gold); }
+.tb-stat.down small { color: var(--ui-gold); }
 
 .tb-rows { position: relative; list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; align-content: start; }
 /* The roster scroller (owner 10-31): in the three-column layout the list scrolls inside the panel, as tall as the viewport
