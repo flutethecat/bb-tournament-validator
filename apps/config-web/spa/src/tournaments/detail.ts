@@ -144,6 +144,10 @@ export interface TournamentSettingsPatch {
   houseRules?: import("../../../src/competition/houseRules").HouseRules;
   pairingAvoid?: import("../../../src/competition/format").PairingAvoid;
   regions?: string[];
+  /** Creation wizards v2: a ruleset change, the required change message (registered coaches) and the after-start confirmation. */
+  packageName?: string;
+  changeMessage?: string;
+  confirmAfterStart?: boolean;
   /** Tournament page fields: null clears (location / deadlines replace as a whole). */
   location?: TournamentLocation | null;
   startTime?: string | null;

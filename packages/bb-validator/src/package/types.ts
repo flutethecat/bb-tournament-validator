@@ -5,6 +5,7 @@
  */
 
 import type { StatIncreaseRules } from "../cost/statRules";
+import type { CustomStar } from "./customStars";
 
 /**
  * A gold+SP "skill package" a coach may choose (Spike!-style). A roster is legal
@@ -305,6 +306,10 @@ export interface TournamentPackage {
   starPacks?: StarPack[];
   /** Flat default star-pack access (ids). Absent = every pack. */
   starPacksAllowed?: string[] | null;
+  /** Organiser-made Star Players (package/customStars.ts): hired like any star, never edited by coaches. */
+  customStars?: CustomStar[];
+  /** "draft" keeps the package's public ruleset summary hidden (absent = published). */
+  visibility?: "draft" | "published";
   skillAllotment: SkillAllotment;
   /** Optional parallel gold cap; null = SP-only tournament. */
   goldBudget: number | null;

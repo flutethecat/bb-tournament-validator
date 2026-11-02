@@ -36,6 +36,8 @@ export const NOTIFICATION_TYPES = [
   "organiser-request",
   // Fixture summary (league UX pass 11-02): a coaches' message on a fixture, or a coach asking an organiser to join.
   "fixture-message",
+  // Creation wizards v2 Q2: a competition's ruleset or house rules changed (the organiser's message + what changed).
+  "ruleset-change",
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 

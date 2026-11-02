@@ -23,6 +23,9 @@ import { ConnectionError, NAF_CONNECTION_ENDPOINT, nafProvider } from "./auth/co
 import {
   composeTeam,
   composeTeamIntrinsic,
+  customStarPositions,
+  customStarsOf,
+  isCustomStarPositionId,
   effectiveRosterLimits,
   effectiveStaffPrices,
   findPosition,
@@ -102,12 +105,13 @@ import {
   readCoaches,
   searchStoredAdminTeams,
   skillCatalog,
+  traitCatalog,
   starList,
   teamList,
   positionList,
   type AdminTeamSearchMode,
 } from "./data";
-import { builderTierRows, isSevensPackage, packageRaceRules, packageResponseInfo, packageRulesInfo, resolveBuilderPackage, SEVENS_TABLETOP_ONLY } from "./teamBuilderPackage.js";
+import { builderTierRows, isSevensPackage, packageRaceRules, packageResponseInfo, packageRulesInfo, resolveBuilderPackage, SEVENS_TABLETOP_ONLY, CUSTOM_STAR_TABLETOP_ONLY } from "./teamBuilderPackage.js";
 import { FREE_CREATE_LABEL, isFreeCreatePackage } from "./freeCreate.js";
 import { LEAGUE_ROSTER_NOT_IN_TABLE, resolveLeaguePackage, withLeagueProblems } from "./leagues/leagueBuilder.js";
 import { LEAGUE_FORK_NOTE, parseLeaguePackageName } from "./leagueBuilderMarker.js";
@@ -314,6 +318,9 @@ import {
 } from "./teamBuilderSaves.js";
 import { sharedTeamView, type SharedViewInput } from "./teamShareView.js";
 import { isTournamentManager, TournamentStore } from "./tournaments/store.js";
+import { rulesetSummary, type SummaryOptions } from "./rulesetSummary.js";
+import { houseRulesOf } from "./competition/houseRules.js";
+import { leagueVisibleTo } from "./leagues/lifecycle.js";
 import { DEFAULT_TOURNAMENT_TURN_TIMER } from "./tournaments/types.js";
 import { RateLimiter } from "./translate/guards.js";
 import { createTournamentNotifier, isNotificationApiPath, NotificationStore, notificationsApi, SenderRateLimiter, setActiveNotifier, setOrganiserThreadSink, type NotificationInput, type NotificationRecord } from "./notifications.js";
@@ -408,6 +415,8 @@ const PUBLIC_PATHS = new Set([
   "/api/positions",
   "/api/presets",
   "/api/packages",
+  // Ruleset export: a public read-only summary (draft packages 404 in-handler for non-organisers).
+  "/api/ruleset-summary",
   "/api/export",
   "/api/artprompt",
   "/api/fork/jnlp",
@@ -1644,9 +1653,16 @@ function composeFromBody(teamsDir: string, body: TeamBuilderBody, rosterXml?: st
       custom: body.custom === true,
       rosteredInducements: body.rosteredInducements ?? body.inducements,
       ...tabletopComposeOptions(pkg),
+      // The ruleset's custom stars (creation wizards v2): pickable by their cs-<id> position on any roster.
+      ...(customStarsOf(pkg).length ? { extraStars: customStarPositions(customStarsOf(pkg)) } : {}),
     },
     bb2025,
   );
+}
+
+/** The package's own visibility is "draft" (creation wizards v2): hidden from the public. Unreadable = not a draft. */
+function packageIsDraft(name: string): boolean {
+  try { return packages.getRaw(name)?.raw.visibility === "draft"; } catch { return false; }
 }
 
 const MIME: Record<string, string> = {
@@ -3161,7 +3177,7 @@ async function handleApi(
     return sendJson(res, 200, searchStoredAdminTeams(LIBRARY_DIR, q, rawMode as AdminTeamSearchMode));
   }
 
-  if (path === "/api/skills" && method === "GET") return sendJson(res, 200, skillCatalog());
+  if (path === "/api/skills" && method === "GET") return sendJson(res, 200, query.get("traits") === "1" ? { ...skillCatalog(), traits: traitCatalog() } : skillCatalog());
 
   if (path === "/api/teams" && method === "GET") return sendJson(res, 200, teamList());
 
@@ -3295,7 +3311,40 @@ async function handleApi(
     return sendJson(res, 200, { token, expiresAt: new Date(expiry).toISOString() });
   }
 
+  // Ruleset export (creation wizards v2): the public read-only summary of a ruleset, optionally with a published
+  // competition's house rules. A package whose own visibility is "draft" stays hidden from everyone but organisers and
+  // admins (404, as if it did not exist). GET only; it never changes state.
+  if (path === "/api/ruleset-summary" && (method === "GET" || method === "HEAD")) {
+    const name = (query.get("package") ?? "").trim();
+    const hit = name ? packages.get(name) : undefined;
+    const organiserViewer = Boolean(auth?.organizer || auth?.admin) || isTokenAuthed(req) || isAdminAuthed(req);
+    if (!hit) return sendJson(res, 404, { error: "Ruleset not found." });
+    const draft = packageIsDraft(name);
+    if (draft && !organiserViewer) return sendJson(res, 404, { error: "Ruleset not found." });
+    let competition: SummaryOptions["competition"];
+    const tournamentId = query.get("tournament");
+    const leagueId = query.get("league");
+    if (tournamentId) {
+      const t = tournamentStore.tournament(tournamentId);
+      const manages = Boolean(t && auth && (auth.admin || isTournamentManager(t, auth.coach)));
+      if (!t || (t.unpublished === true && !manages) || t.packageName !== hit.pkg.name) return sendJson(res, 404, { error: "Tournament not found for this ruleset." });
+      competition = { kind: "tournament", id: t.id, name: t.name, houseRules: houseRulesOf(t, "tournament"), optIns: t.inducementOptIns ?? [] };
+    } else if (leagueId) {
+      const l = leagueStore.league(leagueId);
+      if (!l || !leagueVisibleTo(l, auth) || l.rulesetPackage !== hit.pkg.name) return sendJson(res, 404, { error: "League not found for this ruleset." });
+      competition = { kind: "league", id: l.id, name: l.name, houseRules: houseRulesOf(l, "league") };
+    }
+    return sendJson(res, 200, { summary: rulesetSummary(hit.pkg, bb2025, { draft, ...(competition ? { competition } : {}) }) });
+  }
+
   if (path === "/api/packages" || path.startsWith("/api/packages/")) {
+    // A draft package (its own visibility) is listed and read only by organisers and admins.
+    if (method === "GET" && !(Boolean(auth?.organizer || auth?.admin) || isTokenAuthed(req) || isAdminAuthed(req))) {
+      if (path === "/api/packages") return sendJson(res, 200, packages.list().filter((p) => !packageIsDraft(p.name)));
+      let wanted = "";
+      try { wanted = decodeURIComponent(path.slice("/api/packages/".length)); } catch { /* bad escape: the handler 404s */ }
+      if (wanted && packageIsDraft(wanted)) return sendJson(res, 404, { error: "Package not found." });
+    }
     // Save AND preview are organiser actions. Under the sidecar isOrganizerWrite already required an
     // organiser session; with the sidecar off they need the organiser token (POST /api/auth/login) or
     // admin Basic auth.
@@ -4543,6 +4592,9 @@ async function handleApi(
     // and the fork stays upstream-identical, so a Sevens roster (any format: "sevens" package or Sevens Free Create) is
     // never written as a fork team.
     if (isSevensPackage(resolvedPkg.pkg)) return sendJson(res, 400, { error: SEVENS_TABLETOP_ONLY });
+    // A custom star (an organiser-made star in the ruleset) has no fork position: such a roster is tabletop-only too.
+    if (Array.isArray(body.picks) && body.picks.some((p) => typeof p?.positionId === "string" && isCustomStarPositionId(p.positionId)))
+      return sendJson(res, 400, { error: CUSTOM_STAR_TABLETOP_ONLY });
     // League mode (lane L7): a league team is made when the organisers accept the registration (L6), never from here.
     if (resolvedPkg.league) return sendJson(res, 400, { error: LEAGUE_FORK_NOTE });
     if (auth) {

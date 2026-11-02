@@ -82,7 +82,7 @@ describe("tournament wizard v2: steps, drafts, defaults", () => {
     const t = rulesetCards(PACKAGES, "tournament");
     expect(t.featured.map((c) => c.label)).toEqual(["BB2025", "EuroBowl 2026", "Small Gods", "World Cup 3.0"]);
     expect(t.others.map((c) => c.packageName)).toEqual(["Spike! 2026"]);
-    expect(FEATURED_RULESETS[3]!.packageName).toBe("NAF World Cup 2027 (Malta) - Rules Pack V3.0");
+    expect(FEATURED_RULESETS[4]!.packageName).toBe("NAF World Cup 2027 (Malta) - Rules Pack V3.0");
     // a featured package this server lacks is left out
     expect(rulesetCards([{ name: "EuroBowl 2026" }], "tournament").featured.map((c) => c.label)).toEqual(["EuroBowl 2026"]);
     // leagues: BB2025 is always the plain base ruleset; BB2020 joins the rest

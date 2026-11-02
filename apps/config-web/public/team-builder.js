@@ -669,6 +669,10 @@
           cost: position.cost ?? null,
           keywords: Array.isArray(position.keywords) ? position.keywords.map(titleCase) : null,
           isStar: position.isStar === true,
+          // A custom star's custom traits and rules (creation wizards v2): printed under "Special rules" below its skills.
+          ...(star && Array.isArray(position.specialRules) && position.specialRules.length
+            ? { specialRules: position.specialRules.map((r) => ({ kind: r.kind === "trait" ? "trait" : "rule", name: String(r.name ?? ""), description: String(r.description ?? "") })) }
+            : {}),
         };
         (row.isStar ? stars : regular).push(row);
         ordered.push(row);

@@ -138,6 +138,9 @@ export const routes: RouteRecordRaw[] = [
     component: () => import("./views/TournamentCreatorView.vue"),
     meta: { requiresAuth: true, title: "Tournament Creator" },
   },
+  // Ruleset summary (creation wizards v2): the public read-only page of a ruleset + its PDF. The package rides in the query
+  // (names carry dots). No sign-in; the server hides draft packages.
+  { path: "/ruleset-summary", name: "ruleset-summary", component: () => import("./views/RulesetSummaryView.vue"), meta: { title: "Ruleset summary" } },
   // Leagues (TABBL, imported from TourPlay): public read, no sign-in gate.
   { path: "/leagues", name: "leagues", component: LeagueListView, meta: { title: "Browse leagues" } },
   // League creation wizard (registration spec 11-02 §4, lane L5): site organisers and admins; before /leagues/:id ("new" is reserved).

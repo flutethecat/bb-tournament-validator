@@ -18,6 +18,7 @@ import { SEVENS_VETERAN_MA_DELTA } from "./dataset/bb2025/sevens";
 import type { DatasetRoster } from "./dataset/types";
 import { starPackPicks, statIncreasesGold } from "./cost/extras";
 import { ALL_RULES, recomputeGold, starCosts } from "./rules/rules";
+import { withCustomStars } from "./package/customStars";
 import type { ResolvedPlayer, Rule, RuleContext } from "./rules/types";
 import { err } from "./rules/types";
 
@@ -70,6 +71,8 @@ export function validate(
   rules: Rule[] = ALL_RULES,
 ): ValidationResult {
   const findings: Finding[] = [];
+  // The package's custom stars join the dataset's star list, so every star rule treats them like stars.
+  data = withCustomStars(data, pkg);
 
   const datasetRoster = findRoster(data, roster.rosterName);
   if (!datasetRoster) {

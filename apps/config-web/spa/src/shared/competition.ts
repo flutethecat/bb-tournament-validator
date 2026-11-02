@@ -16,9 +16,10 @@ export interface RulesetCard {
   sevens?: boolean;
 }
 
-/** The Featured row (owner 11-02): BB2025 (the default), EuroBowl 2026, Small Gods, World Cup 3.0 (the Malta pack). */
+/** The Featured row (owner 11-02): BB2025 (the default), BB2025 matched play (Q11), EuroBowl 2026, Small Gods, World Cup 3.0 (the Malta pack). */
 export const FEATURED_RULESETS: ReadonlyArray<{ packageName: string; label: string; line: string }> = [
   { packageName: "BB2025 Default", label: "BB2025", line: "The 2025 edition, standard rules." },
+  { packageName: "BB2025 Matched Play", label: "BB2025 matched play", line: "Matched play: 1,150k draft, four tiers of Skill Points." },
   { packageName: "EuroBowl 2026", label: "EuroBowl 2026", line: "The EuroBowl 2026 rules pack." },
   { packageName: "Small Gods", label: "Small Gods", line: "The Small Gods tournament rules." },
   { packageName: "NAF World Cup 2027 (Malta) - Rules Pack V3.0", label: "World Cup 3.0", line: "NAF World Cup 2027, Malta (rules pack V3.0)." },

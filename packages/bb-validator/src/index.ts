@@ -96,6 +96,17 @@ export type { StarPick } from "./cost/extras";
 export { canonicalizeStatRuleRaces, cleanStatIncreaseRules, playerStatRuleBlock, statRuleBlock, teamCapBlock } from "./cost/statRules";
 export type { StatIncreaseRules, BlockedStat, RulePosition, RulePlayer } from "./cost/statRules";
 export { loadPackage, mergePackages, parseSkillCostCsv, applyCsvOverrides } from "./package/resolve";
+export {
+  CUSTOM_STAR_LIMITS,
+  customStarPositionId,
+  customStarProblems,
+  customStarStats,
+  customStarsOf,
+  findCustomStar,
+  isCustomStarPositionId,
+  withCustomStars,
+} from "./package/customStars";
+export type { CustomStar, CustomStarRule } from "./package/customStars";
 export type { CsvSkillCostRow, DeepPartial } from "./package/resolve";
 export { costSP, isElite } from "./cost/costSP";
 export { costGold, staffGold, inducementsGold, skillsGold, DEFAULT_SKILL_GOLD } from "./cost/costGold";
@@ -105,6 +116,7 @@ export { validate, priceRoster } from "./validate";
 export {
   composeTeam,
   composeTeamIntrinsic,
+  customStarPositions,
   parseForkRoster,
   teamCustomFromXml,
   withRosteredInducementSet,

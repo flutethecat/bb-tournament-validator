@@ -39,11 +39,14 @@ export const ACTION_DM: Partial<Record<NotificationType, ActionMessageBuilder>> 
   "organiser-request": ({ subject, url }) => `${subject} Open it: ${url}`,
   // Fixture summary messages (league UX pass 11-02): never the message text, only who wrote and about which fixture.
   "fixture-message": ({ title, url }) => `${title}. Read and reply: ${url}`,
+  // Creation wizards v2 Q2: every registered coach hears about a rules change; an invalid roster after it needs changes.
+  "ruleset-change": ({ subject, url }) => `The rules of ${subject} changed. Read the organiser's message and what changed: ${url}`,
+  "roster-problems": ({ subject, url }) => `Your roster for ${subject} needs changes. See what to fix: ${url}`,
 };
 
 /** Types that DM only when the emitter marks the row actionable (NotificationInput.action). Every other emitter of these
  *  types (today's tournament registration notices) stays bell-only. */
-export const ACTION_DM_WHEN_FLAGGED: ReadonlySet<NotificationType> = new Set<NotificationType>(["registration-outcome", "registration", "check-in"]);
+export const ACTION_DM_WHEN_FLAGGED: ReadonlySet<NotificationType> = new Set<NotificationType>(["registration-outcome", "registration", "check-in", "roster-problems"]);
 
 export const isActionDmType = (type: NotificationType): boolean => Object.hasOwn(ACTION_DM, type);
 

@@ -6,6 +6,7 @@
 import { computed, inject, ref } from "vue";
 import { TOURNAMENT_BUILDER_KEY, TOURNAMENT_BUILDER_UI_KEY } from "../teams/builder";
 import { useRowWindow } from "../teams/hireWindow";
+import CustomStarSpecialRules from "./CustomStarSpecialRules.vue";
 
 const builder = inject(TOURNAMENT_BUILDER_KEY)!;
 const ui = inject(TOURNAMENT_BUILDER_UI_KEY)!;
@@ -30,6 +31,7 @@ function addStar(key: string): void {
         <strong>{{ r.choice.label }}</strong>
         <small>{{ r.price }} · {{ r.status }}</small>
         <small v-if="r.packs" class="muted">{{ r.packs }}</small>
+        <CustomStarSpecialRules v-for="m in r.choice.members" :key="`sr-${m.positionId}`" :rules="builder.specialRulesOf(m.positionId)" compact />
       </span>
       <span class="tb-stepper">
         <button type="button" :disabled="!r.present" :aria-label="`Remove ${r.choice.label}`" @click="builder.removeStar(r.choice.key)">−</button>

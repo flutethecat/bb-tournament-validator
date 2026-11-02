@@ -11,6 +11,7 @@ import { inducementCatalog, inducementIdForName, inducementIdInCatalog, induceme
 import { hasLinemanKeyword, SEVENS_VETERAN_MA_DELTA } from "../dataset/bb2025/sevens";
 import { effectiveStaffPrices, priceStaff } from "../cost/staff";
 import type { Dataset } from "../dataset/types";
+import { customStarStats, customStarsOf, findCustomStar } from "../package/customStars";
 import { canonSkill, decodeEntities, findRoster, findSkill, findStar, isStarName, normName, rosterHasTeamCaptain, starEligibleForTeam, TEAM_CAPTAIN, TEAM_CAPTAIN_FREE_SKILL } from "../dataset/lookup";
 import type { Finding } from "../model/findings";
 import { isCountPack, type SkillPackage, type TournamentPackage } from "../package/types";
@@ -1250,6 +1251,35 @@ export const teamCaptainRule: Rule = {
 };
 
 /** The M1 registry, in plan order. */
+/**
+ * 8d. Custom stars (package/customStars.ts) - a hired custom star is the organiser's star: its price, characteristics and
+ * printed skills must be the package's. Coaches never edit a star; a sheet that differs is refused (an added skill is
+ * also caught by star-skills).
+ */
+export const customStarTerms: Rule = {
+  id: "custom-stars",
+  check: ({ players, pkg }) => {
+    const findings: Finding[] = [];
+    if (!customStarsOf(pkg).length) return findings;
+    for (const rp of players) {
+      const star = findCustomStar(pkg, rp.player.positionName);
+      if (!star) continue;
+      const who = `#${rp.player.number} ${star.name}`;
+      if (rp.player.cost !== star.cost)
+        findings.push(err("custom-stars", `${who} costs ${fmtGold(rp.player.cost)} on the sheet; this ruleset prices the star at ${fmtGold(star.cost)}.`, {
+          playerRef: rp.player.number, expected: fmtGold(star.cost), actual: fmtGold(rp.player.cost), suggestion: `Hire ${star.name} again from the Stars list.`,
+        }));
+      const want = customStarStats(star);
+      const diff = (["MA", "ST", "AG", "PA", "AV"] as const).filter((k) => String(rp.player[k]) !== String(want[k]));
+      if (diff.length)
+        findings.push(err("custom-stars", `${who} has changed characteristics (${diff.join(", ")}); Star Players can't be changed.`, {
+          playerRef: rp.player.number, expected: diff.map((k) => `${k} ${want[k]}`).join(", "), actual: diff.map((k) => `${k} ${rp.player[k]}`).join(", "),
+        }));
+    }
+    return findings;
+  },
+};
+
 export const ALL_RULES: Rule[] = [
   customTeamGate,
   rosterEligibility,
@@ -1265,6 +1295,7 @@ export const ALL_RULES: Rule[] = [
   costReconciliation,
   starPlayers,
   starAddedSkills,
+  customStarTerms,
   starPacksRule,
   inducements,
   sideline,

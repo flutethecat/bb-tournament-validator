@@ -82,3 +82,7 @@
   .ps-header { grid-template-columns: minmax(0, 1fr); }
   .ps-race { font-size: 20px; }
 }
+
+/* Custom star special rules (creation wizards v2) */
+.ps-special { margin-top: 2px; font-size: 0.92em; }
+.ps-special-h { font-weight: 700; font-size: 0.8em; letter-spacing: .06em; color: var(--ps-muted); }

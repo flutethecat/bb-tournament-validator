@@ -18,6 +18,7 @@ import {
   type Num, type StarPack, type Path, type Pkg, type PositionCatalog, type PresetInfo, type StatRuleDoc, type RawDoc, type SkillInfo, type SkillMode, type SkillPack, type StarInfo, type System,
   type TeamInfo, type Tier, type ViewState,
 } from "./creatorCore";
+import { customStarId, sanitizeCustomStars, type CustomStarDoc } from "./customStars";
 
 export type CreatorTab = "overview" | "tiers" | "team-rules" | "skills" | "stars" | "inducements" | "advanced" | "preview";
 export const CREATOR_TABS: Array<{ id: CreatorTab; label: string }> = [
@@ -760,6 +761,42 @@ export function createTournamentCreator(deps: CreatorDeps) {
     });
   }
 
+  // ---------- custom stars (creation wizards v2) ----------
+
+  /** The package's own custom stars (inside the package, so every competition on it offers them). */
+  const customStars = (): CustomStarDoc[] => sanitizeCustomStars(state.pkg?.customStars);
+  /** Add (id "") or replace a custom star; returns the saved id. */
+  function saveCustomStar(star: CustomStarDoc): string {
+    let id = star.id;
+    edit((pkg) => {
+      const list = sanitizeCustomStars(pkg.customStars);
+      if (!id) id = customStarId(star.name, list.map((s) => s.id));
+      const clean: CustomStarDoc = {
+        id, name: star.name.trim(), ...(star.sprite ? { sprite: star.sprite } : {}), cost: star.cost,
+        MA: star.MA, ST: star.ST, AG: star.AG, PA: star.PA, AV: star.AV, skills: [...star.skills],
+        ...(star.specialRules?.length ? { specialRules: star.specialRules.map((r) => ({ kind: r.kind, name: r.name.trim(), description: r.description.trim() })) } : {}),
+      };
+      const at = list.findIndex((s) => s.id === id);
+      if (at >= 0) list[at] = clean; else list.push(clean);
+      pkg.customStars = list;
+    });
+    return id;
+  }
+  function removeCustomStar(id: string): void {
+    edit((pkg) => {
+      const list = sanitizeCustomStars(pkg.customStars).filter((s) => s.id !== id);
+      if (list.length) pkg.customStars = list;
+      else delete pkg.customStars;
+    });
+  }
+  /** The package's own visibility: "draft" hides its public ruleset summary (absent = published). */
+  function setVisibility(v: "draft" | "published"): void {
+    edit((pkg) => {
+      if (v === "draft") pkg.visibility = "draft";
+      else delete pkg.visibility;
+    });
+  }
+
   // ---------- inducements, special rules ----------
 
   const inducementAllowed = (id: string): boolean => {
@@ -1026,6 +1063,7 @@ export function createTournamentCreator(deps: CreatorDeps) {
     toggleMatrixCell, addMatrixColumn, removeMatrixColumn, addMatrixRow, removeMatrixRow, setMatrixColumnGold, setMatrixRowCount, setMatrixRowSwap,
     addTeamRule, removeTeamRule,
     toggleStarsAllowed, moveStar, toggleMegaStars, setStarTierCost, setStarsPaidInSp, addStarPack, removeStarPack,
+    customStars, saveCustomStar, removeCustomStar, setVisibility,
     toggleInducement, stepInducement, toggleSpecial, toggleStarsEleventh,
     addExcludePosition, removeExcludePosition, toggleExcludeKeyword, addBlockedStat, removeBlockedStat, setBlockedStat, addBlockedPosition, removeBlockedPosition, toggleBlockedKeyword, setMaxPerTeam,
     init, open, loadPreset, newBlank, duplicate, revert, save, exportSheet, requestPreview,

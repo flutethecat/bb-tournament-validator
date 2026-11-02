@@ -11,6 +11,11 @@ const c = inject(TOURNAMENT_CREATOR_KEY)!;
 const { state } = c;
 const dirty = computed(() => c.dirty());
 const summary = computed(() => props.variant === "summary");
+/** The package's own visibility (creation wizards v2): a draft keeps its public ruleset summary hidden. */
+const draft = computed(() => state.pkg?.visibility === "draft");
+/** The public ruleset summary (page + PDF) of the saved package. */
+const summaryHref = computed(() => `/app/ruleset-summary?package=${encodeURIComponent(state.selected ?? "")}`);
+const onDraft = (e: Event): void => c.setVisibility((e.target as HTMLInputElement).checked ? "draft" : "published");
 </script>
 
 <template>
@@ -29,6 +34,8 @@ const summary = computed(() => props.variant === "summary");
       <button type="button" class="cr-btn primary" :disabled="state.busy || Boolean(state.readOnly)" @click="emit('save')">{{ state.busy ? "Working..." : "Save package" }}</button>
       <button type="button" class="cr-btn" :disabled="state.busy || !dirty" @click="c.revert()">Revert</button>
       <button type="button" class="cr-btn" :disabled="state.busy" @click="c.exportSheet()">Export printable rules sheet</button>
+      <a v-if="state.selected" class="cr-btn" data-export-summary :href="summaryHref">Export summary</a>
+      <label class="cr-check" title="A draft's public summary page stays hidden until you untick this and save."><input type="checkbox" :checked="draft" :disabled="Boolean(state.readOnly)" @change="onDraft" /> Draft (summary not public)</label>
     </div>
     <div v-if="state.problems.length" class="cr-problems" role="alert">
       <strong>Validation: {{ state.problems.length }} problem{{ state.problems.length === 1 ? "" : "s" }}</strong>

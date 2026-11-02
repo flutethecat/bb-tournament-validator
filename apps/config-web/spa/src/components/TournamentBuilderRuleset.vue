@@ -9,6 +9,8 @@ import { computed, inject, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { currentMotion, FADE_MS, POP_DELAY_MS, POP_MS, QUICK_MS, SLIDE_MS, SWAP_MS, type RulesetMotion } from "../teams/rulesetMotion";
 import { TOURNAMENT_BUILDER_KEY } from "../teams/builder";
 import { core } from "../teams/builderCore";
+import CustomStarSpecialRules from "./CustomStarSpecialRules.vue";
+import { targetText } from "../tournaments/customStars";
 
 const emit = defineEmits<{ package: [name: string]; race: [rosterId: string]; next: [] }>();
 const builder = inject(TOURNAMENT_BUILDER_KEY)!;
@@ -140,6 +142,17 @@ function onTableClick(e: MouseEvent): void {
       <summary>Rules note</summary>
       <p class="muted tb-notes-text">{{ note }}</p>
     </details>
+    <details v-if="state.customStars.length" class="tb-notes" data-custom-stars open>
+      <summary>Custom stars ({{ state.customStars.length }})</summary>
+      <ul class="tb-cs-list">
+        <li v-for="s in state.customStars" :key="s.id">
+          <strong>{{ s.name }}</strong> <span class="muted">{{ core.gold(s.cost) }} · MA {{ s.MA }} ST {{ s.ST }} AG {{ targetText(s.AG) }} PA {{ targetText(s.PA) }} AV {{ targetText(s.AV) }}</span>
+          <span class="tb-cs-skills">{{ s.skills.join(", ") }}</span>
+          <CustomStarSpecialRules :rules="s.specialRules ?? []" compact />
+        </li>
+      </ul>
+    </details>
+    <p v-if="state.packageName && !grid" class="tb-summary-link"><a :href="`/app/ruleset-summary?package=${encodeURIComponent(state.packageName)}`" target="_blank" rel="noopener" data-export-summary>Ruleset summary (page and PDF)</a></p>
   </section>
 
   <section v-if="state.packageName" ref="raceEl" class="hm-panel tb-panel tb-area-race" aria-labelledby="tb-race-h">

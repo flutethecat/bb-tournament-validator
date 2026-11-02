@@ -12,6 +12,7 @@ import { BB2020_CARD } from "../leagues/wizard";
 import { cardKey, rulesetCards, type PackageListItem } from "../shared/competition";
 import LeagueSettingsHouseRules from "./LeagueSettingsHouseRules.vue";
 import PlayedOnToggle from "./PlayedOnToggle.vue";
+import RulesChangeDialog from "./RulesChangeDialog.vue";
 import { browserTimeZone, TIME_ZONE_NOTE, timeZones } from "../shared/timeZone";
 
 const settings = inject(LEAGUE_SETTINGS_KEY)!;
@@ -72,6 +73,12 @@ const valid = computed(() => !postError.value && !nameError.value);
 function save(): void {
   if (!valid.value) return;
   void settings.save("information", informationPayload(form));
+}
+// A ruleset change with registered coaches asks for the message (and after the season started, "Are you sure?").
+const pending = computed(() => (settings.state.rulesChange?.key === "information" ? settings.state.rulesChange : null));
+function resend(message: string, confirmAfterStart: boolean): void {
+  const p = pending.value;
+  if (p) void settings.save(p.section, p.payload, p.key, p.notice, { ...(p.coaches ? { changeMessage: message } : {}), ...(confirmAfterStart ? { confirmAfterStart: true } : {}) });
 }
 </script>
 
@@ -148,6 +155,10 @@ function save(): void {
       <p v-else-if="state.notices.information" class="hm-notice" role="status">{{ state.notices.information }}</p>
     </div>
   </form>
+  <RulesChangeDialog
+    v-if="pending" kind="league" :changes="pending.changes" :coaches="pending.coaches" :after-start="pending.afterStart" :busy="settings.state.busy === 'information'" :error="pending.error"
+    @close="settings.state.rulesChange = null" @confirm="resend"
+  />
   <LeagueSettingsHouseRules />
   </div>
 </template>

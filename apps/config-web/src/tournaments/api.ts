@@ -6,7 +6,7 @@ import { canEditSeries, seriesChip } from "./series.js";
 import {
   assertRegistrationOrder, canSeeTournament, hiddenTournamentPath, parseRegistrationSettings, selfRegistrationStatus,
 } from "./publication.js";
-import { bannerUrl, NEWS_MAX_POSTS, newNewsPost, orderedNews, PAGE_FIELDS, parseNewsInput, parsePagePatch } from "./page.js";
+import { bannerUrl, NEWS_BODY_MAX, NEWS_MAX_POSTS, newNewsPost, orderedNews, PAGE_FIELDS, parseNewsInput, parsePagePatch } from "./page.js";
 import { DEFAULT_ENTRANT_FLAGS, DEFAULT_TOURNAMENT_TURN_TIMER, TOURNAMENT_PAIRING_SYSTEMS, TOURNAMENT_SEEDING_MODES } from "./types.js";
 import type {
   ScheduledMatchRecord,
@@ -24,6 +24,10 @@ import { tournamentLink, type TournamentNotify } from "../notifications.js";
 import { paymentLinksView } from "../payments/links.js";
 import { FormatError, parsePairingAvoid, parsePointsScheme, parseRegions, parseTiebreakerChain, tiebreakerChainOf } from "../competition/format.js";
 import { HouseRulesError, houseRulesOf, parseHouseRules, type HouseRules } from "../competition/houseRules.js";
+import { ChangeMessageError, CONFIRM_AFTER_START_TOURNAMENT, parseChangeMessage, rulesChangeBody, rulesChangeDiff, rulesChangeNews, type RulesState } from "../competition/rulesChange.js";
+
+/** A package name as the change list prints it. */
+const rulesetLabel = (name: string): string => name || "no ruleset";
 import { myTournamentAwards, tournamentHonoursRoutes } from "./honours.js";
 import type { StoredTournamentResult } from "../tournamentResults.js";
 import { canonicalNafId } from "../auth/identitiesStore.js";
@@ -532,6 +536,51 @@ function notifyFlagChanges(deps: TournamentApiDeps, tournament: TournamentRecord
       from: actor,
     });
   });
+}
+
+/** The news log entry of a rules change (always written: a full news board never drops it). */
+function logRulesChange(deps: TournamentApiDeps, tournament: TournamentRecord, message: string, diff: readonly string[], afterStart: boolean, actor: string, now: Date): TournamentRecord {
+  const news = rulesChangeNews(message || "The organiser changed the rules.", diff, afterStart);
+  deps.store.addNews(tournament.id, newNewsPost({ title: news.title, body: news.body.slice(0, NEWS_BODY_MAX), pinned: false }, actor, now), Number.MAX_SAFE_INTEGER, now);
+  return deps.store.tournament(tournament.id) ?? tournament;
+}
+
+/**
+ * After a ruleset / house-rules change with registered coaches: log it in the news, re-validate every submitted roster
+ * against the new rules at once, tell EVERY registered coach (inbox + Discord DM: the message and the site's list of what
+ * changed), and tell each coach whose roster is now invalid that it needs changes (inbox + DM). A draft (unpublished)
+ * tournament notifies nobody.
+ */
+function applyRulesChange(deps: TournamentApiDeps, tournament: TournamentRecord, message: string, diff: readonly string[], afterStart: boolean, actor: string, now: Date): TournamentRecord {
+  let updated = logRulesChange(deps, tournament, message, diff, afterStart, actor, now);
+  const submitted = deps.store.entrants(updated.id).filter((e) => e.droppedAt === undefined && e.submission);
+  if (submitted.length && deps.validateSubmission) {
+    const checks = rosterChecks(updated, submitted, deps, now);
+    deps.store.recheckRosters(updated.id, checks, now);
+    updated = deps.store.tournament(updated.id) ?? updated;
+  }
+  if (!deps.notify || updated.unpublished === true) return updated;
+  const link = tournamentLink(updated.id, "overview");
+  const body = rulesChangeBody(message, diff);
+  quietly(() => {
+    const seen = new Set<string>();
+    for (const entrant of deps.store.entrants(updated.id)) {
+      if (entrant.droppedAt !== undefined) continue;
+      const coach = entrant.coach.ffbCoachId;
+      if (seen.has(coachKey(coach))) continue;
+      seen.add(coachKey(coach));
+      deps.notify!.coach(coach, { type: "ruleset-change", title: `${updated.name}: the rules changed`, body, link, from: actor, subject: updated.name, action: true });
+      const validation = entrant.submission?.validation;
+      if (validation && !validation.ok && !entrant.flags?.rosterVerified) {
+        deps.notify!.coach(coach, {
+          type: "roster-problems", title: `${updated.name}: your roster needs changes`,
+          body: `After the rules change your roster is not valid any more (${validation.problems.length} ${validation.problems.length === 1 ? "problem" : "problems"}). Open the tournament to see what to fix and resubmit.`,
+          link, from: actor, subject: updated.name, action: true,
+        });
+      }
+    }
+  });
+  return updated;
 }
 
 /** Entrants still invalid with problems after a roster check: tell each coach the count. */
@@ -1401,7 +1450,25 @@ export async function tournamentApi(
         const startsAt = patch.startsAt === undefined ? existing.startsAt : patch.startsAt || undefined;
         if (registration !== undefined || existing.registration) assertRegistrationOrder(registration === undefined ? existing.registration : registration ?? undefined, deadlines, startsAt);
       }
-      const coreKeys = Object.keys(input).filter((key) => !(PAGE_FIELDS as readonly string[]).includes(key) && key !== "registration");
+      // A ruleset / house-rules change with registered coaches (creation wizards v2 Q2): the organiser's message is required
+      // (400 without it), and after round 1 so is the "Are you sure?" confirmation (409 without it).
+      const rulesBefore: RulesState = { packageName: existing.packageName, houseRules: houseRulesOf(existing, "tournament") };
+      const rulesAfter: RulesState = { packageName: patch.packageName ?? existing.packageName, houseRules: patch.houseRules ?? rulesBefore.houseRules };
+      const rulesDiff = rulesChangeDiff("tournament", rulesBefore, rulesAfter, rulesetLabel);
+      const registered = deps.store.entrants(tournamentId).filter((e) => e.droppedAt === undefined);
+      const afterStart = existing.status !== "draft" || deps.store.rounds(tournamentId).length > 0;
+      let changeMessage = "";
+      if (rulesDiff.length && registered.length) {
+        try { changeMessage = parseChangeMessage(input.changeMessage); } catch (error) {
+          if (error instanceof ChangeMessageError) return { status: 400, body: { error: error.message, field: "changeMessage", changes: rulesDiff, coaches: registered.length, afterStart } };
+          throw error;
+        }
+      }
+      if (rulesDiff.length && afterStart) {
+        if (input.confirmAfterStart !== true) return { status: 409, body: { error: CONFIRM_AFTER_START_TOURNAMENT, confirmRequired: true, changes: rulesDiff, coaches: registered.length, afterStart: true } };
+        patch.confirmAfterStart = true;
+      }
+      const coreKeys = Object.keys(input).filter((key) => !(PAGE_FIELDS as readonly string[]).includes(key) && key !== "registration" && key !== "changeMessage" && key !== "confirmAfterStart");
       const pendingBefore = new Set(deps.store.entrants(tournamentId).filter((e) => e.nafPending).map((e) => e.id));
       const wasSanctioned = existing.nafSanctioned === true;
       let tournament = coreKeys.length || (!hasPage && registration === undefined) ? deps.store.updateTournament(tournamentId, patch, now) : existing;
@@ -1419,9 +1486,17 @@ export async function tournamentApi(
       }
       if (hasPage) tournament = deps.store.updatePage(tournamentId, pagePatch, now);
       if (registration !== undefined) tournament = deps.store.setRegistration(tournamentId, registration, now);
+      let recheck: ReturnType<typeof validationTable> | undefined;
+      if (rulesDiff.length && registered.length) {
+        tournament = applyRulesChange(deps, tournament, changeMessage, rulesDiff, afterStart, identity.coach, now);
+        recheck = validationTable(deps.store.entrants(tournamentId), deps);
+      } else if (rulesDiff.length && afterStart) {
+        // No registered coach to tell, but a change during play is still logged in the news.
+        tournament = logRulesChange(deps, tournament, "", rulesDiff, true, identity.coach, now);
+      }
       return {
         status: 200,
-        body: { tournament: clientTournament(tournament, deps.store.entrants(tournamentId), auth) },
+        body: { tournament: clientTournament(tournament, deps.store.entrants(tournamentId), auth), ...(recheck ? { changes: rulesDiff, validation: recheck } : {}) },
       };
     }
 

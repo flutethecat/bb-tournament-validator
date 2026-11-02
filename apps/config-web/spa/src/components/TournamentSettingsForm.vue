@@ -16,6 +16,10 @@ import {
 } from "../tournaments/detail";
 import { SESSION_KEY, writesAllowed } from "../session";
 import TournamentRulesFields from "./TournamentRulesFields.vue";
+import RulesChangeDialog from "./RulesChangeDialog.vue";
+import { rulesChangeDiff } from "../../../src/competition/rulesChange";
+import { rulesetLabel } from "../shared/competition";
+import { API_KEY } from "../app";
 
 const detail = inject(TOURNAMENT_DETAIL_KEY)!;
 const { state } = detail;
@@ -35,6 +39,7 @@ interface Form {
   avoid: PairingAvoid;
   regions: string[];
   houseRules: HouseRules;
+  packageName: string;
 }
 const fromRecord = (): Form => ({
   startsAt: toLocalInput(t.value.startsAt),
@@ -52,6 +57,7 @@ const fromRecord = (): Form => ({
   regions: [...(t.value.regions ?? [])],
   // JSON copies: the record and the form are reactive proxies, which structuredClone refuses.
   houseRules: JSON.parse(JSON.stringify(t.value.houseRules ?? defaultHouseRules("tournament"))) as HouseRules,
+  packageName: t.value.packageName ?? "",
 });
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const cleanRegions = (r: string[]) => r.map((x) => x.trim()).filter(Boolean);
@@ -75,10 +81,37 @@ const patch = computed<TournamentSettingsPatch>(() => {
   if (!same(form.houseRules, before.houseRules)) out.houseRules = JSON.parse(JSON.stringify(form.houseRules)) as HouseRules;
   if (form.nafSanctioned !== before.nafSanctioned) out.nafSanctioned = form.nafSanctioned;
   if (form.playOnFork !== before.playOnFork) out.playOnFork = form.playOnFork;
+  if (form.packageName && form.packageName !== before.packageName) out.packageName = form.packageName;
   return out;
 });
 const dirty = computed(() => Object.keys(patch.value).length > 0);
-const save = () => { if (dirty.value) void detail.saveSettings(patch.value); };
+
+// ── the ruleset (configurable all the way through) and the required change message (creation wizards v2 Q2) ──
+const api = inject(API_KEY, null);
+const packageNames = ref<string[]>([]);
+void (async () => {
+  try {
+    const list = await api?.<unknown>("/api/packages");
+    const rows = Array.isArray(list) ? list : [];
+    packageNames.value = rows.map((r) => (r && typeof r === "object" && typeof (r as { name?: unknown }).name === "string" ? (r as { name: string }).name : "")).filter(Boolean);
+  } catch { packageNames.value = []; }
+})();
+const registered = computed(() => state.entrants.filter((e) => !e.droppedAt).length);
+const afterStart = computed(() => t.value.status !== "draft" || hasRounds.value);
+const changes = computed(() => {
+  const before = fromRecord();
+  return rulesChangeDiff("tournament", { packageName: before.packageName, houseRules: before.houseRules }, { packageName: form.packageName || before.packageName, houseRules: form.houseRules }, rulesetLabel);
+});
+const asking = ref(false);
+async function save(): Promise<void> {
+  if (!dirty.value) return;
+  if (changes.value.length && (registered.value > 0 || afterStart.value)) { asking.value = true; return; }
+  await detail.saveSettings(patch.value);
+}
+async function sendWithMessage(message: string, confirmAfterStart: boolean): Promise<void> {
+  await detail.saveSettings({ ...patch.value, ...(registered.value > 0 ? { changeMessage: message } : {}), ...(confirmAfterStart ? { confirmAfterStart: true } : {}) });
+  if (!state.actionError) asking.value = false;
+}
 
 const newOwner = ref("");
 const newOrganizer = ref("");
@@ -120,12 +153,21 @@ async function addOrganizer() { if (newOrganizer.value.trim()) { await detail.ad
         id-prefix="tn" :swiss="t.format === 'swiss'" :locked="t.status === 'completed'"
       />
     </div>
+    <label v-if="packageNames.length" class="tn-field sf-field" data-field="ruleset">
+      <span class="tn-fact-k">Ruleset</span>
+      <select v-model="form.packageName"><option v-for="n in packageNames" :key="n" :value="n">{{ rulesetLabel(n) }}</option></select>
+      <small class="muted hm-small">With registered coaches a change asks you for a message they all receive.</small>
+    </label>
     <div class="tn-field tn-wide-field"><HouseRulesFields v-model="form.houseRules" kind="tournament" id-prefix="tn" /></div>
     <div class="tn-actions tn-form-actions">
       <button class="sf-btn primary" type="submit" :disabled="!dirty || busy">Save settings</button>
       <button class="sf-btn" type="button" :disabled="!dirty || busy" @click="Object.assign(form, fromRecord())">Reset</button>
     </div>
   </form>
+  <RulesChangeDialog
+    v-if="asking" kind="tournament" :changes="changes" :coaches="registered" :after-start="afterStart" :busy="busy" :error="state.actionError"
+    @close="asking = false" @confirm="sendWithMessage"
+  />
 
   <div class="tn-roles">
     <h3 class="tn-sub-h">Owner and organisers</h3>

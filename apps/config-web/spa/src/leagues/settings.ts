@@ -99,11 +99,18 @@ export interface LeagueSettingsState {
   busy: string;
   errors: Record<string, string>;
   notices: Record<string, string>;
+  /** A rules change waiting for the organiser's message / confirmation (creation wizards v2 Q2). */
+  rulesChange: PendingRulesChange | null;
+}
+
+export interface PendingRulesChange {
+  key: string; section: SettingsSection; payload: unknown; notice: string;
+  changes: string[]; coaches: number; afterStart: boolean; error: string;
 }
 
 export function createLeagueSettings(deps: { api: Fetcher }) {
   const state = reactive<LeagueSettingsState>({
-    id: "", league: null, seasons: [], view: null, loaded: false, denied: "", error: "", busy: "", errors: {}, notices: {},
+    id: "", league: null, seasons: [], view: null, loaded: false, denied: "", error: "", busy: "", errors: {}, notices: {}, rulesChange: null,
   });
   const base = (): string => `/api/leagues/${encodeURIComponent(state.id)}`;
   const say = (key: string, error: string, notice = ""): void => { state.errors[key] = error; state.notices[key] = notice; };
@@ -134,17 +141,32 @@ export function createLeagueSettings(deps: { api: Fetcher }) {
   }
 
   /** PATCH one section (with the revision the page was opened at); the server answers the fresh read model. */
-  async function save(section: SettingsSection, payload: unknown, key: string = section, notice = "Saved."): Promise<boolean> {
+  async function save(section: SettingsSection, payload: unknown, key: string = section, notice = "Saved.", extra: { changeMessage?: string; confirmAfterStart?: boolean } = {}): Promise<boolean> {
     if (!state.view) return false;
     state.busy = key;
     say(key, "");
     try {
-      const res = await deps.api<{ settings: LeagueSettingsView }>(`${base()}/settings`, { method: "PATCH", body: { revision: state.view.revision, ...(section === "competition" ? payload as Record<string, unknown> : { [section]: payload }) } });
+      const res = await deps.api<{ settings: LeagueSettingsView }>(`${base()}/settings`, { method: "PATCH", body: { revision: state.view.revision, ...(section === "competition" ? payload as Record<string, unknown> : { [section]: payload }), ...extra } });
       state.view = res.settings;
+      state.rulesChange = null;
       say(key, "", notice);
       if (section === "information" || section === "administration" || section === "connections") await loadLeague().catch(() => undefined);
       return true;
     } catch (err) {
+      // A ruleset / house-rules change with registered coaches (creation wizards v2 Q2): the server asks for the message
+      // (400 field changeMessage) or, after the season started, the "Are you sure?" (409 confirmRequired). The section's
+      // RulesChangeDialog collects them and calls save() again with `extra`.
+      const data = err instanceof ApiError && err.data && typeof err.data === "object" ? err.data as Record<string, unknown> : null;
+      if (data && ((statusOf(err) === 400 && data.field === "changeMessage") || (statusOf(err) === 409 && data.confirmRequired === true))) {
+        state.rulesChange = {
+          key, section, payload, notice,
+          changes: Array.isArray(data.changes) ? data.changes.filter((c): c is string => typeof c === "string") : [],
+          coaches: typeof data.coaches === "number" ? data.coaches : 0,
+          afterStart: data.afterStart === true,
+          error: extra.changeMessage !== undefined ? errorText(err, "") : "",
+        };
+        return false;
+      }
       if (statusOf(err) === 409) {
         // Someone else saved first: take the fresh settings, then say so (the reload resets the form).
         await load(state.id, state.view?.teamBuilding?.seasonId);

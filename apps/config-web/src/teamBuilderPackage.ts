@@ -49,6 +49,7 @@ export const SEVENS_FREE_CREATE_BUILD_PACKAGE: TournamentPackage = loadPackage({
 /** Is this a Blood Bowl Sevens package (tabletop-only: no fork team)? */
 export const isSevensPackage = (pkg: Pick<TournamentPackage, "format">): boolean => pkg.format === "sevens";
 export const SEVENS_TABLETOP_ONLY = "Sevens teams are tabletop only: they can't be created on the fork.";
+export const CUSTOM_STAR_TABLETOP_ONLY = "Teams with a custom star are tabletop only: they can't be created on the fork. Save the roster and submit it to the competition.";
 
 /** What preview/build validate against, plus (when a tournament package was
  *  explicitly selected) the info the client needs to render the ruleset note

@@ -42,6 +42,9 @@ function skills(row: SheetRow): Piece[] {
   }
   return out;
 }
+/** A custom star's custom traits and rules (creation wizards v2), printed under the skills as the PDF does. */
+type SpecialRule = { kind: "trait" | "rule"; name: string; description: string };
+const special = (row: SheetRow): SpecialRule[] => ((row as SheetRow & { specialRules?: SpecialRule[] }).specialRules ?? []);
 const statText = (row: SheetRow, k: Stat): string => (row.stats?.[k]?.value != null ? String(row.stats[k].value) : "—");
 const improved = (row: SheetRow, k: Stat): boolean => !row.isStar && row.stats?.[k]?.improved === true;
 </script>
@@ -117,7 +120,7 @@ const improved = (row: SheetRow, k: Stat): boolean => !row.isStar && row.stats?.
               <span :class="{ 'ps-psub': row.name }">{{ row.position }}<small v-if="row.isStar" class="ps-mark-star">(Star)</small><small v-else-if="row.captain" class="ps-mark-captain" title="Team Captain">(C)</small><small v-if="!row.isStar && row.veteran" class="ps-mark-veteran" title="Veteran: MA −1, one reroll a game">Veteran</small></span>
             </td>
             <td v-for="k in STATS" :key="k" class="ps-r" :class="{ 'ps-improved': improved(row, k) }">{{ statText(row, k) }}</td>
-            <td class="ps-skills"><template v-for="(p, i) in skills(row)" :key="i"><template v-if="i">, </template><span :class="p.cls || undefined">{{ p.text }}</span></template></td>
+            <td class="ps-skills"><template v-for="(p, i) in skills(row)" :key="i"><template v-if="i">, </template><span :class="p.cls || undefined">{{ p.text }}</span></template><div v-if="special(row).length" class="ps-special" data-special-rules><div class="ps-special-h">SPECIAL RULES</div><div v-for="(r, j) in special(row)" :key="j"><b>{{ r.name }}</b> <span class="ps-muted">({{ r.kind === "trait" ? "custom trait" : "custom rule" }}):</span> {{ r.description }}</div></div></td>
             <td class="ps-r ps-nowrap">{{ row.cost != null ? gold(row.cost) : "—" }}</td>
           </tr>
         </tbody>

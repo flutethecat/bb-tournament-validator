@@ -1,4 +1,4 @@
-import { resolveTeamConfig, type DeepPartial, type TournamentPackage } from "@bb/validator";
+import { customStarsOf, findStar, resolveTeamConfig, type DeepPartial, type TournamentPackage } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 import { PackageConflictError, type PackageFiles } from "./data.js";
 import { packageOverview, packagePreview, packageRaceRules, packageRulesInfo } from "./teamBuilderPackage.js";
@@ -70,6 +70,18 @@ function rostersToCheck(pkg: TournamentPackage): string[] {
   return [...names];
 }
 
+/** A custom star's name must not be a dataset star (it would shadow it) and its printed skills must be dataset skills. */
+export function customStarDatasetProblems(pkg: TournamentPackage): string[] {
+  const out: string[] = [];
+  const skills = new Map(Object.keys(bb2025.skills).map((k) => [k.toLowerCase(), k]));
+  for (const star of customStarsOf(pkg)) {
+    if (findStar(bb2025, star.name)) out.push(`The custom star "${star.name}" has the name of a BB2025 Star Player; pick another name.`);
+    const unknown = (star.skills ?? []).filter((s) => !skills.has(String(s).trim().toLowerCase().replace(/\s*\(.*\)$/, "")) && !skills.has(String(s).trim().toLowerCase()));
+    if (unknown.length) out.push(`The custom star "${star.name}" lists unknown skill(s): ${unknown.slice(0, 5).join(", ")}.`);
+  }
+  return out;
+}
+
 type Checked =
   | { ok: true; pkg: TournamentPackage; problems: string[] }
   | { ok: false; result: PackagesApiResult };
@@ -91,6 +103,7 @@ function checkDocument(packages: PackageFiles, body: unknown): Checked {
   }
   try {
     const { pkg, problems } = packages.resolve(body);
+    problems.push(...customStarDatasetProblems(pkg));
     // The resolver's own problems (e.g. a negative cap) are as fatal as a schema violation.
     if (problems.length) return { ok: false, result: { status: 422, body: { error: problems[0], problems } } };
     for (const roster of rostersToCheck(pkg)) {

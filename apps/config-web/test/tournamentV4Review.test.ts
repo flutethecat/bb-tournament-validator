@@ -183,18 +183,20 @@ describe("lock, start and ruleset changes", () => {
     expect(store.entrants(t.id).every((e) => !e.flags?.frozen && !e.submission)).toBe(true);
   });
 
-  it("changing the ruleset after a lock voids every check and the lock; Start then re-checks", async () => {
+  it("changing the ruleset after a lock lifts the lock and re-checks every roster at once; Start then re-checks", async () => {
     const store = new TournamentStore(tmp("bbtv-v4r-"));
     const t = event(store, "Veers", ["Alice", "Bob"]);
     await call(store, "POST", `/api/tournaments/${t.id}/lock-rosters`, owner);
     const alice = entrantOf(store, t.id, "Alice");
     await call(store, "PATCH", `/api/tournaments/${t.id}/entrants/${encodeURIComponent(alice.id)}`, owner, { flags: { rosterVerified: true } });
-    expect(await call(store, "PATCH", `/api/tournaments/${t.id}`, owner, { packageName: "Rules2" })).toMatchObject({ status: 200 });
+    expect(await call(store, "PATCH", `/api/tournaments/${t.id}`, owner, { packageName: "Rules2" })).toMatchObject({ status: 400, body: { field: "changeMessage" } });
+    expect(await call(store, "PATCH", `/api/tournaments/${t.id}`, owner, { packageName: "Rules2", changeMessage: "We moved to Rules2." })).toMatchObject({ status: 200 });
     expect(store.tournament(t.id)!.rostersLockedAt).toBeUndefined();
     const after = entrantOf(store, t.id, "Alice");
     expect(after.rosterVerifiedOverride).toBeUndefined();
-    expect(after.flags).toMatchObject({ rosterVerified: false, frozen: false });
-    expect(after.submission?.validation.problems[0]).toContain("ruleset changed");
+    expect(after.flags).toMatchObject({ frozen: false });
+    // Re-validated straight away against Rules2 (the stub passes).
+    expect(after.submission?.validation).toMatchObject({ ok: true, packageName: "Rules2" });
     // Start takes a fresh snapshot against Rules2 (the stub passes) and starts.
     expect(await call(store, "POST", `/api/tournaments/${t.id}/start`, owner, {})).toMatchObject({ status: 200 });
     expect(entrantOf(store, t.id, "Alice").submission?.validation.packageName).toBe("Rules2");

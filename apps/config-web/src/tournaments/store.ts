@@ -48,6 +48,8 @@ export type TournamentUpdate = Partial<Pick<TournamentRecord, "maxPlayers" | "fo
   /** W/D/L points; a bye scores a win. */
   pointsScheme?: PointsScheme;
   houseRules?: HouseRules;
+  /** The organiser confirmed a ruleset / house-rules change after round 1 (creation wizards v2: "Are you sure?"). */
+  confirmAfterStart?: boolean;
   pairingAvoid?: PairingAvoid;
   regions?: string[];
 };
@@ -431,10 +433,12 @@ function applyTournamentUpdate(data: TournamentDataFileV4, tournamentId: string,
   const hasRounds = Object.values(data.rounds).some((round) => round.tournamentId === tournamentId);
   if (patch.format !== undefined && hasRounds)
     throw new TournamentStoreError(400, "Format is locked once rounds exist.");
-  if (patch.packageName !== undefined && hasRounds)
+  // After round 1 the ruleset and the enforced house rules change only with the organiser's confirmation (creation wizards
+  // v2 Q2: "Are you sure?" plus a news log entry, written by the API).
+  if (patch.packageName !== undefined && patch.packageName !== tournament.packageName && hasRounds && patch.confirmAfterStart !== true)
     throw new TournamentStoreError(400, "Ruleset is locked once rounds exist.");
   // The house rules the Roster Builder enforces lock with the ruleset (the rest stays editable: display only).
-  if (patch.houseRules !== undefined && hasRounds && houseRulesStamp(houseRulesOf(tournament, "tournament")) !== houseRulesStamp(patch.houseRules))
+  if (patch.houseRules !== undefined && hasRounds && patch.confirmAfterStart !== true && houseRulesStamp(houseRulesOf(tournament, "tournament")) !== houseRulesStamp(patch.houseRules))
     throw new TournamentStoreError(400, "Prayers to Nuffle bans and stat increase caps are locked once rounds exist.");
   if (patch.startsAt !== undefined && patch.startsAt !== "" &&
     (!ISO_DATE_TIME.test(patch.startsAt) || !Number.isFinite(Date.parse(patch.startsAt))))
@@ -1159,6 +1163,28 @@ export class TournamentStore {
       tournament.startedAt = timestamp;
       tournament.updatedAt = timestamp;
       return { started: true, tournament, entrants, invalid };
+    });
+  }
+
+  /** Fresh roster checks after a rules change (creation wizards v2): each submitted entry takes its new check; the lock is
+   *  not touched. An entry whose check failed to run keeps an invalid check naming why. */
+  recheckRosters(tournamentId: string, checks: Record<string, TournamentSubmission | { error: string }>, now = new Date()): TournamentEntrantRecord[] {
+    return this.mutate((data) => {
+      const tournament = data.tournaments[tournamentId];
+      if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
+      const timestamp = now.toISOString();
+      const out: TournamentEntrantRecord[] = [];
+      for (const entrant of Object.values(data.entrants)) {
+        if (entrant.tournamentId !== tournamentId || entrant.droppedAt !== undefined || !entrant.submission) continue;
+        const check = checks[entrant.id];
+        if (!check) continue;
+        if (!("error" in check)) entrant.submission = structuredClone(check);
+        else entrant.submission.validation = { ok: false, problems: [check.error], checkedAt: timestamp, packageName: tournament.packageName };
+        entrant.flags = withVerified(entrant);
+        out.push(entrant);
+      }
+      tournament.updatedAt = timestamp;
+      return out;
     });
   }
 

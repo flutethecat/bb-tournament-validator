@@ -14,6 +14,7 @@ import { core, type BuilderPosition, type Slot } from "../teams/builderCore";
 import { ELITE_ICON, PLAYER_NAME_MAX } from "../teams/builder";
 import TournamentBuilderStats from "./TournamentBuilderStats.vue";
 import TournamentBuilderSkillPicker from "./TournamentBuilderSkillPicker.vue";
+import CustomStarSpecialRules from "./CustomStarSpecialRules.vue";
 
 const builder = inject(TOURNAMENT_BUILDER_KEY)!;
 const { state } = builder;
@@ -266,6 +267,8 @@ function onGripKey(e: KeyboardEvent, index: number): void {
           <span v-for="k in builder.slotLocks(i).liveStats" :key="`s-${k}`" class="skill tb-stat-chip tb-bought">
             +{{ k }}<button type="button" class="tb-chip-x" :aria-label="`Remove +${k}`" @click="builder.removeStat(i, k)"><span aria-hidden="true">×</span></button>
           </span>
+          <!-- a custom star's custom traits and rules, below its skills (creation wizards v2) -->
+          <CustomStarSpecialRules :rules="builder.specialRulesOf(s.positionId)" compact />
         </span>
       </li>
     </ol>

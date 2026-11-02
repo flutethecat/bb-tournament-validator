@@ -642,3 +642,9 @@
   .tb-pane.sf-fill > .tb-work > .tb-col { position: relative; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 2px 6px 8px 2px; margin: -2px -6px 0 -2px; }
   .tb-pane.sf-fill > .tb-work > .tb-col-centre { padding-bottom: 0; } /* the measured roster list already ends 16 px above the screen edge */
 }
+/* Custom stars on the Ruleset step (creation wizards v2) */
+.tb-cs-list { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 8px; }
+.tb-cs-list li { display: grid; gap: 2px; font: 14px/1.4 var(--font-body); }
+.tb-cs-skills { color: var(--ui-text); }
+.tb-summary-link { margin: 8px 0 0; font: 14px/1.4 var(--font-body); }
+.tb-summary-link a { color: var(--ui-accent); }

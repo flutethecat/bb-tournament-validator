@@ -19,6 +19,7 @@ import { inducementReducedFor, inducementWireGold } from "../dataset/inducements
 import { SEVENS_INDUCEMENTS, SEVENS_VETERAN_MA_DELTA } from "../dataset/bb2025/sevens";
 import { priceStaff, STANDARD_STAFF_PRICES } from "../cost/staff";
 import type { StaffPrices } from "../package/types";
+import { customStarPositionId, type CustomStar } from "../package/customStars";
 import {
   findPosition,
   findRoster,
@@ -152,6 +153,17 @@ export interface ComposeInput {
   /** "sevens": rostered inducements come from the Sevens list at Sevens prices (no fork wire name needed; such items
    *  are left out of the team XML, since Sevens never goes to the fork). Default "core". */
   inducementSet?: "core" | "sevens";
+  /** A package's custom stars as star positions (customStarPositions): pickable by their `cs-<id>` position id on any
+   *  roster. A team carrying one is tabletop-only (the fork has no such position). */
+  extraStars?: ForkRosterPosition[];
+}
+
+/** A package's custom stars as composer star positions (one copy each, the package's price, stats and skills). */
+export function customStarPositions(stars: readonly CustomStar[]): ForkRosterPosition[] {
+  return stars.map((s) => ({
+    positionId: customStarPositionId(s), name: s.name.trim(), gender: "neutral", type: "Star", isStar: true, quantity: 1,
+    cost: s.cost, MA: s.MA, ST: s.ST, AG: s.AG, PA: s.PA ?? 0, AV: s.AV, skills: [...s.skills], skillsDisplay: [...s.skills], keywords: [],
+  }));
 }
 
 export interface ComposeResult {
@@ -821,7 +833,7 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
     dsRoster.name,
     input.inducementSet ?? "core",
   );
-  const byId = new Map(fork.positions.map((p) => [p.positionId, p]));
+  const byId = new Map([...fork.positions, ...(input.extraStars ?? [])].map((p) => [p.positionId, p]));
   const captainEligible = rosterHasTeamCaptain(dsRoster.specialRules);
   let captains = 0;
 

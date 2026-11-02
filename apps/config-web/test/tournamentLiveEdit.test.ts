@@ -123,10 +123,10 @@ describe("organizer tournament live-edit", () => {
       status: 400,
       body: { error: "Format is locked once rounds exist." },
     });
-    expect(await call(store, "PATCH", path, organizer, { packageName: "Spike 2026" })).toEqual({
-      status: 400,
-      body: { error: "Ruleset is locked once rounds exist." },
-    });
+    // After round 1 a ruleset change needs the "Are you sure?" confirmation (creation wizards v2), then logs a news entry.
+    expect(await call(store, "PATCH", path, organizer, { packageName: "Spike 2026" })).toMatchObject({ status: 409, body: { confirmRequired: true } });
+    expect(await call(store, "PATCH", path, organizer, { packageName: "Spike 2026", confirmAfterStart: true })).toMatchObject({ status: 200, body: { tournament: { packageName: "Spike 2026" } } });
+    expect(store.tournament(tournament.id)!.news?.[0]).toMatchObject({ title: "Rules changed during play" });
   });
 
   it("sets, emits, and clears startsAt and rejects bad dates", async () => {

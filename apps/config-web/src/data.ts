@@ -158,6 +158,14 @@ export function skillCatalog(): { elite: SkillRow[]; general: SkillRow[] } {
   return { elite: elite.sort(byName), general: general.sort(byName) };
 }
 
+/** Every trait in the dataset (the custom star creator prints them on a star: Loner, Take Root...). */
+export function traitCatalog(): SkillRow[] {
+  return Object.entries(bb2025.skills as Record<string, SkillMeta>)
+    .filter(([, meta]) => meta.trait)
+    .map(([name, meta]) => ({ name, category: meta.category ?? "Trait", elite: false }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
 // ---------- packages ----------
 
 /** A save refused because it would clobber something: another package's file, or a newer

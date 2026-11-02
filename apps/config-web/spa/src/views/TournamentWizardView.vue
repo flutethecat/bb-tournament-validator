@@ -85,6 +85,11 @@ function newRuleset(): void {
   wizard.remember();
   void router.push({ name: "tournament-creator", query: { new: "1", return: "wizard" } });
 }
+/** "Create a star" (creation wizards v2): the picked ruleset's Stars tab in the Tournament Creator; a save comes back here. */
+function createStar(): void {
+  wizard.remember();
+  void router.push({ name: "tournament-creator", query: { package: state.form.packageName, tab: "stars", return: "wizard" } });
+}
 async function create(publish: boolean): Promise<void> {
   const id = await wizard.submit(publish);
   if (id) await router.push(createdLocation(id));
@@ -128,6 +133,10 @@ function startOver(): void {
               kind="tournament" :packages="state.packages" :status="state.packagesStatus" :selected="state.form.packageName"
               @pick="(c) => pick(c.packageName)" @create="newRuleset" @retry="wizard.loadPackages()"
             />
+            <p v-if="state.form.packageName" class="sf-btn-row tw-ruleset-tools">
+              <button type="button" class="sf-btn small" data-create-star @click="createStar">Create a star</button>
+              <a class="sf-btn small" data-export-summary :href="`/app/ruleset-summary?package=${encodeURIComponent(state.form.packageName)}`" target="_blank" rel="noopener">Export summary</a>
+            </p>
             <HouseRulesFields v-model="state.form.houseRules" kind="tournament" id-prefix="tw" />
           </div>
 

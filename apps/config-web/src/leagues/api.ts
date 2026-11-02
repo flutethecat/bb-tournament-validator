@@ -61,7 +61,8 @@ import { join } from "node:path";
 import { AVATAR_CONTENT_TYPE, avatarRateLimit, sniffImage, type AvatarExt, type SniffedImage } from "../teamAvatars.js";
 import type { NotificationInput } from "../notifications.js";
 import { buildMilestonePost, buildTestPost, discordEvents, postWebhook as defaultPoster, type DiscordPayload, type WebhookPoster } from "./discord.js";
-import { editFixture, leagueEventRoutes, postLeagueEvent } from "./events.js";
+import { buildNewsPost, editFixture, leagueEventRoutes, postLeagueEvent, seasonCoaches } from "./events.js";
+import { ChangeMessageError, CONFIRM_AFTER_START_LEAGUE, parseChangeMessage, rulesChangeBody, rulesChangeDiff, rulesChangeNews, type RulesState } from "../competition/rulesChange.js";
 import { populateSeasonDiscord } from "../discord/api.js";
 import { cleanPayload } from "../discord/clean.js";
 import { leagueCsvFiles, zipFiles } from "./exportZip.js";
@@ -86,7 +87,7 @@ import { paymentLinksView } from "../payments/links.js";
 import { createLeagueRoute, leagueLifecycleRoutes } from "./wizard.js";
 import { TEST_SESSION_REFUSAL, testSessionMayWrite } from "../registration/testSession.js";
 import { isLeagueOrganiser, LEAGUE_ART_DIR, LEAGUE_ART_PATH, leagueOwner, LeagueStore, LeagueStoreError, SEASON_ID } from "./store.js";
-import { LEAGUE_RULESETS, type LeagueFixture, type LeagueRecord, type LeagueTeam, type LeagueRuleset, type PodiumSlot, type SeasonRecord, type SeasonStatus } from "./types.js";
+import { LEAGUE_RULESETS, type LeagueFixture, type LeagueNewsPost, type LeagueRecord, type LeagueTeam, type LeagueRuleset, type PodiumSlot, type SeasonRecord, type SeasonStatus } from "./types.js";
 
 export const LOGO_MAX_BYTES = 1024 * 1024;
 export const BANNER_MAX_BYTES = 2 * 1024 * 1024;
@@ -691,13 +692,35 @@ export { requestRevision };
  * Synchronous from validation to the last write (the caller re-loaded `league` after the body arrived), so the
  * revision check, the permission checks and the writes all see one state.
  */
+/**
+ * A league rules change (creation wizards v2 Q2): logged in the current season's news (always kept, a full board never
+ * drops it), posted through the cleaned league Discord sender like any news, and sent to every registered coach (inbox +
+ * DM: the organiser's message and the site's list of what changed). deps.notify is draft-aware (a draft league tells only
+ * its organisers). League rosters are not checked against a package, so there is nothing to re-validate here.
+ */
+function announceRulesChange(
+  league: LeagueRecord, season: SeasonRecord, message: string, diff: readonly string[], started: boolean, coaches: readonly string[], who: LeagueApiIdentity, deps: LeagueApiDeps, now: Date,
+): void {
+  const news = rulesChangeNews(message || "The organiser changed the rules.", diff, started);
+  const post: LeagueNewsPost = { id: randomBytes(6).toString("hex"), title: news.title, body: news.body.slice(0, 4000), by: who.coach, at: now.toISOString(), pinned: false };
+  const fresh = deps.store.season(league.id, season.id) ?? season;
+  fresh.news = [...(fresh.news ?? []), post];
+  deps.store.putSeason(fresh);
+  const link = `/app/leagues/${encodeURIComponent(league.id)}`;
+  const body = rulesChangeBody(message, diff);
+  for (const coach of coaches) {
+    try { deps.notify?.(coach, { type: "ruleset-change", title: `${league.name}: the rules changed`, body, link, from: who.coach, subject: league.name, action: true }); } catch { /* fire-and-forget */ }
+  }
+  void postLeagueEvent(deps.store, league, "news", buildNewsPost(league, fresh, post), deps.postWebhook ?? defaultPoster, { seasonId: fresh.id }).catch(() => undefined);
+}
+
 function patchSettings(league: LeagueRecord, who: LeagueApiIdentity, input: Record<string, unknown>, deps: LeagueApiDeps): LeagueApiResult {
-  const current = league.revision ?? 0;
+  const revisionNow = league.revision ?? 0;
   const asked = requestRevision(input, deps.ifMatch);
-  if (asked === "missing") return { status: 428, body: { error: "Send the settings revision you loaded (revision or If-Match).", revision: current } };
+  if (asked === "missing") return { status: 428, body: { error: "Send the settings revision you loaded (revision or If-Match).", revision: revisionNow } };
   if (asked === "bad") return { status: 400, body: { error: "revision must be a whole number.", field: "revision" } };
-  if (asked !== current)
-    return { status: 409, body: { error: "These settings changed since you opened them. Reload to see the latest.", revision: current } };
+  if (asked !== revisionNow)
+    return { status: 409, body: { error: "These settings changed since you opened them. Reload to see the latest.", revision: revisionNow } };
   const now = deps.now?.() ?? new Date();
 
   // Everything is validated before anything is written.
@@ -755,6 +778,27 @@ function patchSettings(league: LeagueRecord, who: LeagueApiIdentity, input: Reco
   const season = team ? deps.store.season(league.id, team.seasonId) : undefined;
   if (team && !season) return { status: 404, body: { error: "Season not found.", field: "seasonId" } };
 
+  // A ruleset / house-rules change with registered coaches (creation wizards v2 Q2): the organiser's message is required
+  // (400 without it); once the season has started the "Are you sure?" confirmation is required too (409 without it).
+  const rulesBefore: RulesState = { packageName: league.rulesetPackage ?? "", houseRules: houseRulesOf(league, "league") };
+  const rulesAfter: RulesState = {
+    packageName: info?.rulesetPackage !== undefined ? info.rulesetPackage ?? "" : rulesBefore.packageName,
+    houseRules: houseRules ?? rulesBefore.houseRules,
+  };
+  const rulesDiff = rulesChangeDiff("league", rulesBefore, rulesAfter, (n) => n || "BB2025");
+  const current = deps.store.seasons(league.id)[0];
+  const coaches = current && seasonStage(current) !== "completed" ? seasonCoaches(current) : [];
+  const started = Boolean(current && seasonStage(current) === "active");
+  let changeMessage = "";
+  if (rulesDiff.length && coaches.length) {
+    try { changeMessage = parseChangeMessage(input.changeMessage); } catch (e) {
+      if (e instanceof ChangeMessageError) return { status: 400, body: { error: e.message, field: "changeMessage", changes: rulesDiff, coaches: coaches.length, afterStart: started } };
+      throw e;
+    }
+  }
+  if (rulesDiff.length && started && input.confirmAfterStart !== true)
+    return { status: 409, body: { error: CONFIRM_AFTER_START_LEAGUE, confirmRequired: true, changes: rulesDiff, coaches: coaches.length, afterStart: true } };
+
   if (season && team) {
     season.rules = {
       ...(season.rules ?? {}),
@@ -790,9 +834,10 @@ function patchSettings(league: LeagueRecord, who: LeagueApiIdentity, input: Reco
     if (connections?.playOnFork !== undefined) l.playOnFork = connections.playOnFork;
     if (connections?.discordEvents) l.discordEvents = connections.discordEvents;
     if (redraftRules) l.redraftRules = redraftRules;
-    l.revision = current + 1;
+    l.revision = revisionNow + 1;
   }, now);
-  return { status: 200, body: { ok: true, settings: view(updated, who, deps, team?.seasonId) } };
+  if (rulesDiff.length && current && (coaches.length || started)) announceRulesChange(updated, current, changeMessage, rulesDiff, started, coaches, who, deps, now);
+  return { status: 200, body: { ok: true, settings: view(updated, who, deps, team?.seasonId), ...(rulesDiff.length ? { changes: rulesDiff } : {}) } };
 }
 
 /** Discord post for a season started / finished, to the season's webhook when its toggle is on. Best effort; the URL is never logged. */

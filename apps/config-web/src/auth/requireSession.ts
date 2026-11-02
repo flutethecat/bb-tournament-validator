@@ -35,6 +35,8 @@ const PUBLIC_API_METHODS = new Map<string, ReadonlySet<string>>([
   ["/api/positions", new Set(["GET", "HEAD"])],
   ["/api/presets", new Set(["GET", "HEAD"])],
   ["/api/packages", new Set(["GET", "HEAD", "POST"])],
+  // Ruleset export (creation wizards v2): read-only; a draft package answers 404 in-handler.
+  ["/api/ruleset-summary", new Set(["GET", "HEAD"])],
   ["/api/export", new Set(["POST"])],
   ["/api/artprompt", new Set(["POST"])],
   ["/api/fork/jnlp", new Set(["GET", "HEAD"])],

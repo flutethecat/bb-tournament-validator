@@ -126,7 +126,16 @@
       for (const skill of row.added ?? []) push({ text: skill.name, italics: true, color: skill.access === "secondary" ? GREEN : BLUE });
       for (const stat of row.statIncreases ?? []) push({ text: `+${stat}`, italics: true, bold: true, color: BLUE });
     }
-    return parts.length ? { text: parts } : { text: "" };
+    const special = Array.isArray(row.specialRules) ? row.specialRules : [];
+    if (!special.length) return parts.length ? { text: parts } : { text: "" };
+    // A custom star's custom traits and rules (creation wizards v2), below the skills under a small subheader.
+    const stack = [];
+    if (parts.length) stack.push({ text: parts });
+    stack.push({ text: "SPECIAL RULES", fontSize: 6.5, bold: true, color: MUTED, margin: [0, 2, 0, 0] });
+    for (const r of special) {
+      stack.push({ text: [{ text: `${r.name}`, bold: true }, { text: ` (${r.kind === "trait" ? "custom trait" : "custom rule"}): `, color: MUTED }, { text: r.description }], fontSize: 7.5 });
+    }
+    return { stack };
   }
 
   function statCell(cell, isStar) {

@@ -33,6 +33,9 @@ import { cleanStatIncreaseRules, statRuleBlock, teamCapBlock, type StatIncreaseR
 import { cleanPlayerName, PLAYER_NAME_MAX, randomPlayerName } from "../../../src/playerNames";
 import { LEAGUE_FORK_NOTE, parseLeaguePackageName, type LeagueBuilderRef } from "../../../src/leagueBuilderMarker";
 import { leagueRaceRows, sanitizeLeagueContext, type LeagueContext } from "./builderLeague";
+import { customStarPosition, sanitizeCustomStars, type CustomStarDoc, type CustomStarRuleDoc } from "../tournaments/customStars";
+
+const isCustomStarId = (id: string): boolean => id.startsWith("cs-");
 export { PLAYER_NAME_MAX };
 
 // ── wire shapes ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -94,6 +97,8 @@ export interface BuilderLimits {
 export const nonLinemanReason = (max: number): string => `Sevens: at most ${max} players without the Lineman keyword.`;
 export const VETERAN_MISSING = "Pick one Lineman as your Veteran (MA −1, one reroll a game).";
 export const SEVENS_TABLETOP_NOTE = "Sevens teams are tabletop only.";
+/** A custom star (organiser-made, in the ruleset) has no fork position: such a roster is tabletop-only. */
+export const CUSTOM_STAR_TABLETOP_NOTE = "Teams with a custom star are tabletop only. Save the roster and submit it to the competition.";
 export const SEVENS_NO_STARS = "Sevens has no Star Players or Mercenaries.";
 export { SEVENS_FREE_CREATE_PACKAGE, SEVENS_FREE_CREATE_LABEL, SEVENS_FREE_CREATE_DESCRIPTION };
 
@@ -446,6 +451,8 @@ export interface BuilderState {
   sevensEligible: string[];
   /** League mode (lane L7): the league season the team is built for (null outside league mode). */
   leagueCtx: LeagueContext | null;
+  /** The ruleset's custom stars (creation wizards v2): offered on every roster as cs-<id> star positions. */
+  customStars: CustomStarDoc[];
 }
 
 function blankState(): BuilderState {
@@ -456,6 +463,7 @@ function blankState(): BuilderState {
     art: { sprites: null, crests: null, icons: null, skillIcons: null, uiIcons: null }, status: "", statusError: false,
     currentSave: null, savesStatus: "", saveBusy: false, shareBusy: false, shareUrl: "", editingTeamId: null, buildBusy: false, buildResult: null,
     pdfBusy: false, printHtml: "", leftPanel: "hire", ignoreLimits: false, packageFormat: "standard", limits: null, sevensEligible: [], leagueCtx: null,
+    customStars: [],
   };
 }
 
@@ -905,7 +913,9 @@ export function createTournamentBuilder(deps: BuilderDeps) {
   const sheetValid = (): boolean => checkable() && (free() || currentVerdict()?.valid === true);
   const canExport = (): boolean => Boolean(state.roster && state.slots.length) && sheetValid() && !state.pdfBusy;
   /** Why this team can't go to the fork ("" = it can): Blood Bowl Sevens is tabletop only (owner Q12). */
-  const forkBlocked = (): string => (sevens() ? SEVENS_TABLETOP_NOTE : leagueMode() ? LEAGUE_FORK_NOTE : "");
+  /** A roster with a custom star is tabletop-only: the fork has no such position (the server refuses it too). */
+  const hasCustomStar = (): boolean => state.slots.some((s) => isCustomStarId(s.positionId));
+  const forkBlocked = (): string => (sevens() ? SEVENS_TABLETOP_NOTE : leagueMode() ? LEAGUE_FORK_NOTE : hasCustomStar() ? CUSTOM_STAR_TABLETOP_NOTE : "");
   const canBuild = (): boolean => Boolean(deps.coach()) && sheetValid() && !state.buildBusy && !forkBlocked();
   const canSave = (): boolean => Boolean(deps.coach() && state.roster) && !state.saveBusy;
   /** Share link: a saved team whose sheet could be exported (valid, or Free Create with a name and a player). */
@@ -1097,7 +1107,24 @@ export function createTournamentBuilder(deps: BuilderDeps) {
   const artSrc = (path: string | null | undefined): string => (typeof path === "string" && /^(?:sprites|crests|icons)\/(?:[a-z0-9_-]+\/)*[a-z0-9_-]+\.png$/.test(path) ? `/${path}` : "");
   const iconPath = (m: IconManifest | null, key: string): string => artSrc(m?.icons?.[key]);
   const crestPath = (race: string): string => artSrc(core.resolveCrest(state.art.crests, race));
-  const spritePath = (positionName: string): string => artSrc(core.resolveSprite(state.art.sprites, state.roster?.raceName ?? "", positionName));
+  const spritePath = (positionName: string): string => {
+    // A custom star wears the sprite the organiser picked from the site's own set.
+    const custom = state.customStars.find((s) => s.name === positionName);
+    if (custom) return custom.sprite ?? "";
+    return artSrc(core.resolveSprite(state.art.sprites, state.roster?.raceName ?? "", positionName));
+  };
+  /** A position's custom traits and rules (custom stars only; [] for every other position). */
+  const specialRulesOf = (positionId: string): CustomStarRuleDoc[] => (isCustomStarId(positionId) ? state.customStars.find((s) => `cs-${s.id}` === positionId)?.specialRules ?? [] : []);
+  /** Re-seat the ruleset's custom stars on every roster (and the chosen one), dropping the previous ruleset's. */
+  function applyCustomStars(stars: CustomStarDoc[]): void {
+    state.customStars = stars;
+    const extra = stars.map(customStarPosition);
+    state.rosters = state.rosters.map((r) => ({ ...r, positions: [...r.positions.filter((p) => !isCustomStarId(p.positionId)), ...extra] }));
+    if (state.roster) state.roster = state.rosters.find((r) => r.rosterId === state.roster!.rosterId) ?? state.roster;
+    // A custom star the new ruleset doesn't carry leaves the roster.
+    if (state.slots.some((s) => isCustomStarId(s.positionId) && !extra.some((p) => p.positionId === s.positionId)))
+      state.slots = state.slots.filter((s) => !isCustomStarId(s.positionId) || extra.some((p) => p.positionId === s.positionId));
+  }
   const skillIcon = (skill: string): string => iconPath(state.art.skillIcons, core.skillIconKey(skill, state.art.skillIcons?.aliases));
   function staffIcon(key: keyof Staff): string {
     const [set, name] = STAFF_ICONS[key];
@@ -1188,7 +1215,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
   async function loadPackageRules(): Promise<void> {
     const seq = ++rulesSequence;
     const name = state.packageName;
-    if (!name || free()) { state.packageRules = null; state.packageDoc = null; state.tierRows = []; state.packageFormat = "standard"; state.limits = null; return; }
+    if (!name || free()) { state.packageRules = null; state.packageDoc = null; state.tierRows = []; state.packageFormat = "standard"; state.limits = null; applyCustomStars([]); return; }
     if (sevensFree()) {
       // Not a saved package: no rules document or tier table, only the Sevens profile's limits and eligible rosters.
       state.packageRules = null;
@@ -1207,6 +1234,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     if (seq !== rulesSequence) return;
     const pkg = rules.status === "fulfilled" && isRec(rules.value?.pkg) ? rules.value.pkg : null;
     state.packageDoc = pkg ? { description: sv(pkg.description), dataNote: sv(pkg.dataNote), eligibleRosters: strList(pkg.eligibleRosters) } : null;
+    applyCustomStars(sanitizeCustomStars(pkg?.customStars));
     state.packageRules = rules.status === "fulfilled" ? sanitizePackageRules(rules.value?.rules) : null;
     state.tierRows = tiers.status === "fulfilled" ? arr(tiers.value?.races).map(sanitizeTierRow).filter((r): r is TierRow => r !== null) : [];
     if (rules.status === "rejected") setStatus(`Couldn't load the ruleset: ${(rules.reason as Error).message}`, true);
@@ -1770,6 +1798,11 @@ export function createTournamentBuilder(deps: BuilderDeps) {
       return false;
     }
     state.ignoreLimits = packageName === FREE_CREATE_PACKAGE && body.ignoreLimits === true;
+    // The ruleset's custom stars must be seated before the picks are read (a cs-<id> pick needs its position).
+    if (arr(body.picks).some((p) => isRec(p) && isCustomStarId(sv(p.positionId)))) {
+      await loadPackageRules();
+      if (stale()) return false;
+    }
     state.league = core.reconcileLeagueSelection(leagueOptions(),
       typeof body.specialRule === "string" && body.specialRule ? { selectedLeague: body.specialRule, explicit: true } : { selectedLeague: "", explicit: false });
     state.slots = nameUnnamed(core.reconcileCaptain(core.slotsFromPicks(body.picks, positionById), positionById, captainRules()));
@@ -2079,7 +2112,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     positionById, shortName, raceRules, tierRules, statRules, allowedStats, packSummary, captainAvailable, slotCanCaptain, leagueOptions,
     leaguePresentation, activeLeague, selectedSpecialRule, accessOf, isElite, eliteMark, skillClass, totals, valueLines, validity, canExport, canBuild, canSave,
     skillPoints, positionCards, positionBreakdown, starChoices, starRow, starCap, starPickCount, starsAllowed, starSpTable, inducementRows, rulesetLines, tierLabel, raceTable,
-    eligibleRosters, staffRows: () => staffRows(state.roster, limits()), staffIcon, skillIcon, spritePath, crestPath, pickerSections, skillPrice, statSteps, advanceLock,
+    eligibleRosters, staffRows: () => staffRows(state.roster, limits()), staffIcon, skillIcon, spritePath, specialRulesOf, crestPath, pickerSections, skillPrice, statSteps, advanceLock,
     captainIndex, skillAllowance, slotLocks, legalSet, requestBody, sheetModel, teamViewModel, gateCtx, named, signedIn: (): boolean => Boolean(deps.coach()),
     free, ignoring, capped, canShare, skillBlock, moreSkills, rulesetCards, rulesetLabel, freeRaces, canAddStar,
     sevens, sevensFree, limits, maxPlayers, nonLineman, canVeteran, veteranIndex, displayPosition, forkBlocked, starsOffReason, formatTitle,

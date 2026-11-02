@@ -9,6 +9,7 @@ import CreatorMulti from "./CreatorMulti.vue";
 import CreatorNum from "./CreatorNum.vue";
 import CreatorOverride from "./CreatorOverride.vue";
 import CreatorText from "./CreatorText.vue";
+import CreatorCustomStars from "./CreatorCustomStars.vue";
 
 const c = inject(TOURNAMENT_CREATOR_KEY)!;
 const { state } = c;
@@ -28,7 +29,8 @@ const sum = (list: Array<{ names: string[] }>): number => list.reduce((t, r) => 
 const allMegaBanned = computed(() => MEGA_STARS.every((n) => banned.value.has(n)));
 const packs = computed(() => safeArray<StarPack>(pkg.value.starPacks));
 const packItems = computed(() => packs.value.map((p, i) => ({ value: String(p.id ?? ""), label: p.label ? `${p.label} (${p.id})` : String(p.id || `Pack ${i + 1}`) })));
-const starItems = computed(() => state.stars.map((s) => ({ value: s.name, label: s.name })));
+// Custom stars join the pack picker (a package with packs must place them in one, like any star).
+const starItems = computed(() => [...state.stars.map((s) => ({ value: s.name, label: s.name })), ...c.customStars().map((s) => ({ value: s.name, label: `${s.name} (custom)` }))]);
 const costs = (name: string) => starTierCosts(pkg.value, name);
 const val = (e: Event): string => (e.target as HTMLInputElement).value;
 const onFeeMode = (index: number, e: Event): void => c.setBound(["starPacks", index, "feeMode"], "str", "delete", (e.target as HTMLSelectElement).value);
@@ -111,6 +113,8 @@ function onDrop(zone: "banned" | "allowed", e: DragEvent): void {
       <p class="cr-hint">Blank means the star player is not available in that tier.</p>
     </template>
   </section>
+
+  <CreatorCustomStars />
 
   <section class="hm-panel" aria-labelledby="cr-packs-h">
     <header class="hm-band"><h2 id="cr-packs-h">Star packs</h2><span class="hm-cap">{{ packs.length || "none" }}</span></header>

@@ -17,6 +17,7 @@ import {
 } from "./types";
 import { SEVENS_PROFILE, SEVENS_STAFF_PRICES } from "../dataset/bb2025/sevens";
 import { STANDARD_STAFF_PRICES } from "../cost/staff";
+import { customStarProblems } from "./customStars";
 
 const isMoney = (v: unknown): boolean => typeof v === "number" && Number.isFinite(v) && v >= 0;
 const isCap = (v: unknown): boolean => v === null || v === undefined || (typeof v === "number" && Number.isSafeInteger(v) && v >= 0);
@@ -64,6 +65,9 @@ export function checkExtraKnobs(pkg: TournamentPackage): { pkg: TournamentPackag
   if (!isCap(teamCap)) problems.push("special.statIncreaseRules.maxPerTeam must be a non-negative integer or null (ignored).");
   const out: TournamentPackage = { ...pkg };
   checkFormatKnobs(pkg, out, problems);
+  problems.push(...customStarProblems((pkg as { customStars?: unknown }).customStars));
+  if ((pkg as { visibility?: unknown }).visibility !== undefined && !["draft", "published"].includes(String((pkg as { visibility?: unknown }).visibility)))
+    problems.push("visibility must be draft or published.");
   if (pkg.statIncreases !== undefined) out.statIncreases = cleanStat("package", pkg.statIncreases);
   if (pkg.tiers)
     out.tiers = pkg.tiers.map((t) => {

@@ -224,6 +224,43 @@
     },
     "starPacksAllowed": { "$ref": "#/definitions/starPacksAllowed" },
 
+    "visibility": { "type": "string", "enum": ["draft", "published"], "description": "The package's own visibility: draft keeps the package and its public ruleset summary hidden from everyone but organisers and admins. Absent = published." },
+    "customStars": {
+      "type": "array",
+      "maxItems": 32,
+      "description": "Organiser-made Star Players (creation wizards v2): hired like any star on every eligible roster, never edited by coaches; stars never take added skills.",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "cost", "MA", "ST", "AG", "PA", "AV", "skills"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "sprite": { "type": "string", "description": "A sprite from the site's own set (/sprites/...)." },
+          "cost": { "type": "integer", "minimum": 0, "multipleOf": 1000 },
+          "MA": { "type": "integer", "minimum": 0 },
+          "ST": { "type": "integer", "minimum": 0 },
+          "AG": { "type": "integer", "minimum": 1 },
+          "PA": { "type": ["integer", "null"], "minimum": 1 },
+          "AV": { "type": "integer", "minimum": 2 },
+          "skills": { "type": "array", "maxItems": 24, "items": { "type": "string" } },
+          "specialRules": {
+            "type": "array",
+            "maxItems": 12,
+            "items": {
+              "type": "object",
+              "required": ["kind", "name", "description"],
+              "additionalProperties": false,
+              "properties": {
+                "kind": { "type": "string", "enum": ["trait", "rule"] },
+                "name": { "type": "string" },
+                "description": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
     "goldBudget": { "type": ["number", "null"], "default": null, "description": "Optional parallel gold cap (team value incl. skills). Null = SP-only tournament." },
     "goldCapIncludesAddedSkills": { "type": "boolean", "default": false, "description": "When true the gold cap is a hard total: added-skill, stat-increase and star-pack-fee gold count inside it." },
 

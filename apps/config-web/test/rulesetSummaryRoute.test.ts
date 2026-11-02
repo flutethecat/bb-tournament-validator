@@ -1,0 +1,101 @@
+// Ruleset export (creation wizards v2): GET /api/ruleset-summary is a public read on BOTH gates (requireSession's public
+// reads and authorized(), law 14b), and a package whose own visibility is "draft" stays hidden (404) from anyone but an
+// organiser / admin, in the summary AND the package list and read. Isolated state dirs (laws §C14), no live data.
+import { once } from "node:events";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import type { IncomingMessage } from "node:http";
+import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { requireSession } from "../src/auth/requireSession.js";
+
+const root = mkdtempSync(join(tmpdir(), "ruleset-summary-"));
+const previousEnv = new Map<string, string | undefined>();
+let origin = "";
+let server: (typeof import("../src/server.js"))["server"];
+const ADMIN = "summary-test-pw";
+
+const pkg = (name: string, extra: Record<string, unknown> = {}) => JSON.stringify({
+  name, skillAllotment: { skillPointBudget: 0 }, goldBudget: 1_000_000,
+  customStars: [{ id: "grim-hound", name: "Grim Hound", cost: 150000, MA: 7, ST: 3, AG: 3, PA: null, AV: 9, skills: ["Dodge"], specialRules: [{ kind: "trait", name: "Fog Walker", description: "Ignores one tackle zone." }] }],
+  ...extra,
+});
+
+beforeAll(async () => {
+  for (const [name, value] of Object.entries({
+    AUTH_SIDECAR_ENABLED: "", ADMIN_PASSWORD: ADMIN, HOST: "127.0.0.1", PORT: "0",
+    IDENTITIES_FILE: join(root, "identities.json"), ORGANIZERS_FILE: join(root, "organizers.json"),
+    FORK_LIBRARY_DIR: join(root, "library"), FORK_BUILDER_SAVES_DIR: join(root, "saves"), FORK_STATE_DIR: join(root, "state"),
+    PACKAGES_DIR: join(root, "packages"), TOURNAMENTS_DIR: join(root, "tournaments"), COACH_REGISTRY_JSON: join(root, "coaches.json"),
+    FORK_ADMIN_PASSWORD: "", FORK_DB_HOST: "", SUPER_ENABLED: "",
+  })) {
+    previousEnv.set(name, process.env[name]);
+    process.env[name] = value;
+  }
+  delete process.env.FORK_TEAMS_DIR;
+  for (const d of ["library", "packages", "tournaments", "state", "saves"]) mkdirSync(join(root, d), { recursive: true });
+  writeFileSync(join(root, "identities.json"), JSON.stringify({ version: 1, coaches: {} }), "utf8");
+  writeFileSync(join(root, "organizers.json"), JSON.stringify({ organizers: [] }), "utf8");
+  writeFileSync(join(root, "coaches.json"), "[]", "utf8");
+  writeFileSync(join(root, "state", "fork-reload-state.json"), JSON.stringify({ lastReloadAt: "2026-02-01T00:00:00.000Z" }), "utf8");
+  writeFileSync(join(root, "packages", "open-cup.json"), pkg("Open Cup"), "utf8");
+  writeFileSync(join(root, "packages", "secret-cup.json"), pkg("Secret Cup", { visibility: "draft" }), "utf8");
+  ({ server } = await import("../src/server.js"));
+  if (!server.listening) await once(server, "listening");
+  origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+});
+
+afterAll(async () => {
+  if (server?.listening) await new Promise<void>((resolve, reject) => server.close((e) => (e ? reject(e) : resolve())));
+  for (const [name, value] of previousEnv) {
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  }
+  rmSync(root, { recursive: true, force: true });
+});
+
+const basic = { authorization: `Basic ${Buffer.from(`admin:${ADMIN}`).toString("base64")}` };
+const get = (path: string, headers: Record<string, string> = {}) => fetch(`${origin}${path}`, { headers });
+
+describe("GET /api/ruleset-summary", () => {
+  it("is a public read on both gates", () => {
+    const req = (method: string) => ({ method, headers: {} }) as IncomingMessage;
+    expect(requireSession(req("GET"), "/api/ruleset-summary", "?package=x").kind).toBe("allow");
+    expect(requireSession(req("POST"), "/api/ruleset-summary", "").kind).toBe("unauthorized");
+  });
+
+  it("answers anonymously (admin password configured) with the summary, custom stars and their special rules", async () => {
+    const res = await get("/api/ruleset-summary?package=Open%20Cup");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { summary: { name: string; draft: boolean; customStars: Array<{ name: string; specialRules: unknown[] }>; houseRules: unknown } };
+    expect(body.summary).toMatchObject({ name: "Open Cup", draft: false, houseRules: null });
+    expect(body.summary.customStars[0]).toMatchObject({ name: "Grim Hound", specialRules: [{ kind: "trait", name: "Fog Walker", description: "Ignores one tackle zone." }] });
+    expect(JSON.stringify(body)).not.toMatch(/@|discord|email/i);
+  });
+
+  it("hides a draft package from the public (summary, list and read) and shows it to an admin", async () => {
+    expect((await get("/api/ruleset-summary?package=Secret%20Cup")).status).toBe(404);
+    expect((await get("/api/ruleset-summary?package=Nope")).status).toBe(404);
+    const list = (await (await get("/api/packages")).json()) as Array<{ name: string }>;
+    expect(list.map((p) => p.name)).toContain("Open Cup");
+    expect(list.map((p) => p.name)).not.toContain("Secret Cup");
+    expect((await get("/api/packages/Secret%20Cup")).status).toBe(404);
+    const admin = await get("/api/ruleset-summary?package=Secret%20Cup", basic);
+    expect(admin.status).toBe(200);
+    expect(((await admin.json()) as { summary: { draft: boolean } }).summary.draft).toBe(true);
+    expect((await get("/api/packages/Secret%20Cup", basic)).status).toBe(200);
+  });
+
+  it("refuses a competition overlay that does not exist or does not use the ruleset", async () => {
+    expect((await get("/api/ruleset-summary?package=Open%20Cup&tournament=nope")).status).toBe(404);
+    expect((await get("/api/ruleset-summary?package=Open%20Cup&league=nope")).status).toBe(404);
+  });
+
+  it("the traits catalogue for the star creator is opt-in on /api/skills", async () => {
+    const plain = (await (await get("/api/skills")).json()) as Record<string, unknown>;
+    expect(plain.traits).toBeUndefined();
+    const withTraits = (await (await get("/api/skills?traits=1")).json()) as { traits: Array<{ name: string }> };
+    expect(withTraits.traits.some((t) => t.name === "Loner")).toBe(true);
+  });
+});

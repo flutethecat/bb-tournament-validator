@@ -51,17 +51,21 @@ function draftWithEntries(houseRules?: Record<string, unknown>) {
 }
 
 describe("house-rule changes and roster approval", () => {
-  it("banning Prayers to Nuffle after the lock voids the checks and lifts the lock, like a package change", async () => {
+  it("banning Prayers to Nuffle after the lock lifts the lock and re-checks every roster at once (creation wizards v2)", async () => {
     const { store, id } = draftWithEntries();
     expect((await call(store, "POST", `/api/tournaments/${id}/lock-rosters`))?.status).toBe(200);
     expect(store.tournament(id)!.rostersLockedAt).toBeDefined();
     expect(store.entrants(id).every((e) => e.flags?.rosterVerified)).toBe(true);
-    const res = await call(store, "PATCH", `/api/tournaments/${id}`, { houseRules: { prayers: { mode: "banned" } } });
+    // Registered coaches: the change needs the organiser's message.
+    expect((await call(store, "PATCH", `/api/tournaments/${id}`, { houseRules: { prayers: { mode: "banned" } } }))?.status).toBe(400);
+    const res = await call(store, "PATCH", `/api/tournaments/${id}`, { houseRules: { prayers: { mode: "banned" } }, changeMessage: "Prayers to Nuffle are banned now." });
     expect(res?.status, JSON.stringify(res?.body)).toBe(200);
     expect(store.tournament(id)!.rostersLockedAt).toBeUndefined();
+    const stamp = houseRulesStamp(parseHouseRules({ prayers: { mode: "banned" } }, "tournament"));
     for (const e of store.entrants(id)) {
-      expect(e.submission?.validation).toMatchObject({ ok: false, problems: [HOUSE_RULES_CHANGED_PROBLEM] });
-      expect(e.flags?.rosterVerified).toBe(false);
+      // Re-validated straight away under the new house rules (never left on the "changed" placeholder).
+      expect(e.submission?.validation.problems).not.toContain(HOUSE_RULES_CHANGED_PROBLEM);
+      expect(e.submission?.validation.houseRulesKey).toBe(stamp);
     }
     // A fresh start re-checks under the new house rules (the stamp now matches) and goes through.
     const started = await call(store, "POST", `/api/tournaments/${id}/start`, {});
@@ -71,7 +75,7 @@ describe("house-rule changes and roster approval", () => {
   it("a display-only change (Brawling Brutes, a PtN cost) keeps the lock and the checks", async () => {
     const { store, id } = draftWithEntries();
     await call(store, "POST", `/api/tournaments/${id}/lock-rosters`);
-    await call(store, "PATCH", `/api/tournaments/${id}`, { houseRules: { brawlingBrutes: "off", prayers: { mode: "cost", costK: 50 } } });
+    await call(store, "PATCH", `/api/tournaments/${id}`, { houseRules: { brawlingBrutes: "off", prayers: { mode: "cost", costK: 50 } }, changeMessage: "Brutes off and Prayers cost 50k." });
     expect(store.tournament(id)!.rostersLockedAt).toBeDefined();
     expect(store.entrants(id).every((e) => e.submission?.validation.ok)).toBe(true);
   });
@@ -88,8 +92,12 @@ describe("house-rule changes and roster approval", () => {
     const { store, id } = draftWithEntries();
     await call(store, "POST", `/api/tournaments/${id}/start`, {});
     store.generateNextRound(id, now);
+    // After round 1: the message (400 without it) AND the "Are you sure?" confirmation (409 without it) are required.
     expect((await call(store, "PATCH", `/api/tournaments/${id}`, { houseRules: { maxStatIncreasesTeam: 2 } }))?.status).toBe(400);
-    expect((await call(store, "PATCH", `/api/tournaments/${id}`, { houseRules: { brawlingBrutes: "on" } }))?.status).toBe(200);
+    expect((await call(store, "PATCH", `/api/tournaments/${id}`, { houseRules: { maxStatIncreasesTeam: 2 }, changeMessage: "Two stat increases per team." }))?.status).toBe(409);
+    expect((await call(store, "PATCH", `/api/tournaments/${id}`, { houseRules: { maxStatIncreasesTeam: 2 }, changeMessage: "Two stat increases per team.", confirmAfterStart: true }))?.status).toBe(200);
+    expect((await call(store, "PATCH", `/api/tournaments/${id}`, { houseRules: { brawlingBrutes: "on" }, changeMessage: "Brawling Brutes are on.", confirmAfterStart: true }))?.status).toBe(200);
+    expect(store.tournament(id)!.news?.map((n) => n.title)).toEqual(["Rules changed during play", "Rules changed during play"]);
   });
 });
 
