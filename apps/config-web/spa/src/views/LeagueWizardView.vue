@@ -64,7 +64,7 @@ const leave = (): void => { if (state.draft) void router.push({ name: "league-de
 </script>
 
 <template>
-  <div class="hm-page lw-page" :class="{ 'lw-fit': allowed && state.loaded && !state.error }">
+  <div class="hm-page lw-page" :class="{ 'lw-fit sf-fit': allowed && state.loaded && !state.error }">
     <Teleport to="#sf-header-slot" :disabled="!inHeader">
       <ol v-if="allowed" class="lw-steps" :class="{ 'lw-steps-header': inHeader }" aria-label="Create a league: steps">
         <li v-for="s in WIZARD_STEPS" :key="s.id">
@@ -84,7 +84,7 @@ const leave = (): void => { if (state.draft) void router.push({ name: "league-de
     <p v-else-if="state.error && !state.loaded" class="sf-error" role="alert">{{ state.error }}</p>
     <p v-else-if="!state.loaded" class="hm-empty" role="status">Loading...</p>
     <template v-else>
-      <div class="lw-grid">
+      <div class="lw-grid sf-fill">
         <section class="hm-panel lw-pane" :aria-labelledby="`lw-h-${state.step}`">
           <header class="hm-band">
             <h2 :id="`lw-h-${state.step}`">{{ current.label }}</h2>

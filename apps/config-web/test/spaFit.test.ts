@@ -87,6 +87,8 @@ describe("fit to 1920x1080: the pages that opted in", () => {
     ["views/AdminTournamentsView.vue", ["hm-page sf-fit", "ad-list sf-shrink sf-scroll sf-col"]],
     ["views/PrivacyView.vue", ["hm-page pv-page sf-fit sf-scroll sf-col"]],
     ["views/HelpView.vue", ["hm-page sf-fit sf-scroll sf-col"]],
+    ["views/TournamentWizardView.vue", ["hm-page tw-page tw-fit sf-fit", "tw-grid sf-fill"]],
+    ["views/LeagueWizardView.vue", ["'lw-fit sf-fit'", "lw-grid sf-fill"]],
     ["views/WhatsNewView.vue", ["hm-panel hm-whats-new sf-fit sf-pane", "hm-log hm-log-full sf-pane-body"]],
   ];
   it.each(pages)("%s carries its fit classes", (file, classes) => {
@@ -97,7 +99,7 @@ describe("fit to 1920x1080: the pages that opted in", () => {
   it("the page CSS that fills the panes stays inside the desktop query (phones get no nested scroll traps)", () => {
     for (const [file, marker] of [["leagues/leagues.css", ".lg-tab-body:has"], ["tournaments/tournaments.css", ".tn-tab-body > .hm-grid"],
       ["tournaments/creator.css", ".cr-pane-fit"], ["teams/builder.css", ".tb-pane.sf-fill"], ["leagues/lobby.css", ".fl-grid.sf-fill"],
-      ["home/social.css", ".so-page.sf-fit"]] as const) {
+      ["home/social.css", ".so-page.sf-fit"], ["tournaments/wizard.css", ".tw-fit .tw-body"], ["leagues/wizard.css", ".lw-fit .lw-pane-body"]] as const) {
       const css = src(file);
       expect(fitBlock(css), file).toContain(marker);
       expect(css.replace(fitBlock(css), ""), file).not.toContain(marker);

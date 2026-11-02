@@ -122,16 +122,15 @@
 .lw-review-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .lw-review-head h3 { margin: 0; }
 
-/* Fit to 1920x1080 (owner 11-02, laws 18a; design.md §6): on a desktop-sized screen the page fills the content area and
-   never scrolls; the step body and the summary scroll inside their panels while the bands, step tabs and the footer
-   actions stay put. Smaller screens fall back to normal vertical page scroll. */
-@media (min-width: 1101px) and (min-height: 640px) {
-  .lw-fit { height: calc(100dvh - var(--sf-top-h) - 32px); min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
-  .lw-fit > * { flex: none; }
-  .lw-fit > .lw-grid { flex: 1 1 auto; min-height: 0; grid-template-rows: minmax(0, 1fr); align-items: stretch; }
-  .lw-fit .lw-pane, .lw-fit .lw-summary { min-height: 0; max-height: 100%; box-sizing: border-box; }
+/* Fit to 1920x1080 (owner 11-02, laws 18a; home.css "Fit to 1920x1080"): the loaded page is a .sf-fit root and the grid
+   its .sf-fill, so it fills the content area; the step body and the summary scroll inside their panels while the bands,
+   step tabs and the footer actions stay put. The step body keeps at least 160 px: on a shorter window the step panel
+   scrolls as a whole. Below the desktop size the page scrolls normally. */
+@media screen and (min-width: 1367px) and (min-height: 700px) {
+  .lw-fit > .lw-grid { grid-template-rows: minmax(0, 1fr); align-items: stretch; }
+  .lw-fit .lw-pane, .lw-fit .lw-summary { min-height: 0; max-height: 100%; box-sizing: border-box; overflow-y: auto; }
   .lw-fit .lw-pane > .hm-band, .lw-fit .lw-summary > .hm-band, .lw-fit .lw-foot { flex: none; }
-  .lw-fit .lw-pane-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  .lw-fit .lw-pane-body { flex: 1 1 auto; min-height: 160px; overflow: auto; }
   .lw-fit .lw-summary-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding-bottom: 12px; align-content: start; }
   .lw-fit .lw-cols-rules { height: 100%; grid-template-rows: minmax(0, 1fr); }
   .lw-fit .lw-col-table { min-height: 0; max-height: 100%; display: flex; flex-direction: column; }

@@ -419,8 +419,9 @@ describe("create views (server-rendered against a mocked API)", () => {
     const { readFileSync } = await import("node:fs");
     const css = readFileSync(fileURLToPath(new URL("../spa/src/tournaments/wizard.css", import.meta.url)), "utf8");
     expect(css).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(/i);
-    expect(css).toContain(".tw-fit { height: calc(100dvh - var(--sf-top-h) - 32px)");
-    expect(css).toContain(".tw-fit .tw-body { flex: 1 1 auto; min-height: 0; overflow: auto; }");
+    // fit to 1920x1080: the shell's screen-only fit query (spaFit.test.ts); the step body scrolls and keeps 160 px
+    expect(css).toContain("@media screen and (min-width: 1367px) and (min-height: 700px) {");
+    expect(css).toContain(".tw-fit .tw-body { flex: 1 1 auto; min-height: 160px; overflow: auto; }");
     expect(css).toMatch(/@media \(max-width: 900px\) \{ \.tw-grid \{ grid-template-columns: minmax\(0, 1fr\); \} \}/);
   });
 

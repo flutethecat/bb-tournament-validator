@@ -88,7 +88,7 @@ function startOver(): void {
 </script>
 
 <template>
-  <div class="hm-page tw-page tw-fit">
+  <div class="hm-page tw-page tw-fit sf-fit">
     <Teleport to="#sf-header-slot" :disabled="!inHeader">
       <nav v-if="allowed && !phone" class="tl-seg tw-steps" :class="{ 'tw-steps-header': inHeader }" aria-label="Create tournament steps">
         <button
@@ -109,7 +109,7 @@ function startOver(): void {
       </div>
     </section>
 
-    <div v-else class="tw-grid">
+    <div v-else class="tw-grid sf-fill">
       <section class="hm-panel tw-pane" aria-labelledby="tw-step-h" :data-step="state.step">
         <header class="hm-band"><h2 id="tw-step-h">{{ stepTitle[state.step] }}</h2><span class="hm-cap">Step {{ index + 1 }} of {{ WIZARD_STEPS.length }}</span></header>
 

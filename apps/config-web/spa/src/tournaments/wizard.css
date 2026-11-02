@@ -82,16 +82,15 @@
 .tw-side-k { float: none; margin-top: 6px; }
 .tw-side-k:first-child { margin-top: 0; }
 
-/* Fit to 1920x1080 (owner 11-02, laws 18a): on a desktop-sized screen the page fills the content area and never scrolls;
-   the step body and the summary scroll inside their panels while the bands, tabs and actions stay put. Smaller screens
-   fall back to normal vertical page scroll. */
-@media (min-width: 901px) and (min-height: 600px) {
-  .tw-fit { height: calc(100dvh - var(--sf-top-h) - 32px); min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 12px; }
-  .tw-fit > * { flex: none; }
-  .tw-fit > .tw-grid { flex: 1 1 auto; min-height: 0; grid-template-rows: minmax(0, 1fr); align-items: stretch; }
-  .tw-fit .tw-pane, .tw-fit .tw-side { display: flex; flex-direction: column; min-height: 0; max-height: 100%; box-sizing: border-box; }
+/* Fit to 1920x1080 (owner 11-02, laws 18a; home.css "Fit to 1920x1080"): the page is a .sf-fit root and the grid its
+   .sf-fill, so it fills the content area; the step body and the summary scroll inside their panels while the bands, step
+   tabs and footer actions stay put. The step body keeps at least 160 px: on a shorter window the step panel scrolls as a
+   whole. Below the desktop size the page scrolls normally. */
+@media screen and (min-width: 1367px) and (min-height: 700px) {
+  .tw-fit > .tw-grid { grid-template-rows: minmax(0, 1fr); align-items: stretch; }
+  .tw-fit .tw-pane, .tw-fit .tw-side { display: flex; flex-direction: column; min-height: 0; max-height: 100%; box-sizing: border-box; overflow-y: auto; }
   .tw-fit .tw-pane > .hm-band, .tw-fit .tw-side > .hm-band, .tw-fit .tw-foot { flex: none; }
-  .tw-fit .tw-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  .tw-fit .tw-body { flex: 1 1 auto; min-height: 160px; overflow: auto; }
   .tw-fit .tw-side { padding-bottom: 0; }
   .tw-fit .tw-side-body { flex: 0 1 auto; min-height: 0; overflow: auto; padding-bottom: 12px; }
 }
