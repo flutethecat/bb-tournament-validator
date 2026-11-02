@@ -428,10 +428,16 @@ export async function editFixture(
     fixture.home.cas = fixture.away.cas = null;
     fixture.home.conceded = fixture.away.conceded = false;
     delete fixture.finishedAt;
+    delete fixture.resultEdit;
     // A corrected result entered after a clear is announced again.
     if (fixture.announced) { delete fixture.announced.result; if (!fixture.announced.started) delete fixture.announced; }
   } else if (result) {
     const before = fixturePlayed(fixture) ? resultSig(fixture) : "";
+    // Typing over a result that was already there is an administrative override (the Weekly Digest labels it); a both-lose
+    // placeholder is not a result, so the first real score entered over it is a normal one.
+    const overrides = fixturePlayed(fixture) && fixture.deadlineOutcome?.outcome !== "both-lose";
+    if (overrides) fixture.resultEdit = { ...(who.coach ? { by: who.coach } : {}), at: (deps.now?.() ?? new Date()).toISOString() };
+    else delete fixture.resultEdit;
     // A both-lose deadline placeholder is a double concession: the real result entered over it is not.
     if (fixture.deadlineOutcome?.outcome === "both-lose") fixture.home.conceded = fixture.away.conceded = false;
     fixture.home.score = result.home;

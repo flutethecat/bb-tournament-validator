@@ -63,6 +63,7 @@ export function recordLeagueFixture(
   f.home.conceded = f.away.conceded = false;
   f.finishedAt = at.toISOString();
   delete f.deadlineOutcome;
+  delete f.resultEdit;
   f.tabletop = { revision: input.expectedRevision + 1, ...(input.opId ? { opId: input.opId } : {}), reportedAt: at.toISOString() };
   season.resultsChangedAt = at.toISOString();
   store.putSeason(season);
@@ -77,6 +78,7 @@ export function retractLeagueFixture(store: LeagueStore, ref: string, input: { e
   f.home.score = f.away.score = null;
   f.home.cas = f.away.cas = null;
   delete f.finishedAt;
+  delete f.resultEdit;
   f.tabletop = { revision: f.tabletop.revision + 1 };
   season.resultsChangedAt = at.toISOString();
   store.putSeason(season);

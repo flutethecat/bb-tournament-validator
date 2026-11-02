@@ -230,6 +230,12 @@ export interface LeagueFixture {
   announced?: { started?: string; result?: string };
   /** Admin per-game setting: the fixture may be generated on Super FUMBBL although its season is finished or the fixture is marked not played. */
   forkAllowLate?: boolean;
+  /**
+   * An organiser or admin overrode a result that already existed (a recorded, imported or typed one) in the fixtures
+   * editor: the Weekly Digest labels it an administrative result. A first-time typed score is NOT marked (a played game's
+   * score); a recorded result, a forfeit or a clear replaces the mark.
+   */
+  resultEdit?: { by?: string; at: string };
   /** Admin per-game setting: Super FUMBBL play is cancelled for this fixture (no generate, no start). */
   forkCancelled?: boolean;
   /** Play on Super FUMBBL state (forkPlay.ts): the fork teams built for it, the scheduled game, the applied result. */

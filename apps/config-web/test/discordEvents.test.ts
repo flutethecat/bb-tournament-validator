@@ -19,6 +19,7 @@ import { DiscordStateStore } from "../src/discord/store";
 import { postTo, seasonTarget, tournamentTarget } from "../src/discord/targets";
 import { lastSlot, slotDue, weeklyContent, weeklyOf } from "../src/discord/weekly";
 import type { DiscordPayload } from "../src/leagues/discord";
+import { editFixture } from "../src/leagues/events";
 import { LeagueStore } from "../src/leagues/store";
 import type { LeagueFixture, SeasonRecord } from "../src/leagues/types";
 import { MailPrefsStore } from "../src/mail/stores";
@@ -466,6 +467,62 @@ describe("Weekly Digest", () => {
     expect(c.highlights.map((h) => h.name)).toEqual(["Most casualties", "Biggest win"]); // no recorded games: no fouls / scorers / deaths, no bounties ever
   });
 
+  it("typed and administrative results are in the digest; admin ones are labelled, forfeits show no score, highlights stay recorded-only", () => {
+    const sc = (h: number | null, a: number | null, cas: number | null = null) => ({ home: { ...fx("x").home, score: h, cas }, away: { ...fx("x").away, score: a, cas } });
+    const recorded = fx("rec", { ...sc(2, 1, 3), tabletop: { revision: 1, opId: "op" }, finishedAt: at(-30) });
+    const typed = fx("typed", { ...sc(5, 0, 9), finishedAt: at(-29), round: 2 });
+    const forfeit = fx("ff", { ...sc(0, 0), away: { ...fx("x").away, score: 0, cas: null, conceded: true }, finishedAt: at(-28) });
+    const forfeitAway = fx("ffa", { home: { ...fx("x").home, score: 0, cas: null, conceded: true }, away: { ...fx("x").away, score: 0, cas: null }, finishedAt: at(-28) });
+    const deadlineAuto = fx("dl", { ...sc(0, 0), home: { ...fx("x").home, score: 0, cas: null, conceded: true }, away: { ...fx("x").away, score: 0, cas: null, conceded: true }, deadlineOutcome: { outcome: "both-lose", auto: true, at: at(-27) } });
+    const deadlineOrg = fx("dlo", { home: { ...fx("x").home, score: 0, cas: null, conceded: true }, away: { ...fx("x").away, score: 0, cas: null, conceded: true }, deadlineOutcome: { outcome: "both-lose", by: "Org", at: at(-26) } });
+    const overrideWin = fx("ow", { ...sc(8, 1), tabletop: { revision: 1, opId: "op2" }, finishedAt: at(-300), resultEdit: { by: "Org", at: at(-25) } });
+    const overrideDraw = fx("od", { ...sc(1, 1), finishedAt: at(-300), resultEdit: { at: at(-24) } });
+    const noResult = fx("nr", { deadlineOutcome: { outcome: "no-result", by: "Org", at: at(-23) } });
+    const undated = fx("und", { ...sc(4, 4) });
+    const s = season("season-1", [recorded, typed, forfeit, forfeitAway, deadlineAuto, deadlineOrg, overrideWin, overrideDraw, noResult, undated]);
+    const c = weeklyContent(s, NOW.getTime() - 7 * 24 * 3_600_000, NOW.getTime(), "UTC", [])!;
+    expect(c.results).toEqual([
+      "Orcs 2 - 1 Elves", "Orcs 5 - 0 Elves",
+      "Admin win: Orcs over Elves", "Admin win: Elves over Orcs",
+      "Admin loss: Orcs and Elves (both teams)", "Admin loss: Orcs and Elves (both teams)",
+      "Admin win: Orcs over Elves (8 - 1)", "Admin draw: Orcs and Elves (1 - 1)",
+    ]);
+    // highlights: casualties from the recorded fixture only (3, not the typed 9); biggest win ignores administrative ones (5-0, not 8-1)
+    const h = Object.fromEntries(c.highlights.map((x) => [x.name, x.value]));
+    expect(h["Most casualties"]).toBe("Orcs: 3");
+    expect(h["Biggest win"]).toBe("Orcs 5 - 0 Elves");
+    // standings are unchanged by the digest change: they still count every result
+    expect(c.standings.length).toBeGreaterThan(0);
+  });
+
+  it("a league with only typed results posts its digest through the cleaned sender", async () => {
+    leagues.setSecrets("lg", { discordWebhookUrl: HOOK });
+    leagues.updateLeague("lg", (l) => { l.timeZone = "UTC"; });
+    leagues.putSeason(season("season-1", [fx("typed", { home: { ...fx("typed").home, score: 3, cas: 1 }, away: { ...fx("typed").away, score: 1, cas: 0 }, finishedAt: at(-3) })]));
+    const observer = new DiscordObserver({ leagues, tournaments, state, poster, now: () => NOW });
+    const deps: DiscordApiDeps = { leagues, tournaments, state, poster, observer };
+    const preview = await discordApi("GET", "/api/leagues/lg/discord/weekly-digest", { coach: "Org" }, undefined, deps);
+    expect(preview!.body).not.toMatchObject({ preview: null });
+    expect((await discordApi("POST", "/api/leagues/lg/discord/weekly-digest/post", { coach: "Org" }, {}, deps))!.status).toBe(200);
+    expect(titles()).toEqual(["Test League: Weekly Digest"]);
+    expect(JSON.stringify(posts[0]!.payload)).toContain("Orcs 3 - 1 Elves");
+    // no individual result post for a typed score
+    expect(titles().filter((t) => t.endsWith("result"))).toEqual([]);
+  });
+
+  it("an organiser typing over an existing result marks it administrative; a first typed score does not; a recorded result clears the mark", async () => {
+    leagues.putSeason(season("season-1", [fx("a"), fx("b")]));
+    const lg = leagues.league("lg")!;
+    const deps = { store: leagues, now: () => NOW } as never;
+    const enter = (id: string, home: number) => editFixture(lg, "season-1", id, { coach: "Org", admin: false } as never, { result: { home, away: 0, homeCas: null, awayCas: null } }, deps);
+    await enter("a", 2);
+    expect(leagues.season("lg", "season-1")!.fixtures.find((f) => f.id === "a")!.resultEdit).toBeUndefined();
+    await enter("a", 3);
+    expect(leagues.season("lg", "season-1")!.fixtures.find((f) => f.id === "a")!.resultEdit).toMatchObject({ by: "Org" });
+    await editFixture(lg, "season-1", "a", { coach: "Org", admin: false } as never, { result: null }, deps);
+    expect(leagues.season("lg", "season-1")!.fixtures.find((f) => f.id === "a")!.resultEdit).toBeUndefined();
+  });
+
   it("the observer posts the digest at the slot once (the run survives a restart via the ledger), and never for a draft", async () => {
     leagues.setSecrets("lg", { discordWebhookUrl: HOOK });
     leagues.updateLeague("lg", (l) => { l.timeZone = "UTC"; l.weeklyDigest = { enabled: true, trigger: "schedule", day: 0, time: "10:00", everyWeeks: 1 }; });
@@ -483,7 +540,7 @@ describe("Weekly Digest", () => {
     const observer = new DiscordObserver({ leagues, tournaments, state, poster, now: () => NOW });
     const deps: DiscordApiDeps = { leagues, tournaments, state, poster, observer };
     const empty = await discordApi("GET", "/api/leagues/lg/discord/weekly-digest", { coach: "Org" }, undefined, deps);
-    expect(empty!.body).toMatchObject({ preview: null, reason: "No games were played in this period, so the digest is skipped." });
+    expect(empty!.body).toMatchObject({ preview: null, reason: "No results were entered in this period, so the digest is skipped." });
     expect((await discordApi("POST", "/api/leagues/lg/discord/weekly-digest/post", { coach: "Org" }, {}, deps))!.status).toBe(409);
     expect((await discordApi("POST", "/api/leagues/lg/discord/weekly-digest/post", { coach: "Eve" }, {}, deps))!.status).toBe(403);
     leagues.putSeason(season("season-1", [fx("f1", { home: { ...fx("f1").home, score: 2 }, away: { ...fx("f1").away, score: 1 }, tabletop: { revision: 1, opId: "op" }, finishedAt: at(-5) })]));
@@ -809,7 +866,7 @@ describe("re-review fixes", () => {
     expect(starProfanity("pass-hit play, set.up")).toBe("pass-hit play, set.up");
   });
 
-  it("[2] an organiser-entered score is left out of the round summary; hand-entered league results stay out of the digest", async () => {
+  it("[2] an organiser-entered score is left out of the round summary; hand-entered league results are in the digest", async () => {
     state.setWebhook("tournament:t1", HOOK);
     const obs = new DiscordObserver({ leagues, tournaments, state, poster, now: () => NOW });
     await obs.tick();
@@ -826,11 +883,11 @@ describe("re-review fixes", () => {
     expect(summary.payload.embeds[0]!.description).toContain("Ann 2 - 1 Bob");
     expect(summary.payload.embeds[0]!.description).not.toContain("7 - 0");
     expect(titles().filter((t) => t === "Autumn Open: result")).toHaveLength(1); // M1 only
-    // league: a hand-entered score is not in the Weekly Digest's results
+    // league: a typed score IS in the Weekly Digest's results (a normal result, no game record behind it)
     const typed = fx("typed", { home: { ...fx("typed").home, score: 9 }, away: { ...fx("typed").away, score: 0 }, finishedAt: at(-3) });
     leagues.putSeason(season("season-1", [typed]));
     const d = await obs.digestFor(leagues.league("lg")!, NOW.getTime() - 7 * 24 * 3_600_000, NOW.getTime());
-    expect(d.payload).toBeUndefined();
+    expect(d.payload!.embeds[0]!.fields!.find((f) => f.name.startsWith("Results"))!.value).toBe("Orcs 9 - 0 Elves");
   });
 
   it("[3] redraft posts and the league test post go through the cleaned sender", async () => {

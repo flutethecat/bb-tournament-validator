@@ -884,6 +884,8 @@ function anonymiseSeason(an: Anonymiser, tx: TextReplacer, displays: ReadonlySet
     }
     // Deadlines (deadlines.ts): the organiser who decided the fixture's deadline outcome.
     if (isObj(f.deadlineOutcome)) mark(an.fields(f.deadlineOutcome, ["by"], []));
+    // The organiser who overrode the fixture's result (resultEdit).
+    if (isObj(f.resultEdit)) mark(an.fields(f.resultEdit, ["by"], []));
   }
   if (isObj(s.deadlinePolicy)) mark(an.fields(s.deadlinePolicy, ["updatedBy"], []));
   for (const p of objs(s.participants)) {

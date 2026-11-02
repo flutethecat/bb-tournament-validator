@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-02",
+    "title": "Weekly Digest now lists every result, and labels administrative ones",
+    "body": "The Discord Weekly Digest includes hand-entered results as well as recorded games. Forfeits, deadline auto-forfeits, concessions entered by an organiser and organiser overrides of an existing result show as an administrative win, loss or draw (forfeits show no score). Highlights still use recorded games only.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-02",
     "title": "League pages: bigger, cleaner text, a two-row header, and tidier overview, fixtures, standings, honours and awards",
     "body": "The site now uses one clean sans-serif everywhere at a larger default size, with SNES Italic for the panel headings (Nuffle is retired). League headers show every tab on a second row. The league overview fits on one screen with compact result cards in their own scrolling box; fixture phases collapse (finished ones start collapsed); standings have a phase picker, bigger text, and coach and team names that open a coach summary or the team's roster; Honours has a Player / Coach / Team switch; and Awards shows cards grouped by season or a sortable table, with a pin icon for organisers.",
     "links": [

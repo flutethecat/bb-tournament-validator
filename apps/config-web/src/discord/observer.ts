@@ -34,7 +34,7 @@ import {
 } from "./posts.js";
 import type { DiscordStateStore } from "./store.js";
 import { leagueTarget, postRaw, postTo, seasonTarget, tournamentTarget, type DiscordTarget } from "./targets.js";
-import { completedRounds, lastSlot, periodFixtures, previousSlot, slotDue, weeklyContent, weeklyOf } from "./weekly.js";
+import { completedRounds, lastSlot, periodFixtures, previousSlot, recordedFixtures, slotDue, weeklyContent, weeklyOf } from "./weekly.js";
 
 export const OBSERVER_TICK_MS = 30_000;
 const HOUR = 3_600_000;
@@ -265,10 +265,10 @@ export class DiscordObserver {
     const season = DiscordObserver.digestSeason(this.deps.leagues.seasons(league.id));
     if (!season) return { reason: "The league has no season yet.", from, to };
     const tz = leagueTimeZone(league);
-    // Highlights read only the games of the period, like its results.
+    // Results list every result of the period; highlights read only the recorded games among them.
     const fixtures = periodFixtures(season, from, to);
-    const content = weeklyContent(season, from, to, tz, await this.games(league, season, fixtures));
-    if (!content) return { reason: "No games were played in this period, so the digest is skipped.", from, to };
+    const content = weeklyContent(season, from, to, tz, await this.games(league, season, recordedFixtures(fixtures)));
+    if (!content) return { reason: "No results were entered in this period, so the digest is skipped.", from, to };
     return { payload: weeklyDigestPost(league.name, content, league.test === true), from, to };
   }
 

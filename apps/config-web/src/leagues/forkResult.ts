@@ -349,6 +349,7 @@ export function applyForkResult(season: SeasonRecord, fixture: LeagueFixture, re
     side.conceded = r.conceded;
   }
   fixture.suspended = false;
+  delete fixture.resultEdit;
   if (fixture.deadlineOutcome?.auto) delete fixture.deadlineOutcome;
   fixture.finishedAt = result.playedAt ?? now.toISOString();
   const h = picked.home.penaltyScore;
