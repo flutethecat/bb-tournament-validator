@@ -23,9 +23,11 @@ function leaveHandoff(h: Handoff): void { handoff = h; }
 // inducements and star players; centre: the roster table; right: team controls with the skill-pack list or the save line
 // in their footer, the validator), stacked in that order on a phone. Browsing and building are public, as on the vanilla page (the preview runs as a
 // guest); saving, sharing and creating on the Fork need the Discord session. Deep links: /:saveId (or ?save=) opens a
-// saved team, ?package=<name>[&race=<rosterId>] preselects the ruleset (and race).
+// saved team, ?package=<name>[&race=<rosterId>] preselects the ruleset (and race). League mode (registration spec 11-02, lane L7):
+// ?league=<id>&season=<id>[&race=] builds under that league season's team-building rules (the Ruleset tab becomes the league's
+// rules and race picker; a save keeps the league season with the team).
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, provide, reactive, ref, watch } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { RouterLink, useRoute, useRouter } from "vue-router";
 import "../../../public/team-view.css";
 import "../teams/teams.css";
 import "../teams/builder.css";
@@ -42,6 +44,8 @@ import TournamentBuilderRoster from "../components/TournamentBuilderRoster.vue";
 import TournamentBuilderTeam from "../components/TournamentBuilderTeam.vue";
 import TournamentBuilderValidator from "../components/TournamentBuilderValidator.vue";
 import TournamentBuilderSheet from "../components/TournamentBuilderSheet.vue";
+import TournamentBuilderLeague from "../components/TournamentBuilderLeague.vue";
+import { leaguePackageName, parseLeaguePackageName } from "../../../src/leagueBuilderMarker";
 
 const props = defineProps<{ saveId?: string }>();
 const fetcher = inject(API_KEY)!;
@@ -118,6 +122,10 @@ const crest = computed(() => (state.roster ? builder.crestPath(state.roster.race
 const lockedLine = computed(() => [builder.rulesetLabel(), state.roster?.raceName, builder.tierLabel(), state.roster && builder.capped() ? `TV cap ${fmtK(builder.totals().budget)}` : "", builder.ignoring() ? "In-game limits ignored" : ""].filter(Boolean).join(" · "));
 const signInHref = computed(() => discordLoginUrl(route.fullPath.startsWith("/") ? `/app${route.fullPath}` : "/app/tournament-team-builder"));
 
+/** League mode's deep link (?league=<id>&season=<id>), when both ids are valid. */
+const leagueLink = computed(() => parseLeaguePackageName(leaguePackageName(String(route.query.league ?? ""), String(route.query.season ?? ""))));
+/** The league line over the pane: "<League> · Season N · rules", linking back to the league. */
+const leagueLine = computed(() => (builder.leagueMode() && state.leagueCtx ? state.leagueCtx : null));
 /** The save id in the address bar: the route param, else the vanilla page's ?save= deep link. */
 const linkedSave = computed(() => {
   const id = props.saveId ?? (typeof route.query.save === "string" ? route.query.save : "");
@@ -148,6 +156,7 @@ onMounted(async () => {
     saveId: linkedSave.value || undefined,
     packageName: typeof route.query.package === "string" ? route.query.package : typeof route.query.preset === "string" ? route.query.preset : undefined,
     race: typeof route.query.race === "string" ? route.query.race : undefined,
+    league: leagueLink.value ?? undefined,
   });
   // Loading has finished: the asked tab (old ids already mapped, e.g. ?tab=stars -> roster) wins when the page can show it,
   // else the tab init picked. Before this the roster was not loaded, so the first guess fell back to Ruleset.
@@ -195,12 +204,20 @@ async function pickPackage(name: string): Promise<void> {
       </div>
     </Teleport>
 
+    <!-- league mode: the full league line on the Ruleset tab; the Roster and Sheet tabs keep only the locked line (with a League chip) so
+         the Roster pane still fits 1920x1080 without page scroll (design.md §6) -->
+    <p v-if="leagueLine && (tab === 'ruleset' || !ready)" class="tb-league-line">
+      <span class="sf-chip" data-tone="info">League</span>
+      <RouterLink :to="`/leagues/${encodeURIComponent(leagueLine.league.id)}`">{{ leagueLine.label }} · rules</RouterLink>
+    </p>
     <button v-if="ready && phone && tab !== 'ruleset'" type="button" class="tb-locked tb-locked-btn" aria-label="Change ruleset or race" @click="go('ruleset')">
       <img v-if="crest" class="tb-locked-crest" :src="crest" alt="" aria-hidden="true" />
+      <span v-if="leagueLine" class="sf-chip" data-tone="info">League</span>
       <span>{{ lockedLine }}</span>
     </button>
     <p v-else-if="ready" class="tb-locked">
       <img v-if="crest" class="tb-locked-crest" :src="crest" alt="" aria-hidden="true" />
+      <span v-if="leagueLine" class="sf-chip" data-tone="info">League</span>
       <span>{{ lockedLine }}</span>
     </p>
 
@@ -209,7 +226,8 @@ async function pickPackage(name: string): Promise<void> {
     <p v-if="state.status" :class="state.statusError ? 'lobby-error' : 'hm-empty'" role="status">{{ state.status }}</p>
 
     <div v-if="state.booted" :id="`tb-pane-${tab}`" class="tb-pane" role="tabpanel" :aria-labelledby="`tb-tab-${tab}`">
-      <TournamentBuilderRuleset v-if="tab === 'ruleset'" @package="pickPackage" @race="pickRace" @next="go('roster')" />
+      <TournamentBuilderLeague v-if="tab === 'ruleset' && builder.leagueMode()" @race="pickRace" @next="go('roster')" />
+      <TournamentBuilderRuleset v-else-if="tab === 'ruleset'" @package="pickPackage" @race="pickRace" @next="go('roster')" />
       <div v-else-if="tab === 'roster'" class="tb-work">
         <!-- Source order is the phone reading order: the left accordion (hireable players, sideline staff, inducements, star
              players), the roster, team controls (with the skill-pack list or the save line), the validator. Desktop places the

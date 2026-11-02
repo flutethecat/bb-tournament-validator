@@ -51,6 +51,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { leagueHonoursRoutes, myAwards } from "./awards.js";
 import { leagueInducementRoutes } from "./inducements.js";
+import { leagueBuilderRoute } from "./leagueBuilder.js";
 import { leagueCaptainRoutes, withCaptainCandidates } from "./captainApi.js";
 import { leagueLobbyRoutes, type LeagueLobbyDeps } from "../fixtureLobby/league.js";
 import { promises as fsp } from "node:fs";
@@ -333,6 +334,9 @@ export async function leagueApi(
   if (lobby) return lobby;
   const inducements = await leagueInducementRoutes(method, route.rest, league, auth, deps);
   if (inducements) return inducements;
+  // Roster Builder league mode (lane L7): GET .../seasons/:seasonId/team-building, the builder's league context.
+  const builder = leagueBuilderRoute(method, route.rest, league, store);
+  if (builder) return builder;
   const fork = await leagueForkRoutes(method, route.id, route.rest, auth, deps);
   if (fork) return fork;
   const redraft = await redraftRoutes(method, route.rest, league, auth, deps, query);

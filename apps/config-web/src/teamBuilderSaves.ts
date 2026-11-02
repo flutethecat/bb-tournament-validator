@@ -17,6 +17,7 @@ import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { acquireFileWriteLock, atomicWriteTextFile } from "@bb/fork-ops";
 import { teamBuilderBoundsError, teamBuilderWireError } from "./teamBuilderWire.js";
+import { parseLeaguePackageName, type LeagueBuilderRef } from "./leagueBuilderMarker.js";
 
 export const TEAM_BUILDER_SAVES_BODY_CAP = 64 * 1024;
 export const TEAM_BUILDER_SAVES_PER_COACH = 100;
@@ -35,6 +36,9 @@ export interface TeamBuilderSaveSummary {
    *  Only ever returned to the OWNING coach (their own list / save); the public read never echoes it. */
   shareToken?: string;
   sharedAt?: string;
+  /** Roster Builder league mode (lane L7): the league season the team was built for, derived from body.packageName
+   *  ("league:<leagueId>:<seasonId>") on every write, so a league registration (L6) can submit the save. */
+  league?: LeagueBuilderRef;
 }
 
 export interface TeamBuilderSave extends TeamBuilderSaveSummary {
@@ -91,7 +95,11 @@ export const summarizeSave = (s: TeamBuilderSave): TeamBuilderSaveSummary => ({
   updatedAt: s.updatedAt,
   createdAt: s.createdAt,
   ...(s.shareToken ? { shareToken: s.shareToken, sharedAt: s.sharedAt } : {}),
+  ...(s.league ? { league: { ...s.league } } : {}),
 });
+
+/** The league season a save body was built for (league mode), or undefined. */
+const leagueOf = (body: Record<string, unknown>): LeagueBuilderRef | undefined => parseLeaguePackageName(body.packageName) ?? undefined;
 
 /** TeamBuilderBody fields a BUILD may persist into a save (unknown fields are dropped). Audited
  *  against team-builder.js requestBody(): every field it sends except `coach` (the session coach
@@ -203,6 +211,8 @@ export function createSave(deps: SaveDeps, coach: string, input: unknown): SaveR
       body: b.body,
       ...(lp ? { lastPreview: lp } : {}),
     };
+    const league = leagueOf(b.body);
+    if (league) save.league = league;
     return { saves: [...saves, save], out: { ok: true, status: 201, save } };
   });
 }
@@ -223,8 +233,9 @@ export function updateSave(deps: SaveDeps, coach: string, id: string, input: unk
     const n = parseName(name, prev.name);
     if (typeof n !== "string") return { out: { ok: false, status: 400, error: n.error } as SaveResult };
     const rosterId = String(b.body.rosterId);
+    const { league: _priorLeague, ...kept } = prev;
     const save: TeamBuilderSave = {
-      ...prev,
+      ...kept,
       name: n,
       packageName: typeof b.body.packageName === "string" && b.body.packageName ? b.body.packageName : null,
       rosterId,
@@ -233,6 +244,8 @@ export function updateSave(deps: SaveDeps, coach: string, id: string, input: unk
       body: b.body,
       ...(lp ? { lastPreview: lp } : {}),
     };
+    const league = leagueOf(b.body);
+    if (league) save.league = league;
     const next = [...saves];
     next[i] = save;
     return { saves: next, out: { ok: true, status: 200, save } };

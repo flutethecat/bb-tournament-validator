@@ -59,6 +59,9 @@ export interface ResolvedBuilderPackage {
   selected?: { name: string; description?: string };
   /** Roster Builder Free Create (freeCreate.ts): FREE_CREATE_BUILD_PACKAGE, asked for by its marker. */
   free?: true;
+  /** Roster Builder league mode (leagueBuilderMarker.ts): the season's rules, plus the league's own team problems
+   *  (allowed roster classes, max per race) for the preview to add to the validator's. */
+  league?: { leagueId: string; seasonId: string; raceProblems: (race: string) => string[] };
 }
 
 /**
@@ -75,8 +78,12 @@ export function resolveBuilderPackage(
   packages: PackageFiles,
   baseline: TournamentPackage,
   packageName: string | undefined,
+  league?: (name: string) => ResolvedBuilderPackage | { error: string } | undefined,
 ): ResolvedBuilderPackage | { error: string } {
   if (!packageName) return { pkg: baseline };
+  // League mode (lane L7): "league:<leagueId>:<seasonId>" resolves to the package derived from that season's rules.
+  const leagueHit = league?.(packageName);
+  if (leagueHit) return leagueHit;
   // Free Create (owner 10-31) is not a saved package: its marker resolves to its own build profile (core roster legality
   // only), so a Free Create roster built on the Fork meets the fork's own checks and nothing else.
   if (isFreeCreatePackage(packageName)) return { pkg: FREE_CREATE_BUILD_PACKAGE, free: true };

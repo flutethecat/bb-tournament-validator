@@ -107,8 +107,10 @@ import {
   positionList,
   type AdminTeamSearchMode,
 } from "./data";
-import { builderTierRows, isSevensPackage, packageRaceRules, packageResponseInfo, resolveBuilderPackage, SEVENS_TABLETOP_ONLY } from "./teamBuilderPackage.js";
+import { builderTierRows, isSevensPackage, packageRaceRules, packageResponseInfo, packageRulesInfo, resolveBuilderPackage, SEVENS_TABLETOP_ONLY } from "./teamBuilderPackage.js";
 import { FREE_CREATE_LABEL, isFreeCreatePackage } from "./freeCreate.js";
+import { resolveLeaguePackage, withLeagueProblems } from "./leagues/leagueBuilder.js";
+import { LEAGUE_FORK_NOTE, parseLeaguePackageName } from "./leagueBuilderMarker.js";
 import { freeDisplayRosterXml } from "./freeCreateDisplay.js";
 import { packagesApi } from "./packagesApi.js";
 import { isPublicArtPath } from "./publicArt.js";
@@ -498,6 +500,8 @@ const nafRecords = new NafRecordStore(FORK_STATE_DIR);
 const tournamentStore = new TournamentStore(TOURNAMENTS_DIR);
 // Leagues (TABBL and later): <FORK_STATE_DIR>/leagues/<id>/; public reads, organiser/admin artwork writes (src/leagues/api.ts).
 const leagueStore = new LeagueStore(FORK_STATE_DIR);
+/** Roster Builder league mode (lane L7): resolveBuilderPackage's hook for "league:<leagueId>:<seasonId>". */
+const leagueBuilderPackage = (name: string) => resolveLeaguePackage(leagueStore, name);
 // Fixture lobby (src/fixtureLobby): one file per fixture; presence in memory; chat 20 messages a minute per coach and lobby.
 const fixtureLobbyStore = new FixtureLobbyStore(FORK_STATE_DIR);
 const fixtureLobbyPresence = new LobbyPresence();
@@ -1370,13 +1374,13 @@ function sharedViewFor(coach: string, save: TeamBuilderSave, viewer: string | un
         input.roster = composed.roster;
         input.intrinsic = { legal: composed.legal, issues: composed.issues.length };
       } else {
-        const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, body.packageName);
+        const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, body.packageName, leagueBuilderPackage);
         if (!("error" in resolvedPkg)) {
           const display = resolvedPkg.free ? composeFreeDisplay(cfg.teamsDir, body) : undefined;
           const composed = display?.composed ?? composeFromBody(cfg.teamsDir, body, undefined, resolvedPkg.pkg);
           if (display?.dropped.length) input.displayNotes = display.dropped;
           input.roster = composed.roster;
-          input.result = validate(composed.roster, resolvedPkg.pkg, bb2025);
+          input.result = withLeagueProblems(validate(composed.roster, resolvedPkg.pkg, bb2025), resolvedPkg, composed.roster.rosterName);
           const info = packageResponseInfo(resolvedPkg, composed.roster.rosterName);
           if (info) input.ruleset = { name: info.name, budget: info.budget, tierLabel: packageRaceRules(resolvedPkg.pkg, composed.roster.rosterName).tierLabel ?? null };
           if (resolvedPkg.free) input.free = true;
@@ -3136,6 +3140,21 @@ async function handleApi(
       if (!isAdminAuthed(req) && !isTokenAuthed(req))
         return sendJson(res, 401, { error: path === "/api/packages" ? "Saving a package requires login (bearer token) or admin auth." : "The package preview requires the organiser login." });
     }
+    // Roster Builder league mode (lane L7): GET /api/packages/league:<id>:<season>[?roster=] reads the package derived from
+    // that season's rules, in the shape the builder reads for a saved package (pkg + rules). Never saved or listed.
+    if (method === "GET" && path.startsWith("/api/packages/")) {
+      let leagueName = "";
+      try { leagueName = decodeURIComponent(path.slice("/api/packages/".length)); } catch { /* not a marker */ }
+      if (parseLeaguePackageName(leagueName)) {
+        const hit = leagueBuilderPackage(leagueName);
+        if (!hit || "error" in hit) return sendJson(res, 404, { error: hit && "error" in hit ? hit.error : "Not found." });
+        const { pkg } = hit;
+        return sendJson(res, 200, {
+          pkg: { name: pkg.name, description: pkg.description ?? "", eligibleRosters: [...pkg.eligibleRosters], format: pkg.format ?? "standard" },
+          problems: [], rules: packageRulesInfo(pkg, query.get("roster")),
+        });
+      }
+    }
     const body = method === "POST" ? await readBody(req) : undefined;
     const ifMatch = typeof req.headers["if-match"] === "string" ? req.headers["if-match"].replace(/^"|"$/g, "") : undefined;
     const result = packagesApi(packages, method, path, query, body, { ifMatch });
@@ -3929,7 +3948,7 @@ async function handleApi(
 
   if (path === "/api/fork/team-builder/inducements" && method === "GET") {
     const packageName = query.get("packageName")?.trim() || undefined;
-    const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, packageName);
+    const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, packageName, leagueBuilderPackage);
     if ("error" in resolvedPkg) return sendJson(res, 400, { error: resolvedPkg.error });
     // Commissioner opt-ins (e.g. canopicJar) are listed only for a named competition that enabled them.
     const optInTournament = query.get("tournamentId")?.trim();
@@ -3942,7 +3961,7 @@ async function handleApi(
   // knobs), from the same resolution validate() uses. Open read like /tiers; also answers for the Sevens Free Create marker.
   if (path === "/api/fork/team-builder/limits" && method === "GET") {
     const packageName = query.get("packageName")?.trim() || undefined;
-    const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, packageName);
+    const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, packageName, leagueBuilderPackage);
     if ("error" in resolvedPkg) return sendJson(res, 400, { error: resolvedPkg.error });
     const race = query.get("roster")?.trim();
     const limits = race ? effectiveRosterLimits(resolvedPkg.pkg, race, bb2025) : undefined;
@@ -3955,7 +3974,7 @@ async function handleApi(
 
   if (path === "/api/fork/team-builder/tiers" && method === "GET") {
     const packageName = query.get("packageName")?.trim() || undefined;
-    const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, packageName);
+    const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, packageName, leagueBuilderPackage);
     if ("error" in resolvedPkg) return sendJson(res, 400, { error: resolvedPkg.error });
     // With a selected package each assigned race row also carries `gold` + `rules`, and `tiers`
     // lists the PDF-style tier table rows. No packageName => the original `{ races }` shape.
@@ -4208,7 +4227,7 @@ async function handleApi(
       if (wireError) return sendJson(res, 400, { error: wireError });
       // Custom mode (owner 08-19): open to any fork player — no organizer/admin gate. Preview is
       // non-mutating, and the build route still authenticates the coach before any write.
-      const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, body.packageName);
+      const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, body.packageName, leagueBuilderPackage);
       if ("error" in resolvedPkg) return sendJson(res, 400, { error: resolvedPkg.error });
       // Secret League path (#52 A): off-dataset roster → compose + validate roster-intrinsically.
       // (Packages don't apply here — the dataset validator can't run for an off-dataset race.)
@@ -4224,7 +4243,7 @@ async function handleApi(
         });
       }
       const composed = composeFromBody(cfg.teamsDir, body, undefined, resolvedPkg.pkg);
-      const result = validate(composed.roster, resolvedPkg.pkg, bb2025);
+      const result = withLeagueProblems(validate(composed.roster, resolvedPkg.pkg, bb2025), resolvedPkg, composed.roster.rosterName);
       const packageInfo = packageResponseInfo(resolvedPkg, composed.roster.rosterName);
       // Custom UAT mode: never block — always valid, findings surfaced as informational warnings.
       return sendJson(res, 200, {
@@ -4343,12 +4362,14 @@ async function handleApi(
     // Custom mode (owner 08-19): open to any fork player — no organizer/admin gate. The coach-auth
     // block below still runs, so a custom team can only be written by an authenticated fork coach
     // (under their own name), or admin. Custom just skips the legality/budget validation, not auth.
-    const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, body.packageName);
+    const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, body.packageName, leagueBuilderPackage);
     if ("error" in resolvedPkg) return sendJson(res, 400, { error: resolvedPkg.error });
     // Blood Bowl Sevens is tabletop-only (Sevens spec 11-02, owner Q12): upstream FFB has no Sevens pitch, turns or tables,
     // and the fork stays upstream-identical, so a Sevens roster (any format: "sevens" package or Sevens Free Create) is
     // never written as a fork team.
     if (isSevensPackage(resolvedPkg.pkg)) return sendJson(res, 400, { error: SEVENS_TABLETOP_ONLY });
+    // League mode (lane L7): a league team is made when the organisers accept the registration (L6), never from here.
+    if (resolvedPkg.league) return sendJson(res, 400, { error: LEAGUE_FORK_NOTE });
     if (auth) {
       body.coach = auth.coach;
     } else if (!isAdminAuthed(req)) {

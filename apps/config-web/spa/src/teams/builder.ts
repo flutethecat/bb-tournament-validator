@@ -31,6 +31,8 @@ import {
 import { TEAM_BUILDER_BODY_BOUNDS } from "../../../src/teamBuilderWire";
 import { cleanStatIncreaseRules, statRuleBlock, teamCapBlock, type StatIncreaseRules } from "../../../../../packages/bb-validator/src/cost/statRules";
 import { cleanPlayerName, PLAYER_NAME_MAX, randomPlayerName } from "../../../src/playerNames";
+import { LEAGUE_FORK_NOTE, parseLeaguePackageName, type LeagueBuilderRef } from "../../../src/leagueBuilderMarker";
+import { leagueRaceRows, sanitizeLeagueContext, type LeagueContext } from "./builderLeague";
 export { PLAYER_NAME_MAX };
 
 // ── wire shapes ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -442,6 +444,8 @@ export interface BuilderState {
   limits: BuilderLimits | null;
   /** Blood Bowl Sevens: the rosters the ruleset admits (the /limits route's eligibleRosters). */
   sevensEligible: string[];
+  /** League mode (lane L7): the league season the team is built for (null outside league mode). */
+  leagueCtx: LeagueContext | null;
 }
 
 function blankState(): BuilderState {
@@ -451,7 +455,7 @@ function blankState(): BuilderState {
     inducementCatalog: [], inducementCounts: {}, inducementStatus: "", preview: null, previewPending: false, skillCatalog: null, legal: {},
     art: { sprites: null, crests: null, icons: null, skillIcons: null, uiIcons: null }, status: "", statusError: false,
     currentSave: null, savesStatus: "", saveBusy: false, shareBusy: false, shareUrl: "", editingTeamId: null, buildBusy: false, buildResult: null,
-    pdfBusy: false, printHtml: "", leftPanel: "hire", ignoreLimits: false, packageFormat: "standard", limits: null, sevensEligible: [],
+    pdfBusy: false, printHtml: "", leftPanel: "hire", ignoreLimits: false, packageFormat: "standard", limits: null, sevensEligible: [], leagueCtx: null,
   };
 }
 
@@ -505,6 +509,8 @@ export function createTournamentBuilder(deps: BuilderDeps) {
   const sevensFree = (): boolean => state.packageName === SEVENS_FREE_CREATE_PACKAGE;
   /** Any Blood Bowl Sevens ruleset (the marker, or a package whose resolved format is "sevens"). */
   const sevens = (): boolean => sevensFree() || state.packageFormat === "sevens";
+  /** League mode (lane L7): the ruleset is a league season's rules (the "league:<id>:<season>" marker). */
+  const leagueMode = (): boolean => Boolean(state.leagueCtx && state.packageName === state.leagueCtx.packageName);
   /** The chosen race's Sevens limits (null for standard rulesets and before a race is picked). */
   const limits = (): BuilderLimits | null => (sevens() && state.roster ? state.limits : null);
   /** The roster's player cap: the package's (Sevens 11), else the standard 16. */
@@ -899,7 +905,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
   const sheetValid = (): boolean => checkable() && (free() || currentVerdict()?.valid === true);
   const canExport = (): boolean => Boolean(state.roster && state.slots.length) && sheetValid() && !state.pdfBusy;
   /** Why this team can't go to the fork ("" = it can): Blood Bowl Sevens is tabletop only (owner Q12). */
-  const forkBlocked = (): string => (sevens() ? SEVENS_TABLETOP_NOTE : "");
+  const forkBlocked = (): string => (sevens() ? SEVENS_TABLETOP_NOTE : leagueMode() ? LEAGUE_FORK_NOTE : "");
   const canBuild = (): boolean => Boolean(deps.coach()) && sheetValid() && !state.buildBusy && !forkBlocked();
   const canSave = (): boolean => Boolean(deps.coach() && state.roster) && !state.saveBusy;
   /** Share link: a saved team whose sheet could be exported (valid, or Free Create with a name and a player). */
@@ -947,7 +953,8 @@ export function createTournamentBuilder(deps: BuilderDeps) {
   // Blood Bowl Sevens has no Star Players or Mercenaries (owner Q4): the panel stays shut whatever the package says.
   const starsAllowed = (): boolean => Boolean(state.roster) && !sevens() && (ignoring() || (raceRules()?.stars?.allowed ?? true));
   /** Why the star bar is shut (its tooltip): Sevens, else the race has no star access. */
-  const starsOffReason = (): string => (sevens() ? SEVENS_NO_STARS : "This race has no access to star players under this ruleset.");
+  const starsOffReason = (): string => (sevens() ? SEVENS_NO_STARS : leagueMode() ? "League teams hire Star Players as inducements before a match, not when the team is built."
+    : "This race has no access to star players under this ruleset.");
   function starSp(choice: StarChoice): number | null {
     const costs = raceRules()?.stars?.spCosts;
     if (!costs?.length) return null;
@@ -1018,6 +1025,8 @@ export function createTournamentBuilder(deps: BuilderDeps) {
   function eligibleRosters(): Map<string, BuilderRoster> {
     // Free Create: every base BB2025 roster the fork has.
     if (free()) return new Map(state.rosters.map((r) => [r.rosterId, r]));
+    // League mode: the races the season admits that are not full (the server judges the team again on every preview).
+    if (leagueMode()) return new Map(leagueRaces().filter((r) => r.selectable && r.rosterId).map((r) => [r.rosterId!, state.rosters.find((x) => x.rosterId === r.rosterId)!]));
     // Sevens Free Create: every roster the Sevens profile admits (the SJ22 tier list; no Slann).
     if (sevensFree()) {
       const admitted = new Set(state.sevensEligible.map((n) => core.norm(n)));
@@ -1035,6 +1044,8 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     } else for (const roster of state.rosters) if (admitted(roster.raceName)) out.set(roster.rosterId, roster);
     return out;
   }
+  /** League mode's race picker: every race of the season's table, with why a race can't be picked. */
+  const leagueRaces = () => (state.leagueCtx ? leagueRaceRows(state.leagueCtx, state.rosters, crestPath, state.roster?.rosterId ?? null) : []);
   /** Free Create's race picker: every base roster, by name, with its crest. */
   function freeRaces(): Array<{ rosterId: string; raceName: string; crest: string; selected: boolean }> {
     const pool = sevensFree() ? [...eligibleRosters().values()] : state.rosters;
@@ -1052,7 +1063,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     ];
   }
   /** The ruleset's display name (the Free Create markers read "Free Create" / "Sevens Free Create"). */
-  const rulesetLabel = (): string => (free() ? FREE_CREATE_LABEL : sevensFree() ? SEVENS_FREE_CREATE_LABEL : state.packageName);
+  const rulesetLabel = (): string => (free() ? FREE_CREATE_LABEL : sevensFree() ? SEVENS_FREE_CREATE_LABEL : leagueMode() ? state.leagueCtx!.label : state.packageName);
   /** The sheet's format title line: "Blood Bowl Sevens · Matched Play" ("" for standard rulesets). */
   function formatTitle(): string {
     if (!sevens()) return "";
@@ -1118,6 +1129,19 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     state.booted = true;
     void ensureSkillCatalog();
     void loadArt();
+  }
+  /** League mode: the season's context (rules summary, race picker, inducement table). False when it can't be read. */
+  async function loadLeague(ref: LeagueBuilderRef): Promise<boolean> {
+    if (state.leagueCtx && state.leagueCtx.league.id === ref.leagueId && state.leagueCtx.season.id === ref.seasonId) return true;
+    try {
+      const ctx = sanitizeLeagueContext(await api<unknown>(`/api/leagues/${encodeURIComponent(ref.leagueId)}/seasons/${encodeURIComponent(ref.seasonId)}/team-building`));
+      if (!ctx) throw new Error("no league context");
+      state.leagueCtx = ctx;
+      return true;
+    } catch (e) {
+      setStatus(e instanceof ApiError && e.status === 404 ? "That league season doesn't exist." : `Couldn't load the league's team building rules (${(e as Error).message}).`, true);
+      return false;
+    }
   }
   async function loadArt(): Promise<void> {
     const get = async <T>(path: string, ok: (v: unknown) => boolean): Promise<T | null> => {
@@ -1798,7 +1822,8 @@ export function createTournamentBuilder(deps: BuilderDeps) {
         return false;
       }
       // A save whose ruleset is gone is not loaded: saving it again would drop its packageName.
-      if (body.packageName !== FREE_CREATE_PACKAGE && body.packageName !== SEVENS_FREE_CREATE_PACKAGE && !state.packages.some((p) => p.name === body.packageName)) {
+      const leagueRef = parseLeaguePackageName(body.packageName);
+      if (leagueRef ? !(await loadLeague(leagueRef)) : body.packageName !== FREE_CREATE_PACKAGE && body.packageName !== SEVENS_FREE_CREATE_PACKAGE && !state.packages.some((p) => p.name === body.packageName)) {
         state.savesStatus = "This team's ruleset is no longer available.";
         return false;
       }
@@ -2027,9 +2052,16 @@ export function createTournamentBuilder(deps: BuilderDeps) {
   }
 
   /** Boot, then follow the deep link: a save id (path or ?save=), else ?package=[&race=]. Resolves the tab to open. */
-  async function init(link: { saveId?: string; packageName?: string; race?: string }): Promise<BuilderTab> {
+  async function init(link: { saveId?: string; packageName?: string; race?: string; league?: LeagueBuilderRef }): Promise<BuilderTab> {
     if (!state.booted) await boot();
     if (link.saveId && deps.coach() && (await loadSave(link.saveId, { silent: true }))) return "roster";
+    // League mode (?league=<id>&season=<id>): the season's rules are the ruleset; there is no ruleset to pick.
+    if (link.league) {
+      if (!(await loadLeague(link.league))) return "ruleset";
+      await choosePackage(state.leagueCtx!.packageName);
+      if (link.race && (await chooseRace(link.race))) return "roster";
+      return "ruleset";
+    }
     if (link.packageName && (link.packageName === FREE_CREATE_PACKAGE || link.packageName === SEVENS_FREE_CREATE_PACKAGE || state.packages.some((p) => p.name === link.packageName))) {
       await choosePackage(link.packageName);
       if (link.race && state.rosters.some((r) => r.rosterId === link.race) && (await chooseRace(link.race))) return "roster";
@@ -2047,6 +2079,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     captainIndex, skillAllowance, slotLocks, legalSet, requestBody, sheetModel, teamViewModel, gateCtx, named, signedIn: (): boolean => Boolean(deps.coach()),
     free, ignoring, capped, canShare, skillBlock, moreSkills, rulesetCards, rulesetLabel, freeRaces, canAddStar,
     sevens, sevensFree, limits, maxPlayers, nonLineman, canVeteran, veteranIndex, displayPosition, forkBlocked, starsOffReason, formatTitle,
+    leagueMode, leagueRaces,
     // actions
     init, boot, choosePackage, chooseRace, setTeamName, selectLeague, setSkillPack, addPosition, removeSlot, addStar, removeStar, moveSlot,
     toggleCaptain, toggleVeteran, openSkills, addSkill, removeSkill, addStat, removeStat, resetSummary, resetPlayer, renameSlot, rerollName, stepStaff, stepInducement, setIgnoreLimits, schedulePreview, flushPreview,

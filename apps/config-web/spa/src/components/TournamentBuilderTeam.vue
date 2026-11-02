@@ -52,7 +52,7 @@ async function changePack(): Promise<void> {
         <small v-if="state.currentSave" class="muted tb-editing">Editing {{ state.currentSave.name }}</small>
       </label>
       <label v-if="league.visible" class="tb-field">
-        <span>League</span>
+        <span>{{ builder.leagueMode() ? "Special rules league" : "League" }}</span>
         <select :disabled="!league.interactive" :required="league.interactive" :value="builder.activeLeague() || (league.interactive ? '' : builder.leagueOptions()[0])"
           @change="builder.selectLeague(($event.target as HTMLSelectElement).value)">
           <option v-if="league.interactive" value="" disabled>Choose a league</option>

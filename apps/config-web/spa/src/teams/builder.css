@@ -609,3 +609,26 @@
 .tv-totals.tb-value .tb-posbreak { flex: 0 0 100%; list-style: none; margin: 0; padding: 0; font-size: 12px; line-height: 1.35; color: var(--ui-muted); text-align: left; }
 .tv-totals.tb-value .tb-posbreak li { overflow-wrap: anywhere; }
 .tv-totals.tb-value .tb-posbreak b { font: inherit; text-shadow: none; text-align: left; color: var(--ui-text); font-weight: 600; }
+/* Roster Builder league mode (lane L7): the league line over the pane, and the race picker (Free Create's race buttons with a
+   terms line; a full race stays in the grid, disabled, with its reason). */
+.tb-league-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; padding: 6px 12px; font: 12px/1.4 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--sf-gold); background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--sf-gold); border-radius: 2px; overflow-wrap: anywhere; }
+.tb-league-line a { color: inherit; }
+.tb-league-races { grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr)); }
+.tb-league-race { align-items: flex-start; padding-top: 6px; padding-bottom: 6px; }
+.tb-league-race-text { display: grid; gap: 2px; min-width: 0; }
+.tb-league-race-text small { font-weight: 400; font-size: 13px; line-height: 1.35; }
+.tb-league-race:disabled { cursor: not-allowed; opacity: .62; background: var(--ui-surface-2); }
+.tb-league-race:disabled:hover { border-color: var(--sf-panel-line); }
+.tb-league-reason { color: var(--ui-heading); }
+.tb-league-class { margin-left: 6px; vertical-align: 2px; }
+.tb-league-off-list { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+.tb-league-ind { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.tb-league-ind li { display: flex; align-items: center; gap: 8px; min-height: 36px; }
+.tb-league-ind .tb-who { flex: 1 1 auto; }
+.tb-league-ind .tb-step-cost { flex: none; }
+.tb-league-ind .tb-who { display: grid; gap: 2px; min-width: 0; }
+.tb-league-ind .tb-who small { font-size: 13px; line-height: 1.35; color: var(--ui-muted); }
+@media (min-width: 1180px) { .tb-rsflow.tb-league { grid-template-rows: auto; grid-template-areas: "race summary"; } }
+/* 1920x1080 with no page scroll (design.md §6): the league race grid and the league inducement list scroll inside their panes. */
+@media (min-width: 1180px) { .tb-league-races { max-height: max(280px, calc(100vh - 340px)); overflow-y: auto; overscroll-behavior: contain; padding-right: 2px; } }
+.tb-league-ind { max-height: 300px; overflow-y: auto; overscroll-behavior: contain; }

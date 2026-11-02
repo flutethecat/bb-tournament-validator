@@ -641,3 +641,6 @@ button.lg-cog { margin: 0; padding: 0; font: inherit; color: inherit; cursor: po
 .lg-dl-fx-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .lg-dl-fixtures { max-height: 560px; overflow-y: auto; }
 .lg-dl-chip { white-space: nowrap; }
+/* Registration spec 11-02 (lane L7): "Build a team for this league" under the Season panel. */
+.lg-build-team { margin: 0; }
+.lg-build-team .muted { font-size: 14px; }

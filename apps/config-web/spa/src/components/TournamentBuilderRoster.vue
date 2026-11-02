@@ -129,7 +129,12 @@ function measureList(): void {
   if (!el || typeof window === "undefined" || !wideLayout()) { listMax.value = undefined; return; }
   const main = document.querySelector("main");
   const topAtRest = el.getBoundingClientRect().top + (window.scrollY || 0) + (main?.scrollTop ?? 0);
-  const below = footEl.value ? footEl.value.getBoundingClientRect().height : 0;
+  const px = (v: string | undefined): number => Number.parseFloat(v ?? "") || 0;
+  // Everything under the list that still has to fit (design.md §6, 1920x1080 with no page scroll): the foot with its top margin,
+  // the panel's bottom padding and border, and the scrolling main's bottom padding.
+  const panel = el.closest(".tb-panel");
+  const below = (footEl.value ? footEl.value.getBoundingClientRect().height + px(getComputedStyle(footEl.value).marginTop) : 0)
+    + (panel ? px(getComputedStyle(panel).paddingBottom) + px(getComputedStyle(panel).borderBottomWidth) : 0) + (main ? px(getComputedStyle(main).paddingBottom) : 0);
   listMax.value = `${rosterHeight(window.innerHeight, topAtRest, below)}px`;
 }
 onMounted(() => {

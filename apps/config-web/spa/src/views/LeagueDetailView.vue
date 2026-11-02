@@ -22,6 +22,7 @@ import LeagueParticipants from "../components/LeagueParticipants.vue";
 import LeagueTabs from "../components/LeagueTabs.vue";
 import LeagueStandings from "../components/LeagueStandings.vue";
 import LeagueTeams from "../components/LeagueTeams.vue";
+import LeagueBuildTeamLink from "../components/LeagueBuildTeamLink.vue";
 import {
   canManageLeague, createLeagueDetail, isLeagueTab, LEAGUE_DETAIL_KEY, LEAGUE_TABS, pickSeason, RULESET_TONE,
   SEASON_STATUS_LABEL, seasonDates, seasonRowScroll, type LeagueTab,
@@ -153,6 +154,9 @@ watch(() => route.fullPath, () => announce.moved(scopeKey.value));
           </button>
         </div>
       </section>
+
+      <!-- Registration spec 11-02 (lane L7): signed-in coaches, newest season, while its registration is open -->
+      <LeagueBuildTeamLink v-if="session.coach() && current && current.id === state.seasons[0]?.id" :league-id="id" :season-id="current.id" />
 
       <LeagueTabs :id="id" :active="tab" :query="tabQuery" :stats-query="statsQuery" :manage="manage" />
 

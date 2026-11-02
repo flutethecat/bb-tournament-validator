@@ -1,0 +1,4 @@
+{
+  "note": "NAF-approved rosters (registration spec 11-02, Q10): the admin-kept list behind the league setting 'Allowed rosters: NAF-approved'. Official = the BB2025 dataset rosters; anything on neither list is unofficial. A roster on both lists counts as official. Edit by hand; the server reads it at start.",
+  "rosters": ["Chaos Pact", "Slann"]
+}
