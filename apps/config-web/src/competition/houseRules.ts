@@ -164,3 +164,14 @@ export function changedHouseRulesRows(rules: HouseRules, kind: CompetitionKind):
   const base = houseRulesRows(defaultHouseRules(kind), kind);
   return houseRulesRows(rules, kind).filter((row, i) => row.v !== base[i]?.v);
 }
+
+/**
+ * The house-rule settings the Roster Builder validator enforces (src/competition/packageOverlay.ts), as a stable key:
+ * "" when none is set. A roster check carries it; when it changes, checks made under the old value are stale.
+ */
+export function houseRulesStamp(rules: HouseRules | undefined): string {
+  if (!rules) return "";
+  const banned = rules.prayers.mode === "banned";
+  if (!banned && rules.maxStatIncreasesTeam === null && rules.maxStatIncreasesPlayer === null) return "";
+  return JSON.stringify({ ptnBanned: banned, statTeam: rules.maxStatIncreasesTeam, statPlayer: rules.maxStatIncreasesPlayer });
+}

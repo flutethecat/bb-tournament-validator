@@ -212,6 +212,8 @@ export interface TournamentSubmissionValidation {
   checkedAt: string;
   packageName: string;
   packageRevision?: string;
+  /** The enforced house rules the check ran under (src/competition/houseRules.ts houseRulesStamp); absent = none. */
+  houseRulesKey?: string;
 }
 
 /** A coach's submitted team: the Team Builder save (or library team) frozen as it was when submitted or locked. */

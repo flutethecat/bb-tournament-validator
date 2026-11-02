@@ -5,7 +5,7 @@ import { atomicWriteTextFile } from "@bb/fork-ops";
 import { calculateStandings, generateTournamentPairings, knockoutWinner, stableTieFlip } from "./pairing.js";
 import { DEFAULT_ENTRANT_FLAGS, SERIES_SEEDING_PAIRING, TOURNAMENT_PAIRING_SYSTEMS, TOURNAMENT_SEEDING_MODES } from "./types.js";
 import { pairingClash, type ChainTiebreaker, type PairingAvoid, type PointsScheme } from "../competition/format.js";
-import type { HouseRules } from "../competition/houseRules.js";
+import { houseRulesOf, houseRulesStamp, type HouseRules } from "../competition/houseRules.js";
 import type { NewsInput, TournamentPagePatch } from "./page.js";
 import type {
   ScheduledMatchRecord,
@@ -215,8 +215,12 @@ function lockInto(
   return entrants;
 }
 
-/** The ruleset changed: every check is void (ok false, a reason), hand verifications are cleared, the lock is lifted. */
-function invalidateRosterChecks(data: TournamentDataFileV4, tournamentId: string, timestamp: string): void {
+export const RULESET_CHANGED_PROBLEM = "The ruleset changed; resubmit this team so it is checked against the new ruleset.";
+export const HOUSE_RULES_CHANGED_PROBLEM = "The house rules changed; resubmit this team so it is checked against them.";
+
+/** The ruleset (or its enforced house rules) changed: every check is void (ok false, a reason), hand verifications are
+ *  cleared, the lock is lifted. */
+function invalidateRosterChecks(data: TournamentDataFileV4, tournamentId: string, timestamp: string, problem = RULESET_CHANGED_PROBLEM): void {
   const tournament = data.tournaments[tournamentId];
   if (!tournament) return;
   for (const entrant of Object.values(data.entrants)) {
@@ -226,7 +230,7 @@ function invalidateRosterChecks(data: TournamentDataFileV4, tournamentId: string
       entrant.submission.validation = {
         ...entrant.submission.validation,
         ok: false,
-        problems: ["The ruleset changed; resubmit this team so it is checked against the new ruleset."],
+        problems: [problem],
         checkedAt: timestamp,
         packageName: tournament.packageName,
       };
@@ -429,6 +433,9 @@ function applyTournamentUpdate(data: TournamentDataFileV4, tournamentId: string,
     throw new TournamentStoreError(400, "Format is locked once rounds exist.");
   if (patch.packageName !== undefined && hasRounds)
     throw new TournamentStoreError(400, "Ruleset is locked once rounds exist.");
+  // The house rules the Roster Builder enforces lock with the ruleset (the rest stays editable: display only).
+  if (patch.houseRules !== undefined && hasRounds && houseRulesStamp(houseRulesOf(tournament, "tournament")) !== houseRulesStamp(patch.houseRules))
+    throw new TournamentStoreError(400, "Prayers to Nuffle bans and stat increase caps are locked once rounds exist.");
   if (patch.startsAt !== undefined && patch.startsAt !== "" &&
     (!ISO_DATE_TIME.test(patch.startsAt) || !Number.isFinite(Date.parse(patch.startsAt))))
     throw new TournamentStoreError(400, "startsAt must be an ISO-8601 timestamp.");
@@ -479,7 +486,12 @@ function applyTournamentUpdate(data: TournamentDataFileV4, tournamentId: string,
     tournament.points = { win: p.win, draw: p.draw, loss: p.loss, bye: p.win };
     delete data.standings[tournamentId];
   }
-  if (patch.houseRules !== undefined) tournament.houseRules = structuredClone(patch.houseRules);
+  if (patch.houseRules !== undefined) {
+    // A change to what the validator enforces (PtN ban, stat caps) voids earlier roster checks, like a package change.
+    const changed = houseRulesStamp(houseRulesOf(tournament, "tournament")) !== houseRulesStamp(patch.houseRules);
+    tournament.houseRules = JSON.parse(JSON.stringify(patch.houseRules)) as HouseRules;
+    if (changed) invalidateRosterChecks(data, tournamentId, now.toISOString(), HOUSE_RULES_CHANGED_PROBLEM);
+  }
   if (patch.pairingAvoid !== undefined) { if (patch.pairingAvoid === "none") delete tournament.pairingAvoid; else tournament.pairingAvoid = patch.pairingAvoid; }
   if (patch.regions !== undefined) { if (patch.regions.length) tournament.regions = [...patch.regions]; else delete tournament.regions; }
   if (patch.startsAt === "") delete tournament.startsAt;
@@ -1129,7 +1141,9 @@ export class TournamentStore {
         const validation = entrant.submission?.validation;
         if (entrant.droppedAt !== undefined || !validation || entrant.rosterVerifiedOverride !== undefined) continue;
         const stale = validation.packageName !== tournament.packageName ||
-          (input.packageRevision !== undefined && validation.packageRevision !== input.packageRevision);
+          (input.packageRevision !== undefined && validation.packageRevision !== input.packageRevision) ||
+          // Checked under other enforced house rules (absent on both sides = none).
+          (validation.houseRulesKey ?? "") !== houseRulesStamp(houseRulesOf(tournament, "tournament"));
         if (!stale) continue;
         entrant.submission!.validation = {
           ...validation,

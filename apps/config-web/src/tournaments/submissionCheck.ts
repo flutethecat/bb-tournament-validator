@@ -11,7 +11,7 @@
 
 import { readSaves, type TeamBuilderSave } from "../teamBuilderSaves.js";
 import type { TournamentSubmission, TournamentSubmissionValidation } from "./types.js";
-import type { HouseRules } from "../competition/houseRules.js";
+import { houseRulesStamp, type HouseRules } from "../competition/houseRules.js";
 
 export interface SubmissionCheckDeps {
   savesDir: string;
@@ -46,6 +46,8 @@ export function checkTournamentSubmission(
   const packageRevision = (() => { try { return deps.packageRevision(packageName); } catch { return undefined; } })();
   const validation = (ok: boolean, problems: string[]): TournamentSubmissionValidation => ({
     ok, problems, checkedAt, packageName, ...(packageRevision ? { packageRevision } : {}),
+    // The enforced house rules it was checked under (a change makes this check stale, like a package change).
+    ...(houseRulesStamp(houseRules) ? { houseRulesKey: houseRulesStamp(houseRules) } : {}),
   });
   const saves = readSaves(deps.savesDir, coach);
   let save: TeamBuilderSave | undefined;
