@@ -718,7 +718,7 @@ fixture-lobbies.json    The fixture lobbies of your league fixtures: the lobby c
 game-proposals.json     Game times you proposed to an opponent or were offered, and the answers (accepted,
                         countered, declined).
 mail.json               Your email settings (confirmed address, an open confirmation, league email choice), your
-                        Discord message choice, and the emails and Discord messages queued or recently sent to you.
+                        Discord message choice, your Filter profanity choice, and the emails and Discord messages queued or recently sent to you.
 bug-reports-index.json  The bug reports and feedback you sent (id, date, description).
 
 Other coaches' private data (their emails, Discord ids) is never included. Opponent names appear where they are public
