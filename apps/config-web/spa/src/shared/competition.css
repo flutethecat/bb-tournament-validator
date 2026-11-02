@@ -64,3 +64,4 @@
 
 /* tournament Manage (Edit Tournament): the format and house rules groups span the settings grid */
 .tn-form-grid > .tn-wide-field, .tn-form-grid > .tn-auth-line { grid-column: 1 / -1; margin: 0; }
+.tn-form-grid > .tn-auth-line { display: flex; }

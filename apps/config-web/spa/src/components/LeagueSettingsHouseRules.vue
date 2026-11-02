@@ -10,7 +10,8 @@ import HouseRulesFields from "./HouseRulesFields.vue";
 
 const settings = inject(LEAGUE_SETTINGS_KEY)!;
 const { state } = settings;
-const fromView = (): HouseRules => structuredClone(state.view?.houseRules ?? defaultHouseRules("league"));
+// A JSON copy: the view is a reactive proxy, which structuredClone refuses.
+const fromView = (): HouseRules => JSON.parse(JSON.stringify(state.view?.houseRules ?? defaultHouseRules("league"))) as HouseRules;
 const rules = ref<HouseRules>(fromView());
 const regions = ref<string[]>([...(state.view?.competitionRegions ?? [])]);
 const snapshot = () => JSON.stringify({ h: state.view?.houseRules ?? null, r: state.view?.competitionRegions ?? [] });

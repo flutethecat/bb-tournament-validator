@@ -50,7 +50,8 @@ const fromRecord = (): Form => ({
   chain: t.value.tiebreakerChain ?? tiebreakerChainOf(t.value.tiebreakers),
   avoid: t.value.pairingAvoid ?? "none",
   regions: [...(t.value.regions ?? [])],
-  houseRules: structuredClone(t.value.houseRules ?? defaultHouseRules("tournament")),
+  // JSON copies: the record and the form are reactive proxies, which structuredClone refuses.
+  houseRules: JSON.parse(JSON.stringify(t.value.houseRules ?? defaultHouseRules("tournament"))) as HouseRules,
 });
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const cleanRegions = (r: string[]) => r.map((x) => x.trim()).filter(Boolean);
@@ -71,7 +72,7 @@ const patch = computed<TournamentSettingsPatch>(() => {
   if (!same(form.points, before.points)) out.points = { win: Number(form.points.win), draw: Number(form.points.draw), loss: Number(form.points.loss) };
   if (form.avoid !== before.avoid) out.pairingAvoid = form.avoid;
   if (!same(cleanRegions(form.regions), before.regions)) out.regions = cleanRegions(form.regions);
-  if (!same(form.houseRules, before.houseRules)) out.houseRules = structuredClone(form.houseRules);
+  if (!same(form.houseRules, before.houseRules)) out.houseRules = JSON.parse(JSON.stringify(form.houseRules)) as HouseRules;
   if (form.nafSanctioned !== before.nafSanctioned) out.nafSanctioned = form.nafSanctioned;
   if (form.playOnFork !== before.playOnFork) out.playOnFork = form.playOnFork;
   return out;

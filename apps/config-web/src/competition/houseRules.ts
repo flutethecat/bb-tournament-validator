@@ -86,7 +86,8 @@ function cap(v: unknown, max: number, field: string, label: string): number | nu
  */
 export function parseHouseRules(raw: unknown, kind: CompetitionKind, prior: HouseRules = defaultHouseRules(kind)): HouseRules {
   if (!isObj(raw)) throw new HouseRulesError("House rules must be an object.", "houseRules");
-  const out: HouseRules = structuredClone(prior);
+  // A JSON copy, so a reactive proxy (SPA forms) is accepted too.
+  const out: HouseRules = JSON.parse(JSON.stringify(prior)) as HouseRules;
   if (kind === "league" && raw.progression !== undefined) throw new HouseRulesError("Progression is a tournament setting.", "houseRules.progression");
   if (kind === "tournament" && (raw.mvp !== undefined || raw.hireFire !== undefined)) throw new HouseRulesError("MVP and hire/fire are league settings.", "houseRules");
   if (raw.prayers !== undefined) {
