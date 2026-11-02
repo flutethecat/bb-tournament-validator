@@ -38,6 +38,92 @@ export const INDUCEMENTS: InducementDef[] = [
   { id: "canopic_jar", label: "Canopic Jar", max: 1, fixed: true },
 ];
 
+// ---------- Blood Bowl Sevens (spec-sevens-rules-2026-11-02; mirrors packages/bb-validator/src/dataset/bb2025/sevens.ts,
+// held equal by test/sevensCreator.test.ts) ----------
+
+export type PackageFormat = "standard" | "sevens";
+
+/** The Sevens inducement list (SJ22): replaces INDUCEMENTS when a package uses `inducements.set: "sevens"`. */
+export const SEVENS_INDUCEMENTS: InducementDef[] = [
+  { id: "temp_agency_cheerleaders", label: "Temp Agency Cheerleaders", max: 2, fixed: false },
+  { id: "part_time_assistant_coaches", label: "Part-time Assistant Coaches", max: 2, fixed: false },
+  { id: "bloodweiser_kegs", label: "Blitzer's Best Kegs", max: 2, fixed: false },
+  { id: "prayers_to_nuffle", label: "Prayers to Nuffle", max: 2, fixed: false },
+  { id: "extra_team_training", label: "Extra Team Training", max: 6, fixed: false },
+  { id: "bribes", label: "Bribes", max: 2, fixed: false },
+  { id: "wandering_apothecaries", label: "Wandering Apothecary", max: 1, fixed: true },
+  { id: "mortuary_assistant", label: "Mortuary Assistant", max: 1, fixed: true },
+  { id: "plague_doctor", label: "Plague Doctor", max: 1, fixed: true },
+  { id: "halfling_master_chef", label: "Halfling Master Chef", max: 1, fixed: true },
+  { id: "desperate_measures", label: "Desperate Measures", max: 5, fixed: false },
+];
+
+/** The SJ22 Sevens tier table. Slann is not on it (an organiser may add it to a tier). */
+export const SEVENS_TIER_TABLE: Array<{ tier: number; rosters: string[] }> = [
+  { tier: 1, rosters: ["Amazon", "Chaos Dwarf", "Dark Elf", "Elven Union", "Human", "High Elf", "Necromantic Horror", "Norse", "Old World Alliance", "Skaven", "Wood Elf"] },
+  { tier: 2, rosters: ["Bretonnian", "Dwarf", "Imperial Nobility", "Lizardmen", "Nurgle", "Orc", "Shambling Undead", "Tomb Kings", "Vampire"] },
+  { tier: 3, rosters: ["Black Orc", "Chaos Chosen", "Chaos Renegade", "Halfling", "Khorne", "Underworld Denizens"] },
+  { tier: 4, rosters: ["Gnome", "Goblin", "Ogre", "Snotling"] },
+];
+export const SEVENS_TEAMS: string[] = SEVENS_TIER_TABLE.flatMap((t) => t.rosters);
+
+/** Matched Play skills on the count knobs: tier N = N primaries; two may be swapped for the team's one secondary. */
+export function sevensTier(tier: number, rosters: string[]): Tier {
+  return {
+    tier, label: `Tier ${tier}`, rosters: [...rosters], gold: null, maxPrimary: tier, maxSecondary: 0,
+    secondarySwap: true, secondarySwapRatio: 2, secondarySwapMax: 1, starPlayersAllowed: false, bannedStars: [],
+  };
+}
+
+export const SEVENS_STAFF_PRICES = { reRoll: 100000, assistantCoach: 20000, cheerleader: 20000, apothecary: 80000, dedicatedFan: 20000 };
+/** The validator's Sevens profile (SEVENS_PROFILE), block by block: what a format: "sevens" package starts from. */
+export const SEVENS_DEFAULTS = {
+  goldBudget: 600000,
+  staffPrices: SEVENS_STAFF_PRICES,
+  skillAllotment: { skillPointBudget: 0, maxPerPlayer: 1, eliteMaxTotal: 2, primaryCostGold: 0, secondaryCostGold: 0, eliteSurchargeGold: 0 },
+  starPlayers: { allowed: false, maxCount: 0, maxCombinedCost: null },
+  inducements: { set: "sevens" as const, allowed: ["*"], caps: {} as Record<string, number> },
+  sideline: { maxReRolls: 6, maxApothecary: 1, maxCheerleaders: 3, maxAssistantCoaches: 3, maxDedicatedFans: 5, dedicatedFansStart: 0 },
+  special: { minPlayers: 7, maxPlayers: 11, maxNonLineman: 4, veteran: true },
+};
+
+export const isSevens = (pkg: { format?: unknown } | null | undefined): boolean => pkg?.format === "sevens";
+/** The inducement list the editor offers for this package. */
+export const inducementDefs = (pkg: { inducements?: { set?: unknown } } | null | undefined): InducementDef[] =>
+  pkg?.inducements?.set === "sevens" ? SEVENS_INDUCEMENTS : INDUCEMENTS;
+
+/** Write the Sevens defaults INTO the document (the Format toggle): budget, players, the non-Lineman cap, the Veteran,
+ *  staff prices and caps, Dedicated Fans, the Sevens inducement list, stars off, skill gold 0, and the SJ22 tier table on
+ *  the count knobs. Name, date, description, data note and extends are kept. */
+export function applySevensDefaults(pkg: Pkg): void {
+  const d = clone(SEVENS_DEFAULTS);
+  pkg.format = "sevens";
+  pkg.goldBudget = d.goldBudget;
+  pkg.goldCapIncludesAddedSkills = false;
+  pkg.staffPrices = d.staffPrices;
+  pkg.eligibleRosters = [...SEVENS_TEAMS];
+  pkg.skillAllotment = { ...pkg.skillAllotment, ...d.skillAllotment };
+  for (const key of ["maxPrimary", "maxSecondary", "secondarySwap", "secondarySwapRatio", "secondarySwapMax"]) delete pkg.skillAllotment[key];
+  pkg.starPlayers = { ...pkg.starPlayers, ...d.starPlayers };
+  pkg.bannedStars = [];
+  delete pkg.starPacks;
+  delete pkg.starPacksAllowed;
+  delete pkg.matrix;
+  pkg.skillPackages = [];
+  pkg.inducements = { ...d.inducements };
+  pkg.sideline = { ...pkg.sideline, ...d.sideline };
+  pkg.special = { ...pkg.special, ...d.special };
+  pkg.tiers = SEVENS_TIER_TABLE.map((t) => sevensTier(t.tier, t.rosters));
+}
+
+/** Back to the standard defaults (the Format toggle's Standard, after a confirm): everything but the package details is
+ *  reset to a blank package's values. */
+export function applyStandardDefaults(pkg: Pkg): void {
+  const keep = { name: pkg.name, date: pkg.date, description: pkg.description, dataNote: pkg.dataNote, extends: pkg.extends, ruleset: pkg.ruleset };
+  for (const key of Object.keys(pkg)) delete pkg[key];
+  Object.assign(pkg, normalizePackage(fallbackRaw()), keep);
+}
+
 export const CATEGORY_COLORS: Record<string, string> = {
   general: "var(--ui-skill-general, #6ea8ff)",
   agility: "var(--ui-skill-agility, #ffd23d)",
@@ -77,7 +163,7 @@ const DEFAULT_SIDELINE = { maxReRolls: 8, maxApothecary: 1, maxCheerleaders: nul
 const DEFAULT_SPECIAL = { insignificantTraitConstraint: true, stalling: true, slannAllowed: false, statIncreasesAllowed: false, bannedSkills: [], minPlayers: 11 };
 
 const OPTIONAL_STRINGS = ["description", "dataNote", "date", "extends"] as const;
-export const NESTED_PRUNE = new Set(["skillAllotment", "starPlayers", "inducements", "sideline", "special"]);
+export const NESTED_PRUNE = new Set(["skillAllotment", "starPlayers", "inducements", "sideline", "special", "staffPrices"]);
 // Containers the editor creates on demand; emptied ones are removed again.
 const LAZY_OBJECTS = new Set(["rosterGold", "stackedPlayer", "statIncreases", "costGold", "skillCostGold", "rosterOnly"]);
 
@@ -108,9 +194,13 @@ export interface SkillAllotment {
   [k: string]: unknown;
 }
 export interface StarPlayers { allowed?: boolean; maxCount?: Num; maxCombinedCost?: Num; paidInSkillPoints?: boolean; spCostByTier?: Record<string, Num[]>; [k: string]: unknown }
-export interface Inducements { allowed?: string[]; caps?: Record<string, number>; rosterOnly?: Record<string, string[]>; [k: string]: unknown }
-export interface Sideline { maxReRolls?: Num; maxApothecary?: Num; maxCheerleaders?: Num; maxAssistantCoaches?: Num; maxDedicatedFans?: Num; [k: string]: unknown }
-export interface Special { insignificantTraitConstraint?: boolean; stalling?: boolean; slannAllowed?: boolean; statIncreasesAllowed?: boolean; bannedSkills?: string[]; minPlayers?: Num; [k: string]: unknown }
+export interface Inducements { set?: "core" | "sevens"; allowed?: string[]; caps?: Record<string, number>; rosterOnly?: Record<string, string[]>; [k: string]: unknown }
+export interface Sideline { maxReRolls?: Num; maxApothecary?: Num; maxCheerleaders?: Num; maxAssistantCoaches?: Num; maxDedicatedFans?: Num; dedicatedFansStart?: Num; [k: string]: unknown }
+export interface Special {
+  insignificantTraitConstraint?: boolean; stalling?: boolean; slannAllowed?: boolean; statIncreasesAllowed?: boolean; bannedSkills?: string[]; minPlayers?: Num;
+  maxPlayers?: Num; maxNonLineman?: Num; veteran?: boolean; [k: string]: unknown;
+}
+export interface StaffPrices { reRoll?: Num; assistantCoach?: Num; cheerleader?: Num; apothecary?: Num; dedicatedFan?: Num; [k: string]: unknown }
 
 /** The editing model: absent keys filled by normalizePackage(). */
 export interface Pkg {
@@ -119,6 +209,7 @@ export interface Pkg {
   skillAllotment: SkillAllotment; skillPackages: SkillPack[]; tiers: Tier[]; teamRules: TeamRule[]; bannedStars: string[];
   starPlayers: StarPlayers; inducements: Inducements; sideline: Sideline; special: Special;
   statIncreases?: StatIncreases; starPacks?: StarPack[]; starPacksAllowed?: string[]; matrix?: Matrix;
+  format?: PackageFormat; staffPrices?: StaffPrices;
   [k: string]: unknown;
 }
 export type RawDoc = Record<string, unknown>;
@@ -198,20 +289,29 @@ function objectAt(target: Record<string, unknown>, key: string): Record<string, 
  *  of every filled key, so the controls can show those values as defaults (placeholders). */
 export function normalizePackage(raw: unknown, filled?: Set<string>): Pkg {
   const pkg: Record<string, unknown> = isObj(raw) ? clone(raw) : {};
+  // A Sevens document fills its absent keys with the Sevens profile (what the validator applies), not the 11s defaults.
+  const sevens = pkg.format === "sevens";
   fill(pkg, "name", "", filled);
   fill(pkg, "ruleset", "bb2025-default", filled);
   OPTIONAL_STRINGS.forEach((key) => fill(pkg, key, "", filled));
-  fill(pkg, "eligibleRosters", ["*"], filled);
-  fill(pkg, "goldBudget", null, filled);
+  fill(pkg, "eligibleRosters", sevens ? SEVENS_TEAMS : ["*"], filled);
+  fill(pkg, "goldBudget", sevens ? SEVENS_DEFAULTS.goldBudget : null, filled);
   fill(pkg, "goldCapIncludesAddedSkills", false, filled);
+  if (sevens) {
+    const prices = objectAt(pkg, "staffPrices");
+    Object.entries(SEVENS_STAFF_PRICES).forEach(([key, value]) => fill(prices, key, value, filled, ["staffPrices"]));
+  }
   const allotment = objectAt(pkg, "skillAllotment");
-  Object.entries(DEFAULT_SKILL_ALLOTMENT).forEach(([key, value]) => fill(allotment, key, value, filled, ["skillAllotment"]));
+  Object.entries({ ...DEFAULT_SKILL_ALLOTMENT, ...(sevens ? SEVENS_DEFAULTS.skillAllotment : {}) }).forEach(([key, value]) => fill(allotment, key, value, filled, ["skillAllotment"]));
   ["skillPackages", "tiers", "teamRules", "bannedStars"].forEach((key) => {
     if (!Array.isArray(pkg[key])) pkg[key] = [];
   });
-  const blocks: Array<[string, Record<string, unknown>]> = [
-    ["starPlayers", DEFAULT_STAR_PLAYERS], ["inducements", DEFAULT_INDUCEMENTS], ["sideline", DEFAULT_SIDELINE], ["special", DEFAULT_SPECIAL],
-  ];
+  const blocks: Array<[string, Record<string, unknown>]> = sevens
+    ? [
+      ["starPlayers", SEVENS_DEFAULTS.starPlayers], ["inducements", SEVENS_DEFAULTS.inducements],
+      ["sideline", { ...DEFAULT_SIDELINE, ...SEVENS_DEFAULTS.sideline }], ["special", { ...DEFAULT_SPECIAL, ...SEVENS_DEFAULTS.special }],
+    ]
+    : [["starPlayers", DEFAULT_STAR_PLAYERS], ["inducements", DEFAULT_INDUCEMENTS], ["sideline", DEFAULT_SIDELINE], ["special", DEFAULT_SPECIAL]];
   for (const [block, defaults] of blocks) {
     const target = objectAt(pkg, block);
     Object.entries(defaults).forEach(([key, value]) => fill(target, key, value, filled, [block]));

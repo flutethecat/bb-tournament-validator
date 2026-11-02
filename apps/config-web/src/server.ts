@@ -23,6 +23,7 @@ import { ConnectionError, NAF_CONNECTION_ENDPOINT, nafProvider } from "./auth/co
 import {
   composeTeam,
   composeTeamIntrinsic,
+  effectiveStaffPrices,
   findPosition,
   findRoster,
   loadPackage,
@@ -105,7 +106,7 @@ import {
   positionList,
   type AdminTeamSearchMode,
 } from "./data";
-import { builderTierRows, packageRaceRules, packageResponseInfo, resolveBuilderPackage } from "./teamBuilderPackage.js";
+import { builderTierRows, isSevensPackage, packageRaceRules, packageResponseInfo, resolveBuilderPackage, SEVENS_TABLETOP_ONLY } from "./teamBuilderPackage.js";
 import { FREE_CREATE_LABEL, isFreeCreatePackage } from "./freeCreate.js";
 import { freeDisplayRosterXml } from "./freeCreateDisplay.js";
 import { packagesApi } from "./packagesApi.js";
@@ -1359,7 +1360,7 @@ function sharedViewFor(coach: string, save: TeamBuilderSave, viewer: string | un
         const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, body.packageName);
         if (!("error" in resolvedPkg)) {
           const display = resolvedPkg.free ? composeFreeDisplay(cfg.teamsDir, body) : undefined;
-          const composed = display?.composed ?? composeFromBody(cfg.teamsDir, body);
+          const composed = display?.composed ?? composeFromBody(cfg.teamsDir, body, undefined, resolvedPkg.pkg);
           if (display?.dropped.length) input.displayNotes = display.dropped;
           input.roster = composed.roster;
           input.result = validate(composed.roster, resolvedPkg.pkg, bb2025);
@@ -1393,7 +1394,7 @@ const submissionCheckDeps = (): SubmissionCheckDeps => ({
     if (!cfg) return undefined;
     const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, packageName);
     if ("error" in resolvedPkg) return { ok: false, problems: [resolvedPkg.error] };
-    const composed = composeFromBody(cfg.teamsDir, body as TeamBuilderBody);
+    const composed = composeFromBody(cfg.teamsDir, body as TeamBuilderBody, undefined, resolvedPkg.pkg);
     const result = validate(composed.roster, resolvedPkg.pkg, bb2025);
     return { ok: result.valid, problems: result.errors.map((finding) => finding.message) };
   },
@@ -1475,7 +1476,18 @@ function composeFreeDisplay(teamsDir: string, body: TeamBuilderBody): { composed
   return undefined;
 }
 
-function composeFromBody(teamsDir: string, body: TeamBuilderBody, rosterXml?: string) {
+/** A tabletop package's compose options (Blood Bowl Sevens: staff at Sevens prices, the free Dedicated Fans, the Sevens
+ *  inducement list), so a Sevens preview prices the team the way the validator does. Empty for every other package. */
+function tabletopComposeOptions(pkg: TournamentPackage | undefined): Partial<Parameters<typeof composeTeam>[0]> {
+  if (!pkg || !isSevensPackage(pkg)) return {};
+  return {
+    staffPrices: effectiveStaffPrices(pkg) ?? undefined,
+    freeDedicatedFans: pkg.sideline.dedicatedFansStart ?? 1,
+    inducementSet: pkg.inducements.set === "sevens" ? "sevens" : "core",
+  };
+}
+
+function composeFromBody(teamsDir: string, body: TeamBuilderBody, rosterXml?: string, pkg?: TournamentPackage) {
   const bounds = teamBuilderBoundsError(body);
   if (bounds) throw new Error(bounds);
   if (!body.rosterId) throw new Error("rosterId is required.");
@@ -1498,6 +1510,7 @@ function composeFromBody(teamsDir: string, body: TeamBuilderBody, rosterXml?: st
       specialRule: body.specialRule,
       custom: body.custom === true,
       rosteredInducements: body.rosteredInducements ?? body.inducements,
+      ...tabletopComposeOptions(pkg),
     },
     bb2025,
   );
@@ -4137,7 +4150,7 @@ async function handleApi(
           intrinsic: true,
         });
       }
-      const composed = composeFromBody(cfg.teamsDir, body);
+      const composed = composeFromBody(cfg.teamsDir, body, undefined, resolvedPkg.pkg);
       const result = validate(composed.roster, resolvedPkg.pkg, bb2025);
       const packageInfo = packageResponseInfo(resolvedPkg, composed.roster.rosterName);
       // Custom UAT mode: never block — always valid, findings surfaced as informational warnings.
@@ -4259,6 +4272,10 @@ async function handleApi(
     // (under their own name), or admin. Custom just skips the legality/budget validation, not auth.
     const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, body.packageName);
     if ("error" in resolvedPkg) return sendJson(res, 400, { error: resolvedPkg.error });
+    // Blood Bowl Sevens is tabletop-only (Sevens spec 11-02, owner Q12): upstream FFB has no Sevens pitch, turns or tables,
+    // and the fork stays upstream-identical, so a Sevens roster (any format: "sevens" package or Sevens Free Create) is
+    // never written as a fork team.
+    if (isSevensPackage(resolvedPkg.pkg)) return sendJson(res, 400, { error: SEVENS_TABLETOP_ONLY });
     if (auth) {
       body.coach = auth.coach;
     } else if (!isAdminAuthed(req)) {

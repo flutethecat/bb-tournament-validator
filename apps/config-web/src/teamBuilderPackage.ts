@@ -12,9 +12,10 @@ import {
   type TournamentPackage,
 } from "@bb/validator";
 import { canonicalizeStatRuleRaces, cleanStatIncreaseRules, findRoster, type StatIncreaseRules } from "@bb/validator";
+import { effectiveRosterLimits, effectiveStaffPrices, inducementCatalog, STANDARD_STAFF_PRICES, type RosterLimits } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 import type { PackageFiles } from "./data.js";
-import { isFreeCreatePackage } from "./freeCreate.js";
+import { isFreeCreatePackage, isSevensFreeCreatePackage, SEVENS_FREE_CREATE_DESCRIPTION, SEVENS_FREE_CREATE_LABEL } from "./freeCreate.js";
 
 /**
  * Free Create's build profile (owner 10-31): only the core roster checks the fork needs (roster eligibility, squad size,
@@ -31,6 +32,23 @@ export const FREE_CREATE_BUILD_PACKAGE: TournamentPackage = loadPackage({
   statIncreases: { allowed: ["MA", "ST", "AG", "PA", "AV"], costGold: {}, maxPerPlayer: null },
   special: { insignificantTraitConstraint: false, statIncreasesAllowed: true },
 }).pkg;
+
+/**
+ * Sevens Free Create's build profile (Sevens spec 11-02, owner Q1 (c) and Q6): the Sevens profile under League-draft rules:
+ * 600k, 7-11 players, at most 4 non-Linemen, one Veteran, Sevens staff prices and inducements, no stars, Dedicated Fans
+ * starting at 1 free, no tiers and no added skills. Tabletop-only like every Sevens package (the fork build refuses it).
+ */
+export const SEVENS_FREE_CREATE_BUILD_PACKAGE: TournamentPackage = loadPackage({
+  name: SEVENS_FREE_CREATE_LABEL,
+  format: "sevens",
+  description: SEVENS_FREE_CREATE_DESCRIPTION,
+  skillAllotment: { skillPointBudget: 0 },
+  sideline: { dedicatedFansStart: 1 },
+}).pkg;
+
+/** Is this a Blood Bowl Sevens package (tabletop-only: no fork team)? */
+export const isSevensPackage = (pkg: Pick<TournamentPackage, "format">): boolean => pkg.format === "sevens";
+export const SEVENS_TABLETOP_ONLY = "Sevens teams are tabletop only: they can't be created on the fork.";
 
 /** What preview/build validate against, plus (when a tournament package was
  *  explicitly selected) the info the client needs to render the ruleset note
@@ -62,6 +80,8 @@ export function resolveBuilderPackage(
   // Free Create (owner 10-31) is not a saved package: its marker resolves to its own build profile (core roster legality
   // only), so a Free Create roster built on the Fork meets the fork's own checks and nothing else.
   if (isFreeCreatePackage(packageName)) return { pkg: FREE_CREATE_BUILD_PACKAGE, free: true };
+  if (isSevensFreeCreatePackage(packageName))
+    return { pkg: SEVENS_FREE_CREATE_BUILD_PACKAGE, selected: { name: SEVENS_FREE_CREATE_LABEL, description: SEVENS_FREE_CREATE_DESCRIPTION } };
   const found = packages.get(packageName);
   if (!found) return { error: `Unknown tournament package "${packageName}".` };
   return { pkg: found.pkg, selected: { name: found.pkg.name, description: found.pkg.description } };
@@ -74,14 +94,17 @@ export function resolveBuilderPackage(
 export function packageResponseInfo(
   resolved: ResolvedBuilderPackage,
   raceName: string,
-): { name: string; description?: string; budget: number | null; rules: BuilderRaceRules } | undefined {
+): { name: string; description?: string; budget: number | null; rules: BuilderRaceRules; limits?: RosterLimits } | undefined {
   if (!resolved.selected) return undefined;
   const cfg = resolveTeamConfig(resolved.pkg, raceName);
+  // Blood Bowl Sevens only (additive): the race's effective limits (players, non-Linemen, Veteran, staff, inducements).
+  const limits = isSevensPackage(resolved.pkg) ? effectiveRosterLimits(resolved.pkg, raceName, bb2025) : undefined;
   return {
     name: resolved.selected.name,
     description: resolved.selected.description,
     budget: cfg.gold,
     rules: builderRaceRules(resolved.pkg, raceName),
+    ...(limits ? { limits } : {}),
   };
 }
 
@@ -392,7 +415,7 @@ export function packageRulesInfo(
 
 /** One labelled highlight line; `details` renders as a closed disclosure (e.g. the banned-star names). */
 export interface OverviewLine {
-  key: "structure" | "skills" | "elite" | "stars" | "inducements" | "sideline" | "minPlayers";
+  key: "format" | "structure" | "skills" | "elite" | "stars" | "inducements" | "sideline" | "minPlayers";
   label: string;
   text: string;
   details?: { summary: string; items: string[] };
@@ -869,8 +892,9 @@ function starsLine(pkg: TournamentPackage, teams: TeamEntry[]): Pick<OverviewLin
 
 function inducementsLine(pkg: TournamentPackage, data: Dataset): string {
   const ind = pkg.inducements;
+  const catalog = inducementCatalog(pkg, data);
   const label = (id: string): string =>
-    data.inducements[id]?.name ?? id.replace(/_/g, " ").replace(/\b[a-z]/g, (c) => c.toUpperCase());
+    catalog[id]?.name ?? id.replace(/_/g, " ").replace(/\b[a-z]/g, (c) => c.toUpperCase());
   const terms = (id: string): string => {
     const only = ind.rosterOnly?.[id];
     const bits = [ind.caps[id] != null ? `max ${ind.caps[id]}` : "", only?.length ? `${only.join(", ")} only` : ""].filter(Boolean);
@@ -878,7 +902,7 @@ function inducementsLine(pkg: TournamentPackage, data: Dataset): string {
   };
   if (ind.allowed.includes("*")) {
     const limited = uniq([...Object.keys(ind.caps), ...Object.keys(ind.rosterOnly ?? {})]);
-    return `All inducements at book cost${limited.length ? `; ${limited.map((id) => `${label(id)}${terms(id)}`).join(", ")}` : ""}.`;
+    return `All ${ind.set === "sevens" ? "Sevens inducements (incl. Desperate Measures) at Sevens prices" : "inducements at book cost"}${limited.length ? `; ${limited.map((id) => `${label(id)}${terms(id)}`).join(", ")}` : ""}.`;
   }
   if (!ind.allowed.length) return "No inducements.";
   return `${ind.allowed.map((id) => `${label(id)}${terms(id)}`).join(", ")}.`;
@@ -897,10 +921,24 @@ function sidelineLine(pkg: TournamentPackage): string | null {
   return parts.length ? sentence(parts.join(", ")) : null;
 }
 
+/** Blood Bowl Sevens: the team-building limits a coach needs first (players, non-Linemen, Veteran, staff prices). */
+function sevensLine(pkg: TournamentPackage): string {
+  const s = pkg.special;
+  const prices = effectiveStaffPrices(pkg) ?? STANDARD_STAFF_PRICES;
+  const players = `${s.minPlayers}–${s.maxPlayers ?? 16} players`;
+  const nonLineman = s.maxNonLineman != null ? `, at most ${s.maxNonLineman} without the Lineman keyword` : "";
+  const veteran = s.veteran === true ? ", one Lineman as the Veteran (MA −1)" : "";
+  const reroll = prices.reRoll == null ? "rerolls at roster price" : `rerolls ${fmtGold(prices.reRoll)}`;
+  const fans = `Dedicated Fans ${fmtGold(prices.dedicatedFan)} each from ${pkg.sideline.dedicatedFansStart ?? 1}`;
+  return `Blood Bowl Sevens, tabletop only: ${players}${nonLineman}${veteran}. Staff: ${reroll}, assistant coaches ${fmtGold(prices.assistantCoach)}, cheerleaders ${fmtGold(prices.cheerleader)}, apothecary ${fmtGold(prices.apothecary)}, ${fans}.`;
+}
+
 /** The step-1 ruleset overview: highlight lines + per-team tier table, all keyed to package values. */
 export function packageOverview(pkg: TournamentPackage, data: Dataset = bb2025): RulesetOverview {
   const teams = overviewTeams(pkg, data);
-  const summary: OverviewLine[] = [{ key: "structure", label: "Structure", text: structureLine(pkg, teams) }];
+  const sevens = isSevensPackage(pkg);
+  const summary: OverviewLine[] = sevens ? [{ key: "format", label: "Format", text: sevensLine(pkg) }] : [];
+  summary.push({ key: "structure", label: "Structure", text: structureLine(pkg, teams) });
   summary.push({ key: "skills", label: "Skills", text: skillsLine(pkg, teams) ?? "No added skills." });
   const elite = eliteLine(pkg, teams);
   if (elite) summary.push({ key: "elite", label: "Elite skill tax", text: elite });
@@ -908,7 +946,7 @@ export function packageOverview(pkg: TournamentPackage, data: Dataset = bb2025):
   summary.push({ key: "inducements", label: "Inducements", text: inducementsLine(pkg, data) });
   const sideline = sidelineLine(pkg);
   if (sideline) summary.push({ key: "sideline", label: "Sideline", text: sideline });
-  if (pkg.special.minPlayers !== 11)
+  if (pkg.special.minPlayers !== 11 && !sevens)
     summary.push({ key: "minPlayers", label: "Minimum players", text: `${pkg.special.minPlayers} players.` });
 
   const rows = teams.map((t) => ({ tier: t.tier, row: teamRow(pkg, t), cfg: t.cfg }));

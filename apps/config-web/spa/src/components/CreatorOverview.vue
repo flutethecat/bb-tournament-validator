@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // Tournament Creator, Overview tab: package details (name, date, ruleset, extends, description, data note), the gold /
 // team-value cap and its mode, the eligible races, and the package summary.
-import { computed, inject } from "vue";
-import { safeArray, tierClass } from "../tournaments/creatorCore";
+import { computed, inject, ref } from "vue";
+import { isSevens, safeArray, tierClass } from "../tournaments/creatorCore";
 import { packageSummary, TOURNAMENT_CREATOR_KEY } from "../tournaments/creator";
 import CreatorOverride from "./CreatorOverride.vue";
 
@@ -21,6 +21,15 @@ const races = computed(() => state.teams.map((team) => {
 const count = computed(() => (all.value ? `all ${state.teams.length} races eligible` : `${safeArray(pkg.value.eligibleRosters).length} of ${state.teams.length} selected`));
 const summary = computed(() => packageSummary(state));
 const extendsOptions = computed(() => state.packageNames.filter((n) => n !== state.selected || n === pkg.value.extends));
+// Format toggle (Sevens spec 11-02): Sevens applies the Sevens defaults at once; Standard overwrites the rules, so it asks first.
+const sevens = computed(() => isSevens(pkg.value));
+const confirmStandard = ref(false);
+function pickFormat(format: "standard" | "sevens"): void {
+  if (format === "standard" && sevens.value) { confirmStandard.value = true; return; }
+  confirmStandard.value = false;
+  c.setFormat(format);
+}
+function confirmToStandard(): void { confirmStandard.value = false; c.setFormat("standard"); }
 type TextField = "name" | "date" | "description" | "extends" | "dataNote";
 const onText = (field: TextField, e: Event): void => c.setField(field, (e.target as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement).value);
 </script>
@@ -42,6 +51,27 @@ const onText = (field: TextField, e: Event): void => c.setField(field, (e.target
       <label class="cr-field cr-wide"><span class="cr-label">Description</span><textarea :value="pkg.description" :disabled="ro" rows="3" @change="onText('description', $event)" /></label>
       <label class="cr-field cr-wide"><span class="cr-label">Data note (small print shown with the rules)</span><textarea :value="pkg.dataNote" :disabled="ro" rows="2" @change="onText('dataNote', $event)" /></label>
     </div>
+  </section>
+
+  <section class="hm-panel" aria-labelledby="cr-format-h">
+    <header class="hm-band"><h2 id="cr-format-h">Format</h2><span class="hm-cap">{{ sevens ? "Blood Bowl Sevens" : "Standard (11s)" }}</span></header>
+    <div class="cr-row">
+      <div class="cr-chips" role="group" aria-label="Format">
+        <button type="button" class="cr-chip" :aria-pressed="!sevens" :disabled="ro" @click="pickFormat('standard')">Standard</button>
+        <button type="button" class="cr-chip" :aria-pressed="sevens" :disabled="ro" @click="pickFormat('sevens')">Sevens</button>
+      </div>
+    </div>
+    <div v-if="confirmStandard" class="cr-notice cr-confirm" role="alertdialog" aria-labelledby="cr-format-confirm">
+      <p id="cr-format-confirm">Switch back to Standard? This resets the budget, players, staff, inducements, stars, tiers and skills to the standard defaults and drops your Sevens edits.</p>
+      <div class="cr-row">
+        <button type="button" class="cr-btn" @click="confirmStandard = false">Keep Sevens</button>
+        <button type="button" class="cr-btn primary" @click="confirmToStandard">Switch to Standard</button>
+      </div>
+    </div>
+    <p v-if="state.formatNotice" class="hm-notice" role="status">{{ state.formatNotice }}</p>
+    <p class="cr-hint">{{ sevens
+      ? "Blood Bowl Sevens (Spike! Journal 22): 600k, 7 to 11 players, at most 4 without the Lineman keyword, one Lineman as the Veteran, Sevens staff prices and inducements, no stars. Tabletop only: Sevens teams can't be created on the fork. Change the limits in Advanced, the tier list in Tiers (add Slann there if you want it)."
+      : "Standard BB2025 11-a-side rules. Sevens applies the Blood Bowl Sevens defaults, and you can edit every one." }}</p>
   </section>
 
   <section class="hm-panel" aria-labelledby="cr-gold-h">

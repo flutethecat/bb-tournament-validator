@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-02",
+    "title": "Blood Bowl Sevens in the Tournament Creator",
+    "body": "The Tournament Creator has a Format switch: pick Sevens to apply the Blood Bowl Sevens defaults (600k, 7 to 11 players, at most 4 non-Linemen, one Veteran, Sevens staff prices and inducements, no stars), then change any of them. There is also a ready-made Blood Bowl Sevens (Matched Play) package with the Sevens tier list. Sevens is tabletop only.",
+    "links": [
+      {
+        "label": "Tournament Creator",
+        "href": "/app/tournament-creator"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-02",
     "title": "Fixture lobbies for tournament matches",
     "body": "Each tournament match now has a lobby where the two coaches chat, lock their submitted rosters, pick inducements under the tournament's rules and start the game. Inducements bought in the Roster Builder show up already filled in and can't be removed. Open it with Lobby on your tournament's My entry or Rounds, from the sidebar, or from an agreed game on the Schedule.",
     "links": [

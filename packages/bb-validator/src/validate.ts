@@ -11,11 +11,56 @@ import { addedSkills, findPosition, findRoster, normName, skillAccess } from "./
 import type { TournamentPackage } from "./package/types";
 import { resolveTeamConfig } from "./package/resolveConfig";
 import { costSP } from "./cost/costSP";
-import { costGold, inducementsGold, staffGold } from "./cost/costGold";
+import { costGold, inducementsGold, skillsGold, staffGold } from "./cost/costGold";
+import { effectiveStaffPrices, priceStaff } from "./cost/staff";
+import { inducementCatalog, inducementIdInCatalog, inducementReducedFor } from "./dataset/inducements";
+import type { DatasetRoster } from "./dataset/types";
 import { starPackPicks, statIncreasesGold } from "./cost/extras";
 import { ALL_RULES, recomputeGold, starCosts } from "./rules/rules";
 import type { ResolvedPlayer, Rule, RuleContext } from "./rules/types";
 import { err } from "./rules/types";
+
+/**
+ * Re-price a roster for a package with `staffPrices` and/or the Sevens inducement list (undefined = nothing to re-price, so
+ * every other package keeps today's figures byte-for-byte). Staff gold = counts x prices (free Dedicated Fans =
+ * sideline.dedicatedFansStart, default 1); a Sevens inducement costs its Sevens price (reduced for the unlocking rule or
+ * roster); an item the list doesn't carry keeps the sheet's cost (the inducements rule refuses it). In Sevens added skills
+ * are priced by the package's skill-gold knobs (0 by default: bought skills don't add to Current Value).
+ */
+export function priceRoster(roster: Roster, pkg: TournamentPackage, data: Dataset, datasetRoster?: DatasetRoster): Roster | undefined {
+  const prices = effectiveStaffPrices(pkg);
+  const sevensList = pkg.inducements.set === "sevens";
+  if (!prices && !sevensList) return undefined;
+  const catalog = inducementCatalog(pkg, data);
+  const rules = roster.specialRules;
+  const inducements = sevensList
+    ? roster.inducements.map((ind) => {
+        const id = ind.id && catalog[ind.id] ? ind.id : inducementIdInCatalog(catalog, ind.name);
+        const meta = id ? catalog[id] : undefined;
+        if (!meta || meta.cost == null) return ind;
+        const each = inducementReducedFor(meta, rules, roster.rosterName) && meta.reducedCost != null ? meta.reducedCost : meta.cost;
+        return { ...ind, cost: each };
+      })
+    : roster.inducements;
+  const sidelineCost = prices
+    ? priceStaff(roster.sideline, prices, datasetRoster?.reRollCost ?? 0, pkg.sideline.dedicatedFansStart ?? 1).total
+    : (roster.summary?.sidelineCost ?? 0);
+  const playersCost = roster.players.reduce((a, p) => a + p.cost, 0);
+  const inducementCost = inducementsGold({ inducements, summary: roster.summary });
+  const skillsCost = pkg.format === "sevens" ? skillsGold(roster, data, pkg) : (roster.summary?.skillsCost ?? 0);
+  return {
+    ...roster,
+    inducements,
+    summary: {
+      ...(roster.summary ?? {}),
+      playersCost,
+      skillsCost,
+      inducementCost,
+      sidelineCost,
+      total: playersCost + skillsCost + inducementCost + sidelineCost,
+    },
+  };
+}
 
 export function validate(
   roster: Roster,
@@ -55,7 +100,13 @@ export function validate(
     };
   });
 
-  const ctx: RuleContext = { roster, pkg, data, datasetRoster, players };
+  // Staff prices / the Sevens inducement list: the gold comes from the counts at the package's prices, never from the
+  // sheet (the sheet keeps its own figures for the price checks in ctx.sheetRoster).
+  const priced = priceRoster(roster, pkg, data, datasetRoster);
+  const sheetRoster = priced ? roster : undefined;
+  if (priced) roster = priced;
+
+  const ctx: RuleContext = { roster, pkg, data, datasetRoster, players, ...(sheetRoster ? { sheetRoster } : {}) };
 
   for (const rule of rules) {
     if (rule.needsDatasetRoster && !datasetRoster) continue;

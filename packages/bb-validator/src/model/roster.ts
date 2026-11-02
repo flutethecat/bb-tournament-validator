@@ -26,6 +26,8 @@ export interface RosterPlayer {
   keywords: string[];
   /** Gold cost as printed. */
   cost: number;
+  /** Blood Bowl Sevens: this player is the team's Veteran (one Lineman; MA printed 1 lower; checked by sevens-veteran). */
+  veteran?: boolean;
 }
 
 export interface RosterInducement {

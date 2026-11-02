@@ -1,0 +1,86 @@
+{
+ "_about": "Blood Bowl Sevens inducements (Spike! Journal 22, https://bloodbowlbase.ru/bb2025/spike_journal/issue_22/#list-of-inducements). This list REPLACES the core list for a package with inducements.set = \"sevens\". Ids reuse the core ids where the item is the same; Desperate Measures is new (rolled on a D8 at the game). None has a wireName: Sevens is tabletop-only and never goes to the fork.",
+ "inducements": [
+  {
+   "id": "temp_agency_cheerleaders",
+   "name": "Temp Agency Cheerleaders",
+   "cost": 15000,
+   "max": 2
+  },
+  {
+   "id": "part_time_assistant_coaches",
+   "name": "Part-time Assistant Coaches",
+   "cost": 15000,
+   "max": 2
+  },
+  {
+   "id": "bloodweiser_kegs",
+   "name": "Blitzer's Best Kegs",
+   "cost": 50000,
+   "max": 2,
+   "aliases": [
+    "Bloodweiser Kegs"
+   ]
+  },
+  {
+   "id": "prayers_to_nuffle",
+   "name": "Prayers to Nuffle",
+   "cost": 5000,
+   "max": 2
+  },
+  {
+   "id": "extra_team_training",
+   "name": "Extra Team Training",
+   "cost": 125000,
+   "max": 6
+  },
+  {
+   "id": "bribes",
+   "name": "Bribes",
+   "cost": 100000,
+   "max": 2,
+   "reducedCost": 50000,
+   "reducedMax": 2,
+   "reducedSpecialRule": "Bribery and Corruption"
+  },
+  {
+   "id": "wandering_apothecaries",
+   "name": "Wandering Apothecary",
+   "cost": 100000,
+   "max": 1,
+   "requiresApothecary": true,
+   "aliases": [
+    "Wandering Apothecaries"
+   ]
+  },
+  {
+   "id": "mortuary_assistant",
+   "name": "Mortuary Assistant",
+   "cost": 100000,
+   "max": 1,
+   "requiresSpecialRule": "Masters of Undeath"
+  },
+  {
+   "id": "plague_doctor",
+   "name": "Plague Doctor",
+   "cost": 100000,
+   "max": 1,
+   "requiresSpecialRule": "Favoured of Nurgle"
+  },
+  {
+   "id": "halfling_master_chef",
+   "name": "Halfling Master Chef",
+   "cost": 300000,
+   "max": 1,
+   "reducedCost": 100000,
+   "reducedMax": 1,
+   "reducedRoster": "Halfling"
+  },
+  {
+   "id": "desperate_measures",
+   "name": "Desperate Measures",
+   "cost": 50000,
+   "max": 5
+  }
+ ]
+}

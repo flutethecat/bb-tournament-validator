@@ -1,5 +1,22 @@
-import type { Dataset } from "./types";
+import type { Dataset, DatasetInducement } from "./types";
 import { normName } from "./lookup";
+import { SEVENS_INDUCEMENTS } from "./bb2025/sevens";
+
+/** The inducement list a package draws from: the Sevens list for `inducements.set: "sevens"`, else the dataset's core list. */
+export function inducementCatalog(
+  pkg: { inducements?: { set?: string } },
+  data: Dataset,
+): Readonly<Record<string, DatasetInducement>> {
+  return pkg.inducements?.set === "sevens" ? SEVENS_INDUCEMENTS : data.inducements;
+}
+
+/** The id of a stored inducement name in one catalog (current name, former alias, or the id spelled out); undefined when absent. */
+export function inducementIdInCatalog(catalog: Readonly<Record<string, DatasetInducement>>, name: string): string | undefined {
+  const want = normName(name);
+  return Object.entries(catalog).find(
+    ([id, row]) => normName(row.name) === want || (row.aliases ?? []).some((a) => normName(a) === want) || normName(id.replace(/_/g, " ")) === want,
+  )?.[0];
+}
 
 /** Commissioner opt-ins: an `optIn` inducement is offered only when the competition's `inducementOptIns` names its
  *  wireName or id. Everything else is on by default. */

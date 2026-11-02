@@ -43,7 +43,23 @@ export {
   eligibleStarsFor,
 } from "./dataset/lookup";
 export type { Access } from "./dataset/lookup";
-export { inducementEnabled, inducementIdForName, inducementReducedFor, inducementWireGold } from "./dataset/inducements";
+export { inducementCatalog, inducementEnabled, inducementIdForName, inducementIdInCatalog, inducementReducedFor, inducementWireGold } from "./dataset/inducements";
+export {
+  SEVENS_PROFILE,
+  SEVENS_TEAM_TIERS,
+  SEVENS_TEAMS,
+  SEVENS_STAFF_PRICES,
+  SEVENS_INDUCEMENTS,
+  SEVENS_LINEMAN_KEYWORD,
+  SEVENS_VETERAN_MA_DELTA,
+  hasLinemanKeyword,
+  sevensTierDef,
+  sevensTiers,
+} from "./dataset/bb2025/sevens";
+export { effectiveRosterLimits } from "./package/limits";
+export type { RosterLimits, RosterLimitsInducement, RosterLimitsStaffRow } from "./package/limits";
+export { STANDARD_STAFF_PRICES, effectiveStaffPrices, priceStaff } from "./cost/staff";
+export type { StaffKey, StaffLine } from "./cost/staff";
 export type {
   TournamentPackage,
   SkillAllotment,
@@ -59,6 +75,9 @@ export type {
   StackedPlayerCaps,
   StarPack,
   ExtraSkillKnobs,
+  PackageFormat,
+  StaffPrices,
+  InducementSet,
 } from "./package/types";
 export { DEFAULT_SKILL_ALLOTMENT, isCountPack } from "./package/types";
 export { resolveTier, hasTiers } from "./package/tiers";
@@ -82,7 +101,7 @@ export { costSP, isElite } from "./cost/costSP";
 export { costGold, staffGold, inducementsGold, skillsGold, DEFAULT_SKILL_GOLD } from "./cost/costGold";
 export { ALL_RULES } from "./rules/rules";
 export type { Rule, RuleContext, ResolvedPlayer } from "./rules/types";
-export { validate } from "./validate";
+export { validate, priceRoster } from "./validate";
 export {
   composeTeam,
   composeTeamIntrinsic,

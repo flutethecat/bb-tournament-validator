@@ -15,7 +15,10 @@
 
 import type { Dataset } from "../dataset/types";
 import { leagueMenuForRoster } from "../dataset/leagueMenu";
-import { inducementWireGold } from "../dataset/inducements";
+import { inducementReducedFor, inducementWireGold } from "../dataset/inducements";
+import { SEVENS_INDUCEMENTS, SEVENS_VETERAN_MA_DELTA } from "../dataset/bb2025/sevens";
+import { priceStaff, STANDARD_STAFF_PRICES } from "../cost/staff";
+import type { StaffPrices } from "../package/types";
 import {
   findPosition,
   findRoster,
@@ -114,6 +117,12 @@ export interface TeamPick {
    * the team XML because the FFB server reads the captain's Pro as a listed skill. Optional: omit for no captain.
    */
   captain?: boolean;
+  /**
+   * Blood Bowl Sevens Veteran (SJ22 #veterans): marks each of this pick's players as the Veteran (`RosterPlayer.veteran`)
+   * and prints MA one lower. Eligibility (exactly one, a Lineman-keyword player) is the validator's sevens-veteran rule.
+   * Sevens is tabletop-only, so nothing is written to the team XML.
+   */
+  veteran?: boolean;
 }
 
 export interface ComposeInput {
@@ -133,6 +142,16 @@ export interface ComposeInput {
   custom?: boolean;
   /** Tournament-only predefined inducements. Omit for ordinary builds. */
   rosteredInducements?: Array<{ key: string; count: number }>;
+  /**
+   * A tabletop package's staff prices (e.g. Blood Bowl Sevens, `effectiveStaffPrices(pkg)`): the summary's staff gold is
+   * priced with these instead of the fork's standard prices. Omit for fork builds.
+   */
+  staffPrices?: StaffPrices;
+  /** Dedicated Fans that cost nothing (the package's sideline.dedicatedFansStart); default 1. */
+  freeDedicatedFans?: number;
+  /** "sevens": rostered inducements come from the Sevens list at Sevens prices (no fork wire name needed; such items
+   *  are left out of the team XML, since Sevens never goes to the fork). Default "core". */
+  inducementSet?: "core" | "sevens";
 }
 
 export interface ComposeResult {
@@ -161,8 +180,22 @@ function resolveRosteredInducements(
   data: Dataset,
   specialRules: readonly string[] = [],
   rosterName?: string,
+  set: "core" | "sevens" = "core",
 ): Array<{ key: string; count: number; name: string; cost: number; wireName: string }> {
   const seen = new Set<string>();
+  if (set === "sevens")
+    return (picks ?? []).map((pick) => {
+      const key = pick.key.trim();
+      if (!key) throw new Error("Rostered inducement key is required.");
+      if (seen.has(key)) throw new Error(`Rostered inducement "${key}" is listed more than once.`);
+      seen.add(key);
+      if (!Number.isSafeInteger(pick.count) || pick.count <= 0)
+        throw new Error(`Rostered inducement "${key}" count must be a positive safe integer.`);
+      const row = SEVENS_INDUCEMENTS[key];
+      if (!row || row.cost == null) throw new Error(`"${key}" is not a Sevens inducement.`);
+      const cost = inducementReducedFor(row, specialRules, rosterName) && row.reducedCost != null ? row.reducedCost : row.cost;
+      return { key, count: pick.count, name: row.name, cost, wireName: "" };
+    });
   return (picks ?? []).map((pick) => {
     const key = pick.key.trim();
     if (!key) throw new Error("Rostered inducement key is required.");
@@ -786,6 +819,7 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
     data,
     runtimeSpecialRules(dsRoster.name, dsRoster.specialRules, specialRule),
     dsRoster.name,
+    input.inducementSet ?? "core",
   );
   const byId = new Map(fork.positions.map((p) => [p.positionId, p]));
   const captainEligible = rosterHasTeamCaptain(dsRoster.specialRules);
@@ -831,6 +865,7 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
           skills: [...(forkPos.skills ?? [])],
           keywords: [],
           cost: forkPos.cost ?? 0,
+          ...(pick.veteran === true ? { veteran: true } : {}),
         });
         xmlPlayers.push(
           `\t<player nr="${nr}" id="${teamId}${nr}"><name>${xmlEscape(forkPos.name)}</name>` +
@@ -877,10 +912,11 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
       const nr = players.length + 1;
       const idx = (perPosition.get(dsPos.name) ?? 0) + 1;
       perPosition.set(dsPos.name, idx);
+      const baseMA = chosenStats?.MA ?? dsPos.MA;
       players.push({
         number: nr,
         positionName: dsPos.name,
-        MA: chosenStats?.MA ?? dsPos.MA,
+        MA: pick.veteran === true ? Math.max(1, baseMA + SEVENS_VETERAN_MA_DELTA) : baseMA,
         ST: chosenStats?.ST ?? dsPos.ST,
         AG: chosenStats?.AG !== undefined ? plus(chosenStats.AG) : dsPos.AG,
         PA: chosenStats?.PA !== undefined ? plus(chosenStats.PA) : dsPos.PA,
@@ -888,6 +924,7 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
         skills: [...dsPos.skills, ...captainSkills, ...chosenSkills],
         keywords: [...dsPos.keywords],
         cost: dsPos.cost,
+        ...(pick.veteran === true ? { veteran: true } : {}),
       });
       const playerName = `${dsPos.name} ${idx}`;
       xmlPlayers.push(
@@ -913,12 +950,13 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
   // (owner playtest P3: a 955k team previewed under-budget). The reRoll cost is roster-specific, so
   // this is the only place that can compute it — the validator can't derive it from roster.sideline.
   const playersGold = players.reduce((s, p) => s + p.cost, 0);
-  const staffGold =
-    input.reRolls * fork.reRollCost +
-    (input.apothecary ? 50000 : 0) +
-    (input.assistantCoaches ?? 0) * 10000 +
-    (input.cheerleaders ?? 0) * 10000 +
-    Math.max(0, (input.dedicatedFans ?? 1) - 1) * 10000;
+  const staffGold = input.staffPrices
+    ? priceStaff(sideline, { ...STANDARD_STAFF_PRICES, ...input.staffPrices }, fork.reRollCost, input.freeDedicatedFans ?? 1).total
+    : input.reRolls * fork.reRollCost +
+      (input.apothecary ? 50000 : 0) +
+      (input.assistantCoaches ?? 0) * 10000 +
+      (input.cheerleaders ?? 0) * 10000 +
+      Math.max(0, (input.dedicatedFans ?? 1) - 1) * 10000;
   const inducementGold = rosteredInducements.reduce((sum, pick) => sum + pick.cost * pick.count, 0);
 
   const roster: Roster = {
@@ -970,7 +1008,7 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
     (input.custom ? `\t<custom>true</custom>\n` : "") +
     `\t<division>[X]</division>\n\n` +
     emitSpecialRulesXml(runtimeSpecialRules(dsRoster.name, dsRoster.specialRules, specialRule)) +
-    emitInducementSetXml(rosteredInducements) +
+    emitInducementSetXml(rosteredInducements.filter((pick) => pick.wireName)) +
     xmlPlayers.join("\n") +
     `\n\n</team>\n`;
 

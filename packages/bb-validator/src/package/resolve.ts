@@ -11,9 +11,12 @@ import {
   DEFAULT_SKILL_ALLOTMENT,
   type ExtraSkillKnobs,
   type SkillAllotment,
+  type StaffPrices,
   type StatIncreaseRule,
   type TournamentPackage,
 } from "./types";
+import { SEVENS_PROFILE, SEVENS_STAFF_PRICES } from "../dataset/bb2025/sevens";
+import { STANDARD_STAFF_PRICES } from "../cost/staff";
 
 const isMoney = (v: unknown): boolean => typeof v === "number" && Number.isFinite(v) && v >= 0;
 const isCap = (v: unknown): boolean => v === null || v === undefined || (typeof v === "number" && Number.isSafeInteger(v) && v >= 0);
@@ -60,6 +63,7 @@ export function checkExtraKnobs(pkg: TournamentPackage): { pkg: TournamentPackag
   const teamCap = (pkg.special?.statIncreaseRules as { maxPerTeam?: unknown } | undefined)?.maxPerTeam;
   if (!isCap(teamCap)) problems.push("special.statIncreaseRules.maxPerTeam must be a non-negative integer or null (ignored).");
   const out: TournamentPackage = { ...pkg };
+  checkFormatKnobs(pkg, out, problems);
   if (pkg.statIncreases !== undefined) out.statIncreases = cleanStat("package", pkg.statIncreases);
   if (pkg.tiers)
     out.tiers = pkg.tiers.map((t) => {
@@ -86,6 +90,75 @@ export function checkExtraKnobs(pkg: TournamentPackage): { pkg: TournamentPackag
       return { ...p, fee: 0 };
     });
   return { pkg: out, problems };
+}
+
+const isCount = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v >= 0;
+const STAFF_KEYS = ["reRoll", "assistantCoach", "cheerleader", "apothecary", "dedicatedFan"] as const;
+
+/**
+ * Load-time checks for the format switch and the Sevens knobs (format, staffPrices, special.maxPlayers / maxNonLineman /
+ * veteran, sideline.dedicatedFansStart, inducements.set). Values that could LOWER a team's cost or open a closed door are
+ * replaced with the format's default (a bad staff price, a bad free-fan count, a bad inducement set); caps are reported only,
+ * since a bad cap already fails closed. Sevens never allows Star Players (owner Q4): an explicit allow is ignored.
+ */
+function checkFormatKnobs(pkg: TournamentPackage, out: TournamentPackage, problems: string[]): void {
+  const raw = pkg as unknown as Record<string, unknown>;
+  if (raw.format !== undefined && raw.format !== "standard" && raw.format !== "sevens") {
+    problems.push(`format must be "standard" or "sevens" (got ${JSON.stringify(raw.format)}; treated as standard).`);
+    delete (out as { format?: unknown }).format;
+  }
+  const sevens = out.format === "sevens";
+  if (pkg.staffPrices !== undefined) {
+    if (pkg.staffPrices === null || typeof pkg.staffPrices !== "object" || Array.isArray(pkg.staffPrices)) {
+      problems.push("staffPrices must be an object of gold prices (ignored).");
+      if (sevens) out.staffPrices = { ...SEVENS_STAFF_PRICES };
+      else delete out.staffPrices;
+    } else {
+      const fallback: Required<StaffPrices> = sevens ? SEVENS_STAFF_PRICES : STANDARD_STAFF_PRICES;
+      const prices: StaffPrices = { ...pkg.staffPrices };
+      for (const key of STAFF_KEYS) {
+        const v = prices[key];
+        if (v === undefined || isCount(v) || (key === "reRoll" && v === null)) continue;
+        problems.push(`staffPrices.${key} must be a non-negative whole number of gold${key === "reRoll" ? " or null (roster price)" : ""} (using ${fallback[key] ?? "the roster price"}).`);
+        prices[key] = fallback[key] as number;
+      }
+      out.staffPrices = prices;
+    }
+  }
+  const special = pkg.special ?? ({} as TournamentPackage["special"]);
+  if (special.maxPlayers !== undefined) {
+    if (!isCount(special.maxPlayers) || special.maxPlayers < 1) problems.push("special.maxPlayers must be a whole number of at least 1.");
+    else if (typeof special.minPlayers === "number" && special.maxPlayers < special.minPlayers)
+      problems.push(`special.maxPlayers (${special.maxPlayers}) is below special.minPlayers (${special.minPlayers}): no roster can be legal.`);
+  }
+  if (special.maxNonLineman !== undefined && special.maxNonLineman !== null && !isCount(special.maxNonLineman))
+    problems.push("special.maxNonLineman must be a non-negative whole number or null.");
+  if (special.veteran !== undefined && typeof special.veteran !== "boolean") {
+    problems.push(`special.veteran must be true or false (using ${sevens}).`);
+    out.special = { ...out.special, veteran: sevens };
+  }
+  const start = pkg.sideline?.dedicatedFansStart;
+  if (start !== undefined) {
+    if (!isCount(start)) {
+      const fallback = sevens ? 0 : 1;
+      problems.push(`sideline.dedicatedFansStart must be a non-negative whole number (using ${fallback}).`);
+      out.sideline = { ...out.sideline, dedicatedFansStart: fallback };
+    } else if (isCount(pkg.sideline.maxDedicatedFans) && start > pkg.sideline.maxDedicatedFans)
+      problems.push(`sideline.dedicatedFansStart (${start}) is above sideline.maxDedicatedFans (${pkg.sideline.maxDedicatedFans}).`);
+  }
+  const set = (pkg.inducements as { set?: unknown } | undefined)?.set;
+  if (set !== undefined && set !== "core" && set !== "sevens") {
+    problems.push(`inducements.set must be "core" or "sevens" (got ${JSON.stringify(set)}; using ${sevens ? "sevens" : "core"}).`);
+    out.inducements = { ...out.inducements, set: sevens ? "sevens" : "core" };
+  }
+  if (sevens) {
+    if (pkg.starPlayers?.allowed === true) {
+      problems.push("Star Players aren't available in Sevens: starPlayers.allowed is ignored.");
+      out.starPlayers = { ...out.starPlayers, allowed: false };
+    }
+    if ((pkg.tiers ?? []).some((t) => t.starPlayersAllowed === true))
+      problems.push("Star Players aren't available in Sevens: a tier's starPlayersAllowed is ignored.");
+  }
 }
 
 /** Recursively-optional view of T (arrays keep their element type). */
@@ -163,9 +236,13 @@ export function mergePackages(
   // `base` is always a fully-populated package, so each nested spread yields a
   // complete sub-object; the assertions keep the DeepPartial override from
   // widening the result types.
+  const staffPrices = base.staffPrices || override.staffPrices
+    ? { staffPrices: { ...(base.staffPrices ?? {}), ...((override.staffPrices ?? {}) as StaffPrices) } }
+    : {};
   return {
     ...base,
     ...override,
+    ...staffPrices,
     skillAllotment: { ...base.skillAllotment, ...(override.skillAllotment ?? {}) } as SkillAllotment,
     starPlayers: { ...base.starPlayers, ...(override.starPlayers ?? {}) } as TournamentPackage["starPlayers"],
     inducements: { ...base.inducements, ...(override.inducements ?? {}) } as TournamentPackage["inducements"],
@@ -214,11 +291,13 @@ export function loadPackage(
   };
 
   let pkg = defaults;
-  if (raw.extends) {
-    const base = opts?.resolveExtends?.(raw.extends);
-    if (base) pkg = mergePackages(pkg, base);
-    else problems.push(`extends "${raw.extends}" could not be resolved; using defaults`);
-  }
+  const base = raw.extends ? opts?.resolveExtends?.(raw.extends) : undefined;
+  if (raw.extends && !base) problems.push(`extends "${raw.extends}" could not be resolved; using defaults`);
+  // Blood Bowl Sevens: the profile sits right above the built-in defaults, so the `extends` base and the package itself
+  // still override every field. The format comes from the package, else its base (an organiser layer over the shipped
+  // Sevens package is Sevens too).
+  if ((raw.format ?? base?.format) === "sevens") pkg = mergePackages(pkg, JSON.parse(JSON.stringify(SEVENS_PROFILE)) as DeepPartial<TournamentPackage>);
+  if (base) pkg = mergePackages(pkg, base);
   pkg = mergePackages(pkg, raw);
   const knobs = checkExtraKnobs(pkg);
   pkg = knobs.pkg;

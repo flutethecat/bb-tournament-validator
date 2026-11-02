@@ -7,7 +7,9 @@ import { costSP, isElite } from "../cost/costSP";
 import { canonicalizeStatRuleRaces, cleanStatIncreaseRules, playerStatRuleBlock, statRuleBlock, teamCapBlock } from "../cost/statRules";
 import { MAX_STAT_STEPS, starPackPicks, statIncreasesGold, statIncreasesOf, statIncreasesOverLimit } from "../cost/extras";
 import { skillsGold } from "../cost/costGold";
-import { inducementIdForName, inducementReducedFor } from "../dataset/inducements";
+import { inducementCatalog, inducementIdForName, inducementIdInCatalog, inducementReducedFor } from "../dataset/inducements";
+import { hasLinemanKeyword, SEVENS_VETERAN_MA_DELTA } from "../dataset/bb2025/sevens";
+import { effectiveStaffPrices, priceStaff } from "../cost/staff";
 import type { Dataset } from "../dataset/types";
 import { canonSkill, decodeEntities, findRoster, findSkill, findStar, isStarName, normName, rosterHasTeamCaptain, starEligibleForTeam, TEAM_CAPTAIN, TEAM_CAPTAIN_FREE_SKILL } from "../dataset/lookup";
 import type { Finding } from "../model/findings";
@@ -32,12 +34,13 @@ export const rosterEligibility: Rule = {
   },
 };
 
-/** 2. Squad size — minPlayers..16. */
+/** 2. Squad size — minPlayers..maxPlayers (special.maxPlayers, default 16; Sevens 11). */
 export const squadSize: Rule = {
   id: "squad-size",
   check: ({ roster, pkg }) => {
     const n = roster.players.length;
     const min = pkg.special.minPlayers;
+    const max = pkg.special.maxPlayers ?? 16;
     if (n < min)
       return [
         err("squad-size", `Team has ${n} players; the tournament requires at least ${min}.`, {
@@ -46,12 +49,12 @@ export const squadSize: Rule = {
           suggestion: `Add ${min - n} more player${min - n === 1 ? "" : "s"}.`,
         }),
       ];
-    if (n > 16)
+    if (n > max)
       return [
-        err("squad-size", `Team has ${n} players; the maximum roster size is 16.`, {
-          expected: "<= 16",
+        err("squad-size", `Team has ${n} players; ${pkg.format === "sevens" ? "Sevens allows at most" : "the maximum roster size is"} ${max}.`, {
+          expected: `<= ${max}`,
           actual: n,
-          suggestion: `Remove ${n - 16} player${n - 16 === 1 ? "" : "s"}.`,
+          suggestion: `Remove ${n - max} player${n - max === 1 ? "" : "s"}.`,
         }),
       ];
     return [];
@@ -62,7 +65,7 @@ export const squadSize: Rule = {
 export const positionalLimits: Rule = {
   id: "positional-limits",
   needsDatasetRoster: true,
-  check: ({ players, datasetRoster, data }) => {
+  check: ({ players, datasetRoster, data, pkg }) => {
     const findings: Finding[] = [];
     const counts = new Map<string, number>();
     let bigGuys = 0;
@@ -102,6 +105,73 @@ export const positionalLimits: Rule = {
           { expected: `<= ${datasetRoster!.maxBigGuys}`, actual: bigGuys },
         ),
       );
+    // Sevens (special.maxNonLineman): at most N players WITHOUT the Lineman keyword. The keyword decides (owner Q2), and
+    // each position's own limit above still applies. Stars are left to the star rules.
+    const nonLinemanCap = pkg.special.maxNonLineman;
+    if (nonLinemanCap != null) {
+      const non = players.filter((rp) => rp.position && !hasLinemanKeyword(rp.position));
+      if (non.length > nonLinemanCap) {
+        const names = [...new Set(non.map((rp) => rp.position!.name))];
+        findings.push(
+          err(
+            "positional-limits",
+            `${non.length} players without the Lineman keyword; ${pkg.format === "sevens" ? "Sevens allows" : "this ruleset allows"} at most ${nonLinemanCap}.`,
+            {
+              expected: `<= ${nonLinemanCap} non-Lineman players`,
+              actual: non.length,
+              suggestion: `Swap ${non.length - nonLinemanCap} of them (${names.join(", ")}) for Lineman-keyword players.`,
+            },
+          ),
+        );
+      }
+    }
+    return findings;
+  },
+};
+
+/**
+ * 3b. Sevens Veteran (SJ22 #veterans): with `special.veteran` exactly one player is the Veteran (`RosterPlayer.veteran`),
+ * a Lineman-keyword player, printed with MA one lower (owner Q11: no other builder effect). A package without the rule
+ * refuses a Veteran mark, since the Veteran's once-a-game reroll is a Sevens benefit.
+ */
+export const sevensVeteran: Rule = {
+  id: "sevens-veteran",
+  check: ({ players, pkg }) => {
+    const vets = players.filter((rp) => rp.player.veteran === true);
+    const label = (rp: ResolvedPlayer) => `#${rp.player.number} ${rp.position?.name ?? rp.player.positionName}`;
+    if (pkg.special.veteran !== true)
+      return vets.map((rp) =>
+        err("sevens-veteran", `${label(rp)} is marked as the Veteran, but this ruleset has no Veteran (a Blood Bowl Sevens rule).`, {
+          playerRef: rp.player.number,
+          suggestion: "Remove the Veteran mark.",
+        }),
+      );
+    if (vets.length === 0)
+      return [err("sevens-veteran", "Pick one Lineman as the Veteran.", { expected: "1 Veteran", actual: 0, suggestion: "Mark one Lineman-keyword player as the Veteran (MA -1, one reroll a game)." })];
+    const findings: Finding[] = [];
+    if (vets.length > 1)
+      findings.push(err("sevens-veteran", `${vets.length} Veterans; only one is allowed.`, { expected: "1 Veteran", actual: vets.length, suggestion: "Keep one Veteran." }));
+    for (const rp of vets) {
+      if (!rp.position || !hasLinemanKeyword(rp.position)) {
+        findings.push(
+          err("sevens-veteran", `${label(rp)} can't be the Veteran: only Linemen can.`, {
+            playerRef: rp.player.number,
+            suggestion: "Pick a player with the Lineman keyword as the Veteran.",
+          }),
+        );
+        continue;
+      }
+      // Printed MA: one lower than the position (skipped when stat increases are on, where the base MA may have moved).
+      const want = rp.position.MA + SEVENS_VETERAN_MA_DELTA;
+      if (pkg.special.statIncreasesAllowed !== true && rp.player.MA !== want)
+        findings.push(
+          err("sevens-veteran", `${label(rp)} is the Veteran, so MA should read ${want} (one lower than ${rp.position.MA}); the sheet shows ${rp.player.MA}.`, {
+            playerRef: rp.player.number,
+            expected: `MA ${want}`,
+            actual: `MA ${rp.player.MA}`,
+          }),
+        );
+    }
     return findings;
   },
 };
@@ -848,7 +918,9 @@ export const starAddedSkills: Rule = {
  */
 export const inducements: Rule = {
   id: "inducements",
-  check: ({ roster, pkg, data }) => {
+  check: (ctx) => {
+    const { roster, pkg, data } = ctx;
+    if (pkg.inducements.set === "sevens") return sevensInducements(ctx);
     const findings: Finding[] = [];
     const teamRules = new Set(roster.specialRules.map(normName));
     for (const ind of roster.inducements) {
@@ -894,11 +966,91 @@ export const inducements: Rule = {
   },
 };
 
-/** 10. Sideline — staff within caps; re-roll count also vs the roster's own max. */
+/**
+ * 9b. Inducements from the Sevens list (`inducements.set: "sevens"`, SJ22 #list-of-inducements): only the Sevens items
+ * (Desperate Measures included), at the Sevens caps unless the package caps them; no Star Players or Mercenaries. A sheet
+ * price that differs from the Sevens price is a warning: the gold is recomputed at the Sevens price either way.
+ */
+function sevensInducements({ roster, pkg, data, datasetRoster, sheetRoster }: Parameters<Rule["check"]>[0]): Finding[] {
+  const findings: Finding[] = [];
+  const catalog = inducementCatalog(pkg, data);
+  const teamRules = new Set(roster.specialRules.map(normName));
+  const limitText = pkg.format === "sevens" ? "the Sevens limit" : "the limit";
+  roster.inducements.forEach((ind, index) => {
+    const id = ind.id && catalog[ind.id] ? ind.id : inducementIdInCatalog(catalog, ind.name);
+    const meta = id ? catalog[id] : undefined;
+    if (!id || !meta) {
+      const coreId = ind.id ?? inducementIdForName(data, ind.name);
+      const what =
+        isStarName(data, ind.name) || /\bstar\b/i.test(ind.name)
+          ? "Star Players aren't available in Sevens."
+          : coreId === "mercenaries" || /mercenar/i.test(ind.name)
+            ? "Mercenaries aren't available in Sevens."
+            : `${(coreId && data.inducements[coreId]?.name) || ind.name} isn't a Sevens inducement.`;
+      findings.push(err("inducements", what, { suggestion: "Remove it." }));
+      return;
+    }
+    if (!pkg.inducements.allowed.includes("*") && !pkg.inducements.allowed.includes(id))
+      findings.push(err("inducements", `${meta.name} is not allowed in "${pkg.name}".`, { suggestion: "Remove it." }));
+    const onlyFor = pkg.inducements.rosterOnly?.[id];
+    if (onlyFor && !onlyFor.some((r) => normName(r) === normName(roster.rosterName)))
+      findings.push(
+        err("inducements", `${meta.name} is only available to ${onlyFor.join(" / ")} teams in "${pkg.name}".`, {
+          expected: onlyFor.join(", "),
+          actual: roster.rosterName,
+          suggestion: "Remove it.",
+        }),
+      );
+    if (meta.requiresSpecialRule && !teamRules.has(normName(meta.requiresSpecialRule)))
+      findings.push(err("inducements", `${meta.name} is only available to teams with the ${meta.requiresSpecialRule} special rule.`, { suggestion: "Remove it." }));
+    if (meta.requiresApothecary && datasetRoster && !datasetRoster.apothecaryAllowed)
+      findings.push(err("inducements", `${meta.name} is only available to teams that can hire an Apothecary.`, { suggestion: "Remove it." }));
+    const reduced = inducementReducedFor(meta, roster.specialRules, roster.rosterName);
+    const cap = pkg.inducements.caps[id] ?? (reduced ? meta.reducedMax ?? meta.max : meta.max) ?? null;
+    const count = ind.count ?? 1;
+    if (cap != null && count > cap)
+      findings.push(
+        err("inducements", `${count}× ${meta.name}; ${limitText} is ${cap}.`, {
+          expected: `<= ${cap}`,
+          actual: count,
+          suggestion: `Remove ${count - cap}× ${meta.name}.`,
+        }),
+      );
+    const sheetCost = sheetRoster?.inducements[index]?.cost;
+    const each = ind.cost;
+    if (sheetCost != null && each != null && sheetCost !== each)
+      findings.push(
+        warn("inducements", `${meta.name} costs ${fmtGold(each)} each in ${pkg.format === "sevens" ? "Sevens" : "this ruleset"}; the sheet shows ${fmtGold(sheetCost)}.`, {
+          expected: fmtGold(each),
+          actual: fmtGold(sheetCost),
+        }),
+      );
+  });
+  return findings;
+}
+
+/** 10. Sideline — staff within caps; re-roll count also vs the roster's own max. With `staffPrices` the staff gold is
+ *  recomputed from the counts; a sheet total that differs is a warning naming the priced lines. */
 export const sideline: Rule = {
   id: "sideline",
-  check: ({ roster, pkg, datasetRoster }) => {
+  check: ({ roster, pkg, datasetRoster, sheetRoster }) => {
     const findings: Finding[] = [];
+    const prices = effectiveStaffPrices(pkg);
+    const sheetStaff = sheetRoster?.summary?.sidelineCost;
+    if (prices && sheetStaff != null) {
+      const priced = priceStaff(roster.sideline, prices, datasetRoster?.reRollCost ?? 0, pkg.sideline.dedicatedFansStart ?? 1);
+      if (priced.total !== sheetStaff) {
+        const lines = priced.lines.filter((l) => l.gold > 0).map((l) => `${l.paid} ${l.label} × ${fmtGold(l.each)}`);
+        const where = pkg.format === "sevens" ? "Sevens prices" : "this ruleset's prices";
+        findings.push(
+          warn("sideline", `Sideline staff costs ${fmtGold(priced.total)} at ${where}${lines.length ? ` (${lines.join(", ")})` : ""}; the sheet shows ${fmtGold(sheetStaff)}.`, {
+            expected: fmtGold(priced.total),
+            actual: fmtGold(sheetStaff),
+            suggestion: `The team is checked at ${fmtGold(priced.total)}.`,
+          }),
+        );
+      }
+    }
     const s = roster.sideline;
     const caps: [string, number, number | null][] = [
       ["re-rolls", s.reRolls, pkg.sideline.maxReRolls],
@@ -1094,4 +1246,5 @@ export const ALL_RULES: Rule[] = [
   sideline,
   specialRules,
   teamCaptainRule,
+  sevensVeteran,
 ];

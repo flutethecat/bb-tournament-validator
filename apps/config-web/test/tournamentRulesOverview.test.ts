@@ -32,7 +32,7 @@ describe("packageOverview output is unchanged for the shipped packages (Sol r6: 
     });
   }
   it("covers every shipped tournament package", () => {
-    expect(Object.keys(golden).sort()).toEqual(["bb2025-default", "eurobowl-2026", "lustrian-superleague.example", "naf-world-cup-2027", "small-gods", "spike-2026", "whbb-nut-cup-2026"]);
+    expect(Object.keys(golden).sort()).toEqual(["bb2025-default", "eurobowl-2026", "lustrian-superleague.example", "naf-world-cup-2027", "sevens-matched-play", "small-gods", "spike-2026", "whbb-nut-cup-2026"]);
   });
 });
 

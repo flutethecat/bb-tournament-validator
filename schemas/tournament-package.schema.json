@@ -63,6 +63,19 @@
   "properties": {
     "$schema": { "type": "string" },
     "name": { "type": "string" },
+    "format": { "enum": ["standard", "sevens"], "default": "standard", "description": "standard = 11-a-side BB2025. sevens = Blood Bowl Sevens (Spike! Journal 22): the Sevens profile (600k, 7-11 players, at most 4 non-Linemen, one Veteran, Sevens staff prices and inducements, no stars, skills add no gold) sits under the package, so every field here still overrides it. Sevens is tabletop-only (no fork teams)." },
+    "staffPrices": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Sideline staff prices in gold. When set, the validator recomputes staff gold from the counts at these prices instead of trusting the sheet. Unset fields use the standard prices (roster reroll price, apothecary 50k, coaches / cheerleaders / fans 10k).",
+      "properties": {
+        "reRoll": { "type": ["integer", "null"], "minimum": 0, "description": "Per reroll; null = the roster's own reroll price. Sevens: 100000." },
+        "assistantCoach": { "type": "integer", "minimum": 0 },
+        "cheerleader": { "type": "integer", "minimum": 0 },
+        "apothecary": { "type": "integer", "minimum": 0 },
+        "dedicatedFan": { "type": "integer", "minimum": 0, "description": "Per Dedicated Fan beyond sideline.dedicatedFansStart." }
+      }
+    },
     "ruleset": { "type": "string", "default": "bb2025-default" },
     "description": { "type": "string" },
     "dataNote": { "type": "string", "description": "Short data-quality caveat surfaced in small print by rules-rendering UIs." },
@@ -230,6 +243,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "set": { "enum": ["core", "sevens"], "default": "core", "description": "The inducement list the ids refer to: the BB2025 core list or the Sevens list (incl. Desperate Measures)." },
         "allowed": { "type": "array", "items": { "type": "string" }, "description": "Inducement ids allowed, or ['*'] for all, [] for none." },
         "caps": { "type": "object", "additionalProperties": { "type": "number" }, "description": "Per-inducement max overrides." },
         "rosterOnly": { "type": "object", "additionalProperties": { "type": "array", "items": { "type": "string" } }, "description": "Inducement id -> roster names that may buy it; every other roster is refused (e.g. Halfling Master Chef: Halfling only)." },
@@ -246,7 +260,8 @@
         "maxApothecary": { "type": ["number", "null"] },
         "maxCheerleaders": { "type": ["number", "null"] },
         "maxAssistantCoaches": { "type": ["number", "null"] },
-        "maxDedicatedFans": { "type": ["number", "null"] }
+        "maxDedicatedFans": { "type": ["number", "null"] },
+        "dedicatedFansStart": { "type": "integer", "minimum": 0, "description": "Dedicated Fans a team gets free (priced beyond these; read when staffPrices is set). Default 1; Sevens Matched Play 0." }
       }
     },
 
@@ -283,7 +298,10 @@
           }
         },
         "bannedSkills": { "type": "array", "items": { "type": "string" }, "default": [] },
-        "minPlayers": { "type": "number", "default": 11 }
+        "minPlayers": { "type": "number", "default": 11 },
+        "maxPlayers": { "type": "integer", "minimum": 1, "default": 16, "description": "Most players on the roster (Sevens: 11)." },
+        "maxNonLineman": { "type": ["integer", "null"], "minimum": 0, "description": "Most players without the Lineman keyword (Sevens: 4); null = no such cap." },
+        "veteran": { "type": "boolean", "description": "Blood Bowl Sevens Veteran: exactly one Lineman-keyword player is the Veteran (MA printed 1 lower)." }
       }
     }
   }

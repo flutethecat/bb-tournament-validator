@@ -27,6 +27,11 @@ export interface RuleContext {
   /** undefined = race not in dataset (M1: everything but Amazon). */
   datasetRoster?: DatasetRoster;
   players: ResolvedPlayer[];
+  /**
+   * The roster AS SUBMITTED, set only when the package re-priced it (staffPrices / the Sevens inducement list): `roster`
+   * then carries the recomputed staff and inducement gold, and this keeps the sheet's own figures for the price checks.
+   */
+  sheetRoster?: Roster;
 }
 
 export interface Rule {

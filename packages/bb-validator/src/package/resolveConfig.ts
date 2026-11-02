@@ -215,6 +215,8 @@ export function resolveTeamConfig(pkg: TournamentPackage, race: string): Resolve
   if (cfg.skillPackages?.length) {
     cfg.starPlayersAllowed = cfg.skillPackages.some((p) => p.starPlayersAllowed !== false);
   }
+  // Blood Bowl Sevens has no Star Players at any level (owner Q4: an organiser can't turn them on).
+  if (pkg.format === "sevens") cfg.starPlayersAllowed = false;
 
   // "Allow stat increases" on with no stat knob at any level: the standard BB2025 increases (every characteristic, standard
   // costs, one per player), in the validator and the builder alike, instead of an unchecked or empty rule.

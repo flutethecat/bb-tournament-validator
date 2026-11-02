@@ -1,0 +1,175 @@
+{
+  "$schema": "../schemas/tournament-package.schema.json",
+  "name": "Blood Bowl Sevens (Matched Play)",
+  "format": "sevens",
+  "ruleset": "bb2025-default",
+  "description": "Blood Bowl Sevens Matched Play (Spike! Journal 22): a 600,000 gold draft, 7 to 11 players, at most 4 players without the Lineman keyword, and one Lineman as the Veteran (MA -1, one reroll a game). Rerolls 100k each (max 6), assistant coaches and cheerleaders 20k each (max 3), apothecary 80k, Dedicated Fans 20k each from 0 (max 5). Sevens inducements only (incl. Desperate Measures); no Star Players or Mercenaries. Skill Points by Sevens tier: Tier 1 = 1 ... Tier 4 = 4; a Primary costs 1, the team's one Secondary costs 2; one added skill per player, at most 2 Elite skills, and bought skills add no value. Tabletop only: Sevens teams can't be built on the fork.",
+  "dataNote": "Tiers from the Spike! Journal 22 table (Slann is not on it; an organiser may add it to a tier). Hand-check: the Sevens game rules (pitch, 6-turn halves, kick-off and injury tables) are tabletop-only.",
+  "eligibleRosters": [
+    "Amazon",
+    "Chaos Dwarf",
+    "Dark Elf",
+    "Elven Union",
+    "Human",
+    "High Elf",
+    "Necromantic Horror",
+    "Norse",
+    "Old World Alliance",
+    "Skaven",
+    "Wood Elf",
+    "Bretonnian",
+    "Dwarf",
+    "Imperial Nobility",
+    "Lizardmen",
+    "Nurgle",
+    "Orc",
+    "Shambling Undead",
+    "Tomb Kings",
+    "Vampire",
+    "Black Orc",
+    "Chaos Chosen",
+    "Chaos Renegade",
+    "Halfling",
+    "Khorne",
+    "Underworld Denizens",
+    "Gnome",
+    "Goblin",
+    "Ogre",
+    "Snotling"
+  ],
+  "tiers": [
+    {
+      "tier": 1,
+      "label": "Tier 1",
+      "rosters": [
+        "Amazon",
+        "Chaos Dwarf",
+        "Dark Elf",
+        "Elven Union",
+        "Human",
+        "High Elf",
+        "Necromantic Horror",
+        "Norse",
+        "Old World Alliance",
+        "Skaven",
+        "Wood Elf"
+      ],
+      "gold": null,
+      "maxPrimary": 1,
+      "maxSecondary": 0,
+      "secondarySwap": true,
+      "secondarySwapRatio": 2,
+      "secondarySwapMax": 1,
+      "starPlayersAllowed": false,
+      "bannedStars": []
+    },
+    {
+      "tier": 2,
+      "label": "Tier 2",
+      "rosters": [
+        "Bretonnian",
+        "Dwarf",
+        "Imperial Nobility",
+        "Lizardmen",
+        "Nurgle",
+        "Orc",
+        "Shambling Undead",
+        "Tomb Kings",
+        "Vampire"
+      ],
+      "gold": null,
+      "maxPrimary": 2,
+      "maxSecondary": 0,
+      "secondarySwap": true,
+      "secondarySwapRatio": 2,
+      "secondarySwapMax": 1,
+      "starPlayersAllowed": false,
+      "bannedStars": []
+    },
+    {
+      "tier": 3,
+      "label": "Tier 3",
+      "rosters": [
+        "Black Orc",
+        "Chaos Chosen",
+        "Chaos Renegade",
+        "Halfling",
+        "Khorne",
+        "Underworld Denizens"
+      ],
+      "gold": null,
+      "maxPrimary": 3,
+      "maxSecondary": 0,
+      "secondarySwap": true,
+      "secondarySwapRatio": 2,
+      "secondarySwapMax": 1,
+      "starPlayersAllowed": false,
+      "bannedStars": []
+    },
+    {
+      "tier": 4,
+      "label": "Tier 4",
+      "rosters": [
+        "Gnome",
+        "Goblin",
+        "Ogre",
+        "Snotling"
+      ],
+      "gold": null,
+      "maxPrimary": 4,
+      "maxSecondary": 0,
+      "secondarySwap": true,
+      "secondarySwapRatio": 2,
+      "secondarySwapMax": 1,
+      "starPlayersAllowed": false,
+      "bannedStars": []
+    }
+  ],
+  "skillAllotment": {
+    "skillPointBudget": 0,
+    "maxPerPlayer": 1,
+    "eliteMaxTotal": 2,
+    "primaryCostGold": 0,
+    "secondaryCostGold": 0,
+    "eliteSurchargeGold": 0
+  },
+  "goldBudget": 600000,
+  "staffPrices": {
+    "reRoll": 100000,
+    "assistantCoach": 20000,
+    "cheerleader": 20000,
+    "apothecary": 80000,
+    "dedicatedFan": 20000
+  },
+  "starPlayers": {
+    "allowed": false,
+    "maxCount": 0,
+    "maxCombinedCost": null
+  },
+  "inducements": {
+    "set": "sevens",
+    "allowed": [
+      "*"
+    ],
+    "caps": {}
+  },
+  "sideline": {
+    "maxReRolls": 6,
+    "maxApothecary": 1,
+    "maxCheerleaders": 3,
+    "maxAssistantCoaches": 3,
+    "maxDedicatedFans": 5,
+    "dedicatedFansStart": 0
+  },
+  "special": {
+    "insignificantTraitConstraint": true,
+    "stalling": true,
+    "slannAllowed": false,
+    "statIncreasesAllowed": false,
+    "bannedSkills": [],
+    "minPlayers": 7,
+    "maxPlayers": 11,
+    "maxNonLineman": 4,
+    "veteran": true
+  }
+}

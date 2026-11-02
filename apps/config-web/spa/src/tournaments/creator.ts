@@ -11,7 +11,8 @@ import { reactive, type InjectionKey } from "vue";
 import { ApiError } from "../shared/api";
 import type { Fetcher } from "../session";
 import {
-  clone, deepEqual, fallbackRaw, freshView, inferView, INDUCEMENTS, isObj, kToGold, matrixForDisplay, MAX_TIERS, MEGA_STARS,
+  applySevensDefaults, applyStandardDefaults, inducementDefs, isSevens, type PackageFormat,
+  clone, deepEqual, fallbackRaw, freshView, inferView, isObj, kToGold, matrixForDisplay, MAX_TIERS, MEGA_STARS,
   normalizePackage, nullableNumber, numberOr, pairedStarNames, preflight, recordTouched, safeArray, serializePackage, setPath,
   starTierCosts, touchPath, getPath, pathKey,
   type Num, type Path, type Pkg, type PositionCatalog, type PresetInfo, type StatRuleDoc, type RawDoc, type SkillInfo, type SkillMode, type SkillPack, type StarInfo, type System,
@@ -117,6 +118,8 @@ export interface CreatorState {
   /** Set after a 401 from save / preview: the editor stays read-only (survives opening another package). */
   authBlocked: string;
   preview: PreviewState;
+  /** One-line notice after the Format toggle applied a format's defaults ("" otherwise). */
+  formatNotice: string;
 }
 
 export interface CreatorDeps {
@@ -179,6 +182,7 @@ export function createTournamentCreator(deps: CreatorDeps) {
     view: freshView("skillpoints", "pool"), activeTier: 0,
     problems: [], saved: null, exported: false, busy: false, revision: null, conflict: "", readOnly: "", authBlocked: "",
     preview: { key: "", data: null, overview: null, problems: [], error: "", loading: false },
+    formatNotice: "",
   });
 
   // ---------- document bookkeeping ----------
@@ -202,6 +206,7 @@ export function createTournamentCreator(deps: CreatorDeps) {
     state.problems = safeArray<unknown>(problems).map(String);
     state.saved = null;
     state.exported = false;
+    state.formatNotice = "";
   }
 
   function serialize(): RawDoc {
@@ -321,6 +326,21 @@ export function createTournamentCreator(deps: CreatorDeps) {
         if (pkg.skillAllotment.maxSecondary === undefined) pkg.skillAllotment.maxSecondary = 0;
       }
     });
+  }
+  /** The Format toggle (Sevens spec 11-02): Sevens writes the Sevens defaults into the document (every one stays editable);
+   *  Standard resets the package to a blank package's rules, keeping its details (the view asks for a confirm first). */
+  function setFormat(format: PackageFormat): void {
+    if (!state.pkg || state.readOnly || (format === "sevens") === isSevens(state.pkg)) return;
+    edit((pkg) => {
+      if (format === "sevens") applySevensDefaults(pkg);
+      else applyStandardDefaults(pkg);
+      state.view.system = format === "sevens" ? "tiers" : "skillpoints";
+      state.view.systemTouched = true;
+      state.view.skillMode = "pool";
+      state.view.skillModeTouched = true;
+      state.activeTier = 0;
+    });
+    state.formatNotice = format === "sevens" ? "Sevens defaults applied — edit any below." : "Standard defaults restored.";
   }
   function toggleSecondarySwap(): void {
     edit((pkg) => { pkg.skillAllotment.secondarySwap = !pkg.skillAllotment.secondarySwap; });
@@ -590,7 +610,11 @@ export function createTournamentCreator(deps: CreatorDeps) {
   // ---------- stars ----------
 
   function toggleStarsAllowed(): void {
-    edit((pkg) => { pkg.starPlayers.allowed = !pkg.starPlayers.allowed; });
+    // Blood Bowl Sevens has no Star Players (owner Q4): the toggle is locked off.
+    edit((pkg) => {
+      if (isSevens(pkg)) return false;
+      pkg.starPlayers.allowed = !pkg.starPlayers.allowed;
+    });
   }
   function moveStar(name: string, destination: "banned" | "allowed"): void {
     edit((pkg) => {
@@ -647,7 +671,7 @@ export function createTournamentCreator(deps: CreatorDeps) {
   };
   function toggleInducement(id: string): void {
     edit((pkg) => {
-      const known = INDUCEMENTS.map((i) => i.id);
+      const known = inducementDefs(pkg).map((i) => i.id);
       let allowed = safeArray<string>(pkg.inducements.allowed);
       if (allowed.includes("*")) allowed = known.filter((k) => k !== id);
       else if (allowed.includes(id)) allowed = allowed.filter((k) => k !== id);
@@ -657,13 +681,13 @@ export function createTournamentCreator(deps: CreatorDeps) {
   }
   function stepInducement(id: string, delta: number): void {
     edit((pkg) => {
-      const item = INDUCEMENTS.find((i) => i.id === id);
+      const item = inducementDefs(pkg).find((i) => i.id === id);
       pkg.inducements.caps ??= {};
       const current = pkg.inducements.caps[id] ?? item?.max ?? 1;
       pkg.inducements.caps[id] = Math.max(0, Math.min(9, current + delta));
     });
   }
-  function toggleSpecial(key: "insignificantTraitConstraint" | "stalling" | "slannAllowed" | "statIncreasesAllowed"): void {
+  function toggleSpecial(key: "insignificantTraitConstraint" | "stalling" | "slannAllowed" | "statIncreasesAllowed" | "veteran"): void {
     edit((pkg) => { pkg.special[key] = !pkg.special[key]; });
   }
   // ---------- stat-increase rules (special.statIncreaseRules) ----------
@@ -897,7 +921,7 @@ export function createTournamentCreator(deps: CreatorDeps) {
     state,
     serialize, dirty, isInherited, inheritedHint, isAllRaces, inducementAllowed, overrideMode,
     edit, setAt, setBound, setOverrideMode, toggleMulti, setMultiAll, setField,
-    toggleAllRaces, toggleRace, setCapIncludesSkills, setSystem, setSkillMode, toggleSecondarySwap,
+    toggleAllRaces, toggleRace, setCapIncludesSkills, setSystem, setSkillMode, toggleSecondarySwap, setFormat,
     addSpOverride, removeSpOverride, addGoldOverride, removeGoldOverride, addBannedSkill, removeBannedSkill,
     selectTier, addTier, removeTier, setTierField, toggleTierStars, assignTeamToTier, removeTeamFromTier,
     tierPackAdd, tierPackRemove, tierPackGenerate, setTierPackField,
@@ -937,7 +961,17 @@ export function packageSummary(state: Pick<CreatorState, "pkg" | "view" | "teams
         : state.view.system === "matrix" ? "matrix"
           : state.view.skillMode === "count" ? `${a.maxPrimary ?? 0} pri / ${a.maxSecondary ?? 0} sec${a.secondarySwap ? " (swap)" : ""}`
             : `${a.skillPointBudget ?? 0} SP pool`;
+  const sevens = isSevens(pkg);
+  const s = pkg.special;
   return [
+    { label: "Format", value: sevens ? "Blood Bowl Sevens (tabletop only)" : "Standard" },
+    ...(sevens
+      ? [
+        { label: "Players", value: `${s.minPlayers ?? 7}–${s.maxPlayers ?? 11}` },
+        { label: "Non-Lineman", value: s.maxNonLineman == null ? "no cap" : `at most ${s.maxNonLineman}` },
+        { label: "Veteran", value: s.veteran === true ? "required" : "off" },
+      ]
+      : []),
     { label: "Races", value: allRaces ? `all (${state.teams.length})` : String(safeArray(pkg.eligibleRosters).length) },
     { label: "Gold cap", value: gold },
     { label: "Skill model", value: skills },

@@ -12,6 +12,15 @@ export const FREE_CREATE_LABEL = "Free Create";
 export const FREE_CREATE_DESCRIPTION = "Build any roster. No tournament rules, no validation.";
 export const isFreeCreatePackage = (name: unknown): boolean => name === FREE_CREATE_PACKAGE;
 
+/** Roster Builder "Sevens Free Create" (Sevens spec 11-02, owner Q1 (c)): build any Sevens team under the League draft
+ *  rules (the Sevens profile, Dedicated Fans starting at 1, no tiers or added skills). Like Free Create it is a marker,
+ *  not a saved package: the server maps it to SEVENS_FREE_CREATE_BUILD_PACKAGE (teamBuilderPackage.ts). Unlike Free Create
+ *  the Sevens limits ARE checked (players, non-Linemen, the Veteran, staff, inducements), and it is tabletop-only. */
+export const SEVENS_FREE_CREATE_PACKAGE = "sevens-free-create";
+export const SEVENS_FREE_CREATE_LABEL = "Sevens Free Create";
+export const SEVENS_FREE_CREATE_DESCRIPTION = "Build any Blood Bowl Sevens team: 600k, 7 to 11 players, one Veteran. Tabletop only.";
+export const isSevensFreeCreatePackage = (name: unknown): boolean => name === SEVENS_FREE_CREATE_PACKAGE;
+
 /** Free Create gold, ONE implementation for the Roster Builder's value display and the public share view: an added skill
  *  costs 20k primary / 40k secondary (+10k elite), the flat model the validator (DEFAULT_SKILL_GOLD) and the builder core
  *  (SKILL_GOLD) use; a skill outside the position's access (Ignore in-game limits) prices as a secondary; a characteristic

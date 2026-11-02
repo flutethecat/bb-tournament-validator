@@ -235,8 +235,36 @@ export interface Matrix {
   cells: MatrixCell[];
 }
 
+/** Package format (generic switch): absent = "standard" (11-a-side BB2025). "sevens" = Blood Bowl Sevens (Spike! Journal 22):
+ *  loadPackage() layers the Sevens profile (dataset/bb2025/sevens.ts SEVENS_PROFILE) under the package, so every field
+ *  still overrides it. */
+export type PackageFormat = "standard" | "sevens";
+
+/**
+ * Sideline staff prices (gold). When a package sets this block (the Sevens profile always does) the validator recomputes
+ * the staff gold from the sideline COUNTS x these prices and never trusts the sheet's sidelineCost. Absent = today's
+ * behaviour (the sheet / composer total is used as-is). Unset fields fall back to the standard BB2025 prices
+ * (STANDARD_STAFF_PRICES in cost/staff.ts).
+ */
+export interface StaffPrices {
+  /** Per reroll; null = the roster's own reroll cost. Sevens: a flat 100k for every team. */
+  reRoll?: number | null;
+  assistantCoach?: number;
+  cheerleader?: number;
+  apothecary?: number;
+  /** Per Dedicated Fan beyond `sideline.dedicatedFansStart` (the free ones). */
+  dedicatedFan?: number;
+}
+
+/** Which inducement list a package draws from: the BB2025 core list or the Sevens list (SJ22, incl. Desperate Measures). */
+export type InducementSet = "core" | "sevens";
+
 export interface TournamentPackage {
   name: string;
+  /** Absent = "standard". */
+  format?: PackageFormat;
+  /** Staff prices; set = staff gold is recomputed from counts (see StaffPrices). */
+  staffPrices?: StaffPrices;
   ruleset: string; // default "bb2025-default"
   description?: string;
   /** Short data-quality caveat surfaced in small print by rules-rendering UIs
@@ -301,6 +329,8 @@ export interface TournamentPackage {
     paidInSkillPoints?: boolean;
   };
   inducements: {
+    /** The list the ids refer to; absent = "core". "sevens" = SEVENS_INDUCEMENTS (dataset/bb2025/sevens.ts). */
+    set?: InducementSet;
     /** Inducement ids, ["*"] for all, [] for none. */
     allowed: string[];
     caps: Record<string, number>;
@@ -316,6 +346,8 @@ export interface TournamentPackage {
     maxCheerleaders: number | null;
     maxAssistantCoaches: number | null;
     maxDedicatedFans: number | null;
+    /** Dedicated Fans a team starts with for free (priced beyond these). Read only when staffPrices is set; default 1. */
+    dedicatedFansStart?: number;
   };
   special: {
     insignificantTraitConstraint: boolean; // default true
@@ -326,6 +358,12 @@ export interface TournamentPackage {
     statIncreaseRules?: StatIncreaseRules;
     bannedSkills: string[]; // default []
     minPlayers: number; // default 11
+    /** Most players on the roster; absent = 16 (BB2025). Sevens: 11. */
+    maxPlayers?: number;
+    /** Most players WITHOUT the Lineman keyword (Sevens: 4); absent/null = no such cap. */
+    maxNonLineman?: number | null;
+    /** Sevens Veteran: exactly one Lineman-keyword player is the Veteran (MA printed 1 lower). */
+    veteran?: boolean;
   };
 }
 

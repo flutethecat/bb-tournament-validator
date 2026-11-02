@@ -1,8 +1,9 @@
 <script setup lang="ts">
 // Tournament Creator, Inducements tab: allowed (tick), per-inducement caps (0-9 stepper; the dataset maximum until the
 // package sets one) and roster restrictions. Inducement ids the editor does not list (kept from the file) still show.
+// A Sevens package lists the Sevens inducements (SJ22, incl. Desperate Measures): organisers drop items or change caps.
 import { computed, inject } from "vue";
-import { humanizeId, INDUCEMENTS, safeArray } from "../tournaments/creatorCore";
+import { humanizeId, inducementDefs, isSevens, safeArray } from "../tournaments/creatorCore";
 import { TOURNAMENT_CREATOR_KEY } from "../tournaments/creator";
 import CreatorMulti from "./CreatorMulti.vue";
 
@@ -10,18 +11,21 @@ const c = inject(TOURNAMENT_CREATOR_KEY)!;
 const { state } = c;
 const ro = computed(() => Boolean(state.readOnly));
 const ind = computed(() => state.pkg!.inducements);
+const sevens = computed(() => isSevens(state.pkg));
+const defs = computed(() => inducementDefs(state.pkg));
 const items = computed(() => {
-  const known = new Set(INDUCEMENTS.map((i) => i.id));
+  const known = new Set(defs.value.map((i) => i.id));
   const extra = [...new Set([...safeArray<string>(ind.value.allowed), ...Object.keys(ind.value.caps ?? {}), ...Object.keys(ind.value.rosterOnly ?? {})])]
     .filter((id) => id !== "*" && !known.has(id));
-  return [...INDUCEMENTS, ...extra.map((id) => ({ id, label: humanizeId(id), max: ind.value.caps?.[id] ?? 1, fixed: false }))];
+  return [...defs.value, ...extra.map((id) => ({ id, label: humanizeId(id), max: ind.value.caps?.[id] ?? 1, fixed: false }))];
 });
 const rosterItems = computed(() => state.teams.map((t) => ({ value: t.name, label: t.name })));
 </script>
 
 <template>
   <section class="hm-panel" aria-labelledby="cr-ind-h">
-    <header class="hm-band"><h2 id="cr-ind-h">Inducements</h2><span class="hm-cap">allowed, caps, roster restrictions</span></header>
+    <header class="hm-band"><h2 id="cr-ind-h">{{ sevens ? "Sevens inducements" : "Inducements" }}</h2><span class="hm-cap">allowed, caps, roster restrictions</span></header>
+    <p v-if="sevens" class="cr-hint">The Sevens list replaces the core list. Untick an item to drop it, or change its cap. No Star Players or Mercenaries.</p>
     <ul class="cr-ind-list">
       <li v-for="item in items" :key="item.id" class="cr-ind-row" :data-allowed="c.inducementAllowed(item.id) ? 'true' : 'false'">
         <button
