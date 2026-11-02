@@ -65,7 +65,7 @@
 .sf-header-slot { display: flex; align-items: center; flex: 0 1 auto; min-width: 0; margin-right: auto; }
 .sf-header-slot:empty { display: none; }
 .sf-menu { display: none; align-items: center; justify-content: center; width: 40px; height: 40px; padding: 0; font-size: 20px; color: var(--ui-text); background: transparent; border: 2px solid var(--sf-panel-line); border-radius: 2px; cursor: pointer; }
-.sf-top .shell-who { gap: 10px; min-width: 0; margin-left: auto; }
+.sf-top .shell-who { gap: 10px; min-width: 0; margin-left: auto; flex-shrink: 0; } /* the page title ellipsises first; the bell + account button never squeeze past the screen edge (375 px) */
 .sf-bell { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; color: var(--ui-text); border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: var(--sf-bevel); text-decoration: none; }
 .sf-bell { background: transparent; font: inherit; cursor: pointer; padding: 0; }
 .sf-bell:focus-visible, .sf-bell-all:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }

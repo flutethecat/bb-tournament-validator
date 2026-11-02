@@ -357,6 +357,8 @@ export function pruneInjected(output: Record<string, unknown>, original: unknown
     const base = isObj(baseline) ? baseline[key] : undefined;
     const present = isObj(original) && Object.prototype.hasOwnProperty.call(original, key);
     const value = output[key];
+    // Filled from an extends base after the organiser cleared the document's own value: the base's value, never saved.
+    if (present && book.injected.has(pathKey(path)) && !book.touched.has(pathKey(path))) { delete output[key]; return; }
     if (!present) {
       if (nested && NESTED_PRUNE.has(key) && isObj(value) && isObj(base)) {
         pruneInjected(value, {}, base, book, false, path);

@@ -23,14 +23,21 @@ const allotment = (t: OverviewTeam): string[] => safeArray<string>(t.allotment);
 const cellLines = (v: unknown): string[] => (v == null || v === "" ? ["—"] : String(v).split(" · "));
 const teamGold = (t: OverviewTeam): string => (t.gold == null ? "—" : `${overviewGold(t.gold)}${t.goldMax != null ? `–${overviewGold(t.goldMax)}` : ""}`);
 const eligible = computed(() => (c.isAllRaces() ? "Every eligible race" : safeArray<string>(state.pkg?.eligibleRosters).join(", ")));
+const serialized = computed(() => JSON.stringify(c.serialize()));
+// Validation reads the server preview of the package AS IT STANDS (Sol fa781b7a #5): "Checking…" until that preview is in.
+const problems = computed<number | null | "error">(() => {
+  const p = preview.value;
+  if (p.loading || p.key !== serialized.value) return null;
+  if (p.error) return "error";
+  return p.data || p.overview ? p.problems.length : null;
+});
 const review = computed(() => packageReview(state.pkg, {
-  teams: state.teams, view: state.view, sevens: c.sevens(), inheritedFrom: c.inheritedFrom, problems: state.problems.length,
+  teams: state.teams, view: state.view, sevens: c.sevens(), inheritedFrom: c.inheritedFrom, problems: problems.value,
 }));
 const section = (id: ReviewSection["id"]): ReviewSection | undefined => review.value?.sections.find((s) => s.id === id);
 const left = computed(() => (["overview", "special"] as const).map(section).filter((s): s is ReviewSection => Boolean(s)));
 const main = computed(() => (["team", "skills", "inducements"] as const).map(section).filter((s): s is ReviewSection => Boolean(s)));
 const inheritedBase = computed(() => c.effectiveFormat().inheritedFrom);
-const serialized = computed(() => JSON.stringify(c.serialize()));
 
 onMounted(() => void c.requestPreview());
 watch(serialized, () => void c.requestPreview());

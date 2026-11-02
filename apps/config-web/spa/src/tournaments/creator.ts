@@ -14,7 +14,7 @@ import {
   applySevensDefaults, applyStandardDefaults, inducementDefs, isSevens, type PackageFormat,
   clone, deepEqual, fallbackRaw, freshView, inferView, isObj, kToGold, matrixForDisplay, MAX_TIERS, MEGA_STARS,
   normalizePackage, nullableNumber, numberOr, pairedStarNames, preflight, recordTouched, safeArray, serializePackage, setPath,
-  starTierCosts, touchPath, getPath, pathKey, DEFAULT_GOLD_COSTS, humanizeId, overviewGold,
+  starTierCosts, touchPath, getPath, pathKey, DEFAULT_GOLD_COSTS, NESTED_PRUNE, humanizeId, overviewGold,
   type Num, type StarPack, type Path, type Pkg, type PositionCatalog, type PresetInfo, type StatRuleDoc, type RawDoc, type SkillInfo, type SkillMode, type SkillPack, type StarInfo, type System,
   type TeamInfo, type Tier, type ViewState,
 } from "./creatorCore";
@@ -221,15 +221,39 @@ export function createTournamentCreator(deps: CreatorDeps) {
     if ((inherit ? state.inherited!.base : "") === appliedBase) return;
     if (state.touched.size === 0) {
       adoptDocument(state.original);
-      state.view = inferView(state.pkg!);
+      reinferView();
       return;
     }
     const current = serialize();
     const filled = new Set<string>();
     state.baseline = normalizePackage(state.original, undefined, inherit);
     state.pkg = normalizePackage(current, filled, inherit);
-    state.injected = new Set([...filled, ...[...state.injected].filter((key) => state.touched.has(key))]);
+    // Overrides are tracked by key, not by value (Sol fa781b7a #1): every field the organiser set that the document did not
+    // have stays saved, even when it equals the new base's value (touched + injected = kept by pruneInjected).
+    const pinned = [...state.touched].filter((key) => {
+      const path = JSON.parse(key) as Path;
+      if (path.length === 1 && NESTED_PRUNE.has(String(path[0]))) return false; // a block: its own keys decide
+      return getPath(current, path) !== undefined && getPath(state.original, path) === undefined;
+    });
+    // A field the organiser cleared to "inherit" before the base arrived stays inherited (Sol #2): the refilled value is
+    // the base's, not theirs, so it is no longer touched and is pruned on save (even when the document had its own value).
+    for (const key of filled) if (state.touched.has(key)) state.touched.delete(key);
+    state.injected = new Set([...filled, ...pinned, ...[...state.injected].filter((key) => state.touched.has(key))]);
     appliedBase = inherit ? state.inherited!.base : "";
+    reinferView();
+  }
+
+  /** Re-read the tournament system and skill mode from the (refilled) model; a choice the organiser made stays (Sol #3, #4). */
+  function reinferView(): void {
+    const inferred = inferView(state.pkg!);
+    const v = state.view;
+    state.view = {
+      ...v,
+      system: v.systemTouched ? v.system : inferred.system,
+      skillMode: v.skillModeTouched ? v.skillMode : inferred.skillMode,
+      initialSystem: inferred.initialSystem,
+      initialSkillMode: inferred.initialSkillMode,
+    };
   }
 
   function loadIntoEditor(doc: unknown, problems: unknown): void {
@@ -1078,7 +1102,9 @@ export interface ReviewContext {
   sevens: boolean;
   /** The base a field's shown value is inherited from (null when the package sets it itself). */
   inheritedFrom?: (path: Path) => string | null;
-  problems?: number;
+  /** The server preview's problems for the package as it stands: null while that preview is pending (or not in yet);
+   *  "error" when the preview failed (Sol fa781b7a #5: never "OK" without a current preview). */
+  problems?: number | null | "error";
 }
 
 /** Gold for the summary page: "600k", "1,150k"; `none` for null. */
@@ -1224,7 +1250,10 @@ export function packageReview(pkg: Pkg | null, ctx: ReviewContext): PackageRevie
     id: "special", title: "Special rules", cap: `${specialChips.filter((c) => c.on).length} on`, tiles: [], rows: [], chips: specialChips,
   };
 
-  const problems = ctx.problems ?? 0;
+  const problems = ctx.problems === undefined ? 0 : ctx.problems;
+  const valid: ReviewRow = problems === null ? { key: "valid", label: "Validation", value: "Checking…", tone: "muted" }
+    : problems === "error" ? { key: "valid", label: "Validation", value: "Unavailable", tone: "off" }
+      : { key: "valid", label: "Validation", value: problems ? plural(problems, "problem", "problems") : "OK", tone: problems ? "off" : "ok" };
   return {
     sevens,
     name: String(pkg.name || "").trim() || "Unnamed package",
@@ -1236,7 +1265,7 @@ export function packageReview(pkg: Pkg | null, ctx: ReviewContext): PackageRevie
       { key: "skills", label: "Skills", value: skillModel },
       { key: "inducements", label: "Inducements", value: `${allowedIds.length} / ${defs.length}` },
       { key: "stars", label: "Stars", value: starsOn ? "On" : "Off", tone: starsOn ? "ok" : "off" },
-      { key: "valid", label: "Validation", value: problems ? plural(problems, "problem", "problems") : "OK", tone: problems ? "off" : "ok" },
+      valid,
     ],
   };
 }

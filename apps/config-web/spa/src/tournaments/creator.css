@@ -217,7 +217,7 @@
 .cr-sum dt { font: 12px/1.1 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-heading); }
 .cr-sum dd { margin: 0; font: 500 18px/1.1 var(--font-heading, sans-serif); color: var(--ui-text); text-align: right; overflow-wrap: anywhere; }
 .cr-sum > div[data-tone="gold"] dd, .cr-sum > div[data-tone="ok"] dd { color: var(--sf-gold); }
-.cr-sum > div[data-tone="off"] dd { color: var(--ui-muted); }
+.cr-sum > div[data-tone="off"] dd, .cr-sum > div[data-tone="muted"] dd { color: var(--ui-muted); }
 .cr-sum > div[data-row="valid"][data-tone="off"] dd { color: var(--ui-danger); }
 .cr-sum > div[data-row="valid"] { min-height: 52px; }
 

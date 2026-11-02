@@ -162,6 +162,81 @@ describe("inherited Sevens: the controller reads the resolved base", () => {
   });
 });
 
+describe("inherited refill edge cases (Sol fa781b7a)", () => {
+  /** A base whose GET waits until release() (the base still loading while the organiser edits). */
+  function delayed(): { routes: Routes; release: () => void } {
+    let release = (): void => undefined;
+    const gate = new Promise<void>((r) => { release = r; });
+    return { routes: { [`/api/packages/${ENC}`]: async () => { await gate; return { pkg: structuredClone(MATCHED), raw: structuredClone(SHIPPED), revision: "r-7s", problems: [], schemaProblems: [] }; } }, release: () => release() };
+  }
+
+  it("#1 a value the organiser set stays saved after a base change, even when it equals the new base's value", async () => {
+    const c = createTournamentCreator({ api: mockFetcher(API) });
+    await c.init();
+    await c.open("Plain");
+    await settle();
+    c.setBound(["special", "maxPlayers"], "int", "delete", "11"); // the Sevens base's value too
+    c.setBound(["staffPrices", "reRoll"], "gold", "delete", "100"); // ditto
+    c.setField("extends", NAME);
+    await settle();
+    expect(c.sevens()).toBe(true);
+    const out = c.serialize() as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+    expect(out.special).toEqual({ maxPlayers: 11 });
+    expect(out.staffPrices).toEqual({ reRoll: 100000 });
+    expect(c.inheritedFrom(["special", "maxPlayers"])).toBeNull();
+    expect(c.inheritedFrom(["special", "maxNonLineman"])).toBe(NAME);
+  });
+
+  it("#2 a value cleared to inherit while the base loads stays absent once it arrives", async () => {
+    const d = delayed();
+    const own = { ...CLUB, special: { maxPlayers: 9 } };
+    const c = createTournamentCreator({ api: mockFetcher({ ...API, ...d.routes, "/api/packages/Club%20Sevens": () => ({ raw: structuredClone(own), revision: "r", problems: [], schemaProblems: [] }) }) });
+    await c.init();
+    await c.open("Club Sevens");
+    c.setOverrideMode(["special", "maxPlayers"], "inherit");
+    d.release();
+    await settle(); await settle();
+    expect(c.sevens()).toBe(true);
+    expect(c.state.pkg!.special.maxPlayers).toBe(11); // shown from the base
+    expect(c.inheritedFrom(["special", "maxPlayers"])).toBe(NAME);
+    expect((c.serialize() as { special?: Record<string, unknown> }).special ?? {}).not.toHaveProperty("maxPlayers");
+    expect(c.dirty()).toBe(true);
+  });
+
+  it("#3 a base change re-reads the tournament system (skill points -> the base's tiers)", async () => {
+    const c = createTournamentCreator({ api: mockFetcher(API) });
+    await c.init();
+    await c.open("Plain");
+    await settle();
+    expect(c.state.view.system).toBe("skillpoints");
+    c.setField("description", "edit first");
+    c.setField("extends", NAME);
+    await settle();
+    expect(c.state.view.system).toBe("tiers");
+    expect(c.serialize()).toEqual({ ...PLAIN, description: "edit first", extends: NAME });
+  });
+
+  it("#4 a system picked while the base loads is kept when it arrives", async () => {
+    const d = delayed();
+    const c = createTournamentCreator({ api: mockFetcher({ ...API, ...d.routes }) });
+    await c.init();
+    await c.open("Club Sevens");
+    c.setSystem("packages");
+    d.release();
+    await settle(); await settle();
+    expect(c.sevens()).toBe(true);
+    expect(c.state.view.system).toBe("packages");
+    expect(c.state.view.systemTouched).toBe(true);
+  });
+
+  it("#5 the review model: pending and failed previews never read OK", () => {
+    const pkg = normalizePackage(NUT_CUP);
+    const ctx = { teams: [], view: freshView("skillpoints", "pool"), sevens: false };
+    expect(packageReview(pkg, { ...ctx, problems: null })!.summary.find((r) => r.key === "valid")).toMatchObject({ value: "Checking…", tone: "muted" });
+    expect(packageReview(pkg, { ...ctx, problems: "error" })!.summary.find((r) => r.key === "valid")).toMatchObject({ value: "Unavailable", tone: "off" });
+  });
+});
+
 describe("Tournament Creator views (server-rendered)", () => {
   let vite: ViteDevServer;
   let mods: Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -174,13 +249,14 @@ describe("Tournament Creator views (server-rendered)", () => {
   afterAll(async () => { await vite?.close(); });
 
   const ORGANISER = { "/api/auth/session": { authenticated: true, coach: "Jay", organizer: true, authMethod: "discord", discordSsoEnabled: true } };
-  async function render(open: string, tab: string): Promise<string> {
-    const f = mockFetcher({ ...API, ...ORGANISER });
+  async function render(open: string, tab: string, extra: Routes = {}, preview = false): Promise<string> {
+    const f = mockFetcher({ ...API, ...ORGANISER, ...extra });
     const spa = mods.app.createSpa({ history: mods.vueRouter.createMemoryHistory("/app/"), ssr: true, fetcher: f });
     const c = mods.creator.createTournamentCreator({ api: f });
     await c.init();
     await c.open(open);
     await settle();
+    if (preview) await c.requestPreview();
     spa.app.provide(mods.creator.TOURNAMENT_CREATOR_KEY, c);
     await spa.router.push(`/tournament-creator?package=${encodeURIComponent(open)}&tab=${tab}`);
     await spa.router.isReady();
@@ -196,8 +272,16 @@ describe("Tournament Creator views (server-rendered)", () => {
     expect(html.match(/>Save package<\/button>/g)?.length).toBe(1);
   };
 
+  const PREVIEW = (problems: string[]) => ({ "POST /api/packages/preview": () => ({ preview: { system: "matrix", tiers: [], exceptions: [] }, overview: null, problems }) });
+  it("validation follows the CURRENT server preview: checking until it is in, its problems after (Sol #5)", async () => {
+    expect(await render("Nut Cup", "preview")).toMatch(/data-row="valid" data-tone="muted"><dt>Validation<\/dt><dd>Checking…<\/dd>/);
+    expect(await render("Nut Cup", "preview", PREVIEW(["tiers[1]: bad cap"]), true)).toMatch(/data-row="valid" data-tone="off"><dt>Validation<\/dt><dd>1 problem<\/dd>/);
+    const failed = await render("Nut Cup", "preview", { "POST /api/packages/preview": new ApiError(422, "nope") }, true);
+    expect(failed).toMatch(/<dt>Validation<\/dt><dd>Unavailable<\/dd>/);
+  });
+
   it("the summary page renders every section for a standard package", async () => {
-    const html = await render("Nut Cup", "preview");
+    const html = await render("Nut Cup", "preview", PREVIEW([]), true);
     sectionsIn(html);
     expect(html).toContain('data-format="standard"');
     expect(html).toMatch(/data-tile="budget" data-gold="true"><b>1,150k<\/b>/);
