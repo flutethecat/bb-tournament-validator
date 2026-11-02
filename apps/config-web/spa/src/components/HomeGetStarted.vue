@@ -8,12 +8,15 @@ import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
 import { createGetStarted } from "../home/getStarted";
 import { NAV_ICON } from "../home/nav";
+import { canCreateLeague } from "../leagues/lifecycle";
+import { canCreateTournament } from "../tournaments/create";
 import "../account/welcome.css";
 
 const fetcher = inject(API_KEY)!;
 const session = inject(SESSION_KEY)!;
 const gs = createGetStarted({ api: fetcher });
-const cards = computed(() => gs.cards());
+// Creation wizards v2: organisers get Create league / Create tournament on the last card (the same rules as the menu).
+const cards = computed(() => gs.cards({ league: canCreateLeague(session.state.info), tournament: canCreateTournament(session) }));
 const done = (id: keyof NonNullable<typeof gs.state.view>["done"]) => gs.state.view?.done[id] === true;
 
 onServerPrefetch(() => gs.load(session.coach()));
@@ -39,6 +42,9 @@ onMounted(() => { if (!gs.state.view) void gs.load(session.coach()); });
           <p class="gs-line">{{ c.line }}</p>
           <span v-if="done(c.id)" class="gs-check" aria-hidden="true">✓</span>
           <span v-if="done(c.id)" class="sf-sr">Done.</span>
+          <span v-if="c.actions?.length" class="sf-btn-row gs-actions">
+            <RouterLink v-for="a in c.actions" :key="a.key" class="sf-btn small" :to="a.to" :data-action="a.key">{{ a.label }}</RouterLink>
+          </span>
         </component>
       </li>
     </ul>

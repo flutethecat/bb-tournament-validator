@@ -43,6 +43,8 @@ const creator = inject(TOURNAMENT_CREATOR_KEY, null);
 // opening only: once open, the dialog stays until Cancel / Escape even if the session lapses (its 401 error shows).
 const canCreate = computed(() => Boolean(creator) && canCreateTournament(session));
 const canCreateLeagueHere = computed(() => canCreateLeague(session.state.info));
+// Creation wizards v2: a signed-in coach who may create neither gets "Ask to organise" in the same menu place.
+const askToOrganise = computed(() => session.signedIn() && !canCreate.value && !canCreateLeagueHere.value);
 // New-user flow (owner 10-31): while the signed-in coach has not completed onboarding, the welcome modal blocks the shell
 // on every route (header and body inert). Read once per coach, in the browser only.
 const onboarding = inject(ONBOARDING_KEY, null);
@@ -181,7 +183,7 @@ async function signOut(): Promise<void> {
             <span>{{ session.coach() }}</span>
             <span aria-hidden="true" class="sf-menu-caret">▾</span>
           </button>
-          <AccountMenu v-if="menuOpen" :can-create="canCreate" :can-create-league="canCreateLeagueHere" @create="openCreate" @sign-out="signOut" />
+          <AccountMenu v-if="menuOpen" :can-create="canCreate" :can-create-league="canCreateLeagueHere" :ask-to-organise="askToOrganise" @create="openCreate" @sign-out="signOut" />
         </div>
       </template>
       <!-- not on the sign-up step itself (/welcome): the coach is mid-sign-in there -->

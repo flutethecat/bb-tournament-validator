@@ -13,6 +13,8 @@ const fetcher = inject(API_KEY)!;
 const session = inject(SESSION_KEY, null);
 // Lane L5: site organisers and admins start a league here (the wizard at /leagues/new).
 const canCreate = computed(() => canCreateLeague(session?.state.info));
+// Creation wizards v2: a signed-in coach who may not create gets "Ask to organise" in the same place.
+const askToOrganise = computed(() => !canCreate.value && Boolean(session?.signedIn()));
 const list = inject(LEAGUE_LIST_KEY, null) ?? createLeagueList({ api: fetcher });
 const { state } = list;
 const broken = ref<Record<string, boolean>>({});
@@ -24,6 +26,7 @@ onMounted(() => { if (!state.loaded) void list.load(); });
 <template>
   <div class="hm-page lg-page sf-fit">
     <div v-if="canCreate" class="sf-btn-row lg-list-tools"><RouterLink class="sf-btn primary" :to="{ name: 'league-new' }">Create league</RouterLink></div>
+    <div v-else-if="askToOrganise" class="sf-btn-row lg-list-tools"><RouterLink class="sf-btn" to="/organiser/request" data-action="ask-organise">Ask to organise</RouterLink></div>
     <p v-if="state.error" class="lobby-error" role="alert">{{ state.error }}</p>
     <p v-else-if="!state.loaded" class="hm-empty" role="status">Loading leagues...</p>
     <section v-else-if="!state.leagues.length" class="hm-panel" aria-labelledby="lg-none-h">

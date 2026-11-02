@@ -72,3 +72,6 @@ a.gs-card:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2p
   .ob-steps { gap: 6px; }
   .ob-step { letter-spacing: .06em; }
 }
+
+/* creation wizards v2: Create league / Create tournament on the organiser card */
+.gs-actions { margin-top: 6px; justify-content: center; flex-wrap: wrap; }

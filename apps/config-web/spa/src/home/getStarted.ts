@@ -20,8 +20,10 @@ export interface GetStartedCard {
   icon: string;
   title: string;
   line: string;
-  /** Router path; null = no page to open (the card is information only). */
+  /** Router path; null = no page to open (the card is information only, or it carries `actions`). */
   to: string | null;
+  /** Buttons inside the card (creation wizards v2: Create league / Create tournament for organisers). */
+  actions?: Array<{ key: string; label: string; to: string }>;
 }
 
 /** The organiser-request page (lane L2: Account -> "Organiser"). Linked only once the server answers its read. */
@@ -29,7 +31,17 @@ export const ORGANISER_REQUEST_TO = "/account#organiser";
 export const ORGANISER_REQUEST_PROBE = "/api/me/organiser-request";
 export const GET_STARTED_HIDDEN_STORAGE = "cw.getStartedHidden";
 
-export function getStartedCards(organiserRequests: boolean): GetStartedCard[] {
+export function getStartedCards(organiserRequests: boolean, create: { league: boolean; tournament: boolean } = { league: false, tournament: false }): GetStartedCard[] {
+  const actions = [
+    ...(create.league ? [{ key: "create-league", label: "Create league", to: "/leagues/new" }] : []),
+    ...(create.tournament ? [{ key: "create-tournament", label: "Create tournament", to: "/tournaments/new" }] : []),
+  ];
+  if (actions.length) {
+    return [
+      ...getStartedCards(organiserRequests).slice(0, 3),
+      { id: "organiser", icon: "leaderboards", title: "Run your own league or tournament", line: "You're an organiser: start one now.", to: null, actions },
+    ];
+  }
   return [
     { id: "league", icon: "leagues", title: "Join a league", line: "Find a league that's taking new coaches.", to: "/leagues?registration=open" },
     { id: "tournament", icon: "tournaments", title: "Enter a tournament", line: "Sign up for a tournament that's open.", to: "/tournaments?registration=open" },
@@ -82,7 +94,7 @@ export function createGetStarted(deps: { api: Fetcher }) {
     state,
     load,
     visible: (): boolean => Boolean(state.view?.show) && !state.hiddenHere,
-    cards: (): GetStartedCard[] => getStartedCards(state.organiserRequests),
+    cards: (create?: { league: boolean; tournament: boolean }): GetStartedCard[] => getStartedCards(state.organiserRequests, create),
     async hide(): Promise<void> {
       if (!state.coach || state.busy) return;
       const coach = state.coach;

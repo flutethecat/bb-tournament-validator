@@ -26,6 +26,8 @@ const canWrite = computed(() => writesAllowed(session));
 // CREATE: organisers only, the same rule as the server's POST /api/tournaments (tournaments/create.ts).
 const creator = inject(TOURNAMENT_CREATOR_KEY, null);
 const canCreate = computed(() => Boolean(creator) && canCreateTournament(session));
+// Creation wizards v2: a signed-in coach who may not create gets "Ask to organise" in the same place.
+const askToOrganise = computed(() => !canCreate.value && session.signedIn() && session.state.info?.organizer !== true && session.state.info?.admin !== true);
 
 // The URL (?tab=&q=&page=) is the source of truth: refresh and Back restore the same view.
 const changed = list.restore(parseListQuery(route.query));
@@ -96,6 +98,7 @@ onUnmounted(() => stopPolling());
           <button class="tl-search-btn" type="submit">Search</button>
         </form>
         <RouterLink v-if="canCreate" class="tl-create-btn" :to="{ name: 'tournament-new' }">Create</RouterLink>
+        <RouterLink v-else-if="askToOrganise" class="tl-action" to="/organiser/request" data-action="ask-organise">Ask to organise</RouterLink>
       </div>
     </div>
 

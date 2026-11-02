@@ -1,6 +1,21 @@
 [
   {
     "date": "2026-11-02",
+    "title": "New league and tournament creation steps, with house rules",
+    "body": "Creating a league or tournament now starts from ruleset cards (BB2025 first, then EuroBowl 2026, Small Gods and World Cup 3.0) and has a House rules group: Prayers to Nuffle, Brawling Brutes, stat increase caps, MVP and hire/fire for leagues, and Progression for tournaments. Tournaments get their own Format step with editable points and a tiebreaker list (points always rank first), plus an option to avoid pairing coaches from the same club or region. Played on (Tabletop or Super FUMBBL) is now a general setting, the Review step has Save as draft and Publish now, and each overview shows a House rules panel. Organisers find Create league and Create tournament in the account menu; other coaches find Ask to organise there.",
+    "links": [
+      {
+        "label": "Create a tournament",
+        "href": "/app/tournaments/new"
+      },
+      {
+        "label": "Create a league",
+        "href": "/app/leagues/new"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-02",
     "title": "League inducement statistics",
     "body": "The league overview's Inducements panel now shows how often each inducement has been taken: times taken and the share of games, for this season or all seasons. It counts games recorded on the site; the season's price list is one click away under Price list.",
     "links": [
