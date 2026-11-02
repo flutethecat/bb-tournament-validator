@@ -368,8 +368,10 @@ describe("Team Captain appointment on tabletop teams", () => {
       rmSync(join(dir, "tt"), { recursive: true, force: true });
       repo = new FileTabletopRepository(join(dir, "tt"));
       await captainKilled();
+      // odd rounds go through the fixture lobby's START path (createMatch fromLobby, as server.ts startMatch calls it)
+      const body = { home: { coach: "Alice", team: "sv_a" }, away: { coach: "Bob", team: "sv_b" }, postMatch: "full", pregame: "skip" };
       const [made, appointed] = await Promise.all([
-        as("Alice", "POST", "/api/tabletop/matches", { home: { coach: "Alice", team: "sv_a" }, away: { coach: "Bob", team: "sv_b" }, postMatch: "full", pregame: "skip" }),
+        round % 2 ? createMatch("Alice", false, body, deps(), () => NOW, { fromLobby: true, inducementsByCoach: {} }) : as("Alice", "POST", "/api/tabletop/matches", body),
         appoint("Alice", "blitz2", 1),
       ]);
       const head = (await repo.getChain("Alice", "sv_a"))!.head;
