@@ -327,6 +327,8 @@ export async function tabletopApi(
   const role = viewerRole(match, me, organiser);
   /** An organiser of this match's league / tournament, or an admin: inducement edits after the start and their undo. */
   const manage = deps.managesMatch ? deps.managesMatch(me, match) : organiser;
+  // Every answer below that carries the match goes through the one comment filter (hidden comments: managers and author only).
+  const scrub = (r: TabletopResult): TabletopResult => scrubComments(r, role, manage, deps);
 
   // Organiser edits of inducements after the start (owner 10-29): only an organiser of this league / tournament or an admin.
   if (action === "inducements") {
@@ -335,7 +337,7 @@ export async function tabletopApi(
     if (method !== "POST") return err(405, "Method not allowed.");
     return serial(id, async () => {
       try { await recoverMatch(id, deps); } catch (e) { return recoveryFailure(e); }
-      return editInducements((await repo.getMatch(id))!, me, body, deps, now);
+      return scrub(await editInducements((await repo.getMatch(id))!, me, body, deps, now));
     }, matchTeamKeys(match));
   }
   if (!action) {
@@ -345,14 +347,14 @@ export async function tabletopApi(
   // Coach's comments (end-game step): a seat writes its own; a manager of the competition hides one.
   if (action === "comment" || action === "comment/hide") {
     if (method !== "POST") return err(405, "Method not allowed.");
-    return serial(id, async () => commentAction((await repo.getMatch(id))!, action, me, role, manage, body, deps, now));
+    return scrub(await serial(id, async () => commentAction((await repo.getMatch(id))!, action, me, role, manage, body, deps, now)));
   }
   if (method !== "POST") return err(405, "Method not allowed.");
   // a spectator reads; every write (events, turns, pre-game, seats, submit, confirm, organiser tools) is refused here
   // (a scoped manager outside the match may post events: postEvents lets them undo inducement edits only)
   if (role === "spectator" && !(manage && action === "events")) return err(403, "You are watching this match: only its coaches and organisers can change it.");
 
-  return serial(id, async () => {
+  return scrub(await serial(id, async () => {
     if (action === "resolve-conflict") {
       if (!organiser) return err(403, "Organizer access required.");
       const j = await repo.getJournal(id);
@@ -379,16 +381,24 @@ export async function tabletopApi(
     if (!organiser) return err(403, "Organizer access required.");
     if (action === "publish") return publish(fresh, me, deps, now);
     return undoRevision(fresh, deps, now, undefined, me);
-  }, matchTeamKeys(match));
+  }, matchTeamKeys(match)));
 }
 
-/** The match as this viewer sees its coach's comments (hidden ones only for managers and their author). */
+/** The match as this viewer sees its coach's comments (hidden ones only for a manager of THIS competition, and their author). */
 function withComments(match: MatchRecord, role: ViewerRole, manage: boolean, deps: TabletopApiDeps): MatchRecord & { commentsEnabled?: boolean } {
   const { comments: _c, ...rest } = match;
-  const viewer = manage || role === "organiser" ? "manager" : role === "home" || role === "away" ? role : "other";
+  const viewer = manage ? "manager" : role === "home" || role === "away" ? role : "other";
   const comments = commentsFor(match, viewer);
   const enabled = deps.commentsEnabled ? deps.commentsEnabled(match) : true;
   return { ...rest, ...(comments ? { comments } : {}), commentsEnabled: enabled };
+}
+
+/** Any response body carrying a match record (`match`, or a recovered `match`) gets the viewer's comment filter. */
+function scrubComments(r: TabletopResult, role: ViewerRole, manage: boolean, deps: TabletopApiDeps): TabletopResult {
+  const body = r.body as { match?: unknown } | undefined;
+  const m = body && typeof body === "object" ? body.match : undefined;
+  if (!m || typeof m !== "object" || !("home" in (m as object)) || !("state" in (m as object))) return r;
+  return { ...r, body: { ...body, match: withComments(m as MatchRecord, role, manage, deps) } };
 }
 
 /** POST .../comment { text } (a seat, at the end-game step) and POST .../comment/hide { side, hidden } (a manager). */
@@ -401,7 +411,12 @@ async function commentAction(match: MatchRecord, action: string, me: string, rol
     if (typeof b.hidden !== "boolean") return err(400, "hidden must be true or false.");
     const c = match.comments?.[b.side];
     if (!c) return err(404, "That coach has not written a comment.");
-    const next: MatchRecord = { ...match, comments: { ...match.comments, [b.side]: b.hidden ? { ...c, hidden: { by: me, at } } : { text: c.text, at: c.at } }, updatedAt: at };
+    // Unhiding an emptied slot drops it; otherwise the hide sticks to the seat's slot whatever the author writes next.
+    const slot = b.hidden ? { ...c, hidden: { by: me, at } } : c.text ? { text: c.text, at: c.at } : undefined;
+    const comments = { ...match.comments };
+    if (slot) comments[b.side] = slot; else delete comments[b.side];
+    const { comments: _prev, ...base } = match;
+    const next: MatchRecord = { ...base, ...(Object.keys(comments).length ? { comments } : {}), updatedAt: at };
     await deps.repo.updateMatch(next);
     return { status: 200, body: { match: withComments(next, role, manage, deps) } };
   }
@@ -411,9 +426,11 @@ async function commentAction(match: MatchRecord, action: string, me: string, rol
   const parsed = parseComment(body);
   if (!parsed.ok) return err(400, parsed.error);
   const comments = { ...(match.comments ?? {}) };
-  // one comment per coach per game: writing again replaces it (an organiser's hide stays); "" removes it
-  if (!parsed.text) delete comments[role];
-  else comments[role] = { text: parsed.text, at, ...(comments[role]?.hidden ? { hidden: comments[role]!.hidden } : {}) };
+  // one comment per coach per game: writing again replaces it; "" removes it. An organiser's hide sticks to the seat's
+  // slot (an emptied hidden comment keeps the hide), so a re-post stays hidden until an organiser unhides it.
+  const hidden = comments[role]?.hidden;
+  if (!parsed.text && !hidden) delete comments[role];
+  else comments[role] = { text: parsed.text, at, ...(hidden ? { hidden } : {}) };
   const { comments: _old, ...rest } = match;
   const next: MatchRecord = { ...rest, ...(Object.keys(comments).length ? { comments } : {}), updatedAt: at };
   await deps.repo.updateMatch(next);
