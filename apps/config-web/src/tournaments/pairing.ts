@@ -14,7 +14,14 @@ export type StandingRow = TournamentStandingRow;
 export interface SwissPairing {
   homeEntrantId: string;
   awayEntrantId?: string;
+  /** Pairing avoidance (Swiss): what this pair shares although the organiser asked to avoid it (no clash-free draw
+   *  existed). Absent = no clash. */
+  clash?: Array<"club" | "region">;
 }
+
+/** What two entrants clash on under the tournament's pairing avoidance (empty = none). */
+export type PairingClash = (left: TournamentEntrantRecord, right: TournamentEntrantRecord) => Array<"club" | "region">;
+
 
 const activeEntrants = (entrants: readonly TournamentEntrantRecord[]): TournamentEntrantRecord[] =>
   entrants.filter((entrant) => entrant.droppedAt === undefined);
@@ -22,22 +29,53 @@ const activeEntrants = (entrants: readonly TournamentEntrantRecord[]): Tournamen
 const completed = (matches: readonly ScheduledMatchRecord[]): ScheduledMatchRecord[] =>
   matches.filter((match) => match.status === "completed" && match.result !== undefined);
 
-function compareValue(left: StandingRow, right: StandingRow, key: TournamentTiebreaker): number {
-  if (key === "headToHead") return 0;
-  if (key === "seed") return left.seed - right.seed;
-  return right[key] - left[key];
+/** A row's value for one tiebreaker (higher ranks first). Head to head is resolved per tied group (rankTiedGroup). */
+function tiebreakValue(row: Omit<StandingRow, "rank">, key: Exclude<TournamentTiebreaker, "headToHead">): number {
+  if (key === "seed") return -row.seed;
+  return row[key];
 }
 
-function headToHead(left: StandingRow, right: StandingRow, matches: readonly ScheduledMatchRecord[]): number {
-  const game = completed(matches).find((match) =>
-    match.away &&
-    ((match.home.entrantId === left.entrantId && match.away.entrantId === right.entrantId) ||
-      (match.home.entrantId === right.entrantId && match.away.entrantId === left.entrantId)),
-  );
-  if (!game?.result) return 0;
-  const leftScore = game.home.entrantId === left.entrantId ? game.result.homeScore : game.result.awayScore;
-  const rightScore = game.home.entrantId === right.entrantId ? game.result.homeScore : game.result.awayScore;
-  return rightScore - leftScore;
+/**
+ * Head to head among ONLY the tied group: each member's points (the competition's W/D/L) from completed games against the
+ * other members. Byes and games against anyone outside the group do not count.
+ */
+function headToHeadPoints(
+  group: ReadonlyArray<Omit<StandingRow, "rank">>,
+  matches: readonly ScheduledMatchRecord[],
+  points: TournamentPoints,
+): Map<string, number> {
+  const ids = new Set(group.map((row) => row.entrantId));
+  const out = new Map(group.map((row) => [row.entrantId, 0]));
+  for (const match of completed(matches)) {
+    if (!match.away || !match.result) continue;
+    const home = match.home.entrantId;
+    const away = match.away.entrantId;
+    if (!ids.has(home) || !ids.has(away)) continue;
+    const { homeScore, awayScore } = match.result;
+    out.set(home, out.get(home)! + (homeScore > awayScore ? points.win : homeScore < awayScore ? points.loss : points.draw));
+    out.set(away, out.get(away)! + (awayScore > homeScore ? points.win : awayScore < homeScore ? points.loss : points.draw));
+  }
+  return out;
+}
+
+/**
+ * Orders one group of rows level on everything so far by the next tiebreaker in the chain, splitting it into smaller
+ * tied groups for the rest of the chain. Head to head looks only at games inside the group it is given; a group it
+ * leaves tied moves on to the next tiebreaker (it is not re-applied to the smaller group).
+ */
+function rankTiedGroup(
+  group: Array<Omit<StandingRow, "rank">>,
+  chain: readonly TournamentTiebreaker[],
+  matches: readonly ScheduledMatchRecord[],
+  points: TournamentPoints,
+): Array<Array<Omit<StandingRow, "rank">>> {
+  if (group.length <= 1 || chain.length === 0) return [group];
+  const [key, ...rest] = chain;
+  const h2h = key === "headToHead" ? headToHeadPoints(group, matches, points) : undefined;
+  const value = (row: Omit<StandingRow, "rank">) => (h2h ? h2h.get(row.entrantId)! : tiebreakValue(row, key as Exclude<TournamentTiebreaker, "headToHead">));
+  const buckets = new Map<number, Array<Omit<StandingRow, "rank">>>();
+  for (const row of group) buckets.set(value(row), [...(buckets.get(value(row)) ?? []), row]);
+  return [...buckets.entries()].sort((a, b) => b[0] - a[0]).flatMap(([, rows]) => rankTiedGroup(rows, rest, matches, points));
 }
 
 export function stableTieFlip(tournamentId: string, leftId: string, rightId: string): number {
@@ -151,16 +189,12 @@ export function calculateStandings(
     }
   }
 
-  const ranked = [...rows.values()].sort((left, right) => {
-    if (right.points !== left.points) return right.points - left.points;
-    for (const key of tiebreakers) {
-      const difference = key === "headToHead"
-        ? headToHead(left as StandingRow, right as StandingRow, matches)
-        : compareValue(left as StandingRow, right as StandingRow, key);
-      if (difference !== 0) return difference;
-    }
-    return stableTieFlip(tournamentId, left.entrantId, right.entrantId);
-  });
+  // Points always rank first; then the tiebreaker chain, group by group; a stable coin flip settles what is left.
+  const byPoints = new Map<number, Array<Omit<StandingRow, "rank">>>();
+  for (const row of rows.values()) byPoints.set(row.points, [...(byPoints.get(row.points) ?? []), row]);
+  const ranked = [...byPoints.entries()].sort((a, b) => b[0] - a[0])
+    .flatMap(([, group]) => rankTiedGroup(group, tiebreakers, matches, points))
+    .flatMap((tied) => [...tied].sort((left, right) => stableTieFlip(tournamentId, left.entrantId, right.entrantId)));
   return ranked.map((row, index) => ({ rank: index + 1, ...row }));
 }
 
@@ -176,9 +210,11 @@ export function generateSwissPairings(
   points: TournamentPoints,
   tiebreakers: readonly TournamentTiebreaker[],
   eligible?: (entrant: TournamentEntrantRecord) => boolean,
+  clash?: PairingClash,
 ): SwissPairing[] {
   // Standings always count every undropped entrant; `eligible` only narrows who is drawn this round.
   const drawable = new Set(activeEntrants(entrants).filter((entrant) => !eligible || eligible(entrant)).map((entrant) => entrant.id));
+  const clashes = forbidClashes(entrants, clash) ?? (() => false);
   if (completed(matches).length === 0) {
     const ordered = activeEntrants(entrants)
       .filter((entrant) => drawable.has(entrant.id))
@@ -188,13 +224,20 @@ export function generateSwissPairings(
       pairings.push({ homeEntrantId: ordered.pop()!.id });
     }
     const half = ordered.length / 2;
+    const fold: SwissPairing[] = [];
     for (let index = 0; index < half; index += 1) {
-      pairings.push({
+      fold.push({
         homeEntrantId: ordered[index]!.id,
         awayEntrantId: ordered[index + half]!.id,
       });
     }
-    return pairings;
+    if (clash && fold.some((pair) => clashes(pair.homeEntrantId, pair.awayEntrantId!))) {
+      // Pairing avoidance: keep the fold's shape (top half v bottom half) but step past a clashing opponent.
+      const pool = ordered.map((entrant) => ({ entrantId: entrant.id, points: 0 }));
+      const avoided = backtrackPairs(pool, new Set(), round1Preferences(pool), clashes);
+      if (avoided) return [...pairings, ...avoided];
+    }
+    return [...pairings, ...fold];
   }
 
   const standings = calculateStandings(entrants, matches, points, tiebreakers)
@@ -215,11 +258,15 @@ export function generateSwissPairings(
   const pool = standings.filter((row) => row.entrantId !== byeId);
 
   interface SearchResult { cost: number; key: string; pairs: SwissPairing[] }
+  // A score gap is measured in "3-point wins", so a 2000/1000/0 scheme weighs a gap exactly as 3/1/0 does.
+  const scoreUnit = points.win > 0 ? 3 / points.win : 1;
   const pairCost = (home: StandingRow, away: StandingRow): number => {
     const rematchCost = played.has(playedKey(home.entrantId, away.entrantId)) ? 1_000_000 : 0;
-    const scoreCost = Math.abs(home.points - away.points) * 10_000;
+    // Pairing avoidance: a clash costs more than any likely score gap but less than a rematch.
+    const clashCost = clashes(home.entrantId, away.entrantId) ? 200_000 : 0;
+    const scoreCost = Math.abs(home.points - away.points) * scoreUnit * 10_000;
     const rankCost = Math.abs(home.rank - away.rank) * 100;
-    return rematchCost + scoreCost + rankCost;
+    return rematchCost + clashCost + scoreCost + rankCost;
   };
   if (pool.length > 16) {
     const remaining = [...pool];
@@ -354,6 +401,21 @@ export interface PairingOptions {
   system?: TournamentPairingSystem;
   /** Swiss only: entrants who may be paired this round (e.g. not standby). Standings still count everyone. */
   eligible?: (entrant: TournamentEntrantRecord) => boolean;
+  /** Swiss only: pairing avoidance (same club / same region). Avoided when a draw without it exists; otherwise the clash
+   *  is allowed and marked on the pair (`clash`) so the organiser sees it on the round. */
+  clash?: PairingClash;
+}
+
+/** Marks every pair that still clashes under the avoidance rule (the round shows these to the organiser). */
+function markClashes(pairs: SwissPairing[], entrants: readonly TournamentEntrantRecord[], clash: PairingClash | undefined): SwissPairing[] {
+  if (!clash) return pairs;
+  const byId = new Map(entrants.map((entrant) => [entrant.id, entrant]));
+  return pairs.map((pair) => {
+    const home = byId.get(pair.homeEntrantId);
+    const away = pair.awayEntrantId ? byId.get(pair.awayEntrantId) : undefined;
+    const kinds = home && away ? clash(home, away) : [];
+    return kinds.length ? { ...pair, clash: kinds } : pair;
+  });
 }
 
 export function generateTournamentPairings(
@@ -367,14 +429,15 @@ export function generateTournamentPairings(
 ): SwissPairing[] {
   if (format === "roundRobin") return generateRoundRobinPairings(entrants, roundNumber);
   if (format === "knockout") return generateKnockoutPairings(entrants, matches, roundNumber, points, tiebreakers);
-  const eligible = options.eligible;
+  const { eligible, clash } = options;
   if (options.system === "dutch" || options.system === "monrad") {
     const pair = options.system === "dutch" ? pairSwissDutch : pairSwissMonrad;
-    const named = pair(entrants, matches, points, tiebreakers, eligible);
-    if (named) return named;
+    // Avoidance first (a clash treated like a rematch), then the plain system (clashes allowed and marked).
+    const named = (clash ? pair(entrants, matches, points, tiebreakers, eligible, clash) : undefined) ?? pair(entrants, matches, points, tiebreakers, eligible);
+    if (named) return markClashes(named, entrants, clash);
     // No legal pairing without a rematch: the min-cost matcher (rematch = heavy cost) is the fallback.
   }
-  return generateSwissPairings(entrants, matches, points, tiebreakers, eligible);
+  return markClashes(generateSwissPairings(entrants, matches, points, tiebreakers, eligible, clash), entrants, clash);
 }
 
 // ---- named Swiss systems ----
@@ -424,6 +487,7 @@ function backtrackPairs(
   pool: RankedEntrant[],
   played: ReadonlySet<string>,
   preferences: (remaining: RankedEntrant[]) => RankedEntrant[],
+  forbid?: (left: string, right: string) => boolean,
 ): SwissPairing[] | undefined {
   let steps = 0;
   const search = (remaining: RankedEntrant[]): SwissPairing[] | undefined => {
@@ -432,6 +496,7 @@ function backtrackPairs(
     const top = remaining[0]!;
     for (const candidate of preferences(remaining)) {
       if (played.has(playedKey(top.entrantId, candidate.entrantId))) continue;
+      if (forbid?.(top.entrantId, candidate.entrantId)) continue;
       const rest = search(remaining.filter((row) => row !== top && row !== candidate));
       if (rest) return [{ homeEntrantId: top.entrantId, awayEntrantId: candidate.entrantId }, ...rest];
       if (steps > SEARCH_LIMIT) return undefined;
@@ -456,10 +521,11 @@ export function pairSwissMonrad(
   points: TournamentPoints,
   tiebreakers: readonly TournamentTiebreaker[],
   eligible?: (entrant: TournamentEntrantRecord) => boolean,
+  clash?: PairingClash,
 ): SwissPairing[] | undefined {
   const { ranked, played, byes } = rankedPool(entrants, matches, points, tiebreakers, eligible);
   const { bye, pool } = takeBye(ranked, byes);
-  return withBye(backtrackPairs(pool, played, (remaining) => remaining.slice(1)), bye);
+  return withBye(backtrackPairs(pool, played, (remaining) => remaining.slice(1), forbidClashes(entrants, clash)), bye);
 }
 
 /**
@@ -474,6 +540,7 @@ export function pairSwissDutch(
   points: TournamentPoints,
   tiebreakers: readonly TournamentTiebreaker[],
   eligible?: (entrant: TournamentEntrantRecord) => boolean,
+  clash?: PairingClash,
 ): SwissPairing[] | undefined {
   const { ranked, played, byes } = rankedPool(entrants, matches, points, tiebreakers, eligible);
   const { bye, pool } = takeBye(ranked, byes);
@@ -491,5 +558,33 @@ export function pairSwissDutch(
     ordered.push(...floater, ...below);
     return ordered.filter((row) => row !== top);
   };
-  return withBye(backtrackPairs(pool, played, preferences), bye);
+  return withBye(backtrackPairs(pool, played, preferences, forbidClashes(entrants, clash)), bye);
+}
+
+/** A backtracking veto from the avoidance rule (undefined = no rule). */
+function forbidClashes(entrants: readonly TournamentEntrantRecord[], clash: PairingClash | undefined): ((left: string, right: string) => boolean) | undefined {
+  if (!clash) return undefined;
+  const byId = new Map(entrants.map((entrant) => [entrant.id, entrant]));
+  return (left, right) => {
+    const a = byId.get(left);
+    const b = byId.get(right);
+    return Boolean(a && b && clash(a, b).length);
+  };
+}
+
+/** Round 1 preference order: the fold partner (top half v bottom half) first, then the field by distance from that
+ *  partner. Used to step past a clash while keeping the fold's shape. */
+function round1Preferences(field: readonly RankedEntrant[]): (remaining: RankedEntrant[]) => RankedEntrant[] {
+  const order = new Map(field.map((row, index) => [row.entrantId, index]));
+  const half = field.length / 2;
+  return (remaining) => {
+    const top = remaining[0]!;
+    const at = order.get(top.entrantId)!;
+    const target = at < half ? at + half : at - half;
+    return remaining.slice(1).sort((left, right) => {
+      const l = Math.abs(order.get(left.entrantId)! - target);
+      const r = Math.abs(order.get(right.entrantId)! - target);
+      return l - r || order.get(left.entrantId)! - order.get(right.entrantId)!;
+    });
+  };
 }
