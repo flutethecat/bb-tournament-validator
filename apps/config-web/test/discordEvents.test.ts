@@ -631,3 +631,172 @@ describe("league time zone", () => {
     expect((r!.body as { draft: { identity: { timeZone: string } } }).draft.identity.timeZone).toBe("America/Chicago");
   });
 });
+
+describe("review fixes", () => {
+  it("[1] an unreadable tournaments store never rejects tick(); leagues still run", async () => {
+    const log: string[] = [];
+    const broken = { ...tournaments, tournaments: () => { throw new Error("bad json"); }, entrants: () => [], rounds: () => [], matches: () => [], tournament: () => undefined } as unknown as TournamentStore;
+    leagues.setSecrets("lg", { discordWebhookUrl: HOOK });
+    const obs = new DiscordObserver({ leagues, tournaments: broken, state, poster, now: () => NOW, log: (l) => log.push(l) });
+    await expect(obs.tick()).resolves.toBeTypeOf("number");
+    expect(log.some((l) => l.includes("tournaments unreadable"))).toBe(true);
+    expect(state.entry("league:lg")?.baselineAt).toBeDefined();
+  });
+
+  describe("[2][3][4] coach's comments in every match answer", () => {
+    let repo: FileTabletopRepository;
+    const managers = new Set(["Org"]);
+    const mkTeam = (name: string, prefix: string): TabletopTeamFile => ({ schema: 1, name, treasury: 50_000, dedicatedFans: 2, players: ["1", "2"].map((i) => ({ id: `${prefix}${i}`, name: `${prefix} ${i}`, spp: 0, skills: [], mng: false, niggles: 0, statLoss: {}, dead: false })) });
+    const deps = (): TabletopApiDeps => ({
+      repo, results: new TournamentResultStore(join(dir, "res2")), loadTeamFile: (c) => (c === "Ann" ? mkTeam("Orcs", "a") : mkTeam("Elves", "b")),
+      isBanned: () => false, drawSeats: () => false, isOrganizer: (c) => c === "RecOrg" || c === "Org", managesMatch: (c) => managers.has(c), now: () => NOW,
+    });
+    const as = (coach: string, method: string, path: string, body?: unknown) => tabletopApi(method, path, { coach, method: "discord" }, body, deps()) as Promise<TabletopResult>;
+    let n = 100;
+    const E = (type: string, team: string, player?: string) => ({ id: `evt-${String(++n).padStart(8, "0")}`, type, team, player, payload: {} });
+    beforeEach(() => { repo = new FileTabletopRepository(join(dir, "tt2")); });
+    async function hiddenMatch(): Promise<string> {
+      const r = await as("Ann", "POST", "/api/tabletop/matches", { pregame: "skip", home: { coach: "Ann", teamSaveId: "s1" }, away: { coach: "Bob", teamSaveId: "s2" }, postMatch: "none" });
+      const id = (r.body as { match: { id: string } }).match.id;
+      await as("Ann", "POST", `/api/tabletop/matches/${id}/events`, { events: [E("touchdown", "home", "a1")] });
+      await as("Ann", "POST", `/api/tabletop/matches/${id}/submit`);
+      await as("Bob", "POST", `/api/tabletop/matches/${id}/comment`, { text: "secret words" });
+      expect((await as("Org", "POST", `/api/tabletop/matches/${id}/comment/hide`, { side: "away", hidden: true })).status).toBe(200);
+      return id;
+    }
+
+    it("[2] action answers (confirm) never carry a hidden comment to the opponent", async () => {
+      const id = await hiddenMatch();
+      const c = await as("Ann", "POST", `/api/tabletop/matches/${id}/confirm`);
+      expect(c.status).toBe(200);
+      expect(JSON.stringify(c.body)).not.toContain("secret words");
+      expect(JSON.stringify((await as("Ann", "POST", `/api/tabletop/matches/${id}/comment`, { text: "gg" })).body)).not.toContain("secret words");
+    });
+
+    it("[3] a recorder organiser who does not manage this competition does not see a hidden comment", async () => {
+      const id = await hiddenMatch();
+      expect(JSON.stringify((await as("RecOrg", "GET", `/api/tabletop/matches/${id}`)).body)).not.toContain("secret words");
+      expect(JSON.stringify((await as("Org", "GET", `/api/tabletop/matches/${id}`)).body)).toContain("secret words");
+    });
+
+    it("[4] emptying a hidden comment and posting again keeps it hidden until an organiser unhides it", async () => {
+      const id = await hiddenMatch();
+      await as("Bob", "POST", `/api/tabletop/matches/${id}/comment`, { text: "" });
+      await as("Bob", "POST", `/api/tabletop/matches/${id}/comment`, { text: "new words" });
+      const m = (await repo.getMatch(id))!;
+      expect(m.comments!.away).toMatchObject({ text: "new words", hidden: { by: "Org" } });
+      expect(JSON.stringify((await as("Ann", "GET", `/api/tabletop/matches/${id}`)).body)).not.toContain("new words");
+      await as("Org", "POST", `/api/tabletop/matches/${id}/comment/hide`, { side: "away", hidden: false });
+      expect(JSON.stringify((await as("Ann", "GET", `/api/tabletop/matches/${id}`)).body)).toContain("new words");
+    });
+  });
+
+  it("[5] past the ledger cap only markers no longer live are dropped; live history never replays", () => {
+    const live = Array.from({ length: 4100 }, (_, i) => `entrant:${i}`);
+    state.mark("tournament:big", ["gone:1", "gone:2"], at(-10), true);
+    state.mark("tournament:big", live, at(0), true, new Set(live));
+    expect(state.has("tournament:big", "gone:1")).toBe(false);
+    expect(state.mark("tournament:big", live, at(1), true, new Set(live))).toEqual([]);
+  });
+
+  it("[6] a result reported just before the first look is baselined, not posted later", async () => {
+    state.setWebhook("tournament:t1", HOOK);
+    seedTournaments({ matches: { M1: smatch("M1", { result: { homeScore: 2, awayScore: 1, reportedAt: at(0) } }) } });
+    let clock = NOW.getTime();
+    const obs = new DiscordObserver({ leagues, tournaments, state, poster, now: () => new Date(clock) });
+    await obs.tick();
+    clock += RESULT_SETTLE_MS * 2;
+    await obs.tick();
+    expect(posts).toHaveLength(0);
+  });
+
+  it("[7] an organiser's typed-in tournament score is marked manual and never announced", async () => {
+    const { tournamentApi } = await import("../src/tournaments/api");
+    seedTournaments({ matches: { M1: smatch("M1") } });
+    state.setWebhook("tournament:t1", HOOK);
+    const obs = new DiscordObserver({ leagues, tournaments, state, poster, now: () => new Date(Date.now() + 10 * 60_000) });
+    await obs.tick();
+    const r = await tournamentApi("PATCH", "/api/scheduled-matches/M1/result", new URLSearchParams(), { coach: "TOrg", organizer: true, admin: false } as never, { revision: 1, homeScore: 3, awayScore: 0 }, { store: tournaments } as never);
+    expect(r!.status).toBe(200);
+    expect(tournaments.match("M1")!.result!.manual).toBe(true);
+    await obs.tick();
+    expect(titles().filter((t) => t.includes("result"))).toEqual([]);
+  });
+
+  it("[8] after-round digests switched back on never replay rounds finished meanwhile", async () => {
+    leagues.setSecrets("lg", { discordWebhookUrl: HOOK });
+    const played = (id: string, round: number) => fx(id, { round, home: { ...fx(id).home, score: 1 }, away: { ...fx(id).away, score: 0 }, finishedAt: at(-1) });
+    leagues.updateLeague("lg", (l) => { l.weeklyDigest = { enabled: false, trigger: "afterRound", day: 0, time: "10:00", everyWeeks: 1 }; });
+    leagues.putSeason(season("season-1", [played("f1", 1)]));
+    const obs = new DiscordObserver({ leagues, tournaments, state, poster, now: () => NOW });
+    await obs.tick();
+    leagues.putSeason(season("season-1", [played("f1", 1), played("f2", 2)]));
+    await obs.tick(); // round 2 completes while disabled
+    leagues.updateLeague("lg", (l) => { l.weeklyDigest = { ...l.weeklyDigest!, enabled: true }; });
+    await obs.tick();
+    expect(titles().filter((t) => t.endsWith("Weekly Digest"))).toEqual([]);
+  });
+
+  it("[9] Post now moves the period on: the next preview starts after it", async () => {
+    leagues.setSecrets("lg", { discordWebhookUrl: HOOK });
+    leagues.putSeason(season("season-1", [fx("f1", { home: { ...fx("f1").home, score: 2 }, away: { ...fx("f1").away, score: 1 }, finishedAt: at(-5) })]));
+    const observer = new DiscordObserver({ leagues, tournaments, state, poster, now: () => NOW });
+    const deps: DiscordApiDeps = { leagues, tournaments, state, poster, observer };
+    expect((await discordApi("POST", "/api/leagues/lg/discord/weekly-digest/post", { coach: "Org" }, {}, deps))!.status).toBe(200);
+    expect(state.weekly("lg").lastRun).toBe(NOW.toISOString());
+    const after = await discordApi("GET", "/api/leagues/lg/discord/weekly-digest", { coach: "Org" }, undefined, deps);
+    expect((after!.body as { preview: unknown }).preview).toBeNull();
+  });
+
+  it("[10] highlights read only the period's games", async () => {
+    const seen: string[][] = [];
+    leagues.putSeason(season("season-1", [
+      fx("old", { home: { ...fx("old").home, score: 5 }, away: { ...fx("old").away, score: 0 }, finishedAt: at(-24 * 30) }),
+      fx("new", { home: { ...fx("new").home, score: 1 }, away: { ...fx("new").away, score: 0 }, finishedAt: at(-5) }),
+    ]));
+    const obs = new DiscordObserver({ leagues, tournaments, state, poster, now: () => NOW, gamesFor: async (_l, _s, fs) => { seen.push(fs.map((f) => f.id)); return []; } });
+    await obs.digestFor(leagues.league("lg")!, NOW.getTime() - 7 * 24 * 3_600_000, NOW.getTime());
+    expect(seen).toEqual([["new"]]);
+  });
+
+  it("[11][12] wall-clock slots across New York DST: the autumn week is 169 hours; a missing 02:30 moves forward to 03:30", async () => {
+    const { previousSlot, zonedInstant } = await import("../src/discord/weekly");
+    const s = weeklyOf({ day: 0, time: "10:00", everyWeeks: 1 });
+    const slot = lastSlot(s, new Date("2026-11-01T16:00:00.000Z"), "America/New_York");
+    const prev = previousSlot(s, slot, "America/New_York");
+    expect(prev.toISOString()).toBe("2026-10-25T14:00:00.000Z");
+    expect((slot.getTime() - prev.getTime()) / 3_600_000).toBe(169);
+    expect(zonedInstant(2026, 3, 8, 2, 30, "America/New_York").toISOString()).toBe("2026-03-08T07:30:00.000Z"); // 03:30 EDT
+    expect(zonedInstant(2026, 11, 1, 1, 30, "America/New_York").toISOString()).toBe("2026-11-01T05:30:00.000Z"); // the first 01:30
+    const spring = weeklyOf({ day: 0, time: "02:30", everyWeeks: 1 });
+    expect(lastSlot(spring, new Date("2026-03-08T12:00:00.000Z"), "America/New_York").toISOString()).toBe("2026-03-08T07:30:00.000Z");
+  });
+
+  it("[13] user-written names in round labels and test posts are starred and escaped", async () => {
+    const { pairingsPost, cleanPayload } = await import("../src/discord/posts");
+    expect(JSON.stringify(pairingsPost("Cup", `Season ${LISTED} Round 1`, [{ home: "A", away: "B" }]))).not.toContain(LISTED);
+    expect(JSON.stringify(cleanPayload({ username: "x", embeds: [{ title: `t ${LISTED}`, description: LISTED, color: 1, footer: { text: LISTED }, fields: [{ name: LISTED, value: LISTED }] }], allowed_mentions: { parse: [] } }))).not.toContain(LISTED);
+    seedTournaments({ t: { name: `The ${LISTED} Cup` } });
+    state.setWebhook("tournament:t1", HOOK);
+    expect((await discordApi("POST", "/api/tournaments/t1/discord/test", { coach: "TOrg" }, {}, { leagues, tournaments, state, poster }))!.status).toBe(200);
+    expect(JSON.stringify(posts.at(-1)!.payload)).not.toContain(LISTED);
+  });
+
+  it("[14] zero-width characters, separators and look-alike letters do not get past the filter; the original span is starred", () => {
+    const zw = [...LISTED].join(String.fromCharCode(0x200b));
+    expect(starProfanity(`oh ${zw} no`)).toBe("oh *** no");
+    expect(starProfanity(`oh ${[...LISTED].join(".")} no`)).toBe("oh *** no");
+    expect(starProfanity(`oh ${[...LISTED].join(" ")} no`)).toBe("oh *** no");
+    expect(containsProfanity(LISTED.replace("i", String.fromCharCode(0x0456)))).toBe(true);
+    expect(containsProfanity([...LISTED].map((c) => String.fromCharCode(c.charCodeAt(0) + 0xfee0)).join(""))).toBe(true);
+    expect(starProfanity("e.g. a good game, co-op play")).toBe("e.g. a good game, co-op play");
+  });
+
+  it("[15] fork digests follow the public player-lines policy", async () => {
+    const { setPublicPlayerNames } = await import("../src/discord/games");
+    const fixture = { ...fx("f2"), fork: { result: { gameId: "g9", source: "full", appliedAt: at(0), home: { score: 1, cas: 0, conceded: false, winnings: 0, lines: [{ forkPlayerId: "1", name: "Grukk", td: 1, cas: 0, completions: 0, interceptions: 0, mvp: 0, fouls: 0, injuries: [] }] }, away: { score: 0, cas: 0, conceded: false, winnings: 0, lines: [] } } } } as never;
+    setPublicPlayerNames(false);
+    try { expect(JSON.stringify(forkGame(fixture))).not.toContain("Grukk"); } finally { setPublicPlayerNames(true); }
+    expect(JSON.stringify(forkGame(fixture))).toContain("Grukk");
+  });
+});

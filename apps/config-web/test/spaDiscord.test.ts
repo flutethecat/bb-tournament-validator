@@ -55,6 +55,8 @@ describe("discord helpers", () => {
     expect(reachLines(null)).toEqual({ dm: false, invite: null });
     expect(reachLines({ dm: "off", sharesServer: false, inviteUrl: invite, accountUrl: "" })).toEqual({ dm: false, invite: null });
     expect(reachLines({ dm: "unlinked", sharesServer: null, inviteUrl: invite, accountUrl: "" })).toEqual({ dm: false, invite: null });
+    // no bot token yet ("inactive"): the notice never promises DMs that cannot be sent
+    expect(reachLines({ dm: "inactive", sharesServer: null, inviteUrl: invite, accountUrl: "" })).toEqual({ dm: false, invite: null });
     expect(reachLines({ dm: "on", sharesServer: true, inviteUrl: invite, accountUrl: "" })).toEqual({ dm: true, invite: null });
     expect(reachLines({ dm: "on", sharesServer: null, inviteUrl: invite, accountUrl: "" })).toEqual({ dm: true, invite: null });
     expect(reachLines({ dm: "on", sharesServer: false, inviteUrl: invite, accountUrl: "" })).toEqual({ dm: true, invite });
