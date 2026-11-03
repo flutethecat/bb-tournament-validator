@@ -82,7 +82,7 @@ interface Sent { coach: string; input: NotificationInput }
 function stubFork() {
   const s = {
     installs: [] as Array<Array<{ coach: string; file: LeagueForkTeamFile }>>,
-    next: { kind: "failed", error: "no slot" } as ForkScheduleOutcome,
+    next: { kind: "rejected", error: "no slot" } as ForkScheduleOutcome,
     client: undefined as unknown as LeagueForkClient,
   };
   s.client = {
