@@ -38,7 +38,7 @@ import { datasetRoster, LIMITS } from "./redraft.js";
 import { isLeagueOrganiser } from "./store.js";
 import {
   addHistory, advanceCost, advancementCount, allSkills, changeLine, ensureTeamIdentity, FANS_MAX_AT_CREATION, fixturesNeedingDecision, injuryTable, injuryType,
-  playerLeaves, positionOf, rankAfter, reduceStat, rosterLimitErrors, rosterLimitMetrics, setMng, settleServedMng, skillChoices, skillValue, staffPrice, teamGamesPlayed, teamHasPlayed, worsenedLimits,
+  playerLeaves, positionOf, rankAfter, recordStatAdvances, reduceStat, rosterLimitErrors, rosterLimitMetrics, setMng, settleServedMng, skillChoices, skillValue, staffPrice, teamGamesPlayed, teamHasPlayed, worsenedLimits,
   type AdvanceMethod, type InjuryType, type StaffKey,
 } from "./teamOps.js";
 import { refreshTeamValue } from "./teamValue.js";
@@ -321,6 +321,8 @@ function injure(ctx: OpCtx, id: unknown, keyRaw: unknown, mngRaw: unknown): Chan
   if (!inj) throw new OpError(400, "Unknown injury.");
   if (mngRaw !== undefined && typeof mngRaw !== "boolean") throw new OpError(400, "mng must be true or false.");
   const out: Change[] = [];
+  // A characteristic gain with no "+X" entry yet is written down before the injury, so the injury can never erase it.
+  if (inj.stat) for (const e of recordStatAdvances(p, positionOf(ctx.roster, p.position))) out.push({ what: `${who(p)} advancement recorded`, to: e });
   p.injuries = [...(p.injuries ?? []), { type: inj.key, at: ctx.at, by: ctx.actor }];
   if (inj.dead) {
     playerLeaves(ctx.team, p.playerId, "dead");

@@ -650,6 +650,9 @@ export interface LeagueTeam {
    */
   teamUid?: string;
   entryId?: string;
+  /** The explicit redraft link (redraft.ts buildDraftTeam): the season this roster was drafted from. A redrafted team is
+   *  past its first game whatever its roster (team page v2 in-season rules). */
+  redraftedFrom?: { seasonId: string };
 }
 
 /** One team history line: what changed (old -> new), who, when. */

@@ -243,6 +243,8 @@ export function runRedraftWindowJob(deps: RedraftWindowDeps): RedraftWindowOutco
             try {
               if (!task.rest && ctx.team.players.some((p) => (p.niggling | 0) > 0)) task.rest = { at: iso, by: "League", rolls: restAndRelaxation(ctx.team, "site", {}, deps.rollD6 ?? d6) };
               commitDraft(seasons, league.id, source, ctx, currentRosterInput(ctx), "League", iso, { auto: true, apply: false });
+              // The team's own season (an earlier one for an inactive team) holds the teamUid minted at the redraft.
+              if (ctx.source.id !== source.id) write(ctx.source);
             } catch (e) {
               const reason = e instanceof RedraftError ? e.message : "The current roster could not be rebuilt.";
               task.needsRedraft = { at: iso, reason };

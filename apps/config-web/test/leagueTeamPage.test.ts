@@ -541,6 +541,57 @@ describe("team page v2", () => {
       expect(advancementCount({ ...base, skills: [...pos.skills, "Guard", "Team Captain", "Pro"], captainGrants: ["Team Captain", "Pro"] }, pos)).toBe(1);
     });
 
+    it("Sol re-review examples: imported captains, spelling variants, \"+1 ST\" entries, injuries never erase a gain", () => {
+      const pos = findPosition(teamValueRoster("Dwarf")!, "Dwarf Blocker Lineman")!;
+      const n = (v: unknown): number => Number.parseInt(String(v), 10);
+      const base = { skills: [...pos.skills], ma: pos.MA, st: pos.ST, ag: n(pos.AG), pa: n(pos.PA), av: n(pos.AV) };
+      // 1. an imported captain has no captainGrants record: the trait and its one free Pro are still no advancement
+      expect(advancementCount({ ...base, skills: [...pos.skills, "Team Captain", "Pro"] }, pos)).toBe(0);
+      expect(advancementCount({ ...base, skills: [...pos.skills, "Team Captain", "Pro", "Pro"] }, pos)).toBe(1); // a second Pro is bought
+      // 2. spelling: "Hit & Run" is the catalogue's "Hit and Run" (the validator's canonSkill)
+      expect(advancementCount({ ...base, skills: [...pos.skills, "Hit & Run"] }, pos)).toBe(1);
+      expect(advancementCount({ ...base, skills: [...pos.skills, "Side Step"] }, pos)).toBe(1);
+      // 3. every spelling statAdvanceOf reads: "+1 ST"
+      expect(advancementCount({ ...base, st: base.st + 1, skills: [...pos.skills, "+1 ST"] }, pos)).toBe(1);
+      expect(advancementCount({ ...base, skills: [...pos.skills, "+1 ST"] }, pos)).toBe(1);
+      // 4. gains = (current + recorded lasting-injury reductions) - position base: a recorded Smashed Knee never erases one
+      expect(advancementCount({ ...base, ma: base.ma, injuries: [{ type: "smashed-knee", at: "x" }] }, pos)).toBe(1); // was base + 1
+      expect(advancementCount({ ...base, ma: base.ma - 1, injuries: [{ type: "smashed-knee", at: "x" }] }, pos)).toBe(0); // no gain, only the knee
+      expect(advancementCount({ ...base, ma: base.ma, injuries: [{ type: "badly-hurt", at: "x" }] }, pos)).toBe(0); // no stat effect
+      expect(advancementCount({ ...base, ag: base.ag, injuries: [{ type: "neck-injury", at: "x" }] }, pos)).toBe(1); // AG target: was one better
+    });
+
+    it("an organiser's lasting injury first writes an inferred gain down as \"+X\", so the advancement is never erased", async () => {
+      const pos = findPosition(teamValueRoster("Dwarf")!, "Dwarf Blocker Lineman")!;
+      const s = store.season("lg", "season-1")!;
+      Object.assign(s.teams[0]!.players[0]!, { ma: pos.MA + 1, st: pos.ST, ag: 4, pa: 5, av: 10, skills: [...pos.skills] });
+      store.putSeason(s);
+      expect(advancementCount(team().players[0]!, pos)).toBe(1); // inferred from MA
+      expect((await edit(ORG, "organiser", [{ op: "injury", playerId: "p1", injury: "smashed-knee" }])).status).toBe(200);
+      const p = team().players[0]!;
+      expect(p.ma).toBe(pos.MA);
+      expect(p.skills).toContain("+MA");
+      expect(advancementCount(p, pos)).toBe(1);
+      expect(team().history![0]!.changes).toContainEqual({ what: "P1 (#1) advancement recorded", to: "+MA" });
+      // a recorded injury alone (no +X entry) also keeps the gain: MA at base with one Smashed Knee on record
+      expect(advancementCount({ ...p, skills: [...pos.skills] }, pos)).toBe(1);
+    });
+
+    it("a redrafted team is in-season even with an all-rookie roster; a redraft mints the lineage id on the SOURCE and copies it", async () => {
+      const s = store.season("lg", "season-1")!;
+      s.teams[0]!.redraftedFrom = { seasonId: "season-0" };
+      store.putSeason(s);
+      expect((await view(COACH)).phase).toBe("inseason");
+      const src = dwarves(); // no teamUid yet
+      const ctx = { task: { budget: { capped: 1_000_000 } }, source: season([]), team: src, roster: teamValueRoster("Dwarf"), teamPlayed: true } as never;
+      const price = { keep: [], hires: [], staffCost: 0, spent: 0, remaining: 0, players: 0 } as never;
+      const input = { keep: [], hires: [], staff: { rerolls: 0, assistantCoaches: 0, cheerleaders: 0, apothecary: false } } as never;
+      const next = buildDraftTeam(ctx, price, input, { leagueId: "lg", slug: "s2" }, new Set());
+      expect(src.teamUid).toMatch(/^tm-[a-f0-9]{12}$/);
+      expect(next.teamUid).toBe(src.teamUid);
+      expect(next.redraftedFrom).toEqual({ seasonId: "season-1" });
+    });
+
     it("playerLeaves moves a player to the former players with stats and skills and returns the row", () => {
       const t = dwarves();
       t.players[0]!.skills = ["Block"];

@@ -257,6 +257,8 @@ export async function redraftRoutes(
     }
     if (done.target) deps.store.putSeason(done.target);
     deps.store.putSeason(source);
+    // The team's own season (an inactive team drafts from an earlier one) holds the teamUid minted at the redraft.
+    if (ctx.source.id !== source.id) deps.store.putSeason(ctx.source);
     notifyAll(deps, organisersOf(lg).filter((c) => !sameCoach(c, auth.coach)).map((coach) => ({
       coach, input: { type: "league-broadcast", title: "Redraft submitted", body: `${lg.name}: ${done.text}`, link: redraftLink(lg.id), from: auth.coach },
     })));

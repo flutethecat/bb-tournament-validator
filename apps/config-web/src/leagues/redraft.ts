@@ -16,7 +16,7 @@
  *     the rest of the team is drafted under the normal rules (11 to 16 players, position limits). Unspent gold becomes
  *     the new team's treasury.
  */
-import { createHash, randomInt } from "node:crypto";
+import { createHash, randomBytes, randomInt } from "node:crypto";
 import { findPosition, findRoster, findSkill, type DatasetPosition, type DatasetRoster } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 import { buildCoachAliases, fixtureOutcome, seasonCoachFacets, teamSeat, type CoachAliases } from "./identity.js";
@@ -613,6 +613,11 @@ export function buildDraftTeam(ctx: DraftContext, price: DraftPrice, input: Draf
   };
   // Team page v2 (teamOps.ts identity note): the lineage (teamUid, history) goes to the next season; the season entry,
   // the status and the old season's MNG bookkeeping do not (the new season mints its own entryId).
+  // The lineage id is minted on the SOURCE when it has none, so the old season's record and its successor share it (the
+  // callers write the source season too).
+  if (!team.teamUid) team.teamUid = `tm-${randomBytes(6).toString("hex")}`;
+  drafted.teamUid = team.teamUid;
+  drafted.redraftedFrom = { seasonId: ctx.source.id };
   delete drafted.entryId;
   delete drafted.status;
   delete drafted.statusChanged;

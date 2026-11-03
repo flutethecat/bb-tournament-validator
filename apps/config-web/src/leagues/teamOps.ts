@@ -28,11 +28,12 @@
  *  Both are opaque, public-safe ids (no coach names in them).
  */
 import { randomBytes } from "node:crypto";
-import { findPosition, type DatasetPosition, type DatasetRoster } from "@bb/validator";
+import { canonSkill, findPosition, splitCaptainGrants, type DatasetPosition, type DatasetRoster } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 import { ADVANCEMENT_ROWS } from "../teamAdvancement.js";
 import { markCaptainVacancy } from "./captain.js";
 import { STAT_LIMIT } from "./forkResult.js";
+import { statAdvanceOf } from "./forkTeam.js";
 import { fixtureOutcome } from "./identity.js";
 import { LIMITS, rerollCost, STAFF_COST } from "./redraft.js";
 import { refreshTeamValue } from "./teamValue.js";
@@ -102,10 +103,12 @@ export function teamGamesPlayed(season: Pick<SeasonRecord, "fixtures">, teamId: 
 
 /**
  * True when THIS team record is past its first game, judged from the record itself (never by matching ids or names in
- * other seasons): a result on one of its own fixtures, an imported standings row with games, or any player (rostered or
+ * other seasons): an explicit redraft link (redraftedFrom), a result on one of its own fixtures, an imported standings row with games, or any player (rostered or
  * former) carrying game counters, SPP or earlier seasons (an imported or redrafted veteran roster).
  */
-export function teamHasPlayed(season: Pick<SeasonRecord, "fixtures" | "phases">, team: Pick<LeagueTeam, "id" | "players" | "formerPlayers">): boolean {
+export function teamHasPlayed(season: Pick<SeasonRecord, "fixtures" | "phases">, team: Pick<LeagueTeam, "id" | "players" | "formerPlayers" | "redraftedFrom">): boolean {
+  // Owner rule: a redrafted team starts its new season under in-season rules, even with an all-rookie roster.
+  if (team.redraftedFrom) return true;
   if (season.fixtures.some((f) => playedFor(f, team.id))) return true;
   if (season.phases.some((p) => p.standings.some((r) => r.teamId === team.id && r.played > 0))) return true;
   const used = (s: { td: number; cas: number; mvp: number; spp: number; completions: number; int: number }): boolean => s.td + s.cas + s.mvp + s.spp + s.completions + s.int > 0;
@@ -274,40 +277,82 @@ export const FANS_MAX_AT_CREATION = 3;
 
 export type AdvanceMethod = "chosenPrimary" | "chosenSecondary";
 
-const STAT_ENTRY = /^\+\s*(MA|ST|AG|PA|AV)$/i;
-const bareSkill = (s: string): string => s.replace(/\s*\([^)]*\)\s*$/, "").trim().toLowerCase();
+type Stat = "MA" | "ST" | "AG" | "PA" | "AV";
+const STATS: readonly Stat[] = ["MA", "ST", "AG", "PA", "AV"];
 const targetOf = (v: unknown): number | null => { const n = Number.parseInt(String(v ?? ""), 10); return Number.isFinite(n) ? n : null; };
+/** The BB2025 catalogue keyed by the validator's shared skill key (canonSkill: spelling, "&" / "and", renames). */
+const CATALOGUE = new Map(Object.entries(bb2025.skills).map(([name, meta]) => [canonSkill(name), { name, meta }] as const));
+/** The injury table's stat reductions, by characteristic. */
+const INJURY_STAT: Record<string, Stat> = Object.fromEntries(INJURIES.filter((i) => i.stat).map((i) => [i.key, i.stat!.toUpperCase() as Stat]));
+
+/** Lasting-injury steps the team page recorded on the player, per characteristic. */
+function injurySteps(p: Pick<LeaguePlayer, "injuries">): Record<Stat, number> {
+  const out: Record<Stat, number> = { MA: 0, ST: 0, AG: 0, PA: 0, AV: 0 };
+  for (const i of p.injuries ?? []) { const s = INJURY_STAT[i.type]; if (s) out[s] += 1; }
+  return out;
+}
+
+/** Characteristic steps above the position's printed line, with recorded lasting injuries added back (an injury never
+ *  erases a gain). AG / PA are targets: lower is better. */
+function inferredSteps(p: Pick<LeaguePlayer, "ma" | "st" | "ag" | "pa" | "av" | "injuries">, pos: DatasetPosition | undefined): Record<Stat, number> {
+  const hurt = injurySteps(p);
+  const out: Record<Stat, number> = { MA: 0, ST: 0, AG: 0, PA: 0, AV: 0 };
+  for (const stat of STATS) {
+    const have = p[stat.toLowerCase() as "ma"];
+    const base = pos ? targetOf(pos[stat]) : null;
+    if (have === null || base === null) continue;
+    const healthy = stat === "AG" || stat === "PA" ? have - hurt[stat] : have + hurt[stat];
+    out[stat] = Math.max(0, stat === "AG" || stat === "PA" ? base - healthy : healthy - base);
+  }
+  return out;
+}
+
+/** The "+X" advancement entries on the player, per characteristic (forkTeam.ts statAdvanceOf: the one parser). */
+function statEntries(skills: readonly string[]): Record<Stat, number> {
+  const out: Record<Stat, number> = { MA: 0, ST: 0, AG: 0, PA: 0, AV: 0 };
+  for (const s of skills) { const c = statAdvanceOf(s); if (c) out[c] += 1; }
+  return out;
+}
 
 /**
  * Advancements the player already took (the price of the next one depends on it), counted per skill and per
  * characteristic:
  *  - a skill counts when it is not printed on the position, is a selectable skill in the BB2025 catalogue (traits that
- *    results hand out, like Hatred, never count) and is not a Team Captain grant;
- *  - a characteristic counts once per step above the position's printed value (MA / ST / AV up, AG / PA targets down),
- *    or once per "+X" entry, whichever is larger (an injury may have taken back a bought step).
+ *    results hand out, like Hatred, never count) and is not a Team Captain grant: the recorded grants, or the trait and
+ *    its one free Pro found in the list itself (validator splitCaptainGrants; imported captains carry no record).
+ *    Names compare by the validator's shared skill key (canonSkill), so "Hit & Run" is "Hit and Run";
+ *  - a characteristic counts once per step above the position's printed value (MA / ST / AV up, AG / PA targets down)
+ *    with recorded lasting injuries added back, or once per "+X" entry, whichever is larger.
  * Without a dataset position only the "+X" entries and catalogue skills can be counted.
  */
-export function advancementCount(p: Pick<LeaguePlayer, "skills" | "ma" | "st" | "ag" | "pa" | "av"> & { captainGrants?: string[] }, pos: DatasetPosition | undefined): number {
-  const printed = new Set((pos?.skills ?? []).map(bareSkill));
-  const grants = new Set((p.captainGrants ?? []).map(bareSkill));
+export function advancementCount(p: Pick<LeaguePlayer, "skills" | "ma" | "st" | "ag" | "pa" | "av" | "injuries"> & { captainGrants?: string[] }, pos: DatasetPosition | undefined): number {
+  const printed = new Set((pos?.skills ?? []).map(canonSkill));
+  const recorded = new Set((p.captainGrants ?? []).map(canonSkill));
+  const { rest } = splitCaptainGrants(p.skills.filter((s) => !statAdvanceOf(s)));
   let n = 0;
-  const entries: Record<string, number> = {};
-  for (const s of p.skills) {
-    const m = STAT_ENTRY.exec(s.trim());
-    if (m) { const k = m[1]!.toUpperCase(); entries[k] = (entries[k] ?? 0) + 1; continue; }
-    const key = bareSkill(s);
-    if (printed.has(key) || grants.has(key)) continue;
-    const meta = Object.entries(bb2025.skills).find(([name]) => name.toLowerCase() === key)?.[1];
-    if (meta?.category && !meta.trait) n += 1;
+  for (const s of rest) {
+    const key = canonSkill(s);
+    if (printed.has(key) || recorded.has(key)) continue;
+    const hit = CATALOGUE.get(key);
+    if (hit?.meta.category && !hit.meta.trait) n += 1;
   }
-  const steps = (stat: "MA" | "ST" | "AG" | "PA" | "AV"): number => {
-    const have = p[stat.toLowerCase() as "ma" | "st" | "ag" | "pa" | "av"];
-    const base = pos ? targetOf(pos[stat]) : null;
-    if (have === null || base === null) return 0;
-    return Math.max(0, stat === "AG" || stat === "PA" ? base - have : have - base);
-  };
-  for (const stat of ["MA", "ST", "AG", "PA", "AV"] as const) n += Math.max(entries[stat] ?? 0, steps(stat));
+  const entries = statEntries(p.skills);
+  const steps = inferredSteps(p, pos);
+  for (const stat of STATS) n += Math.max(entries[stat], steps[stat]);
   return n;
+}
+
+/**
+ * Writes every inferred characteristic gain that has no "+X" entry yet as an explicit "+X" entry (in place), so a later
+ * injury to that characteristic can never erase the advancement. Returns the entries added.
+ */
+export function recordStatAdvances(p: LeaguePlayer, pos: DatasetPosition | undefined): string[] {
+  const entries = statEntries(p.skills);
+  const steps = inferredSteps(p, pos);
+  const added: string[] = [];
+  for (const stat of STATS) for (let i = entries[stat]; i < steps[stat]; i += 1) added.push(`+${stat}`);
+  if (added.length) p.skills = [...p.skills, ...added];
+  return added;
 }
 
 /** SPP price of the next chosen skill (null past Legend). */
@@ -321,11 +366,11 @@ export const rankAfter = (count: number): string => ADVANCEMENT_ROWS[Math.min(co
 
 /** Selectable skills by access for this player (traits and owned skills left out). */
 export function skillChoices(p: Pick<LeaguePlayer, "skills">, pos: DatasetPosition | undefined): { primary: string[]; secondary: string[] } {
-  const owned = new Set(p.skills.map((s) => s.replace(/\s*\([^)]*\)\s*$/, "").trim().toLowerCase()));
+  const owned = new Set(p.skills.map(canonSkill));
   const primary: string[] = [];
   const secondary: string[] = [];
   for (const [name, meta] of Object.entries(bb2025.skills)) {
-    if (!meta.category || meta.trait || owned.has(name.toLowerCase())) continue;
+    if (!meta.category || meta.trait || owned.has(canonSkill(name))) continue;
     if (pos?.primaryCategories.includes(meta.category)) primary.push(name);
     else if (pos?.secondaryCategories.includes(meta.category)) secondary.push(name);
   }
