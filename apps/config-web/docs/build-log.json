@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-03",
+    "title": "League match teams are removed from Super FUMBBL after the game",
+    "body": "When a league fixture's Super FUMBBL result is recorded, or Super FUMBBL play is cancelled, the copies of both league teams made for that match are removed from Super FUMBBL automatically. The fixture's history shows when they went.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-03",
     "title": "Tournament registration: approvals, waitlist, check-in and payment references",
     "body": "Register for a tournament from a three-step sheet: pick a Roster Builder save or register now and add the roster later, choose your region and what the organisers see, then confirm. Organisers can approve each entry from Manage, Registrations, the waitlist moves up on its own when a place opens, coaches check in from the top of the tournament page, and each entry gets a payment reference with an \"I have paid\" button.",
     "links": []

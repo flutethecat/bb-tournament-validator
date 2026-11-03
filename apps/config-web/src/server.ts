@@ -368,6 +368,7 @@ import { runDeadlineJob } from "./leagues/deadlines.js";
 import { runRedraftWindowJob } from "./leagues/redraftWindow.js";
 import { createLeagueForkClient } from "./leagues/forkClient.js";
 import { syncLeagueForkResults } from "./leagues/forkPlay.js";
+import { runForkTeamCleanup } from "./leagues/forkCleanup.js";
 import { registerLeagueEvents } from "./leagues/events.js";
 import { discordApi, discordApiPath } from "./discord/api.js";
 import { DiscordHub } from "./discord/hub.js";
@@ -719,14 +720,23 @@ function sendMailResult(res: ServerResponse, method: string, result: MailRouteRe
 }
 if (forkAdminCfg) {
   let leagueSyncing = false;
-  setInterval(() => {
+  // Results first, then the fork team copies of matches that are over (src/leagues/forkCleanup.ts): a removal that fails
+  // never holds up banking, and is retried here with a backoff. The first run shortly after start resumes pending ones.
+  const leagueForkTick = (sync: boolean): void => {
     if (leagueSyncing) return;
     leagueSyncing = true;
-    void syncLeagueForkResults({ store: leagueStore, fork: leagueFork, notify: leagueNotify })
-      .then((out) => { if (out.applied.length) console.log(`[leagues] Super FUMBBL results applied: ${out.applied.join(", ")}`); })
-      .catch(() => { /* retried on the next tick */ })
+    const results = sync
+      ? syncLeagueForkResults({ store: leagueStore, fork: leagueFork, notify: leagueNotify })
+        .then((out) => { if (out.applied.length) console.log(`[leagues] Super FUMBBL results applied: ${out.applied.join(", ")}`); })
+        .catch(() => { /* retried on the next tick */ })
+      : Promise.resolve();
+    void results
+      .then(() => runForkTeamCleanup({ store: leagueStore, fork: leagueFork }))
+      .catch((e) => { console.error(`[leagues] Super FUMBBL team copy cleanup failed: ${(e as Error).message}`); })
       .finally(() => { leagueSyncing = false; });
-  }, 2 * 60 * 1000).unref();
+  };
+  setTimeout(() => leagueForkTick(false), 30_000).unref();
+  setInterval(() => leagueForkTick(true), 2 * 60 * 1000).unref();
 }
 // League fixture deadlines (src/leagues/deadlines.ts): seasons with auto-forfeit on get their outcome once the deadline
 // passes. At startup (a restart catches up) and every minute; the outcome is stored before anyone is notified.

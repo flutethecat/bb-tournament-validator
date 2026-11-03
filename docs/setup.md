@@ -158,6 +158,34 @@ pnpm --filter config-web exec tsx scripts/seed-demo-leagues.ts <state dir> --rem
   league is left alone. An existing league with a demo id that is not the script's own stamped record is never
   overwritten.
 
+## Operations
+
+### League fork team copies (cleanup and backfill)
+
+Play on Super FUMBBL installs a copy of each league team on the fork for the fixture (fork team id `lg_<16 hex>`, a team
+file in `FORK_TEAMS_DIR` plus a row in the coach's fork library). Owner 11-03: those copies are deleted at the end.
+
+- **Automatic.** When a fixture's result is banked (or Super FUMBBL play is cancelled with no game left on the fork), the
+  same store write marks the fixture's copies for removal (`fork.cleanup`, "pending"). The server's 2-minute sync tick
+  (and one run 30 s after start, so a restart resumes) removes them under the install's locks: refused while any of the
+  teams is in a live or scheduled game, then the team files, every library row of those ids, and a fork reload. A failure
+  is retried with a backoff (2 min doubling to 6 h) and never holds up banking. A copy another fixture still needs is
+  kept and removed once nothing needs it. Each removal is one `[leagues] Super FUMBBL team copies removed ...` line in
+  the server log (league / season / fixture ids and fork team ids only) and an entry in the fixture's fork history.
+- **Backfill (one-off).** Fixtures that finished before this existed have no marker, and the server never sweeps them on
+  its own. The backfill lists them and removes them only with `--apply`. It reads the server's `.env` (`FORK_STATE_DIR`,
+  `FORK_LIBRARY_DIR`, `FORK_TEAMS_DIR`, `FORK_ADMIN_PASSWORD`), with the same defaults as the server:
+
+```
+pnpm --filter config-web exec tsx scripts/fork-team-cleanup.ts            # dry run (default): lists, changes nothing
+pnpm --filter config-web exec tsx scripts/fork-team-cleanup.ts --apply    # removes what the dry run listed
+```
+
+  `--state-dir`, `--library-dir` and `--teams-dir` override the paths (point them at scratch copies to rehearse). Run the
+  dry run first and read the list. `--apply` needs the fork admin API (it checks live games and reloads the fork). It is
+  safe while config-web runs (each fixture write re-reads the season, and the fork locks are shared), but a quiet moment
+  is best. Only `lg_` league copies are ever touched; a coach's own teams are never listed.
+
 ## Competition Discord
 
 Leagues, their seasons (and later ladders) and tournaments each post to their own Discord webhook. Nothing here needs an

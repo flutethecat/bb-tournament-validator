@@ -28,6 +28,7 @@ import type { WebhookPoster } from "./discord.js";
 import { addLog, recordLeagueFixtureEvent } from "./events.js";
 import { readJsonObject, type BodyDeps } from "./http.js";
 import { applyForkResult, type ForkGameResult } from "./forkResult.js";
+import { forkCleanupReason, markForkCleanup } from "./forkCleanupRules.js";
 import { buildLeagueForkTeam, forkTeamIdFor, ForkTeamBuildError, leagueTeamRevision, rulesetBlocker, type LeagueForkTeamFile } from "./forkTeam.js";
 import { kGold, signedK } from "./teamValue.js";
 import { fixturePlayed } from "./tourplay.js";
@@ -67,6 +68,14 @@ export interface LeagueForkClient {
   gameStates(gameIds: string[]): Promise<Map<string, ForkGameState>>;
   /** A finished game's result: full (the server's FumbblResult) when readable, else basic; undefined when not available yet. */
   result(gameId: string, playedAt?: string): Promise<ForkGameResult | undefined>;
+  /**
+   * Removes league fork team copies (forkCleanup.ts): under the install's locks, refuses while any is in a live or
+   * scheduled game, deletes the team files and every library row of those ids, then reloads. Idempotent; throws on
+   * refusal or failure. Absent = this client cannot remove teams (the cleanup marker stays pending).
+   */
+  removeTeams?(teams: Array<{ forkTeamId: string; coach: string }>): Promise<{ removed: string[] }>;
+  /** Read-only: team files and library rows still present per league fork team id (the backfill's listing). */
+  teamCopies?(forkTeamIds: string[]): Map<string, { files: number; libraries: number }>;
 }
 
 export interface ForkRouteDeps extends BodyDeps {
@@ -344,6 +353,8 @@ async function buildAndSchedule(deps: ForkRouteDeps, client: LeagueForkClient, l
       fork.teams[s] = { teamId: f[s].teamId!, forkTeamId: file.forkTeamId, coach: f[s].coachId!, builtAt: now().toISOString(), players: file.players, revision: file.revision };
     }
     if (rebuild.length) log(fork, now(), who, `Built ${rebuild.map((s) => f[s].team).join(" and ")} on Super FUMBBL from the league roster.`);
+    // Both copies were installed afresh: a removal marker from an earlier cancel no longer applies.
+    if (fork.cleanup && SIDES.every((s) => rebuild.includes(s))) delete fork.cleanup;
     fork.generatedBy ??= who;
     fork.generatedAt ??= now().toISOString();
     if (outcome.kind === "scheduled") {
@@ -372,6 +383,8 @@ async function buildAndSchedule(deps: ForkRouteDeps, client: LeagueForkClient, l
 
 /** Sides whose fork team is missing or was built from an older league roster. */
 function staleSides(season: SeasonRecord, f: LeagueFixture): ForkSide[] {
+  // Copies marked for removal (or removed) are treated as gone: both are installed again.
+  if (f.fork?.cleanup) return [...SIDES];
   return SIDES.filter((s) => {
     const built = f.fork?.teams[s];
     if (!built) return true;
@@ -597,6 +610,8 @@ export async function updateForkSettings(deps: ForkRouteDeps, leagueId: string, 
           log(fork, now, who.coach, "Cancelled Super FUMBBL play.");
         }
         fork.status = "cancelled";
+        const why = forkCleanupReason(f);
+        if (why) markForkCleanup(f, now, why);
       } else if (fork.status === "cancelled") {
         fork.status = fork.statusBeforeCancel ?? (fork.gameId ? "scheduled" : "teams_built");
         delete fork.statusBeforeCancel;
@@ -653,6 +668,9 @@ export async function applyFixtureResult(
       outcome = applyForkResult(season, f, result, now);
       if (outcome.applied) {
         const r = outcome.result;
+        // Banked: the fork team copies go on the next cleanup run (never blocking this write).
+        const why = forkCleanupReason(f);
+        if (why) markForkCleanup(f, now, why);
         log(f.fork!, now, "Super FUMBBL", `Result ${r.home.score} - ${r.away.score} applied (game ${r.gameId}, ${r.source === "full" ? "full result" : "score and player counters only"}).`);
         // Informational only (owner 10-30): the league's recomputed team value is the record, the fork's is compared.
         for (const d of outcome.teamValueDiffs) {

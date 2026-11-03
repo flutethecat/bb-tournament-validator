@@ -375,6 +375,30 @@ export interface FixtureForkTeam {
 
 export interface FixtureForkLogEntry { at: string; by: string; text: string }
 
+/**
+ * The fixture's fork team copies are being (or were) removed: the files, their library rows and a fork reload
+ * (forkCleanup.ts). Written "pending" before any file is touched, so a crash or restart resumes it; "failed" retries with
+ * a backoff on the sync tick. While a marker exists the copies are treated as gone: a fixture generated again (play
+ * allowed again after a cancel) rebuilds both teams and clears it.
+ */
+export interface FixtureForkCleanup {
+  state: "pending" | "removed" | "failed";
+  /** Why the copies are no longer needed. */
+  reason: string;
+  since: string;
+  attempts: number;
+  lastAttemptAt?: string;
+  /** failed: not retried before this time. */
+  nextAttemptAt?: string;
+  /** failed: the last error. */
+  error?: string;
+  removedAt?: string;
+  /** Fork team ids removed. */
+  removed?: string[];
+  /** Fork team ids left in place because another fixture still needs them (that fixture removes them later). */
+  kept?: string[];
+}
+
 /** One player's line from a Super FUMBBL result (server numbers only). */
 export interface ForkPlayerLine {
   playerId?: string;
@@ -457,6 +481,8 @@ export interface FixtureForkState {
   /** A finished game whose result arrived while a team was redrafting (redraftWindow.ts): held, not applied. The timer
    *  leaves it alone; an organiser's "Check for a result" applies it once neither team is blocked any more. */
   redraftHold?: { at: string; gameId: string; reason: string };
+  /** Removal of this fixture's fork team copies once the match is over (forkCleanup.ts, owner 11-03). */
+  cleanup?: FixtureForkCleanup;
   /** Organiser-visible history: generate, schedule, failures, resets (with reasons), result. */
   log: FixtureForkLogEntry[];
 }

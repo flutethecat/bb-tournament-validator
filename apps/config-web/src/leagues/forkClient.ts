@@ -8,6 +8,11 @@
  *                 Builder write path: crash-recoverable transactions with the library rows, one fork reload, rollback
  *                 on failure) and the schedule call all run before the locks are released. No other writer can
  *                 replace either team, and no game start can slip in, between the check and the schedule.
+ *   removeTeams   the reverse of an install (forkCleanup.ts): under the same cache-generation lock and team write locks,
+ *                 refuse while any of the teams is in a live or scheduled game (an unconfirmed list refuses), delete the
+ *                 team files, drop their rows from every coach library, then reload the fork. Idempotent: a re-run after a
+ *                 crash finds the files or rows already gone and still reloads. Only league copies (lg_...) are touched.
+ *   teamCopies    read-only: which of these team ids still have a team file or a library row
  *   findGame      reconciles an uncertain schedule: the fork's live and finished lists, both confirmed
  *   deleteGame    removes a game that never started (confirmed by the fork's own ok status)
  *   launchFile    the seat JNLP with the coach's own stored credential digest, under the generation gate
@@ -23,7 +28,7 @@
  * Secrets: the admin password digest and coach credential digests are used here only and never logged or returned in
  * an error message.
  */
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
   acknowledgeRestoredTeamXmlTransaction,
@@ -41,12 +46,15 @@ import {
   forkCoachPasswordDigest,
   forkScheduler,
   gamestateResult,
+  libraryCoaches,
   LIVE_GAME_STATUSES,
   markForkCacheReloadRequired,
   parseAdminGameList,
+  readLibrary,
   reloadFork,
+  removeLibraryTeam,
+  replaceLibraryTeamOwnership,
   restoreTeamXmlTransaction,
-  upsertLibraryTeam,
   type AdminGameEntry,
   type ForkAdminConfig,
   type ForkConfig,
@@ -56,7 +64,8 @@ import {
 import { parseFumbblResult } from "../site-backend/fumbblResult.js";
 import { storedTeamFile } from "../teamDetail.js";
 import { FINISHED_GAME_STATUSES, playedAtOf, type TournamentResultStore } from "../tournamentResults.js";
-import { ForkClientError, type ForkFindOutcome, type ForkGameState, type LeagueForkClient } from "./forkPlay.js";
+import { isLeagueForkTeamId } from "./forkCleanupRules.js";
+import { ForkClientError, type ForkScheduleOutcome, type ForkFindOutcome, type ForkGameState, type LeagueForkClient } from "./forkPlay.js";
 import { fromBasicResult, fromParsedResult } from "./forkResult.js";
 import type { LeagueForkTeamFile } from "./forkTeam.js";
 
@@ -69,6 +78,33 @@ export interface ForkClientConfig {
   overtime?: () => boolean;
   /** The finished-game results already pulled (tournament-results.json), read before asking the fork again. */
   results?: TournamentResultStore;
+  /** Test seams (never set on the server): the live game list, the fork reload and the schedule call. */
+  io?: {
+    liveGames?: () => Promise<AdminGameEntry[]>;
+    reload?: () => Promise<{ reloaded: boolean; reason?: string }>;
+    schedule?: (home: string, away: string) => Promise<ForkScheduleOutcome>;
+  };
+}
+
+/** Every team file of this id in the teams folder (team_<coach>_<id>.xml whose <team id> is the id). */
+function teamFilesOf(teamsDir: string, teamId: string): string[] {
+  if (!existsSync(teamsDir)) return [];
+  const suffix = `_${teamId}.xml`;
+  const out: string[] = [];
+  for (const file of readdirSync(teamsDir)) {
+    if (!file.startsWith("team_") || !file.endsWith(suffix)) continue;
+    const path = join(teamsDir, file);
+    try {
+      const id = readFileSync(path, "utf8").match(/<team\b[^>]*\bid="([^"]+)"/i)?.[1];
+      if (id === teamId) out.push(path);
+    } catch { /* unreadable: left alone */ }
+  }
+  return out;
+}
+
+/** Coach library keys that list this team id. */
+function libraryHoldersOf(libraryDir: string, teamId: string): string[] {
+  return libraryCoaches(libraryDir).filter((key) => readLibrary(libraryDir, key).some((t) => t.teamId === teamId));
 }
 
 const RESULT_TIMEOUT_MS = 10_000;
@@ -166,7 +202,7 @@ export function createLeagueForkClient(cfg: ForkClientConfig): LeagueForkClient 
         }
         // Under the locks: neither team may be in a live game (an unconfirmed list refuses, never reads as "none").
         let live: AdminGameEntry[];
-        try { live = await confirmedLists(admin, LIVE_GAME_STATUSES); } catch (e) {
+        try { live = await (cfg.io?.liveGames?.() ?? confirmedLists(admin, LIVE_GAME_STATUSES)); } catch (e) {
           throw new Error(`live games could not be checked (${(e as Error).message}); nothing was changed`);
         }
         const busy = [home, away].find((id) => live.some((g) => g.homeTeamId === id || g.awayTeamId === id));
@@ -187,13 +223,15 @@ export function createLeagueForkClient(cfg: ForkClientConfig): LeagueForkClient 
             transactions.push(tx);
             atomicWriteTextFile(path, t.file.xml);
           }
-          const reload = await reloadFork(fork, cfg.stateDir);
+          const reload = await (cfg.io?.reload?.() ?? reloadFork(fork, cfg.stateDir));
           if (!reload.reloaded) throw new Error(reload.reason ?? "the fork did not reload its teams");
-          for (const t of install) upsertLibraryTeam(cfg.libraryDir, t.coach, libraryRow(t.coach, t.file, ingestedAt, true));
+          // One owner per team id: a rebuild after the seat changed coach moves the row (no orphan in the old library).
+          for (const t of install) replaceLibraryTeamOwnership(cfg.libraryDir, t.coach, libraryRow(t.coach, t.file, ingestedAt, true));
           for (const tx of transactions) commitTeamXmlTransaction(tx, true);
           installed = true;
         }
         // Still under the same locks: schedule.
+        if (cfg.io?.schedule) return await cfg.io.schedule(home, away);
         const outcome = await forkScheduler(admin, { overtime: cfg.overtime }).schedule(home, away);
         if (outcome.kind === "scheduled") return { kind: "scheduled", gameId: outcome.gameId };
         return { kind: outcome.kind, error: outcome.error ?? (outcome.kind === "unknown" ? "no answer" : "refused") };
@@ -201,7 +239,7 @@ export function createLeagueForkClient(cfg: ForkClientConfig): LeagueForkClient 
         if (transactions.length && !installed) {
           for (const tx of [...transactions].reverse()) restoreTeamXmlTransaction(tx);
           try {
-            const restored = await reloadFork(fork, cfg.stateDir);
+            const restored = await (cfg.io?.reload?.() ?? reloadFork(fork, cfg.stateDir));
             if (!restored.reloaded) throw new Error(restored.reason ?? "restored generation reload refused");
             for (const tx of transactions) acknowledgeRestoredTeamXmlTransaction(tx);
           } catch (reloadError) {
@@ -213,6 +251,52 @@ export function createLeagueForkClient(cfg: ForkClientConfig): LeagueForkClient 
         for (const lock of locks.reverse()) lock.release();
         generation.release();
       }
+    },
+
+    async removeTeams(teams) {
+      const fork = cfg.forkConfig();
+      if (!fork) throw new Error("the fork teams folder is not configured on this server");
+      if (!cfg.adminCfg && !cfg.io?.liveGames) throw new Error("Super FUMBBL is not configured on this server");
+      const ids = [...new Set(teams.map((t) => t.forkTeamId))].filter(isLeagueForkTeamId).sort();
+      if (!ids.length) return { removed: [] };
+      const dir = fork.teamsDir;
+      if (forkCacheReloadRequired(dir)) throw new Error("the fork team cache is waiting for a recovery reload");
+      const generation = acquireTeamNameWriteLock(dir);
+      if (!generation) throw new Error("another team update or game start is in progress");
+      const locks: Array<{ release(): void }> = [];
+      try {
+        for (const id of ids) {
+          const lock = acquireTeamWriteLock(dir, id);
+          if (!lock) throw new Error("another update is in progress for one of the teams");
+          locks.push(lock);
+        }
+        // Under the locks, as for an install: never while a team is in a live or scheduled game (unconfirmed = refuse).
+        let live: AdminGameEntry[];
+        try { live = await (cfg.io?.liveGames?.() ?? confirmedLists(cfg.adminCfg!, LIVE_GAME_STATUSES)); } catch (e) {
+          throw new Error(`live games could not be checked (${(e as Error).message})`);
+        }
+        const busy = ids.find((id) => live.some((g) => g.homeTeamId === id || g.awayTeamId === id));
+        if (busy) throw new Error(`team ${busy} is in a game on Super FUMBBL`);
+        // Files first, then the library rows, then the reload: each step is idempotent, so a re-run resumes anywhere.
+        for (const id of ids) for (const path of teamFilesOf(dir, id)) unlinkSync(path);
+        for (const id of ids) for (const key of libraryHoldersOf(cfg.libraryDir, id)) removeLibraryTeam(cfg.libraryDir, key, id);
+        const reload = await (cfg.io?.reload?.() ?? reloadFork(fork, cfg.stateDir));
+        if (!reload.reloaded) throw new Error(reload.reason ?? "the fork did not reload its teams");
+        return { removed: ids };
+      } finally {
+        for (const lock of locks.reverse()) lock.release();
+        generation.release();
+      }
+    },
+
+    teamCopies(ids) {
+      const out = new Map<string, { files: number; libraries: number }>();
+      const dir = cfg.forkConfig()?.teamsDir;
+      for (const id of ids) {
+        if (!isLeagueForkTeamId(id)) continue;
+        out.set(id, { files: dir ? teamFilesOf(dir, id).length : 0, libraries: libraryHoldersOf(cfg.libraryDir, id).length });
+      }
+      return out;
     },
 
     async findGame(home, away): Promise<ForkFindOutcome> {
