@@ -254,6 +254,17 @@ export function defineForkLockdownSuite(mode: "sidecar" | "sidecar-off"): void {
         expect((await call({ method: "POST", path: "/api/fork/library/ingest", body: {} })).status).toBe(401); // already gated
       });
 
+      it("my-games and build answer exactly as before: host configuration (503) is checked before the body (Sol P2)", async () => {
+        const myGames = await call({ method: "POST", path: "/api/fork/my-games", body: {} });
+        expect(myGames.status, JSON.stringify(myGames.body)).toBe(503);
+        expect(myGames.error).toBe("Fork DB not configured on this host (set FORK_DB_HOST).");
+        expect(myGames.code).toBeUndefined();
+        const build = await call({ method: "POST", path: "/api/fork/team-builder/build", body: [] });
+        expect(build.status, JSON.stringify(build.body)).toBe(503);
+        expect(build.error).toBe("Fork teams dir not configured on this host (set FORK_TEAMS_DIR).");
+        expect(build.code).toBeUndefined();
+      });
+
       it("explicit off values keep the routes open", async () => {
         for (const value of ["0", "false", "off", "no", ""]) {
           process.env.FORK_ROUTES_REQUIRE_AUTH = value;

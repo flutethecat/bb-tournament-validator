@@ -4656,12 +4656,17 @@ async function handleApi(
   // `scope: "finished"` swaps in the coach's finished/uploaded/backuped games (newest-finished
   // first, capped) with an added `finished` timestamp per row (see `listCoachGames`).
   if (path === "/api/fork/my-games" && method === "POST") {
-    const body = (await readBody(req)) as { coach?: string; password?: string; scope?: string };
-    // No credential at all: say so before any host-configuration answer (fork route lockdown, owner 11-03).
-    if (!auth && !isAdminAuthed(req) && !(body?.coach?.trim() && body.password))
-      return sendJson(res, 401, { error: "Listing your games requires a session token (POST /api/fork/login), or your coach name + fork password (or admin auth).", code: SIGN_IN_REQUIRED });
+    // Lockdown on only (owner 11-03): no credential at all = 401 before any host-configuration answer. Flag off keeps the
+    // original order of checks (503, then 400) exactly.
+    let lockedBody: { coach?: string; password?: string; scope?: string } | undefined;
+    if (forkRoutesRequireAuth()) {
+      lockedBody = ((await readBody(req)) ?? {}) as { coach?: string; password?: string; scope?: string };
+      if (!auth && !isAdminAuthed(req) && !(lockedBody.coach?.trim() && lockedBody.password))
+        return sendJson(res, 401, { error: "Listing your games requires a session token (POST /api/fork/login), or your coach name + fork password (or admin auth).", code: SIGN_IN_REQUIRED });
+    }
     if (!challengeDbCfg)
       return sendJson(res, 503, { error: "Fork DB not configured on this host (set FORK_DB_HOST)." });
+    const body = lockedBody ?? ((await readBody(req)) as { coach?: string; password?: string; scope?: string });
     const coach = auth?.coach ?? body.coach?.trim();
     if (!coach) return sendJson(res, 400, { error: "coach is required" });
     if (!auth && !isAdminAuthed(req)) {
@@ -4739,12 +4744,17 @@ async function handleApi(
   // ONLY for their own authenticated coach — verify {coach, password} against ffb_coaches
   // (verifyCoachPassword, same md5 the fork uses), and the built team's coach must equal it.
   if (path === "/api/fork/team-builder/build" && method === "POST") {
-    const body = (await readBody(req)) as TeamBuilderBody;
-    // Saving is locked behind sign-in (owner 11-03): no session, admin auth or coach+password = 401 before anything else.
-    if (!auth && !isAdminAuthed(req) && !isTokenAuthed(req) && !(typeof body?.coach === "string" && body.coach.trim() && body.password))
-      return sendJson(res, 401, { error: "Sign in to save or create a team on the Fork.", code: SIGN_IN_REQUIRED });
+    // Lockdown on only (owner 11-03): saving is locked behind sign-in, so no session, admin auth or coach+password = 401
+    // before anything else. Flag off keeps the original order of checks (503, then the body's 400s) exactly.
+    let lockedBody: TeamBuilderBody | undefined;
+    if (forkRoutesRequireAuth()) {
+      lockedBody = ((await readBody(req)) ?? {}) as TeamBuilderBody;
+      if (!auth && !isAdminAuthed(req) && !isTokenAuthed(req) && !(typeof lockedBody.coach === "string" && lockedBody.coach.trim() && lockedBody.password))
+        return sendJson(res, 401, { error: "Sign in to save or create a team on the Fork.", code: SIGN_IN_REQUIRED });
+    }
     const cfg = forkConfigFromEnv();
     if (!cfg) return sendJson(res, 503, { error: "Fork teams dir not configured on this host (set FORK_TEAMS_DIR)." });
+    const body = lockedBody ?? ((await readBody(req)) as TeamBuilderBody);
     const wireError = teamBuilderWireError(body);
     if (wireError) return sendJson(res, 400, { error: wireError });
     const adminAuthed = isAdminAuthed(req) || isTokenAuthed(req);
