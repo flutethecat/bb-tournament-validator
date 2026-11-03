@@ -361,6 +361,24 @@ export class LeagueStore {
     this.unindexSeason(leagueId, seasonId);
   }
 
+  /**
+   * League registration (lane L6): a coach acknowledged the league notice when they asked to join; when that entry ends
+   * before (or without) a seat (declined, withdrawn, removed), the acknowledgement goes again unless the coach is on a
+   * roster of the league or still has a live entry in one of its seasons. Same writer as a roster exit.
+   */
+  releaseRegistrationAcks(leagueId: string, coaches: readonly string[]): void {
+    if (!this.exitsActive || !coaches.length) return;
+    const seasons = this.rawSeasons(leagueId);
+    const seated = rosterAccounts(seasons);
+    const live = new Set<string>();
+    for (const s of seasons) for (const r of s.registrations ?? []) {
+      if (r.state === "pending" || r.state === "waitlisted" || r.state === "accepted") live.add(r.coach.trim().toLowerCase());
+    }
+    const gone = [...new Set(coaches.map((c) => c.trim()).filter(Boolean))].filter((c) => !seated.has(c.toLowerCase()) && !live.has(c.toLowerCase()));
+    if (!gone.length) return;
+    try { this.rosterExit(leagueId, gone); } catch { /* the season write stands */ }
+  }
+
   private reportExits(leagueId: string, before: readonly SeasonRecord[], after: readonly SeasonRecord[]): void {
     if (!this.exitsActive) return;
     const now = rosterAccounts(after);

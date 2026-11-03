@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-03",
+    "title": "League registration: join a league season, organiser approvals and payment references",
+    "body": "Register a team for a league season from the league page: build it in the Roster Builder under the season's rules (or pick one of your teams when the organisers allow it), choose your region and what the organisers see, then confirm. Organisers accept, waitlist or decline each team in League management, Registrations; accepting adds the team to the season, also mid-season, and each entry gets a payment reference with an \"I have paid\" button.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-03",
     "title": "Fork team routes can require sign-in",
     "body": "Team libraries, team creation on the Fork, coach search and records can now be locked to signed-in coaches, and a coach sees only their own team library. The Roster Builder stays open to everyone; saving still needs sign-in.",
     "links": []

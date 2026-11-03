@@ -25,7 +25,8 @@ import LeagueParticipantsList from "../components/LeagueParticipantsList.vue";
 import LeagueSectionHeader from "../components/LeagueSectionHeader.vue";
 import LeagueStandings from "../components/LeagueStandings.vue";
 import LeagueTeams from "../components/LeagueTeams.vue";
-import LeagueBuildTeamLink from "../components/LeagueBuildTeamLink.vue";
+import LeagueJoin from "../components/LeagueJoin.vue";
+import { createLeagueJoin, LEAGUE_JOIN_KEY } from "../leagues/registration";
 import LeagueDraftNotice from "../components/LeagueDraftNotice.vue";
 import { SEASON_STAGE_LABEL, seasonStageOf, STAGE_TONE } from "../leagues/lifecycle";
 import {
@@ -49,6 +50,8 @@ const honours = inject(LEAGUE_HONOURS_KEY, null) ?? createHonours({ api: fetcher
 provide(LEAGUE_HONOURS_KEY, honours);
 // League statistics (all time; public): the coach summary popup and the Honours Player / Coach views, loaded on demand.
 provide(LEAGUE_STATS_KEY, inject(LEAGUE_STATS_KEY, null) ?? createLeagueStats({ api: fetcher }));
+// League registration (lane L6): the coach's join block and their entry (the Overview's Pay block reads it too).
+provide(LEAGUE_JOIN_KEY, inject(LEAGUE_JOIN_KEY, null) ?? createLeagueJoin({ api: fetcher }));
 
 const current = computed(() => pickSeason(state.seasons, route.query.season));
 const season = computed(() => (current.value ? state.season[current.value.id] : undefined));
@@ -166,8 +169,9 @@ usePageTitle(() => state.league?.name);
             </button>
           </div>
         </section>
-        <!-- Registration spec 11-02 (lane L7): signed-in coaches, newest season, while its registration is open -->
-        <LeagueBuildTeamLink v-if="session.coach() && current && current.id === state.seasons[0]?.id" :league-id="id" :season-id="current.id" />
+        <!-- Registration (lane L6; lane L7's Build a team link lives in it): signed-in coaches, newest season, while its
+             registration is open or they have an entry -->
+        <LeagueJoin v-if="session.coach() && current && current.id === state.seasons[0]?.id" :league-id="id" :season-id="current.id" :league-name="state.league.name" :season-name="current.name" />
         <LeagueNews v-if="season" :season="season" :manage="manage" />
         </div>
         <LeagueOverview v-if="season" :league="state.league" :season="season" :summary="current!" :crests="state.crests" :can-manage="manage" />

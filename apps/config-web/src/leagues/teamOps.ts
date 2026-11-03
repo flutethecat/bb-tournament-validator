@@ -422,7 +422,8 @@ export function changeLine(c: TeamHistoryEntry["changes"][number]): string {
 
 /** The team as a public season read shows it: no history, no injury authors. Identity ids stay (opaque). */
 export function publicTeam(team: LeagueTeam): LeagueTeam {
-  const { history: _h, ...rest } = team;
+  // League registration (lane L6): the entry and library links stay with the coach and the organisers.
+  const { history: _h, registrationId: _r, libraryTeamId: _l, ...rest } = team;
   if (!rest.players.some((p) => p.injuries?.some((i) => i.by !== undefined))) return rest;
   return { ...rest, players: rest.players.map((p) => (p.injuries ? { ...p, injuries: p.injuries.map(({ by: _b, ...i }) => i) } : p)) };
 }

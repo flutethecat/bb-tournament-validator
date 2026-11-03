@@ -146,6 +146,32 @@ export function answerLeagueRegistration(
 }
 
 /**
+ * League registration (lane L6): the self-service join asks the same notice at join time ("A future self-service join must
+ * ask the same notice", above) and stores the same acknowledgement plus the league:<id> grant together, written after the
+ * entry so the grant counts for it (src/registration/privacy.ts). The caller checked the required box and that the coach
+ * has a live entry. An earlier acknowledgement is kept (its time is the membership's start); a decline is cleared.
+ */
+export function acknowledgeLeagueJoin(coach: string, leagueId: string, fields: ShareField[], now = new Date()): CoachIdentityRecord {
+  let previous = ownIdentityRecord(coach);
+  const leagues = { ...previous.consent?.leagues };
+  const declined = { ...previous.consent?.leaguesDeclined };
+  if (!leagues[leagueId]) leagues[leagueId] = { at: now.toISOString(), version: LEAGUE_SHARE_VERSION };
+  delete declined[leagueId];
+  previous = withGrant(previous, `league:${leagueId}`, fields, now);
+  const { leagues: _l, leaguesDeclined: _d, ...rest } = previous.consent ?? {};
+  return upsertIdentity({
+    ...previous,
+    consent: {
+      ...rest,
+      leagues,
+      ...(Object.keys(declined).length ? { leaguesDeclined: declined } : {}),
+    },
+    updatedAt: now.toISOString(),
+    updatedBy: previous.ffbCoachId,
+  }).coaches[normalizeFfbCoachId(previous.ffbCoachId)]!;
+}
+
+/**
  * Coaches who are no longer on any season of a league (LeagueStore.onRosterExit): their acknowledgement and any decline
  * for that league are withdrawn, so a re-joining coach is asked again and nothing is shared until they confirm. The
  * league:<id> sharing grant stays as a record: the notice pre-ticks it, and it is not read until the coach confirms.

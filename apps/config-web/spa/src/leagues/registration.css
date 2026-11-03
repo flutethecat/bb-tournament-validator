@@ -1,0 +1,27 @@
+/* League registration (lane L6, design.md §5): the league page's Registration block, the join sheet's league bits (the
+   per-race count on a team card, the share notice and its acknowledgement), and the organisers' Registrations tab. The
+   step strip, team cards, summary list and entry rows are the tournament sheet's (tournaments/registration.css, .tr-*).
+   Tokens only (raw colours live in the :root blocks). */
+
+/* ---- league page: Registration block (Overview) ---- */
+.lr-join-body { display: grid; gap: 10px; min-width: 0; }
+.lr-join-k { color: var(--ui-muted); font: 600 11px/1.6 var(--sf-band-font); letter-spacing: .08em; text-transform: uppercase; }
+.lr-join .tr-state strong { font: 600 1.05rem/1.2 var(--font-heading); overflow-wrap: anywhere; }
+.lr-join-actions { margin: 0; flex-wrap: wrap; }
+.lr-notice { margin: 0; color: var(--ui-success); font-size: 14px; }
+@media (max-width: 560px) { .lr-join-actions .sf-btn { flex: 1 1 100%; justify-content: center; text-align: center; } }
+
+/* ---- join sheet ---- */
+.lr-race { color: var(--ui-muted); font-size: 12px; }
+.lr-race[data-full="true"] { color: var(--ui-warn); }
+.lr-share { display: grid; gap: 8px; min-width: 0; padding: 10px 12px; border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--sf-seat-home); border-radius: 2px; background: var(--ui-surface-2); }
+.lr-share-text { margin: 0; line-height: 1.4; }
+.lr-share .tn-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.lr-ack { align-items: flex-start; }
+.lr-ack input { accent-color: var(--ui-primary); }
+
+/* ---- organisers: Registrations tab ---- */
+.lr-regs-body { padding: 0; }
+.lr-regs-body code { font: 600 13px/1.2 var(--font-heading); letter-spacing: .06em; color: var(--sf-gold); }
+.lr-regs .tr-reg-row[data-state="accepted"] { border-left-color: var(--ui-success); }
+.lr-regs .tr-reg-info .sf-chip + .muted { margin-left: 6px; }

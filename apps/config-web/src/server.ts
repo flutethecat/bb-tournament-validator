@@ -177,7 +177,7 @@ import { contactOf, onboardingNeeded } from "./auth/contactSchema.js";
 import {
   createMailerRecipientLookup, parseShareScope, publicIdentityRecord, sharedContactFor, tournamentOrganiserOf, type MembershipSources,
 } from "./auth/contactFor.js";
-import { answerLeagueRegistration, LEAGUE_SHARING_PATH, leagueSharingView } from "./auth/leagueSharing.js";
+import { acknowledgeLeagueJoin, answerLeagueRegistration, LEAGUE_SHARING_PATH, leagueSharingView } from "./auth/leagueSharing.js";
 import { setSharing, SHARING_PATH, SharingError, sharingView, storeGrant, type SharingSources } from "./auth/sharing.js";
 import { attachSuper } from "./super/index.js";
 import { mailConfigWarnings } from "./mail/config.js";
@@ -319,7 +319,7 @@ import {
 import { sharedTeamView, type SharedViewInput } from "./teamShareView.js";
 import { isTournamentManager, TournamentStore } from "./tournaments/store.js";
 import { rulesetSummary, type SummaryOptions } from "./rulesetSummary.js";
-import { houseRulesOf } from "./competition/houseRules.js";
+import { houseRulesOf, type HouseRules } from "./competition/houseRules.js";
 import { leagueVisibleTo } from "./leagues/lifecycle.js";
 import { DEFAULT_TOURNAMENT_TURN_TIMER } from "./tournaments/types.js";
 import { RateLimiter } from "./translate/guards.js";
@@ -1607,6 +1607,63 @@ const submissionCheckDeps = (): SubmissionCheckDeps => ({
   },
 });
 
+/**
+ * League registration (lane L6): the coach's own save (`save:<id>`) or library team (`library:<teamId>`, its newest sheet)
+ * composed and checked against a league season's package (the "league:<id>:<seasonId>" marker, leagueBuilder.ts) and the
+ * league's house rules: the same path as a tournament submission, with the league resolver, plus the composed roster the
+ * league team is built from when the organisers accept. Saves are read from that coach's own file only.
+ */
+function leagueTeamSheet(coach: string, teamRef: string, packageName: string, houseRules: HouseRules, now: Date) {
+  const base = submissionCheckDeps();
+  const deps: SubmissionCheckDeps = {
+    ...base,
+    validateBody: (body, name, rules) => {
+      const cfg = forkConfigFromEnv();
+      if (!cfg) return undefined;
+      const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, name, leagueBuilderPackage);
+      if ("error" in resolvedPkg) return { ok: false, problems: [resolvedPkg.error] };
+      const pkg = applyHouseRulesToPackage(resolvedPkg.pkg, rules);
+      const composed = composeFromBody(cfg.teamsDir, body as TeamBuilderBody, undefined, pkg);
+      const result = validate(composed.roster, pkg, bb2025, houseRuleValidatorRules(rules));
+      return { ok: result.valid, problems: result.errors.map((finding) => finding.message) };
+    },
+  };
+  const sub = checkTournamentSubmission(deps, coach, teamRef, packageName, now, houseRules);
+  if ("error" in sub) return sub;
+  const snapshot = sub.snapshot && typeof sub.snapshot === "object" ? (sub.snapshot as Record<string, unknown>) : undefined;
+  let roster: ReturnType<typeof composeFromBody>["roster"] | undefined;
+  try {
+    const cfg = forkConfigFromEnv();
+    const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, packageName, leagueBuilderPackage);
+    if (cfg && snapshot && typeof snapshot.rosterId === "string" && !("error" in resolvedPkg)) {
+      const body = { ...snapshot, coach, teamName: String(snapshot.teamName || sub.teamName || "Team"), packageName } as TeamBuilderBody;
+      roster = composeFromBody(cfg.teamsDir, body, undefined, applyHouseRulesToPackage(resolvedPkg.pkg, houseRules)).roster;
+    }
+  } catch { roster = undefined; }
+  return {
+    teamName: sub.teamName ?? "Team",
+    ...(sub.race ? { race: sub.race } : {}),
+    ...(sub.teamId ? { libraryTeamId: sub.teamId } : {}),
+    ...(typeof snapshot?.packageName === "string" ? { savePackage: snapshot.packageName } : {}),
+    validation: { ok: sub.validation.ok, problems: [...sub.validation.problems] },
+    ...(roster ? { roster } : {}),
+  };
+}
+
+/** League Registrations tab (lane L6): what a manager sees of each live entry's coach (scope league:<id>; the entry's
+ *  competitionId is the league id here). */
+function leagueRegistrationContacts(
+  viewer: { coach: string; admin?: boolean },
+  entries: ReadonlyArray<{ coach: string; state: EntryState; enteredAt: string; competitionId: string }>,
+  managers: readonly string[],
+) {
+  const identities = readIdentities().coaches;
+  return entries.map((entry) => {
+    const scope = parseShareScope(`league:${entry.competitionId}`);
+    return scope ? registrationContactFor(viewer, identities[normalizeFfbCoachId(entry.coach)], scope, entry, managers) : undefined;
+  });
+}
+
 /** The shared Team Builder read-view model (teamShareView) of a tournament snapshot, composed against the
  *  tournament's package. Undefined for snapshots that are not builder sheets (library teams without a sheet). */
 function tournamentSubmissionView(coach: string, submission: TournamentSubmission, packageName: string): unknown | undefined {
@@ -2478,6 +2535,12 @@ async function handleApi(
       identities: () => Object.values(readIdentities().coaches).map((c) => ({ coach: c.ffbCoachId, level: c.level, banned: c.banned })),
       memberContact: (viewer, coach, leagueId) => sharedContact(viewer, coach, `league:${leagueId}`),
       notify: leagueNotify,
+      // League registration (lane L6): the join's team check and its share acknowledgement, the Registrations tab contacts.
+      leagueTeamSheet,
+      registrationSharing: {
+        acknowledge: (coach, leagueId, fields, at) => { acknowledgeLeagueJoin(coach, leagueId, fields, at); },
+        contacts: (viewer, entries, managers) => leagueRegistrationContacts(viewer, entries, managers),
+      },
       fork: leagueFork,
       ifMatch: typeof req.headers["if-match"] === "string" ? req.headers["if-match"] : undefined,
       lobby: fixtureLobbyDeps(),

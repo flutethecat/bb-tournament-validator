@@ -25,6 +25,9 @@
  *   GET|POST /api/leagues/:id/seasons/:seasonId/participants, PATCH .../participants/:teamId  Participants tab flags: see participants.ts
  *                                                                 { date?, round?, result? } fixtures editor (events.ts)
  * News and the fixtures editor (create / delete): see events.ts.
+ *
+ * League registration (lane L6; join, the Registrations tab, accept -> team, "I've paid"): see registrationApi.ts.
+ *   GET .../seasons/:seasonId/join, GET|POST .../seasons/:seasonId/registrations, POST .../registrations/:rid/<verb>
  *   POST   /api/leagues/:id/discord/test                          send a small test embed to the webhook
  *   GET    /api/leagues/:id/export.zip[?season=]                  CSV zip (teams, fixtures, standings, participants, honours, awards)
  *
@@ -77,6 +80,7 @@ import { teamPageRoutes } from "./teamPage.js";
 import { myRedraftTasks, redraftRoutes, teamRedraftBudgetRoute } from "./redraftApi.js";
 import { RedraftRulesError, parseRedraftRules } from "./redraftRules.js";
 import { leagueParticipantRoutes, myPaymentStatus, participantsForPublic } from "./participants.js";
+import { leagueRegistrationRoutes, type LeagueRegistrationApiDeps } from "./registrationApi.js";
 import {
   parseConnections, parseInformation, parseLeagueHouseRules, parseLeagueRegions, parseRegistrations, parseTeamBuilding, registrationsOf, settingsView, SettingsError, teamBuildingTable,
 } from "./settings.js";
@@ -157,7 +161,7 @@ export interface LeagueApiIdentity {
 /** One identity row the coach lookup and the admin list read (identities.json, read-only here). */
 export interface LeagueIdentityRow { coach: string; level: string; banned?: boolean }
 
-export interface LeagueApiDeps {
+export interface LeagueApiDeps extends LeagueRegistrationApiDeps {
   store: LeagueStore;
   /** Fork identities (coach-name lookup for organisers; level "admin" rows are the site admins). */
   identities?: () => LeagueIdentityRow[];
@@ -445,6 +449,9 @@ export async function leagueApi(
   if (events) return events;
   const participants = await leagueParticipantRoutes(method, route.rest, league, auth, deps);
   if (participants) return participants;
+  // League registration (lane L6, registrationApi.ts): join, the Registrations tab, decisions, "I've paid".
+  const registration = await leagueRegistrationRoutes(method, route.rest, league, auth, deps);
+  if (registration) return registration;
   // Fixture deadlines + auto-forfeit policy (deadlines.ts; PATCH .../seasons/:seasonId/deadlines). Loaded on demand: one block.
   const deadlines = await (await import("./deadlines.js")).leagueDeadlineRoutes(method, route.rest, league, auth, deps);
   if (deadlines) return deadlines;
@@ -1122,7 +1129,8 @@ async function patchFixture(league: LeagueRecord, seasonId: string, fixtureId: s
  */
 export function seasonForViewer(league: LeagueRecord, full: SeasonRecord, auth: LeagueApiIdentity | undefined, gamePage?: (gameId: string) => boolean): SeasonRecord {
   // Redraft state (budgets, R&R, draft rosters) is served only by the authorised redraft routes, never in a season read.
-  const { redraft: _r, ...derived } = withCaptainCandidates(withStandings(full));
+  // League registration rows (lane L6) are organiser and coach data, served only by the registration routes.
+  const { redraft: _r, registrations: _reg, ...derived } = withCaptainCandidates(withStandings(full));
   // Team page v2: a team-page MNG the team has served reads as cleared (computed on a copy; the next write stores it), and
   // team histories and injury authors stay with the team's coach and the organisers (GET .../teams/:teamId/manage).
   const teamsCopy = derived.teams.some((t) => t.players.some((p) => p.mngGames !== undefined)) ? structuredClone(derived.teams) : derived.teams;

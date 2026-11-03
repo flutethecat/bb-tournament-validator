@@ -6,7 +6,7 @@
 // The season panel ends with the "Pay entry fee" block (server-built: links, fee, and only the viewer's own teams' paid
 // status) while the season is not finished. The HOUSE RULES panel (owner 11-02) follows the season panel: the changed rows,
 // then "Everything else as <ruleset>", with an Edit link for organisers (League settings, Information).
-import { computed } from "vue";
+import { computed, inject } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import LeagueInducements from "./LeagueInducements.vue";
 import HouseRulesPanel from "./HouseRulesPanel.vue";
@@ -14,6 +14,7 @@ import PayEntryFee from "./PayEntryFee.vue";
 import { rulesetLabel } from "../shared/competition";
 import ResultCard from "./ResultCard.vue";
 import { latestResults, resultCardProps, RULESET_TONE, SEASON_STATUS_LABEL, seasonDates } from "../leagues/league";
+import { isLiveEntry, LEAGUE_JOIN_KEY } from "../leagues/registration";
 import type { LeagueSummary, SeasonRecord, SeasonSummary } from "../leagues/types";
 
 const props = defineProps<{ league: LeagueSummary; season: SeasonRecord; summary: SeasonSummary; crests: Record<string, string>; canManage?: boolean }>();
@@ -26,6 +27,14 @@ const honorary = computed(() => props.season.awards.filter((a) => a.type === "Ho
 const fixturesLink = computed(() => ({ name: "league-detail", params: { id: props.league.id }, query: { ...(route.query.season ? { season: String(route.query.season) } : {}), tab: "fixtures" } }));
 const payment = computed(() => (props.season.status === "completed" ? undefined : props.season.payment));
 const payStatus = computed(() => (payment.value?.mine ?? []).map((m) => ({ label: m.team, paid: m.paid })));
+// League registration (lane L6): the viewer's own live entry of this season adds its reference code and "I've paid".
+const join = inject(LEAGUE_JOIN_KEY, null);
+const myEntry = computed(() => {
+  const s = join?.state;
+  return s && s.seasonId === props.season.id && s.mine && isLiveEntry(s.mine.state) && s.mine.refCode ? s.mine : null;
+});
+const entryFee = computed(() => payment.value?.entryFee ?? (myEntry.value ? join?.state.status?.entryFee : undefined) ?? "");
+const showPay = computed(() => props.season.status !== "completed" && (Boolean(payment.value) || Boolean(myEntry.value && entryFee.value.trim())));
 const phases = computed(() => props.season.phases.filter((p) => props.season.fixtures.some((f) => f.phaseId === p.id)).length);
 </script>
 
@@ -60,8 +69,10 @@ const phases = computed(() => props.season.phases.filter((p) => props.season.fix
           <li v-for="a in honorary" :key="a.name + a.team"><span class="lg-award-type">{{ a.name }}</span> {{ a.team }} <small>({{ a.coach }})</small></li>
         </ul>
         <PayEntryFee
-          v-if="payment" id-prefix="lg" :entry-fee="payment.entryFee"
-          :links="{ payPal: payment.payPal, venmo: payment.venmo }" :status="payStatus"
+          v-if="showPay" id-prefix="lg" :entry-fee="entryFee"
+          :links="payment ? { payPal: payment.payPal, venmo: payment.venmo } : null" :status="payStatus"
+          :ref-code="myEntry?.refCode" :coach-says-paid="Boolean(myEntry?.coachSaysPaid)" :paid="myEntry?.paid === true"
+          :claimable="Boolean(myEntry)" :busy="join?.state.busy === 'claim'" @claim="(paid) => join?.claimPaid(paid)"
         />
       </section>
       <HouseRulesPanel kind="league" :rules="league.houseRules" :ruleset="rulesetName" id-prefix="lg" :edit-to="houseEdit" />

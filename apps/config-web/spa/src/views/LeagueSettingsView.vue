@@ -12,6 +12,7 @@ import { RouterLink, useRoute } from "vue-router";
 import { API_KEY } from "../app";
 import LeagueArtEdit from "../components/LeagueArtEdit.vue";
 import LeagueParticipants from "../components/LeagueParticipants.vue";
+import LeagueRegistrations from "../components/LeagueRegistrations.vue";
 import LeagueSectionHeader from "../components/LeagueSectionHeader.vue";
 import LeagueSettingsAdmin from "../components/LeagueSettingsAdmin.vue";
 import LeagueSettingsConnections from "../components/LeagueSettingsConnections.vue";
@@ -38,12 +39,15 @@ const { state } = settings;
 const detail = inject(LEAGUE_DETAIL_KEY, null) ?? createLeagueDetail({ api: fetcher });
 provide(LEAGUE_DETAIL_KEY, detail);
 
-/** The management groups: the settings tabs, then the two that moved here from the league page. */
-type ManageGroup = SettingsTab | "participants" | "artwork";
-const GROUPS: ReadonlyArray<{ id: ManageGroup; label: string }> = [...SETTINGS_TABS, { id: "participants", label: "Participants" }, { id: "artwork", label: "Artwork" }];
+/** The management groups: the settings tabs, then the season's Registrations (lane L6: entries to decide), and the two
+ *  that moved here from the league page. */
+type ManageGroup = SettingsTab | "entries" | "participants" | "artwork";
+const GROUPS: ReadonlyArray<{ id: ManageGroup; label: string }> = [
+  ...SETTINGS_TABS, { id: "entries", label: "Registrations" }, { id: "participants", label: "Participants" }, { id: "artwork", label: "Artwork" },
+];
 const tab = computed<ManageGroup>(() => {
   const q = route.query.tab;
-  return isSettingsTab(q) ? q : q === "participants" || q === "artwork" ? q : "administration";
+  return isSettingsTab(q) ? q : q === "entries" || q === "participants" || q === "artwork" ? q : "administration";
 });
 const tabQuery = (t: ManageGroup): Record<string, string> => {
   const q: Record<string, string> = typeof route.query.season === "string" ? { season: route.query.season } : {};
@@ -93,6 +97,10 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} settings` : ""));
       <LeagueSettingsTeamBuilding v-else-if="tab === 'team-building'" />
       <LeagueSettingsInducements v-else-if="tab === 'inducements'" />
       <LeagueSettingsRedraft v-else-if="tab === 'redraft'" :league-id="id" />
+      <template v-else-if="tab === 'entries'">
+        <LeagueRegistrations v-if="season" :league-id="id" :season-id="season.id" :season-name="season.name" />
+        <p v-else class="hm-empty" role="status">Loading the seasons...</p>
+      </template>
       <template v-else-if="tab === 'participants'">
         <LeagueParticipants v-if="season" :league-id="id" :season-id="season.id" :season-name="season.name" />
         <p v-else class="hm-empty" role="status">Loading the seasons...</p>

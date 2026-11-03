@@ -54,6 +54,9 @@ export interface ParticipantRow {
   /** Who last changed Paid, and when. */
   paidUpdated?: { by: string; at: string };
   contact?: ParticipantContact;
+  /** League registration (lane L6): the team's entry payment reference and the coach's "I've paid" (organisers only). */
+  refCode?: string;
+  coachSaysPaid?: { at: string };
 }
 
 const PARTICIPANTS_MAX_BYTES = 64 * 1024;
@@ -141,6 +144,7 @@ export function participantRows(league: LeagueRecord, season: SeasonRecord, view
     // The team's account wins (an organiser-cleared assignment means none); else the participant row's.
     const coachId = t.coachAssigned?.cleared ? undefined : t.coachId ?? p?.coachId;
     const contact = contactOf(coachId);
+    const entry = (season.registrations ?? []).find((r) => r.state === "accepted" && r.teamId === t.id);
     return {
       teamId: t.id, team: t.name, race: t.race, coach: t.coach,
       ...(coachId ? { coachId } : {}),
@@ -148,6 +152,8 @@ export function participantRows(league: LeagueRecord, season: SeasonRecord, view
       ...(p?.flagsUpdated ? { updated: { ...p.flagsUpdated } } : {}),
       ...(p?.paidUpdated ? { paidUpdated: { ...p.paidUpdated } } : {}),
       ...(contact ? { contact } : {}),
+      ...(entry?.refCode ? { refCode: entry.refCode } : {}),
+      ...(entry?.coachSaysPaid ? { coachSaysPaid: { ...entry.coachSaysPaid } } : {}),
     };
   });
 }

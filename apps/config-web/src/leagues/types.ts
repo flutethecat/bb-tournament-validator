@@ -735,6 +735,10 @@ export interface LeagueTeam {
   /** The explicit redraft link (redraft.ts buildDraftTeam): the season this roster was drafted from. A redrafted team is
    *  past its first game whatever its roster (team page v2 in-season rules). */
   redraftedFrom?: { seasonId: string };
+  /** League registration (lane L6): the registration entry this team was created from on acceptance, and the coach's
+   *  library team it came from (when one was used: its teamUid follows that library team across seasons). */
+  registrationId?: string;
+  libraryTeamId?: string;
 }
 
 /** One team history line: what changed (old -> new), who, when. */
@@ -865,6 +869,10 @@ export interface SeasonRecord {
   /** Read model only (api.ts seasonForViewer): the season's payment links and entry fee, plus the viewer's own entries'
    *  paid status (`mine`, signed-in coaches only). Absent when there is nothing to show. */
   payment?: SeasonPaymentView;
+  /** League registration (lane L6, src/leagues/registration.ts): every coach's entry for this season, in any state.
+   *  Organisers and the entry's coach only: never in a season read (api.ts seasonForViewer drops it). Accepting an entry
+   *  creates its LeagueTeam in the same season write. */
+  registrations?: import("./registration.js").LeagueRegistrationRow[];
 }
 
 /** What the league page's "Pay entry fee" block shows (api.ts seasonForViewer). */

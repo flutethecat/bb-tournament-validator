@@ -11,7 +11,7 @@ export type SettingsTab = "administration" | "information" | "registrations" | "
 export const SETTINGS_TABS: ReadonlyArray<{ id: SettingsTab; label: string }> = [
   { id: "administration", label: "Administration" },
   { id: "information", label: "Information" },
-  { id: "registrations", label: "Registrations" },
+  { id: "registrations", label: "Registration settings" },
   { id: "team-building", label: "Team building" },
   { id: "inducements", label: "Inducements" },
   { id: "redraft", label: "Redraft" },
