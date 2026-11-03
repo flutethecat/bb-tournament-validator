@@ -4,7 +4,10 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RulesChangeCoalescer } from "../src/competition/rulesChange";
 import { isStateChangingApiRequest } from "../src/auth/csrf";
-import { CHARACTERISTIC_TABLE, rollRandomSkill, skillTable, tableEntry } from "../src/advancementRolls";
+import { CHARACTERISTIC_TABLE, rollRandomSkill, skillTable, skillTakeBlock, tableEntry } from "../src/advancementRolls";
+import { skillChoices } from "../src/leagues/teamOps";
+import { findPosition } from "@bb/validator";
+import { bb2025 } from "@bb/validator/dataset";
 import { MemoryDiceLog } from "../src/dice/log";
 import { sequenceRoller, type Roller } from "../src/dice/roller";
 import { leagueApi, type LeagueApiDeps, type LeagueApiIdentity, type LeagueApiResult } from "../src/leagues/api";
@@ -40,8 +43,34 @@ const season = (teams: LeagueTeam[]): SeasonRecord => ({
 });
 
 describe("the BB2025 advancement tables (src/advancementRolls.ts)", () => {
-  it("every category table is the dataset's 12 selectable skills in alphabetical order; 2D6 pick the half then the entry", () => {
-    for (const c of ["General", "Agility", "Strength", "Passing", "Mutation", "Devious"]) expect(skillTable(c)).toHaveLength(12);
+  it("every cell matches the printed BB2025 Skill Table (bloodbowlbase.ru skills_and_traits, Skill Table), in dataset spellings", () => {
+    // [first D6 1-3 column, first D6 4-6 column], rows = the second D6, typed here independently of the source table
+    const PRINTED: Record<string, [string[], string[]]> = {
+      General: [["Block", "Dauntless", "Fend", "Frenzy", "Kick", "Pro"], ["Steady Footing", "Strip Ball", "Sure Hands", "Tackle", "Taunt", "Wrestle"]],
+      Agility: [["Catch", "Diving Catch", "Diving Tackle", "Dodge", "Defensive", "Hit And Run"], ["Jump Up", "Leap", "Safe Pair Of Hands", "Sidestep", "Sprint", "Sure Feet"]],
+      Strength: [["Arm Bar", "Brawler", "Break Tackle", "Bullseye", "Grab", "Guard"], ["Juggernaut", "Mighty Blow", "Multiple Block", "Stand Firm", "Strong Arm", "Thick Skull"]],
+      Passing: [["Accurate", "Cannoneer", "Cloud Burster", "Dump-Off", "Give and Go", "Hail Mary Pass"], ["Leader", "Nerves of Steel", "On The Ball", "Pass", "Punt", "Safe Pass"]],
+      Mutation: [["Big Hand", "Claws", "Disturbing Presence", "Extra Arms", "Foul Appearance", "Horns"], ["Iron Hard Skin", "Monstrous Mouth", "Prehensile Tail", "Tentacles", "Two Heads", "Very Long Legs"]],
+      Devious: [["Dirty Player", "Eye Gouge", "Fumblerooski", "Lethal Flight", "Lone Fouler", "Pile Driver"], ["Put the Boot In", "Quick Foul", "Saboteur", "Shadowing", "Sneaky Git", "Violent Innovator"]],
+    };
+    for (const [category, cols] of Object.entries(PRINTED)) {
+      const table = skillTable(category);
+      expect(table).toHaveLength(12);
+      for (let first = 1; first <= 6; first += 1) for (let second = 1; second <= 6; second += 1) {
+        const want = cols[first <= 3 ? 0 : 1][second - 1]!;
+        const got = tableEntry(table, first, second)!;
+        expect(got.toLowerCase(), `${category} ${first},${second}`).toBe(want.toLowerCase());
+        expect(bb2025.skills[got], `${got} is a dataset skill of ${category}`).toMatchObject({ category });
+      }
+      // the table covers the category exactly
+      const all = Object.entries(bb2025.skills).filter(([, m]) => m.category === category && !m.trait).map(([n]) => n).sort();
+      expect([...table].sort()).toEqual(all);
+    }
+    expect(tableEntry(skillTable("Agility"), 2, 4)).toBe("Dodge"); // not alphabetical: Dodge before Defensive
+    expect(tableEntry(skillTable("Agility"), 1, 5)).toBe("Defensive");
+  });
+
+  it("2D6 pick the column then the row", () => {
     const general = skillTable("General");
     expect(general.slice(0, 2)).toEqual(["Block", "Dauntless"]);
     expect(tableEntry(general, 1, 1)).toBe("Block");
@@ -62,6 +91,34 @@ describe("the BB2025 advancement tables (src/advancementRolls.ts)", () => {
 
   it("the characteristic table is the BB2025 D8 table", () => {
     expect(CHARACTERISTIC_TABLE).toEqual({ 1: ["AV"], 2: ["AV", "PA"], 3: ["AV", "MA", "PA"], 4: ["AV", "MA", "PA"], 5: ["MA", "PA"], 6: ["AG", "MA"], 7: ["AG", "ST"], 8: ["MA", "ST", "AG", "PA", "AV"] });
+  });
+});
+
+describe("BB2025 taking restrictions (advancementRolls.ts skillTakeBlock)", () => {
+  it("prerequisites and exclusions, read from what the player owns (printed and added)", () => {
+    expect(skillTakeBlock("Lethal Flight", [])).toMatch(/needs Right Stuff/);
+    expect(skillTakeBlock("Lethal Flight", ["Right Stuff", "Stunty"])).toBe("");
+    expect(skillTakeBlock("Saboteur", ["Loner (4+)"])).toMatch(/needs Secret Weapon/);
+    expect(skillTakeBlock("Bullseye", ["Throw Team-mate"])).toBe("");
+    expect(skillTakeBlock("Strong Arm", [])).toMatch(/Throw Team-mate/);
+    expect(skillTakeBlock("Violent Innovator", ["Stab"])).toBe("");
+    expect(skillTakeBlock("Violent Innovator", ["Block"])).toMatch(/needs/);
+    expect(skillTakeBlock("Grab", ["Frenzy"])).toMatch(/can't be combined with Frenzy/);
+    expect(skillTakeBlock("Frenzy", ["Multiple Block"])).toMatch(/Multiple Block/);
+    expect(skillTakeBlock("Hit And Run", ["Frenzy"])).toMatch(/Frenzy/);
+    expect(skillTakeBlock("Leap", ["Pogo"])).toMatch(/Pogo/);
+    expect(skillTakeBlock("Diving Tackle", ["Ball & Chain*"])).toMatch(/Ball & Chain/);
+    expect(skillTakeBlock("Guard", ["Frenzy"])).toBe("");
+  });
+
+  it("the player's skill lists leave out what the restrictions forbid (chosen, random and Choose Skill all read them)", () => {
+    const slayer = findPosition(bb2025.rosters.Dwarf!, "Troll Slayer")!; // printed Frenzy; primary General + Strength
+    const { primary } = skillChoices({ skills: [...slayer.skills] }, slayer);
+    expect(primary).not.toContain("Grab");
+    expect(primary).not.toContain("Multiple Block");
+    expect(primary).not.toContain("Bullseye");
+    expect(primary).not.toContain("Strong Arm");
+    expect(primary).toContain("Guard");
   });
 });
 
@@ -146,6 +203,47 @@ describe("league team page: advancement by roll", () => {
     expect(p1().skills).toContain("Dauntless");
     expect(p1()).toMatchObject({ availableSpp: 17, level: "Experienced" });
     expect((await view()).history[0]!.changes[1]!.what).toMatch(/took Dauntless \(both rolls gave it\)/);
+  });
+
+  it("a save failure after the roll was logged can't buy a reroll: the retry gets the SAME roll back from the log, charged once", async () => {
+    roller = sequenceRoller([7, 8]);
+    const put = store.putSeason.bind(store);
+    let fail = true;
+    store.putSeason = ((s: SeasonRecord) => { if (fail) { fail = false; throw new Error("disk full"); } return put(s); }) as typeof store.putSeason;
+    const first = await rollStat();
+    expect(first.status).toBe(500);
+    expect(p1().pendingAdvance).toBeUndefined();
+    expect(p1().availableSpp).toBe(20);
+    // the retry (even asking for a random skill instead) restores the logged D8 7: no new dice
+    const retry = await rollRandom();
+    expect(retry.status).toBe(200);
+    expect(p1().pendingAdvance).toMatchObject({ kind: "characteristic", roll: 7, choices: ["AG", "ST"], cost: 14 });
+    expect(p1().availableSpp).toBe(6);
+    const v = await view();
+    expect(v.diceLog).toHaveLength(1); // one roll in the log
+    expect(v.diceLog[0]!.dice).toEqual([7]);
+    expect(v.history[0]!.changes[0]!.what).toMatch(/restored from the dice log/);
+    // saved now: marked in the log and on the player; the next roll after the pick is a fresh one
+    expect(p1().advanceRolls).toContain(v.diceLog[0]!.id);
+    expect(log.read(v.diceLog[0]!.logId)[0]!.choice).toMatchObject({ face: "saved" });
+    expect((await resolve({ type: "stat", stat: "ST" })).status).toBe(200);
+    const s = store.season("lg", "season-1")!;
+    s.teams[0]!.players[0]!.availableSpp = 30;
+    store.putSeason(s);
+    expect((await rollStat()).status).toBe(200);
+    expect(p1().pendingAdvance).toMatchObject({ roll: 8 });
+  });
+
+  it("random rolls reroll results the restrictions forbid (a Frenzy player never gets Grab or Multiple Block)", async () => {
+    const s = store.season("lg", "season-1")!;
+    s.teams[0]!.players[0] = lineman({ position: "Troll Slayer", ma: 5, st: 3, ag: 4, pa: 5, av: 9, skills: ["Block", "Dauntless", "Frenzy", "Hatred (Troll)", "Thick Skull"] });
+    store.putSeason(s);
+    // Strength: 1,4 Bullseye (needs Throw Team-mate), 1,5 Grab (Frenzy), 4,3 Multiple Block (Frenzy), 1,6 Guard, 1,1 Arm Bar
+    roller = sequenceRoller([1, 4, 1, 5, 4, 3, 1, 6, 1, 1]);
+    expect((await edit(COACH, "coach", [{ op: "rollAdvance", playerId: "p1", kind: "randomPrimary", category: "Strength" }])).status).toBe(200);
+    const pend = p1().pendingAdvance!;
+    expect(pend.choices).toEqual(["Guard", "Arm Bar"]);
+    expect(pend.rolls!.filter((r) => r.rerolled).map((r) => r.skill)).toEqual(["Bullseye", "Grab", "Multiple Block"]);
   });
 
   it("a dice log write failure refuses the roll: nothing is charged, stored or shown", async () => {

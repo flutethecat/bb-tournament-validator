@@ -383,6 +383,8 @@ describe("export", () => {
     // the result-override marker is the actor's own export only, never part of the fixture rows
     expect(leagues[0].seasons[0].fixtures[0].resultEdit).toBeUndefined();
     expect(leagues[0].seasons[0].resultEdits).toEqual([{ fixture: "f1", home: "Green Orcs", away: "Blue Elves", at: "2026-10-30T00:00:00.000Z" }]);
+    // the advancement roll she made on Bob's team as an organiser
+    expect(leagues[0].seasons[0].advancementRolls).toEqual([{ team: "Blue Elves", player: "Lithe", roll: expect.objectContaining({ id: "rA1", by: "Alice", roll: 7 }) }]);
     // awards to Alice's account and by her, and the Hall of Fame entries she pinned; never the others'
     expect(leagues[0].awards.map((x: { id: string }) => x.id)).toEqual(["a-1", "a-2"]);
     expect(leagues[0].hallOfFame.map((x: { id: string }) => x.id)).toEqual(["p-1"]);
@@ -577,6 +579,7 @@ describe("delete", () => {
     expect(season.teams[0].history[0]).toMatchObject({ by: P, changes: [{ from: P, to: "Bob" }] });
     expect(season.teams[0].history[0].changes[0].what).not.toContain("Alice");
     expect(season.teams[0].players[0].injuries[0].by).toBe(P);
+    expect(season.teams[1].players[0].pendingAdvance).toMatchObject({ by: P, roll: 7 }); // the roll stays, the roller is anonymised
     for (const t of season.redraft.teams) {
       expect(t.draft.team.statusChanged.by).toBe(P);
       expect(t.draft.team.history[0].by).toBe(P);

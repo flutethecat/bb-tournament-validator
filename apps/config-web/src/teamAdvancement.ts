@@ -24,7 +24,7 @@ import type { SkillCategory } from "@bb/validator";
 import { blockCaptainGrants, withoutRecordedCaptainGrants } from "./captain.js";
 import type { SessionIdentity } from "./auth/requireSession.js";
 import { shiftStoredPlayerValue } from "./storedPlayerValue.js";
-import { CHARACTERISTIC_TABLE } from "./advancementRolls.js";
+import { CHARACTERISTIC_TABLE, skillTakeBlock } from "./advancementRolls.js";
 import { cryptoRoller, pickIndex } from "./dice/roller.js";
 import { newRollId, teamLogId, type DiceRoll } from "./dice/log.js";
 
@@ -323,7 +323,7 @@ function advancementCount(player: string, position: string | undefined): number 
 function legalSkills(categories: readonly SkillCategory[], owned: readonly string[]): string[] {
   const ownedSet = new Set(owned.map((skill) => skill.toLowerCase()));
   return Object.entries(bb2025.skills)
-    .filter(([name, meta]) => meta.category && categories.includes(meta.category) && !meta.trait && !ownedSet.has(name.toLowerCase()))
+    .filter(([name, meta]) => meta.category && categories.includes(meta.category) && !meta.trait && !ownedSet.has(name.toLowerCase()) && !skillTakeBlock(name, owned))
     .map(([name]) => name)
     .sort((a, b) => a.localeCompare(b));
 }

@@ -52,7 +52,10 @@ describe("the D8 roller", () => {
     const page = src("components/LeagueTeams.vue");
     // armed ("*") before the request, so the die mounts playing; then pinned to the roll's id (a later reopen is settled)
     expect(page).toMatch(/freshRoll\.value = "\*";\s+const err = await send/);
-    expect(page).toMatch(/freshRoll\.value = err \? "" : playerOf\(id\)\?\.pendingAdvance\?\.id/);
+    expect(page).toMatch(/freshRoll\.value = err \|\| menu\.value\?\.id !== id \? "" : playerOf\(id\)\?\.pendingAdvance\?\.id/);
+    // closing the dialog clears it: reopening a pending D8 shows it settled (Sol P3)
+    expect(page).toMatch(/function closeMenu\(\): void \{ menu\.value = null; freshRoll\.value = ""; \}/);
+    expect(page).toMatch(/@close="closeMenu"/);
     // reopening the dialog never sends a roll: the only rollAdvance is behind the coach's button
     expect(panel.match(/emit\('roll'/g)).toHaveLength(2);
   });

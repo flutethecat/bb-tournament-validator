@@ -40,6 +40,10 @@ export interface AdvanceCtx {
   logId: string;
   /** Writes one roll to the dice log; throws when it can't (then nothing is stored or shown). */
   logRoll: (roll: DiceRoll) => void;
+  /** The team's dice log (an unsaved earlier roll is restored from it, never rolled again). */
+  readRolls: () => DiceRoll[];
+  /** Told the id of the roll this request stored (the route marks it saved in the log once the season is written). */
+  rolled?: (id: string) => void;
 }
 
 const who = (p: LeaguePlayer): string => `${p.name || p.position}${p.number !== null ? ` (#${p.number})` : ""}`;
@@ -74,7 +78,21 @@ function takeSkill(p: LeaguePlayer, skill: string, access: "primary" | "secondar
   p.level = rankAfter(count + 1);
 }
 
-/** { op: "rollAdvance" }: rolls, logs, stores the pending choice (or takes a forced double). Returns the history lines. */
+/**
+ * The player's latest advancement roll in the team's dice log that never reached the season: logged, then the save failed
+ * (or the request died). It binds: the next roll request for the player gets THIS result back instead of new dice, so a
+ * failed save can never buy a reroll. A roll counts as saved once the season records its id (LeaguePlayer.advanceRolls) or
+ * the log carries its "saved" mark (appendChoice after the save).
+ */
+export function unsavedRoll(rolls: readonly DiceRoll[], p: Pick<LeaguePlayer, "playerId" | "advanceRolls" | "pendingAdvance">): DiceRoll | undefined {
+  const mine = rolls.filter((r) => (r.kind === "advance-skill" || r.kind === "advance-stat") && r.result?.playerId === p.playerId);
+  const last = mine.at(-1);
+  if (!last || last.choice || (p.advanceRolls ?? []).includes(last.id) || p.pendingAdvance?.id === last.id) return undefined;
+  return last;
+}
+
+/** { op: "rollAdvance" }: rolls (or restores an unsaved roll from the log), logs, stores the pending choice (or takes a
+ *  forced double). Returns the history lines; ctx.rolled receives the roll id so the route can mark it saved. */
 export function rollAdvance(ctx: AdvanceCtx, raw: Record<string, unknown>): Change[] {
   const p = playerOf(ctx.team, raw.playerId);
   if (raw.kind !== "randomPrimary" && raw.kind !== "characteristic") throw new AdvanceError(400, 'kind must be "randomPrimary" or "characteristic".');
@@ -82,9 +100,41 @@ export function rollAdvance(ctx: AdvanceCtx, raw: Record<string, unknown>): Chan
   const pos = positionOf(ctx.roster, p.position);
   if (!pos) throw new AdvanceError(400, `${p.position} is not a ${ctx.team.race} position: it can't take advancements here.`);
   const count = advancementCount(p, pos);
+  const choices = skillChoices(p, pos);
+  const admin = ctx.mode === "organiser";
+  const record = (id: string): void => { p.advanceRolls = [...(p.advanceRolls ?? []), id].slice(-20); ctx.rolled?.(id); };
+
+  // An earlier roll that was logged but never saved comes back, whatever was asked this time.
+  const orphan = unsavedRoll(ctx.readRolls(), p);
+  if (orphan) {
+    const res = orphan.result as Record<string, unknown>;
+    const cost = typeof res.cost === "number" ? res.cost : Number.NaN;
+    if (!Number.isSafeInteger(cost) || cost <= 0) throw new AdvanceError(409, "An earlier roll for this player could not be restored. Ask an organiser.");
+    if (p.availableSpp < cost) throw new AdvanceError(409, `An earlier roll for ${who(p)} (${cost} SPP) is waiting to be restored, but the player now has ${p.availableSpp} SPP. Ask an organiser.`);
+    p.availableSpp -= cost;
+    record(orphan.id);
+    const meta = { id: orphan.id, at: orphan.at, by: orphan.by, ...(orphan.admin ? { admin: true as const } : {}), cost, count };
+    if (orphan.kind === "advance-skill") {
+      const category = String(res.category ?? "");
+      const rolls = (res.rolls ?? []) as NonNullable<PendingAdvance["rolls"]>;
+      const picks = (res.picks ?? []) as string[];
+      const lines: Change[] = [{ what: `${who(p)} rolled a Random Primary skill (${category}, ${cost} SPP), restored from the dice log`, to: rolls.map(rollLine).join(", ") }];
+      if (res.forced === true && picks[0]) {
+        takeSkill(p, picks[0], "primary", count);
+        lines.push({ what: `${who(p)} took ${picks[0]} (both rolls gave it)` });
+        return lines;
+      }
+      p.pendingAdvance = { ...meta, kind: "randomPrimary", category, rolls, choices: [...picks] };
+      return lines;
+    }
+    const roll = Number(res.roll);
+    const stats = statChoices(p, pos, roll);
+    p.pendingAdvance = { ...meta, kind: "characteristic", roll, choices: stats, skills: { primary: choices.primary, secondary: choices.secondary } };
+    return [{ what: `${who(p)} rolled a Characteristic Improvement (${cost} SPP), restored from the dice log`, to: `D8 ${roll}: ${stats.length ? stats.join(" / ") : "no characteristic can improve"}` }];
+  }
+
   const cost = advanceCostOf(count, raw.kind);
   if (cost === null) throw new AdvanceError(400, "This player has taken every advancement.");
-  const choices = skillChoices(p, pos);
   const label = raw.kind === "randomPrimary" ? "a Random Primary skill" : "a Characteristic Improvement";
   // Everything is checked BEFORE the dice: a refused roll is never rolled, logged or charged.
   let category = "";
@@ -100,16 +150,17 @@ export function rollAdvance(ctx: AdvanceCtx, raw: Record<string, unknown>): Chan
   if (p.availableSpp < cost) throw new AdvanceError(400, `${label} costs ${cost} SPP; ${who(p)} has ${p.availableSpp}.`);
 
   const id = newRollId();
-  const admin = ctx.mode === "organiser";
   const base = { id, logId: ctx.logId, at: ctx.at, by: ctx.actor, ...(admin ? { admin: true } : {}) };
   if (raw.kind === "randomPrimary") {
+    // legal = on the player's Primary list now: not owned, and allowed by the BB2025 taking restrictions (skillChoices)
     const primary = new Set(choices.primary);
-    const r = rollRandomSkill(ctx.roller, category, (s) => primary.has(s));
+    const r = rollRandomSkill(ctx.roller, category, (sk) => primary.has(sk));
     ctx.logRoll({
       ...base, kind: "advance-skill", purpose: `Random Primary skill (${category}) for ${who(p)}`, dice: r.rolls.flatMap((x) => x.dice),
       result: { team: ctx.team.name, playerId: p.playerId, player: who(p), category, rolls: r.rolls, picks: r.picks, forced: r.forced, cost },
     });
     p.availableSpp -= cost;
+    record(id);
     const lines: Change[] = [{ what: `${who(p)} rolled a Random Primary skill (${category}, ${cost} SPP)${behalf(ctx)}`, to: r.rolls.map(rollLine).join(", ") }];
     if (r.forced) {
       takeSkill(p, r.picks[0], "primary", count);
@@ -126,6 +177,7 @@ export function rollAdvance(ctx: AdvanceCtx, raw: Record<string, unknown>): Chan
     result: { team: ctx.team.name, playerId: p.playerId, player: who(p), roll, allowed: [...(CHARACTERISTIC_TABLE[roll] ?? [])], choices: stats, cost },
   });
   p.availableSpp -= cost;
+  record(id);
   p.pendingAdvance = {
     id, kind: "characteristic", at: ctx.at, by: ctx.actor, ...(admin ? { admin: true as const } : {}), cost, count, roll, choices: stats,
     skills: { primary: choices.primary, secondary: choices.secondary },

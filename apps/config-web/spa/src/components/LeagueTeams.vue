@@ -117,8 +117,10 @@ async function onRoll(kind: "randomPrimary" | "characteristic", category?: strin
   const op: TeamOp = kind === "randomPrimary" ? { op: "rollAdvance", playerId: id, kind, category: category ?? "" } : { op: "rollAdvance", playerId: id, kind };
   freshRoll.value = "*";
   const err = await send([op], kind === "randomPrimary" ? "Rolled." : "Rolled the D8.");
-  freshRoll.value = err ? "" : playerOf(id)?.pendingAdvance?.id ?? "";
+  freshRoll.value = err || menu.value?.id !== id ? "" : playerOf(id)?.pendingAdvance?.id ?? ""; // closed meanwhile: settled next time
 }
+/** Closing the dialog ends the "just rolled" state: a pending roll seen again later is shown settled, never replayed. */
+function closeMenu(): void { menu.value = null; freshRoll.value = ""; }
 async function onResolve(rollId: string, choice: AdvanceChoice): Promise<void> {
   const id = menu.value?.id;
   if (!id) return;
@@ -220,7 +222,7 @@ const COG_ICON = "/icons/league/league-settings.png";
         </TeamSummary>
         <TeamPlayerMenu
           v-if="menu && ctx && mode !== 'view'" :view="ctx" :player-id="menu.id" :mode="mode === 'organiser' ? 'organiser' : 'coach'" :busy="busy" :initial="menu.initial"
-          @close="menu = null"
+          @close="closeMenu"
           @advance="(s, m) => send([{ op: 'advance', playerId: menu!.id, skill: s, method: m }], `${s} taken.`).then((e) => { if (!e) menu = null; })"
           @add-skill="(s) => send([{ op: 'addSkill', playerId: menu!.id, skill: s }], `${s} added.`)"
           @injury="onInjury" :fresh="freshRoll" @roll="onRoll" @resolve="onResolve"

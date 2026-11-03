@@ -132,8 +132,10 @@ export interface TeamPageView {
   history: TeamHistoryEntry[];
 }
 
-/** The dice log of a league team's advancement rolls (src/dice/log.ts): by the team's own uid, so it follows the team. */
-export const teamAdvanceLogId = (leagueId: string, team: Pick<LeagueTeam, "id" | "teamUid">): string => teamLogId(`league:${leagueId}:${team.teamUid ?? `id:${team.id}`}`);
+/** The dice log of a league team's advancement rolls (src/dice/log.ts): by league, season and the season-unique team id,
+ *  which exist before the first write (a uid minted by a write that then fails would move the log, and an unsaved roll
+ *  must be found again on the retry). */
+export const teamAdvanceLogId = (leagueId: string, seasonId: string, teamId: string): string => teamLogId(`league:${leagueId}:${seasonId}:${teamId}`);
 
 export function teamPageView(league: LeagueRecord, stored: SeasonRecord, teamId: string, auth: LeagueApiIdentity | undefined, diceLog?: Pick<NonNullable<LeagueApiDeps["diceLog"]>, "read">): TeamPageView | undefined {
   const season = structuredClone(stored);
@@ -172,7 +174,7 @@ export function teamPageView(league: LeagueRecord, stored: SeasonRecord, teamId:
     limits: rosterLimitErrors(team, roster),
     injuries: injuryTable(season.ruleset),
     advancement,
-    diceLog: (team.teamUid ? diceLog?.read(teamAdvanceLogId(league.id, team)) ?? [] : []).slice(-50).reverse(),
+    diceLog: (diceLog?.read(teamAdvanceLogId(league.id, season.id, team.id)) ?? []).slice(-50).reverse(),
     ...(organiser ? { skills: allSkills(), fixtures: decidable.map((f) => fixtureRow(f, team)) } : {}),
     needDecision: organiser ? fixturesNeedingDecision(season, team).length : 0,
     history: team.history ?? [],
@@ -212,7 +214,7 @@ type Change = TeamHistoryEntry["changes"][number];
 interface OpCtx {
   season: SeasonRecord; team: LeagueTeam; roster: DatasetRoster | undefined; mode: "coach" | "organiser"; pregame: boolean; actor: string; at: string; games: number; usedIds: Set<string>;
   /** Advancement rolls (teamAdvance.ts): the site roller and the team's dice log. Absent = rolls are unavailable (503). */
-  dice?: { roller: import("../dice/roller.js").Roller; logId: string; logRoll: (roll: DiceRoll) => void };
+  dice?: { roller: import("../dice/roller.js").Roller; logId: string; logRoll: (roll: DiceRoll) => void; readRolls: () => DiceRoll[]; rolled?: (id: string) => void };
 }
 
 const TEAM_NUMBER_FIELDS = ["treasury", "rerolls", "fans", "assistantCoaches", "cheerleaders"] as const;
@@ -635,6 +637,8 @@ export async function teamPageRoutes(
   settleServedMng(season);
   ensureTeamIdentity(team);
   let changes: Change[] = [];
+  /** The advancement roll this request stored: marked saved in the dice log once the season is written. */
+  let savedRoll: { logId: string; id: string } | undefined;
   let kind: TeamHistoryEntry["kind"] = mode === "coach" ? "coach-edit" : "organiser-edit";
   try {
     if (action === "edit") {
@@ -648,7 +652,13 @@ export async function teamPageRoutes(
       if (rolls.length && input.ops.length !== 1) return fail(400, "An advancement roll or pick goes in a request of its own.", { field: "ops" });
       if (rolls.length) kind = "advancement";
       const diceLog = deps.diceLog;
-      const dice = diceLog ? { roller: deps.roller ?? cryptoRoller, logId: teamAdvanceLogId(lg.id, team), logRoll: (r: DiceRoll) => { try { diceLog.appendRoll(r); } catch { throw new OpError(500, "The roll could not be logged, so it was not made. Try again."); } } } : undefined;
+      const logId = teamAdvanceLogId(lg.id, season.id, team.id);
+      const dice = diceLog ? {
+        roller: deps.roller ?? cryptoRoller, logId,
+        logRoll: (r: DiceRoll) => { try { diceLog.appendRoll(r); } catch { throw new OpError(500, "The roll could not be logged, so it was not made. Try again."); } },
+        readRolls: () => diceLog.read(logId),
+        rolled: (id: string) => { savedRoll = { logId, id }; },
+      } : undefined;
       const ctx: OpCtx = { season, team, roster: datasetRoster(team.race), mode, pregame, actor: auth.coach, at, games: teamGamesPlayed(season, team.id), usedIds, ...(dice ? { dice } : {}) };
       const limitsBefore = rosterLimitMetrics(before, ctx.roster);
       for (const op of input.ops) changes.push(...applyOp(ctx, op));
@@ -692,6 +702,8 @@ export async function teamPageRoutes(
   } catch {
     return fail(500, "Could not save the team right now.");
   }
+  // The roll is in the season now: mark it saved in the log (best effort; the season's advanceRolls also says so).
+  if (savedRoll) { try { deps.diceLog?.appendChoice(savedRoll.logId, savedRoll.id, { index: 0, face: "saved", by: auth.coach, at }); } catch { /* the season record suffices */ } }
   if (kind !== "coach-edit" && !(kind === "advancement" && mode === "coach")) sendTeamNotices(lg, season, team, auth.coach, changes.map(changeLine), deps);
   const saved = deps.store.season(lg.id, season.id) ?? season;
   return ok({ ok: true, revision: saved.revision ?? 0, view: teamPageView(lg, saved, team.id, auth, deps.diceLog) });

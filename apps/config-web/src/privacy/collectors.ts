@@ -473,6 +473,11 @@ export const STORE_COLLECTORS: StoreCollector[] = [
             resultEdits: objs(s.fixtures).filter((f) => isObj(f.resultEdit) && isMine(ctx.keys, (f.resultEdit as Obj).by))
               .map((f) => ({ fixture: f.id, home: (f.home as Obj | undefined)?.team, away: (f.away as Obj | undefined)?.team, at: (f.resultEdit as Obj).at })),
             participants: objs(s.participants).filter(linked),
+            // Advancement rolls waiting for a pick that this coach made on a team they don't coach (an organiser rolling on
+            // the coach's behalf): the team, player and roll. Their own teams' pending rolls are in `teams`.
+            advancementRolls: objs(s.teams).filter((t) => !linked(t)).flatMap((t) => objs(t.players)
+              .filter((p) => isObj(p.pendingAdvance) && isMine(ctx.keys, (p.pendingAdvance as Obj).by))
+              .map((p) => ({ team: t.name, player: p.name, roll: p.pendingAdvance }))),
             standings: objs(s.phases).flatMap((p) => objs(p.standings).filter(linked)),
             awards: objs(s.awards).filter(linked),
             registrations: ownLeagueRegistrations(s, (v) => isMine(ctx.keys, v)),
@@ -480,7 +485,7 @@ export const STORE_COLLECTORS: StoreCollector[] = [
             paidActions: objs(s.participants).filter((p) => isObj(p.paidUpdated) && isMine(ctx.keys, (p.paidUpdated as Obj).by))
               .map((p) => ({ ...(typeof p.teamId === "string" ? { teamId: p.teamId } : {}), team: p.team, paid: p.paid === true, at: (p.paidUpdated as Obj).at })),
           };
-        }).filter((r) => r.teams.length + r.fixtures.length + r.resultEdits.length + r.participants.length + r.standings.length + r.awards.length + r.registrations.length + r.paidActions.length > 0);
+        }).filter((r) => r.teams.length + r.fixtures.length + r.resultEdits.length + r.participants.length + r.advancementRolls.length + r.standings.length + r.awards.length + r.registrations.length + r.paidActions.length > 0);
         const role = isMine(ctx.keys, league.owner) ? "owner" : (league.organisers ?? []).some((o) => isMine(ctx.keys, o)) ? "organiser" : undefined;
         if (rows.length || role || awards.length || pins.length)
           leagues.push({ league: league.name ?? league.id, id: league.id, ...(role ? { role } : {}), seasons: rows, ...(awards.length ? { awards } : {}), ...(pins.length ? { hallOfFame: pins } : {}) });
@@ -895,7 +900,7 @@ function anonymiseLeagueFile(an: Anonymiser, tx: TextReplacer, l: Obj): boolean 
 }
 
 /** Team page v2 (teamPage.ts) on a team record or a redraft snapshot of one: who changed the status, the team history
- *  (author and change text) and injury authors. */
+ *  (author and change text), injury authors and who rolled a pending advancement. */
 function anonymiseTeamRecords(an: Anonymiser, tx: TextReplacer, t: Obj): boolean {
   let changed = false;
   const mark = (v: boolean) => { if (v) changed = true; };
@@ -904,7 +909,11 @@ function anonymiseTeamRecords(an: Anonymiser, tx: TextReplacer, t: Obj): boolean
     mark(an.fields(h, ["by"], []));
     for (const c of objs(h.changes)) mark(tx.texts(c, ["what", "from", "to"]));
   }
-  for (const p of objs(t.players)) for (const i of objs(p.injuries)) mark(an.fields(i, ["by"], []));
+  for (const p of objs(t.players)) {
+    for (const i of objs(p.injuries)) mark(an.fields(i, ["by"], []));
+    // an advancement roll waiting for its pick (leagues/teamAdvance.ts): who rolled it
+    if (isObj(p.pendingAdvance)) mark(an.fields(p.pendingAdvance, ["by"], []));
+  }
   return changed;
 }
 

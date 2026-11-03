@@ -660,6 +660,9 @@ export interface LeaguePlayer extends PlayerIdentity {
   /** An advancement roll waiting for the coach's pick (teamAdvance.ts): its SPP is already spent, and the same choices come
    *  back until one is taken. Coach and organisers only: never in a public read (teamOps.ts publicTeam). */
   pendingAdvance?: PendingAdvance;
+  /** The dice log ids of the advancement rolls saved on this player (the last 20): a logged roll whose id is missing here
+   *  never reached the season and is restored from the log, not rolled again (teamAdvance.ts unsavedRoll). */
+  advanceRolls?: string[];
 }
 
 /**

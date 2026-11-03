@@ -30,7 +30,7 @@
 import { randomBytes } from "node:crypto";
 import { canonSkill, findPosition, splitCaptainGrants, type DatasetPosition, type DatasetRoster } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
-import { CHARACTERISTIC_BEST, CHARACTERISTIC_MAX_STEPS } from "../advancementRolls.js";
+import { CHARACTERISTIC_BEST, CHARACTERISTIC_MAX_STEPS, skillTakeBlock } from "../advancementRolls.js";
 import { ADVANCEMENT_ROWS } from "../teamAdvancement.js";
 import { markCaptainVacancy } from "./captain.js";
 import { STAT_LIMIT } from "./forkResult.js";
@@ -392,13 +392,15 @@ export function advanceCost(count: number, method: AdvanceMethod): number | null
 /** The rank the player reaches with advancement number `count` (1-based). */
 export const rankAfter = (count: number): string => ADVANCEMENT_ROWS[Math.min(count, ADVANCEMENT_ROWS.length) - 1]?.rank ?? "Rookie";
 
-/** Selectable skills by access for this player (traits and owned skills left out). */
+/** Selectable skills by access for this player (traits, owned skills and skills the BB2025 taking restrictions forbid,
+ *  advancementRolls.ts skillTakeBlock: Lethal Flight needs Right Stuff, Frenzy excludes Grab, ..., left out). */
 export function skillChoices(p: Pick<LeaguePlayer, "skills">, pos: DatasetPosition | undefined): { primary: string[]; secondary: string[] } {
   const owned = new Set(p.skills.map(canonSkill));
+  const have = [...p.skills, ...(pos?.skills ?? [])];
   const primary: string[] = [];
   const secondary: string[] = [];
   for (const [name, meta] of Object.entries(bb2025.skills)) {
-    if (!meta.category || meta.trait || owned.has(canonSkill(name))) continue;
+    if (!meta.category || meta.trait || owned.has(canonSkill(name)) || skillTakeBlock(name, have)) continue;
     if (pos?.primaryCategories.includes(meta.category)) primary.push(name);
     else if (pos?.secondaryCategories.includes(meta.category)) secondary.push(name);
   }

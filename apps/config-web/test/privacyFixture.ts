@@ -180,7 +180,8 @@ export async function seed(root: string, opts: SeedOptions = {}): Promise<void> 
     id: "s1", leagueId: "l1", number: 1, name: "Season 1",
     teams: [
       { id: "green-orcs", name: "Green Orcs", race: "Orc", coach: "Alice Smith", coachId: "Alice", nafUser: "AliceNaf", players: [{ name: "Grub", injuries: [{ type: "dead", at: "", by: "Alice" }] }], statusChanged: { by: "Alice", at: "" }, history: [{ at: "", by: "Alice", kind: "organiser-edit", changes: [{ what: "Alice Smith fixed Grub", from: "Alice", to: "Bob" }] }] },
-      { id: "blue-elves", name: "Blue Elves", race: "Elf", coach: "BobNaf", coachId: "Bob", nafUser: "BobNaf", players: [] },
+      // Alice (an organiser) rolled a D8 for Bob's player: the pending roll names her (leagues/teamAdvance.ts)
+      { id: "blue-elves", name: "Blue Elves", race: "Elf", coach: "BobNaf", coachId: "Bob", nafUser: "BobNaf", players: [{ name: "Lithe", pendingAdvance: { id: "rA1", kind: "characteristic", at: "", by: "Alice", admin: true, cost: 14, count: 0, roll: 7, choices: ["AG"] } }] },
     ],
     fixtures: [{
       id: "f1", home: { team: "Green Orcs", teamId: "green-orcs", coach: "AliceNaf", coachId: "Alice", race: "Orc", score: 2 }, away: { team: "Blue Elves", coach: "BobNaf", coachId: "Bob", race: "Elf", score: 1 },
