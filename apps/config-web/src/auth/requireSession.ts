@@ -1,5 +1,6 @@
 import type { IncomingMessage } from "node:http";
 import { coachLevel, isAdmin, isOrganizer } from "./access.js";
+import { forkGateAdmits } from "./forkRouteAuth.js";
 import { sessionFromRequest } from "./session.js";
 import { isPublicArtPath } from "../publicArt.js";
 import { isSpaPath } from "../spaRoutes.js";
@@ -39,23 +40,23 @@ const PUBLIC_API_METHODS = new Map<string, ReadonlySet<string>>([
   ["/api/ruleset-summary", new Set(["GET", "HEAD"])],
   ["/api/export", new Set(["POST"])],
   ["/api/artprompt", new Set(["POST"])],
-  ["/api/fork/jnlp", new Set(["GET", "HEAD"])],
+  // Fork sign-up stays open (owner 11-03); an existing coach still needs its session or admin in-handler.
   ["/api/fork/register", new Set(["GET", "HEAD"])],
-  ["/api/fork/library", new Set(["GET", "HEAD"])],
-  ["/api/fork/library/ingest", new Set(["POST"])],
-  ["/api/fork/coaches", new Set(["GET", "HEAD"])],
+  // Game creation stays open with FORK_ROUTES_REQUIRE_AUTH on or off (owner 11-03, "we don't need to lock down game
+  // creation yet"): TEMPORARY until the owner lifts the hold. challenge verifies its digest in-handler; matchstatus,
+  // cancel and jnlp keep their legacy session-or-digest rules.
+  ["/api/fork/jnlp", new Set(["GET", "HEAD"])],
   ["/api/fork/challenge", new Set(["GET", "HEAD"])],
   ["/api/fork/matchstatus", new Set(["GET", "HEAD"])],
   ["/api/fork/cancel", new Set(["GET", "HEAD"])],
-  ["/api/fork/reload", new Set(["GET", "HEAD"])],
+  // Tournament Builder reads stay open (owner 11-03): rosters, catalog reads and the non-mutating preview. Saving is
+  // locked: team-builder/saves and build are lockdown routes (src/auth/forkRouteAuth.ts).
   ["/api/fork/rosters", new Set(["GET", "HEAD"])],
   ["/api/fork/team-builder/legal-skills", new Set(["GET", "HEAD"])],
   ["/api/fork/team-builder/inducements", new Set(["GET", "HEAD"])],
   ["/api/fork/team-builder/tiers", new Set(["GET", "HEAD"])],
   ["/api/fork/team-builder/limits", new Set(["GET", "HEAD"])],
   ["/api/fork/team-builder/preview", new Set(["POST"])],
-  ["/api/fork/team-builder/build", new Set(["POST"])],
-  ["/api/fork/my-games", new Set(["POST"])],
   // POST does its own coach auth in-handler; the GETs stay session+organizer-gated.
   ["/api/bug-reports", new Set(["POST"])],
 ]);
@@ -124,6 +125,12 @@ function isPublicRequest(method: string, pathname: string): boolean {
   return PUBLIC_API_METHODS.get(pathname)?.has(method) === true;
 }
 
+/** Fork routes that used to be public (src/auth/forkRouteAuth.ts): open only with FORK_ROUTES_REQUIRE_AUTH off, or when
+ *  the request carries a credential the handler verifies. */
+function forkRouteAdmitted(req: IncomingMessage, method: string, pathname: string): boolean {
+  return forkGateAdmits(method, pathname, req.headers, "session");
+}
+
 export function requireSession(req: IncomingMessage, pathname: string, search: string): SessionDecision {
   const session = sessionFromRequest(req);
   const identity = session
@@ -135,7 +142,7 @@ export function requireSession(req: IncomingMessage, pathname: string, search: s
     : undefined;
   const method = req.method ?? "GET";
 
-  if (isPublicRequest(method, pathname)) return identity ? { kind: "allow", identity } : { kind: "allow" };
+  if (isPublicRequest(method, pathname) || (!identity && forkRouteAdmitted(req, method, pathname))) return identity ? { kind: "allow", identity } : { kind: "allow" };
   if (identity) return { kind: "allow", identity };
   if (pathname.startsWith("/api/")) return { kind: "unauthorized" };
   if (method === "GET" || method === "HEAD") {

@@ -27,6 +27,10 @@ Environment keys (`apps/config-web/.env`):
 - [ ] `DISCORD_CLIENT_ID`: optional; the bot application's id, for the "Add the Super FUMBBL bot to your server" button in
       league settings ([Competition Discord](#competition-discord)). Unset = the button is hidden. (The same key Discord
       sign-in already uses.)
+- [ ] `FORK_ROUTES_REQUIRE_AUTH`: leave unset (off) until the client changes in [Fork route lockdown](#fork-route-lockdown)
+      have shipped; then set `1`.
+- [ ] `CONFIG_WEB_SERVICE_KEY`: optional; only if a server-to-server caller needs the fork reads
+      ([Fork route lockdown](#fork-route-lockdown)). Unset = the service header is never accepted.
 
 Outside steps:
 
@@ -37,6 +41,46 @@ Outside steps:
 - [ ] Postmark: webhook on both streams (Bounce, Spam Complaint, Subscription Change); "Send test" returns 200.
 - [ ] Restart config-web (the scheduled task), check the log for `[mail]` warnings, then run the mail test below.
 - [ ] Keep `PRIVACY_MAP_KEY` out of data-store backups.
+
+## Fork route lockdown
+
+Owner rulings (11-03): "No-sign-in paths should be locked down for all fork paths." and "Tournament Builder remains open
+but saving is locked behind login." The policy lives in `apps/config-web/src/auth/forkRouteAuth.ts`.
+
+`FORK_ROUTES_REQUIRE_AUTH` (default **off**; `1` / `true` / `on` / `yes` turns it on, read on every request, no restart
+needed for the code path but restart config-web after editing `.env`):
+
+- Off: the fork routes behave exactly as before.
+- On: these answer **401** with `{"code": "sign_in_required"}` unless the caller is signed in (the `cw_session` cookie, or
+  `Authorization: Bearer <token>` from `POST /api/fork/login` or the Discord desktop claim `POST /api/auth/desktop/claim`):
+  `GET /api/fork/library` (a coach reads only their own; organisers, admins and the service key read any),
+  `POST /api/fork/library/ingest`, `POST /api/fork/library/retire`, `GET /api/fork/coaches`, `GET /api/fork/games`,
+  `GET /api/fork/records`, `POST /api/fork/team-builder/build`, `POST /api/fork/my-games`, `/api/fork/team-builder/saves`.
+  `my-games` and `build` still accept the deprecated body coach + fork password (verified against the fork DB) as the
+  client's fallback when its token exchange fails.
+
+Always open: `POST /api/fork/login`, `GET /api/fork/name-available`, `GET /api/fork/register` (sign-up), the Tournament
+Builder reads (`/api/fork/rosters`, `team-builder/tiers`, `limits`, `inducements`, `legal-skills`,
+`POST team-builder/preview`) and the public tournament reads.
+
+**Game creation is exempt, temporarily** (owner 11-03: "Hold on fixing the client, we don't need to lock down game creation
+yet."): `GET /api/fork/challenge`, `matchstatus`, `cancel` and `jnlp` keep their old behaviour with the flag on or off,
+including the query-string password (digest and clear text). Lifting the hold means moving them into the lockdown table
+and shipping the client changes first.
+
+Always on, whatever the flag: `POST /api/fork/reload` is admin only (an organiser session gets 403).
+
+Server-to-server: `CONFIG_WEB_SERVICE_KEY` (header `X-CW-Service-Key`) lets a server read `GET /api/fork/records`,
+`GET /api/fork/coaches` and any `GET /api/fork/library` with the flag on. Nothing needs it today (the fork server calls no
+`/api/fork/*` route; the Discord bot signs in with `POST /api/fork/login` and uses Bearer). Generate it on the host like the
+other secrets if a caller appears.
+
+Before turning the flag on, the desktop client must:
+
+1. Send its held Bearer for Discord-signed-in coaches (today `ensureConfigWebToken` returns no token without a saved fork
+   password, so Discord-only coaches call every fork route anonymously).
+2. Send the Bearer on `GET /api/fork/records` (Statistics view uses a plain fetch).
+3. Treat `401` with `code: "sign_in_required"` as "sign in", not "wrong password".
 
 ## Privacy
 

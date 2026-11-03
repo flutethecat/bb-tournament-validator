@@ -1,6 +1,12 @@
 [
   {
     "date": "2026-11-03",
+    "title": "Fork team routes can require sign-in",
+    "body": "Team libraries, team creation on the Fork, coach search and records can now be locked to signed-in coaches, and a coach sees only their own team library. The Roster Builder stays open to everyone; saving still needs sign-in.",
+    "links": []
+  },
+  {
+    "date": "2026-11-03",
     "title": "League match teams are removed from Super FUMBBL after the game",
     "body": "When a league fixture's Super FUMBBL result is recorded, or Super FUMBBL play is cancelled, the copies of both league teams made for that match are removed from Super FUMBBL automatically. The fixture's history shows when they went.",
     "links": [

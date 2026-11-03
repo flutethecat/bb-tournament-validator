@@ -45,11 +45,9 @@ import {
 import { bb2025 } from "@bb/validator/dataset";
 import {
   removeLibraryTeam,
-  adminCache,
   adminClose,
   adminConcede,
   adminDelete,
-  adminList,
   adminListLive,
   adminMessage,
   acknowledgeForkCacheReload,
@@ -129,6 +127,7 @@ import { OWN_AVATAR_PATH, coachAvatarId, coachAvatarKey, coachAvatarPath, create
 import { requireSession, type SessionIdentity } from "./auth/requireSession.js";
 import { csrfHeaderMissing } from "./auth/csrf.js";
 import { isSpaPath, spaStaticPath } from "./spaRoutes.js";
+import { forkGateAdmits, forkRouteDenial, forkRoutesRequireAuth, isLockableForkRoute, serviceKeyMatches, SERVICE_KEY_HEADER, SIGN_IN_REQUIRED, SIGN_IN_REQUIRED_MESSAGE } from "./auth/forkRouteAuth.js";
 import { linkedFumbblNameIn } from "./fumbblLink.js";
 import { coachLogin, sendCoachLogin } from "./auth/coachLogin.js";
 import {
@@ -426,39 +425,24 @@ const PUBLIC_PATHS = new Set([
   "/api/ruleset-summary",
   "/api/export",
   "/api/artprompt",
+  // Game creation stays open with FORK_ROUTES_REQUIRE_AUTH on or off (owner 11-03): TEMPORARY until the owner lifts the
+  // hold. See src/auth/forkRouteAuth.ts.
   "/api/fork/jnlp",
-  "/api/fork/register",
-  "/api/fork/library",
-  "/api/fork/library/ingest",
-  // Retire Team (owner ruling 08-18): coach-scoped, does its own admin-OR-coach-password
-  // auth in-handler exactly like team-builder/build below.
-  "/api/fork/library/retire",
-  "/api/fork/coaches",
   "/api/fork/challenge",
   "/api/fork/matchstatus",
   "/api/fork/cancel",
-  "/api/fork/reload",
-  // Team Builder V2 (in-client): reachable without the ADMIN password so a tester's client
-  // can fetch/preview/build via its config-web seam. rosters/catalog/preview are open reads; build
-  // does its own admin-OR-coach-password auth in-handler (see the build route).
+  // Fork sign-up stays open (owner 11-03); an existing coach still needs its session or admin in-handler.
+  "/api/fork/register",
+  // library, library/ingest, library/retire, coaches, reload, team-builder/build, my-games, games and records left this
+  // list (fork route lockdown, owner 11-03): they are public only with FORK_ROUTES_REQUIRE_AUTH off, via forkGateAdmits.
+  // Tournament Builder reads stay open (owner 11-03: "Tournament Builder remains open but saving is locked behind
+  // login"): rosters, catalog reads and the non-mutating preview. build and saves need a session.
   "/api/fork/rosters",
   "/api/fork/team-builder/legal-skills",
   "/api/fork/team-builder/inducements",
   "/api/fork/team-builder/tiers",
   "/api/fork/team-builder/limits",
   "/api/fork/team-builder/preview",
-  "/api/fork/team-builder/build",
-  // Saved builder sheets (owner 10-22): session-gated in-handler (401 without a session); the
-  // dynamic /saves/<id> paths bypass the legacy Basic gate in authorized() the same way.
-  "/api/fork/team-builder/saves",
-  // #210 "your games in progress" (in-client lobby panel): reachable without the ADMIN password;
-  // does its own admin-OR-coach-password auth in-handler (SR-197 TP-1 — list scoped to the
-  // AUTHENTICATED coach, never an arbitrary ?coach= param).
-  "/api/fork/my-games",
-  // Session-gated in-handler; bypasses the separate legacy ADMIN_PASSWORD gate.
-  "/api/fork/games",
-  // Public, server-derived standings read; refreshes only missing retained finished results.
-  "/api/fork/records",
   // Recent games strip (landing page + coach page): public, read-only, retained results only.
   "/api/recent-results",
   // Bug-report ingestion (owner feature 08-18): POST does its own coach auth in-handler
@@ -1834,6 +1818,9 @@ function tournamentResultGameId(pathname: string): string | undefined {
 function authorized(req: IncomingMessage, pathname: string): boolean {
   if (!ADMIN_PASSWORD) return true; // open when no password set (localhost default)
   if (PUBLIC_PATHS.has(pathname)) return true;
+  // Fork route lockdown (src/auth/forkRouteAuth.ts): the formerly public fork routes, open only with the flag off or when
+  // the request carries a credential the handler verifies (forkRouteDenial runs in-handler in both modes).
+  if (forkGateAdmits(req.method ?? "GET", pathname, req.headers, "public-paths")) return true;
   // Tournament reads/writes do their own participant/organizer checks from the coach Bearer
   // session. They must bypass the unrelated legacy Basic gate on sidecar-off hosts.
   if (
@@ -2219,6 +2206,16 @@ async function handleApi(
   query: URLSearchParams,
   auth?: SessionIdentity,
 ): Promise<void> {
+  // Fork route lockdown (owner 11-03, src/auth/forkRouteAuth.ts): with FORK_ROUTES_REQUIRE_AUTH on, the formerly public fork
+  // routes answer 401 sign_in_required to a caller with no session, admin credential or (service reads) service key.
+  {
+    const denial = forkRouteDenial(req.method ?? "GET", path, {
+      signedIn: auth !== undefined,
+      adminCredential: isAdminAuthed(req) || isTokenAuthed(req),
+      service: serviceKeyMatches(req.headers[SERVICE_KEY_HEADER]),
+    });
+    if (denial) return sendJson(res, denial.status, denial.body);
+  }
   // New-user flow gate (src/auth/onboarding.ts): until a signed-in coach completes onboarding, every state-changing
   // /api request (lobby and tabletop included, so it runs before their dispatch) answers 428, except the allow-list
   // (onboarding POST, /api/me/delete, /api/auth/* sign-in/out, read-only name checks). Reads and anonymous calls pass.
@@ -3704,8 +3701,13 @@ async function handleApi(
   // from this list — the row is kept on disk (audit trail, never deleted) but a retired team
   // has no business showing up as pickable inventory.
   if (path === "/api/fork/library" && method === "GET") {
-    const coach = query.get("coach")?.trim();
+    const locked = forkRoutesRequireAuth();
+    const coach = query.get("coach")?.trim() || (locked ? auth?.coach : undefined);
     if (!coach) return sendJson(res, 400, { error: "coach is required." });
+    // Lockdown on: a coach reads only their own library; organisers, admins and the service key may read any.
+    if (locked && !sessionOwnsCoach(auth?.coach, coach) &&
+      !(auth?.organizer === true || auth?.admin === true || isAdminAuthed(req) || isTokenAuthed(req) || serviceKeyMatches(req.headers[SERVICE_KEY_HEADER])))
+      return sendJson(res, 403, { error: "You can read only your own team library." });
     return sendJson(res, 200, { teams: readLibrary(LIBRARY_DIR, coach).filter((t) => !t.retired) });
   }
 
@@ -3841,8 +3843,9 @@ async function handleApi(
     return sendJson(res, 405, { error: "Fork reload requires authenticated POST." });
   }
   if (path === "/api/fork/reload" && method === "POST") {
-    if (auth?.organizer !== true && !isAdminAuthed(req) && !isTokenAuthed(req)) {
-      return sendJson(res, auth ? 403 : 401, { error: auth ? "Organizer access required." : "Authentication required." });
+    // Admin only (owner 11-03; no caller outside the admin tools): an organiser session is not enough.
+    if (auth?.admin !== true && !isAdminAuthed(req) && !isTokenAuthed(req)) {
+      return sendJson(res, auth ? 403 : 401, auth ? { error: "Admin access required." } : { error: "Authentication required.", code: SIGN_IN_REQUIRED });
     }
     const cfg = forkConfigFromEnv();
     if (!cfg) return sendJson(res, 503, { error: "Fork teams dir not configured on this host (set FORK_TEAMS_DIR)." });
@@ -4009,18 +4012,6 @@ async function handleApi(
   // as-is (not yet parsed into normalized JSON): the admin `list`/`cache` response shape
   // hasn't been verified live against the fork the way `challenge`/`schedule` have been,
   // so surfacing the real XML now beats guessing a JSON shape that might not match.
-
-  if (path === "/api/fork/games" && method === "GET") {
-    if (!requireAdminGate(req, res, auth, "organizer")) return;
-    if (!forkAdminCfg) return sendJson(res, 503, { error: "Fork admin API not configured on this host (set FORK_ADMIN_PASSWORD)." });
-    const status = query.get("status") ?? "all";
-    try {
-      const xml = await (status === "cache" ? adminCache(forkAdminCfg) : adminList(forkAdminCfg, status));
-      return sendJson(res, 200, { xml });
-    } catch (e) {
-      return sendJson(res, 400, { error: (e as Error).message });
-    }
-  }
 
   // Direct/manual schedule (TO-driven matchmaking from the panel) — distinct from the
   // challenge-gated auto-schedule in /api/fork/challenge, same underlying admin call.
@@ -4665,9 +4656,12 @@ async function handleApi(
   // `scope: "finished"` swaps in the coach's finished/uploaded/backuped games (newest-finished
   // first, capped) with an added `finished` timestamp per row (see `listCoachGames`).
   if (path === "/api/fork/my-games" && method === "POST") {
+    const body = (await readBody(req)) as { coach?: string; password?: string; scope?: string };
+    // No credential at all: say so before any host-configuration answer (fork route lockdown, owner 11-03).
+    if (!auth && !isAdminAuthed(req) && !(body?.coach?.trim() && body.password))
+      return sendJson(res, 401, { error: "Listing your games requires a session token (POST /api/fork/login), or your coach name + fork password (or admin auth).", code: SIGN_IN_REQUIRED });
     if (!challengeDbCfg)
       return sendJson(res, 503, { error: "Fork DB not configured on this host (set FORK_DB_HOST)." });
-    const body = (await readBody(req)) as { coach?: string; password?: string; scope?: string };
     const coach = auth?.coach ?? body.coach?.trim();
     if (!coach) return sendJson(res, 400, { error: "coach is required" });
     if (!auth && !isAdminAuthed(req)) {
@@ -4745,9 +4739,12 @@ async function handleApi(
   // ONLY for their own authenticated coach — verify {coach, password} against ffb_coaches
   // (verifyCoachPassword, same md5 the fork uses), and the built team's coach must equal it.
   if (path === "/api/fork/team-builder/build" && method === "POST") {
+    const body = (await readBody(req)) as TeamBuilderBody;
+    // Saving is locked behind sign-in (owner 11-03): no session, admin auth or coach+password = 401 before anything else.
+    if (!auth && !isAdminAuthed(req) && !isTokenAuthed(req) && !(typeof body?.coach === "string" && body.coach.trim() && body.password))
+      return sendJson(res, 401, { error: "Sign in to save or create a team on the Fork.", code: SIGN_IN_REQUIRED });
     const cfg = forkConfigFromEnv();
     if (!cfg) return sendJson(res, 503, { error: "Fork teams dir not configured on this host (set FORK_TEAMS_DIR)." });
-    const body = (await readBody(req)) as TeamBuilderBody;
     const wireError = teamBuilderWireError(body);
     if (wireError) return sendJson(res, 400, { error: wireError });
     const adminAuthed = isAdminAuthed(req) || isTokenAuthed(req);
@@ -5208,7 +5205,7 @@ export const server = createServer((req, res) => {
         return sendJson(res, 403, { error: "Origin not allowed (CORS_ALLOWED_ORIGINS)." });
       }
       // Preflight: answer for allowed origins, plus the historical no-Origin 204 on public paths.
-      if (req.method === "OPTIONS" && (cors.kind === "allowed" || PUBLIC_PATHS.has(url.pathname))) {
+      if (req.method === "OPTIONS" && (cors.kind === "allowed" || PUBLIC_PATHS.has(url.pathname) || isLockableForkRoute(url.pathname))) {
         res.writeHead(204).end();
         return;
       }
@@ -5247,7 +5244,8 @@ export const server = createServer((req, res) => {
       if ((req.method === "GET" || req.method === "HEAD") && coachAvatarPath(url.pathname) !== undefined) {
         return await handleApi(req, res, url.pathname, url.searchParams);
       }
-      if (req.method === "GET" && url.pathname === "/api/fork/records") {
+      // Records ahead of both gates only while the fork route lockdown is off; on, it goes through the gate (sign-in).
+      if (req.method === "GET" && url.pathname === "/api/fork/records" && !forkRoutesRequireAuth()) {
         return await handleApi(req, res, url.pathname, url.searchParams);
       }
       // Build log (WHAT'S NEW): public, read-only, in both deployment modes.
@@ -5313,6 +5311,8 @@ export const server = createServer((req, res) => {
           return;
         }
         if (decision.kind === "unauthorized") {
+          // Locked fork routes say why (owner 11-03): clients tell "sign in" from a wrong password by the code.
+          if (isLockableForkRoute(url.pathname)) return sendJson(res, 401, { error: SIGN_IN_REQUIRED_MESSAGE, code: SIGN_IN_REQUIRED });
           if (url.pathname.startsWith("/api/")) return sendJson(res, 401, { error: "Authentication required." });
           res.writeHead(401).end("auth required");
           return;
@@ -5360,10 +5360,12 @@ export const server = createServer((req, res) => {
           /^\/api\/admin\/privacy\/jobs\/[a-f0-9]{24}\/(retry|close)$/.test(url.pathname) ||
           tournamentInstructionsGameId(url.pathname) !== undefined ||
           tournamentResultGameId(url.pathname) !== undefined ||
+          isLockableForkRoute(url.pathname) ||
           leaguePath(url.pathname) !== undefined ||
           seriesPath(url.pathname) !== undefined
         );
         if (!authorized(req, url.pathname) && !accountSession) {
+          if (isLockableForkRoute(url.pathname)) return sendJson(res, 401, { error: SIGN_IN_REQUIRED_MESSAGE, code: SIGN_IN_REQUIRED });
           res.writeHead(401, { "www-authenticate": 'Basic realm="BB Config"' }).end("auth required");
           return;
         }
