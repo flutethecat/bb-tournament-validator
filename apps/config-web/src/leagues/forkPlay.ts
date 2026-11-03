@@ -221,12 +221,14 @@ export function fixtureForkView(league: LeagueRecord, season: SeasonRecord, f: L
   };
 }
 
-/** The fork state a season read carries: the status, and the game id once the game finished with a banked result (its
- *  game page is public: the Calendar links it). Teams, live ids and the log stay on the summary route. */
-export function publicForkState(f: LeagueFixture): LeagueFixture {
+/** The fork state a season read carries: the status, and the game id once the game finished with a banked result AND its
+ *  public game page can serve it (`gamePage`: the results store holds it; absent = never). The Calendar links that page.
+ *  Teams, live ids and the log stay on the summary route. */
+export function publicForkState(f: LeagueFixture, gamePage?: (gameId: string) => boolean): LeagueFixture {
   const { fork, ...rest } = publicFixture(f) as LeagueFixture;
   if (!fork) return rest;
-  const gameId = fork.status === "finished" && fork.result && fork.gameId ? { gameId: fork.gameId } : {};
+  const linked = fork.status === "finished" && fork.result && fork.gameId && gamePage?.(fork.gameId) === true;
+  const gameId = linked ? { gameId: fork.gameId! } : {};
   return { ...rest, fork: { status: fork.status, ...gameId, teams: {}, log: [] } };
 }
 

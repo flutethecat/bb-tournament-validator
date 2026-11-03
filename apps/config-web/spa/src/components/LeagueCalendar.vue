@@ -4,7 +4,7 @@
 // the day) / Year (12 mini months, a heat dot per day; a day opens its week). The view is remembered per viewer; prev /
 // next / Today step through it; every day and time is the league's time zone, named in the band. Each item is a real
 // link to its related page (leagues/seasonCalendar.ts fixtureLink). Phones get the Month and Week as a day agenda.
-import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 import LeagueDialog from "./LeagueDialog.vue";
 import {
@@ -31,7 +31,12 @@ const storage = (): Storage | undefined => (typeof window === "undefined" ? unde
 const view = ref<CalendarView>(loadCalendarView(storage));
 const setView = (v: CalendarView): void => { view.value = v; saveCalendarView(storage, v); };
 
-const today = computed(() => todayIn(props.now ?? Date.now(), zone.value));
+// A ticking clock (each minute), so "today" moves on at midnight in the league zone while the tab stays open.
+const clock = ref(Date.now());
+let ticker: ReturnType<typeof setInterval> | undefined;
+onMounted(() => { ticker = setInterval(() => { clock.value = Date.now(); }, 60_000); });
+onBeforeUnmount(() => { if (ticker) clearInterval(ticker); });
+const today = computed(() => todayIn(props.now ?? clock.value, zone.value));
 const anchor = ref(initialAnchor(items.value, today.value));
 watch(() => props.season.id, () => { anchor.value = initialAnchor(items.value, today.value); dayOpen.value = ""; });
 const label = computed(() => rangeLabel(view.value, anchor.value));
@@ -48,12 +53,18 @@ const weeks = computed(() => monthWeeks(anchor.value));
 const capacity = ref(3);
 const grid = ref<HTMLElement | null>(null);
 let observer: ResizeObserver | undefined;
+/** Chips that fit a cell: its inner height (no padding) less the date line (which also holds "+N more"), divided by a
+ *  chip's real height plus the column gap above it. Measured from the rendered grid (a 20px chip until one exists). */
 const measure = (): void => {
-  const cell = grid.value?.querySelector<HTMLElement>(".lgc-cell");
-  if (!cell || !fitMode()) { capacity.value = 3; return; }
-  const chip = 23; // a chip and the gap above it
-  const room = cell.clientHeight - 30; // the date line and padding
-  capacity.value = Math.max(1, Math.min(8, Math.floor(room / chip)));
+  const el = grid.value;
+  const cell = el?.querySelector<HTMLElement>(".lgc-cell");
+  if (!el || !cell || !fitMode()) { capacity.value = 3; return; }
+  const cs = getComputedStyle(cell);
+  const px = (v: string): number => Number.parseFloat(v) || 0;
+  const top = cell.querySelector<HTMLElement>(".lgc-cell-top")?.offsetHeight ?? 20;
+  const chip = el.querySelector<HTMLElement>(".lgc-chip")?.offsetHeight || 20;
+  const room = cell.clientHeight - px(cs.paddingTop) - px(cs.paddingBottom) - top;
+  capacity.value = Math.max(1, Math.min(8, Math.floor(room / (chip + px(cs.rowGap)))));
 };
 watch(grid, (el) => {
   observer?.disconnect();

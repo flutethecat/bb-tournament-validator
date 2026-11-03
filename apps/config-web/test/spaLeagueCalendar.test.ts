@@ -11,6 +11,7 @@ import {
 import type { LeagueFixture, LeagueSummary, SeasonRecord, SeasonSummary } from "../spa/src/leagues/types";
 import { publicForkState } from "../src/leagues/forkPlay";
 import { leagueSummary } from "../src/leagues/api";
+import { onlineGamePageServes } from "../src/gameDetail";
 import type { LeagueFixture as StoredFixture, LeagueRecord } from "../src/leagues/types";
 
 // League Calendar tab (UX-C, owner 11-02): List / Week / Month / Year views of the season's dated fixtures in the league's
@@ -71,9 +72,10 @@ describe("calendar date math", () => {
   });
 
   it("labels a week across months and years, a month and a year", () => {
-    expect(rangeLabel("week", "2026-11-04")).toBe("2 – 8 Nov 2026");
-    expect(rangeLabel("week", "2026-09-30")).toBe("28 Sep – 4 Oct 2026");
-    expect(rangeLabel("week", "2026-12-30")).toBe("28 Dec 2026 – 3 Jan 2027");
+    // the range dash is an en dash (U+2013), written as an escape so a reader cannot mistake it for "-"
+    expect(rangeLabel("week", "2026-11-04")).toBe("2 \u2013 8 Nov 2026");
+    expect(rangeLabel("week", "2026-09-30")).toBe("28 Sep \u2013 4 Oct 2026");
+    expect(rangeLabel("week", "2026-12-30")).toBe("28 Dec 2026 \u2013 3 Jan 2027");
     expect(rangeLabel("month", "2026-11-04")).toBe("November 2026");
     expect(rangeLabel("year", "2026-11-04")).toBe("2026");
     expect(rangeLabel("list", "2026-11-04")).toBe("");
@@ -126,6 +128,29 @@ describe("calendar date math", () => {
     expect(hourRange(fixtureItems([c], NY), NY.zone)).toEqual([16, 24]); // at least 8 hours, never past midnight
     expect(hourRange([], NY.zone)).toEqual([8, 23]);
     expect(cBlocks[0]!.top + cBlocks[0]!.height).toBeCloseTo(1);
+  });
+
+  it("DST fall-back (New York, 1 Nov 2026): games that share the repeated hour's rows are never drawn on top of each other", () => {
+    const g = (id: string, start: string, end: string) => fx({ id, scheduledTime: { start, end, agreedAt: "" } });
+    // A 01:00-01:20 EDT, B 01:40-01:50 EDT, C 01:05-01:35 EST: in real time none of them meet, but A and C share rows
+    const items = fixtureItems([
+      g("A", "2026-11-01T05:00:00.000Z", "2026-11-01T05:20:00.000Z"),
+      g("B", "2026-11-01T05:40:00.000Z", "2026-11-01T05:50:00.000Z"),
+      g("C", "2026-11-01T06:05:00.000Z", "2026-11-01T06:35:00.000Z"),
+    ], NY);
+    expect(items.map((i) => [i.key, i.day, i.time])).toEqual([["fixture:A", "2026-11-01", "01:00"], ["fixture:B", "2026-11-01", "01:40"], ["fixture:C", "2026-11-01", "01:05"]]);
+    const blocks = dayBlocks(items, "2026-11-01", NY.zone, hourRange(items, NY.zone));
+    expect(blocks).toHaveLength(3);
+    type B = (typeof blocks)[number];
+    const overlaps = (x: B, y: B) =>
+      x.top < y.top + y.height - 1e-9 && y.top < x.top + x.height - 1e-9 && x.lane / x.lanes < (y.lane + 1) / y.lanes - 1e-9 && y.lane / y.lanes < (x.lane + 1) / x.lanes - 1e-9;
+    for (const x of blocks) for (const y of blocks) if (x !== y) expect(overlaps(x, y), `${x.item.key} / ${y.item.key}`).toBe(false);
+    const by = Object.fromEntries(blocks.map((b) => [b.item.key, b]));
+    expect([by["fixture:A"]!.lanes, by["fixture:C"]!.lanes, by["fixture:B"]!.lanes]).toEqual([2, 2, 1]);
+    // a game across the repeated hour keeps its real length on the wall clock (01:30 EDT -> 01:30 EST = 60 minutes)
+    const long = fixtureItems([g("L", "2026-11-01T05:30:00.000Z", "2026-11-01T06:30:00.000Z")], NY);
+    const [lb] = dayBlocks(long, "2026-11-01", NY.zone, [0, 8]);
+    expect(lb!.height).toBeCloseTo(60 / (8 * 60));
   });
 
   it("overlapping games share the column in lanes; a point-in-time result is at least 30 minutes tall", () => {
@@ -182,9 +207,10 @@ describe("month overflow, year heat and the phone agenda", () => {
   });
 
   it("chip names are short: no leading 'The', whole words", () => {
-    expect(shortTeam("The Lady's Prized Lances")).toBe("Lady's Prized…");
+    // the cut is marked with an ellipsis character (U+2026), not three dots
+    expect(shortTeam("The Lady's Prized Lances")).toBe("Lady's Prized\u2026");
     expect(shortTeam("Sandy Bones")).toBe("Sandy Bones");
-    expect(shortTeam("Supercalifragilisticexpialidocious")).toBe("Supercalifra…");
+    expect(shortTeam("Supercalifragilisticexpialidocious")).toBe("Supercalifra\u2026");
   });
 });
 
@@ -204,7 +230,7 @@ describe("calendar links by fixture state", () => {
 
   it("each item's accessible name says where it goes", () => {
     const [game] = fixtureItems([played({ finishedAt: "2026-11-04T20:00:00.000Z", fork: { status: "finished", gameId: "g42" } })], UTC);
-    expect(game!.label).toBe("Match report: Grudge Rollers 2–1 The Lady's Prized Lances");
+    expect(game!.label).toBe("Match report: Grudge Rollers 2\u20131 The Lady's Prized Lances"); // en dash, like the fixtures list's score label
     const [open] = fixtureItems([fx({ date: "2026-11-04" })], UTC);
     expect(open!.label).toBe("Fixture summary: Grudge Rollers against The Lady's Prized Lances");
   });
@@ -212,12 +238,24 @@ describe("calendar links by fixture state", () => {
 
 describe("calendar public data (server)", () => {
   const stored = (fork: StoredFixture["fork"]): StoredFixture => ({ ...(fx() as unknown as StoredFixture), fork });
-  it("a season read carries a finished game's id (its game page is public), never a live game's", () => {
+  it("a season read carries a finished game's id only when its game page can serve it, never a live game's", () => {
     const base = { teams: { home: { teamId: "t1", coach: "Ann", builtAt: "x" } }, log: [{ at: "", by: "Ann", text: "x" }] } as never;
     const result = { gameId: "g42", source: "full", appliedAt: "2026-10-20T00:00:00Z" } as never;
-    expect(publicForkState(stored({ ...(base as object), status: "finished", gameId: "g42", result } as never)).fork).toEqual({ status: "finished", gameId: "g42", teams: {}, log: [] });
-    expect(publicForkState(stored({ ...(base as object), status: "scheduled", gameId: "g42" } as never)).fork).toEqual({ status: "scheduled", teams: {}, log: [] });
-    expect(publicForkState(stored({ ...(base as object), status: "finished", gameId: "g42" } as never)).fork).toEqual({ status: "finished", teams: {}, log: [] });
+    const finished = stored({ ...(base as object), status: "finished", gameId: "g42", result } as never);
+    expect(publicForkState(finished, () => true).fork).toEqual({ status: "finished", gameId: "g42", teams: {}, log: [] });
+    // the game page cannot serve it yet (not imported into the results store), or no check is wired: no id, no dead link
+    expect(publicForkState(finished, (id) => id !== "g42").fork).toEqual({ status: "finished", teams: {}, log: [] });
+    expect(publicForkState(finished).fork).toEqual({ status: "finished", teams: {}, log: [] });
+    expect(publicForkState(stored({ ...(base as object), status: "scheduled", gameId: "g42" } as never), () => true).fork).toEqual({ status: "scheduled", teams: {}, log: [] });
+    expect(publicForkState(stored({ ...(base as object), status: "finished", gameId: "g42" } as never), () => true).fork).toEqual({ status: "finished", teams: {}, log: [] });
+  });
+
+  it("the game page check: a public fork row for that id in the results store, the page's safe id alphabet", () => {
+    expect(onlineGamePageServes("g42", { gameId: "g42", source: "fork" } as never)).toBe(true);
+    expect(onlineGamePageServes("g42", undefined)).toBe(false); // not imported yet: the Calendar links the summary
+    expect(onlineGamePageServes("g42", { gameId: "g42", source: "fork", test: true } as never)).toBe(false);
+    expect(onlineGamePageServes("g42", { gameId: "g42", source: "tabletop" } as never)).toBe(false);
+    expect(onlineGamePageServes("g 42", { gameId: "g 42" } as never)).toBe(false);
   });
 
   it("the public league summary names the league's time zone (UTC when unset)", () => {

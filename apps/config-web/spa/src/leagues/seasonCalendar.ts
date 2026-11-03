@@ -287,20 +287,23 @@ export function hourRange(items: readonly CalendarItem[], zone: string): [number
 /**
  * The timed items of one day as blocks inside the shown hours: top and height as fractions of the shown span (a block is
  * at least 30 minutes tall so a point-in-time result stays clickable), side by side in lanes where they overlap.
- * Uses wall-clock hours, so a DST day lays out like any other (an hour that does not exist is simply empty).
+ * Blocks sit at wall-clock positions (an hour that does not exist is simply empty; on a fall-back day the repeated hour
+ * shares its rows), so overlap is decided on those DRAWN intervals, sorted by their drawn top: two games that never met
+ * in real time can still share rows on a fall-back day, and must not be drawn on top of each other.
  */
 export function dayBlocks(items: readonly CalendarItem[], day: string, zone: string, hours: [number, number]): WeekBlock[] {
   const z = validZone(zone) ? zone : "UTC";
   const span = (hours[1] - hours[0]) * 60;
-  const timed = items.filter((i) => i.day === day && !i.allDay && i.start !== undefined).sort(byWhen);
-  const placed = timed.map((item) => {
-    const d0 = zonedInstant(day, 0, z);
+  const d0 = zonedInstant(day, 0, z);
+  const placed = items.filter((i) => i.day === day && !i.allDay && i.start !== undefined).map((item) => {
     const startMin = item.start! <= d0 ? 0 : wallMinutes(item.start!, z);
-    const endMin = dayKeyIn(item.end!, z) > day ? 24 * 60 : wallMinutes(item.end!, z);
+    let endMin = dayKeyIn(item.end!, z) > day ? 24 * 60 : wallMinutes(item.end!, z);
+    // across the fall-back hour the wall clock runs backwards: keep the game's real length
+    if (endMin <= startMin && item.end! > item.start!) endMin = Math.min(24 * 60, startMin + Math.round((item.end! - Math.max(item.start!, d0)) / 60_000));
     const a = Math.max(startMin, hours[0] * 60);
     const b = Math.max(Math.min(endMin, hours[1] * 60), Math.min(a + 30, hours[1] * 60));
     return { item, a, b };
-  });
+  }).sort((x, y) => x.a - y.a || x.b - y.b || byWhen(x.item, y.item));
   const blocks: WeekBlock[] = [];
   let cluster: Array<{ item: CalendarItem; a: number; b: number; lane: number }> = [];
   let clusterEnd = -1;

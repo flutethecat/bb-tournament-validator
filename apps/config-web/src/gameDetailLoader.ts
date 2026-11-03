@@ -7,7 +7,7 @@
 //     most `ttlMs`, in a bounded LRU; concurrent loads of one key share a single read.
 // It also answers who played (participants) and who manages the tournament, for the player-lines privacy flag.
 
-import { gameDetail, type GameDetail, type GameInputs, type GameTournament } from "./gameDetail.js";
+import { gameDetail, onlineGamePageServes, type GameDetail, type GameInputs, type GameTournament } from "./gameDetail.js";
 import { TABLETOP_LISTED, type GameSource, type RecentInputs, type TeamInfo } from "./recentResults.js";
 import type { StoredTournamentResult } from "./tournamentResults.js";
 import type { MatchRecord } from "./tabletop/store.js";
@@ -133,7 +133,7 @@ export function createGameDetailLoader(stores: GameStores, opts: GameLoaderOptio
       coaches.add(lc(match.home.coach)).add(lc(match.away.coach));
     } else {
       const row = stores.result(id);
-      if (!row || row.test === true || (row.source !== undefined && row.source !== "fork")) return undefined;
+      if (!onlineGamePageServes(id, row)) return undefined;
       inputs.results = [row];
       fixture = stores.fixtureForGame(id);
       coaches.add(lc(row.home.coach)).add(lc(row.away.coach));

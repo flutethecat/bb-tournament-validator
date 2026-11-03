@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import { deriveDeadlines, matchEndedAt, parseSchedulingInput, readBuildLog, schedulingView, toStoredScheduling } from "./coachHome.js";
 import { profileView, updateOwnProfile, type ProfileDeps } from "./accountProfile.js";
 import { createTabletopGatherer, RECENT_RESULTS_MAX, recentLimit, recentResults, type RecentInputs, type RecentResult, type TeamInfo } from "./recentResults.js";
-import { parseGamePath } from "./gameDetail.js";
+import { onlineGamePageServes, parseGamePath } from "./gameDetail.js";
 import { createGameDetailLoader, maySeePlayerLines, publicPlayerLinesFromEnv, withoutPlayerLines, type GameFixture, type LoadedGame } from "./gameDetailLoader.js";
 import { createReplayService } from "./replay/service.js";
 import { ConnectionError, NAF_CONNECTION_ENDPOINT, nafProvider } from "./auth/connections.js";
@@ -2406,6 +2406,8 @@ async function handleApi(
       lobby: fixtureLobbyDeps(),
       tabletop: tabletopUsageSource,
       packageExists: (name) => packages.get(name) !== undefined,
+      // a finished league game links its game page only once the results store can serve it (Calendar, Sol 11-03)
+      gamePage: (gameId) => { try { return onlineGamePageServes(gameId, tournamentResults.get(gameId)); } catch { return false; } },
     });
     if (league) {
       for (const [name, value] of Object.entries(league.headers ?? {})) res.setHeader(name, value);

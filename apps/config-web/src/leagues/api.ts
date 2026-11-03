@@ -181,6 +181,9 @@ export interface LeagueApiDeps {
   readBody?(max: number): Promise<Buffer | undefined>;
   declaredTooLarge?(max: number): boolean;
   now?: () => Date;
+  /** Does the public game page (GET /api/games/online/<id>) serve this fork game yet? A season read carries a finished
+   *  fixture's game id only then (the Calendar links it). Unset = never. */
+  gamePage?: (gameId: string) => boolean;
   /** Fixture lobby (src/fixtureLobby): store, presence, chat limiter, the recorder's createMatch; unset = 503 on lobby routes. */
   lobby?: LeagueLobbyDeps;
   /** The tabletop recorder's matches, read only (inducement usage, inducementUsage.ts); unset = no recorder data. */
@@ -450,7 +453,7 @@ export async function leagueApi(
     // A signed-in read carries the viewer's own paid status (seasonForViewer payment.mine): never cached for anyone else.
     return {
       status: 200, ...(auth ? { headers: { "cache-control": "private, no-store" } } : {}),
-      body: { league: leagueSummary(league, store.seasons(league.id)), season: seasonForViewer(league, season, auth) },
+      body: { league: leagueSummary(league, store.seasons(league.id)), season: seasonForViewer(league, season, auth, deps.gamePage) },
     };
   }
   if (first === "stats" && second === undefined) {
@@ -996,7 +999,7 @@ function setPhaseFormat(league: LeagueRecord, seasonId: string, phaseId: string,
   if (input.format !== "table" && input.format !== "knockout") throw new SettingsError(400, "format must be table or knockout.", "format");
   if (input.format === "knockout") phase.format = "knockout"; else delete phase.format;
   deps.store.putSeason(season);
-  return { status: 200, body: { ok: true, season: seasonForViewer(league, season, who) } };
+  return { status: 200, body: { ok: true, season: seasonForViewer(league, season, who, deps.gamePage) } };
 }
 
 /** Reopen a season finished on this site (it has a podium record): back in progress, podium awards and record removed. */
@@ -1106,7 +1109,7 @@ async function patchFixture(league: LeagueRecord, seasonId: string, fixtureId: s
  * The season as this viewer may see it: rosters are always visible (owner 10-30); the internal fork-notice bookkeeping
  * and the redraft state never leave the server in a season read.
  */
-export function seasonForViewer(league: LeagueRecord, full: SeasonRecord, auth: LeagueApiIdentity | undefined): SeasonRecord {
+export function seasonForViewer(league: LeagueRecord, full: SeasonRecord, auth: LeagueApiIdentity | undefined, gamePage?: (gameId: string) => boolean): SeasonRecord {
   // Redraft state (budgets, R&R, draft rosters) is served only by the authorised redraft routes, never in a season read.
   const { redraft: _r, ...derived } = withCaptainCandidates(withStandings(full));
   // Team page v2: a team-page MNG the team has served reads as cleared (computed on a copy; the next write stores it), and
@@ -1114,7 +1117,7 @@ export function seasonForViewer(league: LeagueRecord, full: SeasonRecord, auth: 
   const teamsCopy = derived.teams.some((t) => t.players.some((p) => p.mngGames !== undefined)) ? structuredClone(derived.teams) : derived.teams;
   if (teamsCopy !== derived.teams) settleServedMng({ ...derived, teams: teamsCopy } as SeasonRecord);
   const season = { ...derived, teams: teamsCopy.map(publicTeam) };
-  const fixtures = season.fixtures.map((f) => (f.forkNotice || f.fork || f.resultEdit ? publicForkState(f) : f));
+  const fixtures = season.fixtures.map((f) => (f.forkNotice || f.fork || f.resultEdit ? publicForkState(f, gamePage) : f));
   // Organiser-only log entries (team value diff / not recomputed) stay with organisers and admins.
   const manager = Boolean(auth && (auth.admin || isLeagueOrganiser(league, auth.coach)));
   const payment = seasonPayment(league, full, auth, manager);

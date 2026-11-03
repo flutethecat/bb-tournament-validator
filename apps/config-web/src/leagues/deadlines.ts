@@ -393,7 +393,7 @@ export async function leagueDeadlineRoutes(
   try { deps.store.putSeason(season); } catch { return fail(500, "Could not save the deadlines right now."); }
   const saved = deps.store.season(lg.id, season.id) ?? season;
   notifyApplied(deps.notify, lg, saved, marked.map((m) => saved.fixtures.find((f) => f.id === m.id) ?? m));
-  return res(200, { ok: true, revision: saved.revision ?? 0, season: seasonForViewer(lg, saved, who) });
+  return res(200, { ok: true, revision: saved.revision ?? 0, season: seasonForViewer(lg, saved, who, deps.gamePage) });
 }
 
 // ---- coach-facing reads (derived, no writes) ------------------------------------------------------------------------

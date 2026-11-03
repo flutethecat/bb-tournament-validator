@@ -610,9 +610,13 @@ describe("Super FUMBBL fixture routes", () => {
     // the summary shows the lines; the season read carries the status only
     const sum = view(await call("GET", base, EVE));
     expect(sum).toMatchObject({ status: "finished", result: { home: { lines: expect.arrayContaining([expect.objectContaining({ playerId: "p-thrower", td: 2 })]) } } });
-    const read = (await call("GET", "/api/leagues/tabbl/seasons/season-7", EVE)).body as { season: SeasonRecord };
-    // the season read carries the finished game's id (its game page is public; the Calendar links it), nothing else
-    expect(read.season.fixtures[0]!.fork).toEqual({ status: "finished", gameId: "g42", teams: {}, log: [] });
+    const seasonRead = async (served: string[] | undefined) => ((await leagueApi("GET", "/api/leagues/tabbl/seasons/season-7", new URLSearchParams(), EVE,
+      { ...deps(), ...(served ? { gamePage: (id: string) => served.includes(id) } : {}) }))!.body as { season: SeasonRecord }).season.fixtures[0]!.fork;
+    // the season read carries the status only, plus the finished game's id once its public game page can serve it (the
+    // results store holds it; the Calendar links it). Before that, or with no game-page check wired, no id: no dead link.
+    expect(await seasonRead(undefined)).toEqual({ status: "finished", teams: {}, log: [] });
+    expect(await seasonRead([])).toEqual({ status: "finished", teams: {}, log: [] });
+    expect(await seasonRead(["g42"])).toEqual({ status: "finished", gameId: "g42", teams: {}, log: [] });
   });
   it("[review P2] a result arriving while a team is redrafting is held, never applied by the timer, and released by an organiser after", async () => {
     await call("POST", `${base}/fork/generate`, ANN, {});

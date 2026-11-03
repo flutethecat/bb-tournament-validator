@@ -206,6 +206,12 @@ export function parseGamePath(path: string): { source: GameSource; id: string } 
 }
 
 const isForkRow = (row: StoredTournamentResult): boolean => row.test !== true && (row.source === undefined || row.source === "fork");
+
+/** Can GET /api/games/online/<gameId> serve this game? Its id is in the page's safe alphabet and the results store holds
+ *  a public fork row for it (the same test the loader and gameDetail apply). Used before a page links to a game. */
+export function onlineGamePageServes(gameId: string, row: StoredTournamentResult | undefined): row is StoredTournamentResult {
+  return /^[\w.:-]{1,160}$/.test(gameId) && row !== undefined && row.gameId === gameId && isForkRow(row);
+}
 const listedTabletop = (m: MatchRecord): boolean => !m.test && TABLETOP_LISTED.has(m.state);
 const roundsHref = (tournamentId: string): string => `/app/tournaments/${encodeURIComponent(tournamentId)}?tab=rounds`;
 
