@@ -63,6 +63,8 @@ const tab = computed<SectionTabId>(() => {
   const facts = leagueFacts({ seasons: state.seasons, current: current.value ?? null, season: season.value ?? null });
   return facts[asked] ? asked : "overview";
 });
+/** Unfinished seasons other than the newest: a coach's live registration there still shows on the Overview. */
+const olderOpenSeasons = computed(() => state.seasons.filter((s) => s.id !== state.seasons[0]?.id && s.status !== "completed"));
 const teamName = computed(() => (typeof route.query.team === "string" ? route.query.team : ""));
 const playerRef = computed(() => (typeof route.query.player === "string" ? route.query.player : ""));
 const fixtureRef = computed(() => (typeof route.query.fixture === "string" ? route.query.fixture : ""));
@@ -172,6 +174,12 @@ usePageTitle(() => state.league?.name);
         <!-- Registration (lane L6; lane L7's Build a team link lives in it): signed-in coaches, newest season, while its
              registration is open or they have an entry -->
         <LeagueJoin v-if="session.coach() && current && current.id === state.seasons[0]?.id" :league-id="id" :season-id="current.id" :league-name="state.league.name" :season-name="current.name" />
+        <!-- a live entry in an older, unfinished season keeps its block (Withdraw, reference code, I've paid; review P2-3) -->
+        <template v-if="session.coach()">
+          <LeagueJoin
+            v-for="s in olderOpenSeasons" :key="s.id" entry-only :league-id="id" :season-id="s.id" :league-name="state.league.name" :season-name="s.name"
+          />
+        </template>
         <LeagueNews v-if="season" :season="season" :manage="manage" />
         </div>
         <LeagueOverview v-if="season" :league="state.league" :season="season" :summary="current!" :crests="state.crests" :can-manage="manage" />

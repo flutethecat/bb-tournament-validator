@@ -261,3 +261,49 @@ describe("league registration views (server-rendered)", () => {
     expect(css).not.toMatch(/font-family|Nuffle|Silkscreen/);
   });
 });
+
+describe("review P2-3: a live entry in an older season keeps its block", () => {
+  let vite: ViteDevServer;
+  let mods: Record<string, any>;
+  beforeAll(async () => {
+    const { createServer } = await import("vite");
+    vite = await createServer({ configFile: SPA_CONFIG, logLevel: "silent", appType: "custom", server: { middlewareMode: true, hmr: false, ws: false } });
+    const [reg, vueRouter, renderer, vue, join, app] = await Promise.all([
+      vite.ssrLoadModule("/src/leagues/registration.ts"), vite.ssrLoadModule("vue-router"), vite.ssrLoadModule("vue/server-renderer"), import("vue"),
+      vite.ssrLoadModule("/src/components/LeagueJoin.vue"), vite.ssrLoadModule("/src/app.ts"),
+    ]);
+    mods = { reg, vueRouter, renderer, vue, join, app };
+  }, 60_000);
+  afterAll(async () => { await vite?.close(); });
+
+  async function render(props: Record<string, unknown>, routes: Routes) {
+    const f = mockFetcher(routes);
+    const ctl = mods.reg.createLeagueJoin({ api: f });
+    await ctl.load("tabbl", "season-6");
+    const app = mods.vue.createSSRApp(mods.join.default, { leagueId: "tabbl", seasonId: "season-6", leagueName: "TABBL", seasonName: "Season 6", controller: ctl, ...props });
+    app.use(mods.vueRouter.createRouter({ history: mods.vueRouter.createMemoryHistory("/app/"), routes: [{ path: "/:p(.*)*", component: { render: () => null } }] }));
+    app.provide(mods.app.API_KEY, f);
+    return (await mods.renderer.renderToString(app)) as string;
+  }
+
+  it("entry-only: Withdraw, the reference code and I've paid for a pending entry; nothing without a live one; never Register", async () => {
+    const S6 = "/api/leagues/tabbl/seasons/season-6/join";
+    const mine = { id: "lr-6", state: "pending", teamName: "Old Orcs", race: "Orc", kind: "new", enteredAt: "x", refCode: "SF-6666", paid: false };
+    const html = await render({ entryOnly: true }, { [S6]: { status: { ...STATUS, open: false, links: { payPal: "https://paypal.me/ExampleOrg" } }, mine } });
+    expect(html).toContain("Registration: Season 6");
+    expect(html).toMatch(/data-withdraw[^>]*>\s*Withdraw\s*<\/button>/);
+    expect(html).toContain("SF-6666");
+    expect(html).toContain("I&#39;ve paid");
+    expect(html).not.toMatch(/data-register/);
+    const none = await render({ entryOnly: true }, { [S6]: { status: STATUS, mine: { ...mine, state: "declined" } } });
+    expect(none).not.toContain("data-league-join");
+    const open = await render({ entryOnly: true }, { [S6]: { status: STATUS } });
+    expect(open).not.toContain("data-league-join");
+  });
+
+  it("the league page mounts an entry-only block for every unfinished older season", () => {
+    const src = readFileSync(fileURLToPath(new URL("../spa/src/views/LeagueDetailView.vue", import.meta.url)), "utf8");
+    expect(src).toMatch(/v-for="s in olderOpenSeasons"[^>]*entry-only/);
+    expect(src).toContain('s.id !== state.seasons[0]?.id && s.status !== "completed"');
+  });
+});

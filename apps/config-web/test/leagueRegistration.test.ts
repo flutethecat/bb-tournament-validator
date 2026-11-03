@@ -552,3 +552,62 @@ describe("Sol hunt list", () => {
     expect(requireSession(post, `${base}/registrations`, "").kind).not.toBe("allow");
   });
 });
+
+describe("review fixes (Sol, 11-03)", () => {
+  it("a skilled starter is priced by the league's own valuation (position cost + starting skill), and the team value follows", async () => {
+    const h = harness({ reg: { approval: "auto" } });
+    const roster = rosterOf("Human", 11, 50_000);
+    roster.players = roster.players.map((p, i) => ({ ...p, positionName: "Human Lineman", MA: 6, ST: 3, AG: "3+", PA: "4+", AV: "9+", skills: i === 0 ? ["Block"] : [] }));
+    const r = await h.call("POST", `${base}/registrations`, coach("Pat"), { teamRef: "save:new-human", share: [], acknowledged: true });
+    expect(r.status).toBe(201);
+    // re-place the team from a sheet with a skilled starter (the fake sheet has plain linemen): exercise placeRegisteredTeam
+    const { placeRegisteredTeam, snapshotFromRoster } = await import("../src/leagues/registration.js");
+    const s = h.season();
+    const row = { ...h.rowOf("Pat")!, teamSnapshot: snapshotFromRoster(roster, "Skilled") };
+    const team = placeRegisteredTeam({ id: L, slug: L }, s, row, [s], new Date("2026-11-10T12:00:00.000Z"));
+    // the league's own price for that player (teamValue.ts fallbackPlayerValue: position cost + the starting skill)
+    const { fallbackPlayerValue, teamValueRoster, computeTeamValue } = await import("../src/leagues/teamValue.js");
+    const human = teamValueRoster("Human")!;
+    const priced = fallbackPlayerValue({ ...team.players[0]!, value: null }, human).value!;
+    expect(priced).toBeGreaterThan(50_000);
+    expect(team.players[0]!.value).toBe(priced);
+    expect(team.players[0]!.purchasePrice).toBe(priced);
+    expect(team.players[1]!.value).toBe(50_000);
+    expect(team.teamValue).toBe(computeTeamValue(team, human).teamValue);
+    expect(team.teamValue).toBe(priced + 10 * 50_000 + 2 * human.reRollCost);
+  });
+
+  it("a pending or waitlisted coach can change or revoke their league grant from Account Sharing; not after a decline", async () => {
+    const dir = mkdtempSync(pathJoin(tmpdir(), "bbtv-lreg-ids-"));
+    roots.push(dir);
+    const file = pathJoin(dir, "identities.json");
+    const prev = process.env.IDENTITIES_FILE;
+    process.env.IDENTITIES_FILE = file;
+    try {
+      const { writeFileSync } = await import("node:fs");
+      writeFileSync(file, JSON.stringify({ version: 1, coaches: { pat: { ffbCoachId: "Pat", level: "player", banned: false, silenced: false, note: "", profile: {}, identities: {}, updatedAt: "", updatedBy: "",
+        contact: { email: "pat@example.test", emailSource: "user", emailVerified: true, phones: [] } } } }), "utf8");
+      const { acknowledgeLeagueJoin } = await import("../src/auth/leagueSharing.js");
+      const { setSharing, SharingError } = await import("../src/auth/sharing.js");
+      const { readIdentities } = await import("../src/auth/identitiesStore.js");
+      const h = harness();
+      await h.join("Pat", "save:new-orc", { share: ["email"] });
+      acknowledgeLeagueJoin("Pat", L, ["email"], new Date("2026-11-10T12:00:00.000Z"));
+      const sources = { leagues: h.store, tournaments: { tournament: () => undefined, entrants: () => [] } } as never;
+      // pending: the coach revokes the email grant directly (PUT /api/me/sharing/league:<id>)
+      setSharing("Pat", `league:${L}`, { fields: [] }, sources, new Date("2026-11-10T13:00:00.000Z"));
+      expect(readIdentities().coaches.pat!.consent?.sharing?.[`league:${L}`]?.fields).toEqual([]);
+      // waitlisted: may change it again
+      await h.decide("Pat", "waitlist");
+      setSharing("Pat", `league:${L}`, { fields: ["email"] }, sources, new Date("2026-11-10T14:00:00.000Z"));
+      expect(readIdentities().coaches.pat!.consent?.sharing?.[`league:${L}`]?.fields).toEqual(["email"]);
+      // declined: out of scope
+      await h.decide("Pat", "decline");
+      let status = 0;
+      try { setSharing("Pat", `league:${L}`, { fields: ["phone"] }, sources); } catch (e) { status = (e as InstanceType<typeof SharingError>).status; }
+      expect(status).toBe(403);
+    } finally {
+      if (prev === undefined) delete process.env.IDENTITIES_FILE; else process.env.IDENTITIES_FILE = prev;
+    }
+  });
+});

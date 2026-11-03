@@ -232,7 +232,9 @@ export function placeRegisteredTeam(league: Pick<LeagueRecord, "id" | "slug">, s
     used.add(playerId);
     return {
       playerId, careerKey: careerKey(playerId), number, name: p.name, position: p.position,
-      ma: p.ma, st: p.st, ag: p.ag, pa: p.pa, av: p.av, skills: [...p.skills], value: p.cost, purchasePrice: p.cost,
+      // No stored value yet: the league prices the player itself below (position cost + starting skills + increases),
+      // exactly as import does (teamValue.ts storeFallbackValues), never the sheet's printed cost.
+      ma: p.ma, st: p.st, ag: p.ag, pa: p.pa, av: p.av, skills: [...p.skills], value: null,
       level: "Rookie", availableSpp: 0, niggling: 0, missNextGame: false, stats: { ...EMPTY_PLAYER_STATS }, seasonsPlayed: 0,
     };
   });
@@ -246,6 +248,14 @@ export function placeRegisteredTeam(league: Pick<LeagueRecord, "id" | "slug">, s
     teamUid: teamUidFor(seasons, row.libraryTeamId), entryId: mint("en"), registrationId: row.id,
     ...(row.libraryTeamId ? { libraryTeamId: row.libraryTeamId } : {}),
   };
+  // Stored values as the league's own valuation (the banker's fallback: position cost + Primary 20k / Secondary 40k /
+  // Elite +10k + characteristic increases), then the team value. A season the dataset can't price (not BB2025, an
+  // unknown race) keeps the sheet's cost per player.
+  refreshTeamValue(team, season.ruleset, { fillStoredValues: true });
+  for (const [i, p] of team.players.entries()) {
+    if (typeof p.value !== "number") p.value = snap.players[i]?.cost ?? null;
+    if (typeof p.value === "number") p.purchasePrice = p.value;
+  }
   refreshTeamValue(team, season.ruleset);
   season.teams = [...(season.teams ?? []), team];
   const participant: LeagueParticipant = {

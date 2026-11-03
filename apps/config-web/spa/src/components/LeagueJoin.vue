@@ -4,15 +4,20 @@
 // team for this season" (Roster Builder league mode). With an entry: "Registered: <team> · PENDING / ACCEPTED /
 // WAITLIST #2", Withdraw while it waits (an accepted team leaves through the organisers), the organisers' reason for a
 // decline, and "Register again" after a withdrawal while it is open. Facts and the entry come from GET .../join.
+// `entryOnly` (an older season, review P2-3): shown only while the coach's entry there is live (pending, waitlisted,
+// accepted), with Withdraw and its own Pay block (reference code, "I've paid"); no new registrations from it.
 import { computed, inject, ref, watch } from "vue";
 import LeagueRegisterDialog from "./LeagueRegisterDialog.vue";
 import DiscordDmNotice from "./DiscordDmNotice.vue";
-import { entryChip, isLiveEntry, LEAGUE_JOIN_KEY, leagueBuilderHref, leaguePlacesLine, STATE_TONE } from "../leagues/registration";
+import PayEntryFee from "./PayEntryFee.vue";
+import { API_KEY } from "../app";
+import { createLeagueJoin, entryChip, type LeagueJoin as LeagueJoinController, isLiveEntry, LEAGUE_JOIN_KEY, leagueBuilderHref, leaguePlacesLine, STATE_TONE } from "../leagues/registration";
 import "../tournaments/registration.css";
 import "../leagues/registration.css";
 
-const props = defineProps<{ leagueId: string; seasonId: string; leagueName: string; seasonName: string }>();
-const join = inject(LEAGUE_JOIN_KEY)!;
+const props = defineProps<{ leagueId: string; seasonId: string; leagueName: string; seasonName: string; entryOnly?: boolean; controller?: LeagueJoinController }>();
+const fetcher = inject(API_KEY)!;
+const join = props.controller ?? (props.entryOnly ? createLeagueJoin({ api: fetcher }) : inject(LEAGUE_JOIN_KEY)!);
 const { state } = join;
 const sheet = ref(false);
 watch(() => [props.leagueId, props.seasonId] as const, ([id, sid]) => { void join.load(id, sid); }, { immediate: true });
@@ -20,14 +25,14 @@ watch(() => [props.leagueId, props.seasonId] as const, ([id, sid]) => { void joi
 const status = computed(() => state.status);
 const mine = computed(() => state.mine);
 const live = computed(() => isLiveEntry(mine.value?.state));
-const canRegister = computed(() => Boolean(status.value?.open) && !live.value && mine.value?.state !== "declined" && mine.value?.state !== "dropped");
-const shown = computed(() => Boolean(mine.value) || Boolean(status.value?.open));
+const canRegister = computed(() => !props.entryOnly && Boolean(status.value?.open) && !live.value && mine.value?.state !== "declined" && mine.value?.state !== "dropped");
+const shown = computed(() => (props.entryOnly ? live.value : Boolean(mine.value) || Boolean(status.value?.open)));
 const caption = computed(() => (status.value?.open ? (status.value.midSeason ? "Open mid-season" : "Open") : "Closed"));
 </script>
 
 <template>
-  <section v-if="state.loaded && shown" class="hm-panel lr-join" aria-labelledby="lr-join-block-h" data-league-join>
-    <header class="hm-band"><h2 id="lr-join-block-h">Registration</h2><span class="hm-cap">{{ caption }}</span></header>
+  <section v-if="state.loaded && shown" class="hm-panel lr-join" :aria-labelledby="`lr-join-block-h-${seasonId}`" data-league-join>
+    <header class="hm-band"><h2 :id="`lr-join-block-h-${seasonId}`">{{ entryOnly ? `Registration: ${seasonName}` : "Registration" }}</h2><span class="hm-cap">{{ entryOnly ? seasonName : caption }}</span></header>
     <div class="lr-join-body">
       <template v-if="mine">
         <p class="tr-state" data-my-entry>
@@ -51,6 +56,11 @@ const caption = computed(() => (status.value?.open ? (status.value.midSeason ? "
           {{ state.busy === "withdraw" ? "Withdrawing..." : "Withdraw" }}
         </button>
       </div>
+      <PayEntryFee
+        v-if="entryOnly && mine?.refCode" :id-prefix="`lr-${seasonId}`" :entry-fee="status?.entryFee" :links="status?.links ?? null"
+        :ref-code="mine.refCode" :coach-says-paid="Boolean(mine.coachSaysPaid)" :paid="mine.paid === true" claimable
+        :busy="state.busy === 'claim'" @claim="(paid) => join.claimPaid(paid)"
+      />
       <DiscordDmNotice v-if="canRegister" />
       <p v-if="state.error && !sheet" class="sf-error" role="alert">{{ state.error }}</p>
       <p v-else-if="state.notice" class="tn-notice lr-notice" role="status">{{ state.notice }}</p>

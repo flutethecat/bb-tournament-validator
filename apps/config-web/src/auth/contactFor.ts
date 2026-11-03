@@ -51,6 +51,9 @@ export interface MembershipSources {
     seasons(leagueId: string): ReadonlyArray<{
       teams: ReadonlyArray<{ coachId?: string; coachAssigned?: { cleared?: true } }>;
       participants: ReadonlyArray<{ coachId?: string }>;
+      /** League registration (lane L6): every entry of the season; a live one (pending / waitlisted / accepted) puts the
+       *  coach in the league's sharing scope, so they may change or revoke a grant while waiting for a decision. */
+      registrations?: ReadonlyArray<{ coach: string; state: string }>;
     }>;
   };
 }
@@ -64,6 +67,15 @@ export function isLeagueRosterMember(coach: string, leagueId: string, sources: M
   const same = sameCoach(key);
   return sources.leagues.seasons(leagueId).some((season) =>
     season.teams.some((t) => !t.coachAssigned?.cleared && same(t.coachId)) || season.participants.some((p) => same(p.coachId)));
+}
+
+/** The coach has a live league registration (pending, waitlisted or accepted) in any season of the league (lane L6). */
+export function hasLiveLeagueRegistration(coach: string, leagueId: string, sources: MembershipSources): boolean {
+  const key = normalizeFfbCoachId(coach);
+  if (!key || !leagueId || !sources.leagues.league(leagueId)) return false;
+  const same = sameCoach(key);
+  return sources.leagues.seasons(leagueId).some((season) =>
+    (season.registrations ?? []).some((r) => (r.state === "pending" || r.state === "waitlisted" || r.state === "accepted") && same(r.coach)));
 }
 
 /** Tournament membership: an entrant who has not dropped. */
@@ -157,7 +169,9 @@ export function inShareScope(record: CoachIdentityRecord, scope: ShareScope, sou
     const t = sources.tournaments.tournament(scope.id);
     return Boolean(t) && tournamentStatus(t) !== "cancelled" && activeEntry(record, scope.id, sources) !== undefined;
   }
-  return isLeagueRosterMember(record.ffbCoachId, scope.id, sources) && sharesWithLeague(record, scope.id);
+  // A live league registration counts too (lane L6), so a pending or waitlisted coach can change or revoke their grant.
+  return (isLeagueRosterMember(record.ffbCoachId, scope.id, sources) || hasLiveLeagueRegistration(record.ffbCoachId, scope.id, sources))
+    && sharesWithLeague(record, scope.id);
 }
 
 /** The coach's active entry of a tournament (undefined when none): an entrant who has not dropped, or (lane L4) a pending
