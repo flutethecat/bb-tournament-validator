@@ -88,6 +88,7 @@ import { defaultSeasonRegistration, seasonRegistrationOf } from "./seasonRegistr
 import { paymentLinksView } from "../payments/links.js";
 import { createLeagueRoute, leagueLifecycleRoutes } from "./wizard.js";
 import { TEST_SESSION_REFUSAL, testSessionMayWrite } from "../registration/testSession.js";
+import { leagueTimeZone } from "./timeZone.js";
 import { isLeagueOrganiser, LEAGUE_ART_DIR, LEAGUE_ART_PATH, leagueOwner, LeagueStore, LeagueStoreError, SEASON_ID } from "./store.js";
 import { LEAGUE_RULESETS, type LeagueFixture, type LeagueNewsPost, type LeagueRecord, type LeagueTeam, type LeagueRuleset, type PodiumSlot, type SeasonRecord, type SeasonStatus } from "./types.js";
 
@@ -120,6 +121,8 @@ export interface LeagueSummary {
   houseRules: HouseRules;
   rulesetPackage?: string;
   authorised: boolean;
+  /** The league's IANA time zone (UTC when unset): the Calendar tab reads every day and time in it. */
+  timeZone: string;
 }
 
 export interface SeasonSummary {
@@ -248,6 +251,7 @@ export function leagueSummary(league: LeagueRecord, seasons: SeasonRecord[]): Le
     houseRules: houseRulesOf(league, "league"),
     ...(league.rulesetPackage ? { rulesetPackage: league.rulesetPackage } : {}),
     authorised: league.authorised !== false,
+    timeZone: leagueTimeZone(league),
   };
 }
 

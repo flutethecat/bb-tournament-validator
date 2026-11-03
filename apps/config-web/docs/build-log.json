@@ -1,6 +1,12 @@
 [
   {
     "date": "2026-11-03",
+    "title": "League calendar: week, month and year views",
+    "body": "The league Calendar tab now has Week, Month and Year views next to the list, remembered for you, with previous, next and Today buttons, all in the league's time zone. Every fixture is a link: unplayed games open the fixture summary, played ones open the match report when the site has one.",
+    "links": []
+  },
+  {
+    "date": "2026-11-03",
     "title": "Team page v2: one team summary, coach editing and organiser edit mode",
     "body": "The league team page and the Roster Builder's new Summary step now share one wide team summary with the table-style roster. Coaches edit their own team within the rules (hire, fire and staff before the first game; names, numbers, hires and skills paid with SPP after it), and organisers get an Edit mode for every field, injuries with a band-aid list, Seasons Played, and a status cog to mark a team inactive and decide its unplayed fixtures.",
     "links": [

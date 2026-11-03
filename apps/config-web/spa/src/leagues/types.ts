@@ -44,6 +44,8 @@ export interface LeagueSummary {
   authorised?: boolean;
   /** Browse leagues (list rows only; absent on older servers): status, place and the public search index. */
   browse?: LeagueBrowseInfo;
+  /** The league's IANA time zone (UTC when unset; absent on older servers): the Calendar reads days and times in it. */
+  timeZone?: string;
 }
 
 export type LeagueBrowseStatus = "in-progress" | "registration" | "finished" | "off-season";
@@ -94,8 +96,8 @@ export interface LeagueFixture {
   /** Admin per-game settings: a late launch is allowed / Super FUMBBL play is cancelled. */
   forkAllowLate?: boolean;
   forkCancelled?: boolean;
-  /** Season reads carry the Super FUMBBL status only. */
-  fork?: { status: FixtureForkStatus };
+  /** Season reads carry the Super FUMBBL status only, plus the game id once the game finished (its public game page). */
+  fork?: { status: FixtureForkStatus; gameId?: string };
   /** The time both coaches agreed through a game-time proposal (Schedule): a 2-hour slot, UTC ISO. */
   scheduledTime?: { start: string; end: string; agreedAt: string };
   /** Organiser's per-fixture deadline (UTC ISO); unset = the round deadline. */

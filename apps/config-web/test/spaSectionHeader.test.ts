@@ -10,7 +10,8 @@ import {
   activeTab, breadcrumbs, leagueFacts, legacyRedirect, manageLocation, SECTION_TABS, seasonSwitchQuery, sectionRole, seriesFacts, showsStrip,
   tabFromQuery, tabLocation, tournamentFacts, visibleTabs,
 } from "../spa/src/shell/sectionNav";
-import { drawRounds, fixtureCalendar } from "../spa/src/shell/sectionViews";
+import { drawRounds } from "../spa/src/shell/sectionViews";
+import { fixtureItems, listMonths, undatedFixtures } from "../spa/src/leagues/seasonCalendar";
 import { scheduleCards, type SeriesStandings } from "../spa/src/tournaments/series";
 import type { LeagueFixture } from "../spa/src/leagues/types";
 import { followSeasons } from "../spa/src/leagues/followSeasons";
@@ -152,25 +153,27 @@ describe("light tab views from existing data", () => {
     id, category: "Season", phase: "Regular", phaseId: "season-regular", group: "", round, table, home: side(`H${id}`, scores[0]), away: side(`A${id}`, scores[1]), suspended: false, ...extra,
   });
 
+  const ctx = { leagueId: "tabbl", seasonId: "season-7", zone: "UTC" };
   it("Calendar: a suspended 0-0 row without a result is not a scored game (the league's fixturePlayed rule)", () => {
-    const cal = fixtureCalendar([fx("s", 4, 1, { date: "2026-11-09", suspended: true }, [0, 0]), fx("n", 4, 2, { suspended: true }, [0, 0])]);
-    expect(cal.months.flatMap((mo) => mo.days.flatMap((d) => d.games))).toEqual([expect.objectContaining({ id: "s", score: "", kind: "scheduled" })]);
-    expect(cal.undated).toBe(1);
+    const list = [fx("s", 4, 1, { date: "2026-11-09", suspended: true }, [0, 0]), fx("n", 4, 2, { suspended: true }, [0, 0])];
+    expect(fixtureItems(list, ctx)).toEqual([expect.objectContaining({ key: "fixture:s", result: "", state: "scheduled", allDay: true })]);
+    expect(undatedFixtures(list, ctx)).toBe(1);
   });
 
   it("Calendar: played on the day it finished, an agreed time with its time, else the scheduled date; undated only counted", () => {
-    const cal = fixtureCalendar([
+    const list = [
       fx("a", 1, 1, { finishedAt: "2026-10-03T19:00:00.000Z" }, [2, 1]),
       fx("b", 2, 1, { date: "2026-11-04", scheduledTime: { start: "2026-11-05T18:30:00.000Z", end: "2026-11-05T20:30:00.000Z", agreedAt: "" } }),
       fx("c", 2, 2, { date: "2026-11-04" }),
       fx("d", 3, 1),
-    ]);
-    expect(cal.undated).toBe(1);
-    expect(cal.months.map((m) => [m.label, m.count])).toEqual([["October 2026", 1], ["November 2026", 2]]);
-    expect(cal.months[0]!.days[0]).toMatchObject({ key: "2026-10-03", weekday: "Sat", games: [{ id: "a", score: "2 - 1", kind: "played" }] });
-    const nov = cal.months[1]!.days;
+    ];
+    expect(undatedFixtures(list, ctx)).toBe(1);
+    const months = listMonths(fixtureItems(list, ctx));
+    expect(months.map((m) => [m.label, m.count])).toEqual([["October 2026", 1], ["November 2026", 2]]);
+    expect(months[0]!.days[0]).toMatchObject({ key: "2026-10-03", weekday: "Sat", items: [{ key: "fixture:a", result: "2 - 1", state: "played" }] });
+    const nov = months[1]!.days;
     expect(nov.map((d) => d.key)).toEqual(["2026-11-04", "2026-11-05"]);
-    expect(nov[1]!.games[0]).toMatchObject({ id: "b", kind: "agreed", time: "18:30" });
+    expect(nov[1]!.items[0]).toMatchObject({ key: "fixture:b", state: "agreed", time: "18:30" });
   });
 
   it("Draws: rounds in phase and round order, pairings by table, no scores", () => {

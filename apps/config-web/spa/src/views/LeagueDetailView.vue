@@ -179,7 +179,7 @@ usePageTitle(() => state.league?.name);
         <LeagueStandings v-else-if="tab === 'standings'" :season="season" :me="session.coach()" :league-id="id" />
         <LeagueFixtureSummary v-else-if="tab === 'fixtures' && fixtureRef" :league-id="id" :season-id="season.id" :fixture-id="fixtureRef" :back="fixturesQuery" />
         <LeagueFixtures v-else-if="tab === 'fixtures'" :league="state.league" :season="season" :crests="state.crests" :manage="manage" />
-        <LeagueCalendar v-else-if="tab === 'calendar'" :season="season" :league-id="id" />
+        <LeagueCalendar v-else-if="tab === 'calendar'" :season="season" :league-id="id" :zone="state.league.timeZone" />
         <LeagueTeams v-else-if="tab === 'participants' && (teamName || playerRef)" :season="season" :team="teamName" :player="playerRef" :league-id="id" :crests="state.crests" :manage="manage" />
         <LeagueParticipantsList v-else-if="tab === 'participants'" :season="season" :league-id="id" :crests="state.crests" :organiser="manage" />
         <LeagueDraws v-else-if="tab === 'draws'" :season="season" />

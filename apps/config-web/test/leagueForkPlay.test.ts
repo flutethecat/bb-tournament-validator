@@ -611,7 +611,8 @@ describe("Super FUMBBL fixture routes", () => {
     const sum = view(await call("GET", base, EVE));
     expect(sum).toMatchObject({ status: "finished", result: { home: { lines: expect.arrayContaining([expect.objectContaining({ playerId: "p-thrower", td: 2 })]) } } });
     const read = (await call("GET", "/api/leagues/tabbl/seasons/season-7", EVE)).body as { season: SeasonRecord };
-    expect(read.season.fixtures[0]!.fork).toEqual({ status: "finished", teams: {}, log: [] });
+    // the season read carries the finished game's id (its game page is public; the Calendar links it), nothing else
+    expect(read.season.fixtures[0]!.fork).toEqual({ status: "finished", gameId: "g42", teams: {}, log: [] });
   });
   it("[review P2] a result arriving while a team is redrafting is held, never applied by the timer, and released by an organiser after", async () => {
     await call("POST", `${base}/fork/generate`, ANN, {});
