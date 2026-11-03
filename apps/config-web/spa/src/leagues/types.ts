@@ -340,6 +340,22 @@ export interface LeagueTeam {
   /** Team library lane identity (server teamOps.ts): the team, and this season's entry. */
   teamUid?: string;
   entryId?: string;
+  /** Available for Takeover (server takeover.ts): the listing id and since when. */
+  takeover?: { id: string; since: string; note?: string };
+  /** The entry's holders, oldest first (server teamLibrary.ts): absent = the team held it all season. */
+  entryHistory?: EntrySpan[];
+}
+
+/** One holder of a league entry ("Team A (games 1-5)"). */
+export interface EntrySpan {
+  name: string;
+  race: string;
+  coach: string;
+  coachId?: string;
+  fromGame: number;
+  toGame?: number;
+  via: "start" | "swap" | "apply" | "takeover";
+  at: string;
 }
 
 export type HonourValue = number | string | Record<string, number | string>;

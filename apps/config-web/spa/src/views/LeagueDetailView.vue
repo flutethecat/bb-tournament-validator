@@ -26,6 +26,7 @@ import LeagueSectionHeader from "../components/LeagueSectionHeader.vue";
 import LeagueStandings from "../components/LeagueStandings.vue";
 import LeagueTeams from "../components/LeagueTeams.vue";
 import LeagueJoin from "../components/LeagueJoin.vue";
+import LeagueTakeoverPanel from "../components/LeagueTakeoverPanel.vue";
 import { createLeagueJoin, LEAGUE_JOIN_KEY } from "../leagues/registration";
 import LeagueDraftNotice from "../components/LeagueDraftNotice.vue";
 import { SEASON_STAGE_LABEL, seasonStageOf, STAGE_TONE } from "../leagues/lifecycle";
@@ -182,6 +183,8 @@ usePageTitle(() => state.league?.name);
             v-for="s in olderOpenSeasons" :key="s.id" entry-only :league-id="id" :season-id="s.id" :league-name="state.league.name" :season-name="s.name"
           />
         </template>
+        <!-- Available for Takeover (team library lane): the overview only, never a Browse leagues filter (round answer Q8) -->
+        <LeagueTakeoverPanel v-if="season && season.status === 'active'" :league-id="id" :season="season" :crests="state.crests" :manage="manage" />
         <LeagueNews v-if="season" :season="season" :manage="manage" />
         </div>
         <LeagueOverview v-if="season" :league="state.league" :season="season" :summary="current!" :crests="state.crests" :can-manage="manage" />

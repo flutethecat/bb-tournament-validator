@@ -1,0 +1,59 @@
+/* Team library, swap and takeover (spec-team-management-2026-11-02): the swap dialog's library cards, the takeover panel on
+   the league overview, the application dialog and the approval modal. Tokens only (design.md §3). */
+
+/* library cards: the join sheet's radio cards (.tr-card), greyed with the reason when a team doesn't fit */
+.tk-group { display: grid; gap: 6px; }
+.tk-group h3 { margin: 4px 0 0; }
+.tk-cards { max-height: none; }
+.tk-card:disabled { cursor: not-allowed; opacity: 1; color: var(--ui-muted); background: var(--ui-surface-2); border-style: dashed; border-left-style: solid; box-shadow: none; }
+.tk-card:disabled:hover { border-color: var(--sf-panel-line); }
+.tk-card:disabled strong { color: var(--ui-muted); }
+.tk-why { color: var(--ui-text-dim); font-style: italic; }
+.tk-card:disabled .tk-why { color: var(--ui-muted); }
+.tk-swap .ls-dialog-body { max-height: calc(70vh / var(--sf-zoom, 1)); overflow-y: auto; }
+
+/* the takeover panel (league overview only) */
+.tk-panel .hm-band { border-left-color: var(--sf-gold); }
+.tk-list { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.tk-row {
+  display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; padding: 8px 10px;
+  background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface-2);
+  border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--sf-gold); border-radius: 2px; box-shadow: 0 2px 0 var(--sf-panel-drop);
+}
+.tk-row .hm-team-crest { width: 40px; height: 40px; }
+.tk-name { display: grid; gap: 1px; min-width: 0; }
+.tk-name strong { font: 700 1rem/1.2 var(--font-heading); overflow-wrap: anywhere; }
+.tk-name small { color: var(--ui-muted); font-size: 13px; }
+.tk-note { grid-column: 2 / -1; margin: 0; font-size: 13px; color: var(--ui-text); }
+.tk-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: flex-end; }
+.tk-apps { grid-column: 1 / -1; display: grid; gap: 6px; margin: 4px 0 0; padding: 6px 0 0; list-style: none; border-top: 1px solid var(--sf-panel-line); }
+.tk-app { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; align-items: center; }
+.tk-app small { color: var(--ui-muted); font-size: 13px; }
+.tk-app .tk-actions { grid-row: span 2; }
+.tk-mode { display: grid; gap: 8px; }
+.tk-mode legend { margin-bottom: 4px; }
+.tk-mode-pick { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.tk-played { margin: 0; font-size: 1.05rem; }
+@media (max-width: 560px) {
+  .tk-row { grid-template-columns: 40px minmax(0, 1fr); }
+  .tk-row > .tk-actions { grid-column: 1 / -1; justify-content: flex-start; }
+  .tk-mode-pick { grid-template-columns: minmax(0, 1fr); }
+  .tk-app { grid-template-columns: minmax(0, 1fr); }
+  .tk-app .tk-actions { grid-row: auto; justify-content: flex-start; }
+}
+
+/* the entry history line on the team page */
+.tk-entry { margin: 0 0 10px; font-size: 14px; color: var(--ui-text); }
+.tk-entry .tb-k { margin-right: 6px; }
+.tk-entry small { display: block; color: var(--ui-muted); font-size: 13px; }
+
+/* the team cog menu */
+.tk-cog { position: relative; display: inline-flex; }
+.tk-menu {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; display: grid; min-width: 220px; padding: 4px; margin: 0; list-style: none;
+  background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface);
+  border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: inset 0 1px 0 var(--sf-panel-hi), 0 3px 0 var(--sf-panel-drop);
+}
+.tk-menu button { width: 100%; padding: 8px 10px; text-align: left; font: 600 12px/1.3 var(--sf-band-font); letter-spacing: .06em; text-transform: uppercase; color: var(--ui-text); background: none; border: 0; border-radius: 2px; cursor: pointer; }
+.tk-menu button:hover, .tk-menu button:focus-visible { background: color-mix(in srgb, var(--ui-primary) 30%, transparent); outline: none; }
+.tk-menu button:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: -2px; }

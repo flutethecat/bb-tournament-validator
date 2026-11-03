@@ -27,6 +27,9 @@ import TeamHirePanels from "./TeamHirePanels.vue";
 import TeamPlayerMenu from "./TeamPlayerMenu.vue";
 import TeamStatusDialog from "./TeamStatusDialog.vue";
 import TeamHistory from "./TeamHistory.vue";
+import TeamSwapDialog from "./TeamSwapDialog.vue";
+import { createTeamLibrary, entryCoachLine, entryHistoryLine } from "../leagues/takeover";
+import "../leagues/takeover.css";
 
 const props = defineProps<{ season: SeasonRecord; team: string; player?: string; leagueId: string; crests: Record<string, string>; manage?: boolean }>();
 const route = useRoute();
@@ -148,6 +151,39 @@ async function onDecide(decide: Parameters<NonNullable<typeof page>["decide"]>[0
   if (page && !(await page.decide(decide))) status.value = null;
 }
 const COG_ICON = "/icons/league/league-settings.png";
+
+// ---- team library lane: the cog menu (status, Swap team, Available for takeover), the entry history, ?edit=1 ----
+const cogOpen = ref(false);
+const swapping = ref(false);
+const lib = fetcher ? createTeamLibrary({ api: fetcher }) : null;
+const entryLine = computed(() => entryHistoryLine(picked.value?.entryHistory));
+const coachLine = computed(() => entryCoachLine(picked.value?.entryHistory));
+function closeCog(e: FocusEvent): void {
+  const next = e.relatedTarget as Node | null;
+  if (!next || !(e.currentTarget as HTMLElement).contains(next)) cogOpen.value = false;
+}
+function cogKey(e: KeyboardEvent): void { if (e.key === "Escape" && cogOpen.value) { e.stopPropagation(); cogOpen.value = false; } }
+function openStatus(): void { cogOpen.value = false; status.value = "status"; }
+function openSwap(): void { cogOpen.value = false; swapping.value = true; }
+async function refreshTeam(): Promise<void> {
+  await detail?.reloadSeason(props.season.id);
+  if (page && picked.value) await page.load(props.leagueId, props.season.id, picked.value.id);
+}
+async function toggleListing(): Promise<void> {
+  cogOpen.value = false;
+  const v = ctx.value;
+  if (!lib || !v || !picked.value) return;
+  const on = !picked.value.takeover;
+  if (typeof window !== "undefined" && !window.confirm(on ? `List ${picked.value.name} as available for takeover? Coaches can apply from the league overview.` : `Take ${picked.value.name} off the takeover list? Open applications are declined.`)) return;
+  if (await lib.setListing(props.leagueId, props.season.id, picked.value.id, on, v.revision)) await refreshTeam();
+}
+async function onSwapped(): Promise<void> { swapping.value = false; await refreshTeam(); }
+// "Approve and edit" (the takeover panel) opens the roster summary straight into edit mode: ?edit=1, once the edit context is in.
+const wantEdit = ref(route.query.edit === "1");
+watch(() => route.query.edit, (v) => { wantEdit.value = v === "1"; });
+watch(() => [wantEdit.value, ctx.value?.role.organiser, mayWrite.value] as const, ([want, organiser, write]) => {
+  if (want && organiser && write) { editing.value = "organiser"; wantEdit.value = false; }
+}, { immediate: true });
 </script>
 
 <template>
@@ -171,16 +207,25 @@ const COG_ICON = "/icons/league/league-settings.png";
           <template #band>
             <CaptainVacantChip v-if="vacant" :action="mayAppoint" @choose="captainOpen = true" />
             <span v-if="picked.status === 'inactive'" class="sf-chip" data-tone="muted" data-inactive-chip>Inactive</span>
+            <span v-if="picked.takeover" class="sf-chip" data-tone="soon" data-takeover-chip>Available for takeover</span>
             <span v-if="ctx && mode !== 'view'" class="sf-chip" data-tone="soon">{{ mode === "organiser" ? "Edit mode" : ctx.phase === "pregame" ? "Before the first game" : "In season" }}</span>
           </template>
           <template #band-end>
             <span v-if="ctx && mayWrite" class="ts-band-actions">
               <button v-if="ctx.role.coach && cc.edit" type="button" class="sf-btn small" :aria-pressed="editing === 'coach' ? 'true' : 'false'" data-edit-team @click="editing = editing === 'coach' ? null : 'coach'">{{ editing === "coach" ? "Done" : "Edit team" }}</button>
               <button v-if="ctx.role.organiser" type="button" class="sf-btn small" :class="{ primary: editing === 'organiser' }" :aria-pressed="editing === 'organiser' ? 'true' : 'false'" data-edit-mode @click="editing = editing === 'organiser' ? null : 'organiser'">{{ editing === "organiser" ? "Done" : "Edit" }}</button>
-              <button v-if="ctx.role.organiser" type="button" class="sh-btn ts-cog" data-team-cog aria-label="Team status" title="Team status" @click="status = 'status'"><img :src="COG_ICON" alt="" width="22" height="22" /></button>
+              <span v-if="ctx.role.organiser" class="tk-cog" @focusout="closeCog" @keydown="cogKey">
+                <button type="button" class="sh-btn ts-cog" data-team-cog aria-label="Team options" title="Team options" aria-haspopup="menu" :aria-expanded="cogOpen ? 'true' : 'false'" @click="cogOpen = !cogOpen"><img :src="COG_ICON" alt="" width="22" height="22" /></button>
+                <span v-if="cogOpen" class="tk-menu" role="menu" aria-label="Team options">
+                  <button type="button" role="menuitem" data-cog-status @click="openStatus">Team status</button>
+                  <button type="button" role="menuitem" data-cog-swap @click="openSwap">Swap team</button>
+                  <button type="button" role="menuitem" data-cog-takeover @click="toggleListing">{{ picked.takeover ? "Remove from takeover list" : "Available for takeover" }}</button>
+                </span>
+              </span>
             </span>
           </template>
           <template #top>
+            <p v-if="entryLine" class="tk-entry" data-entry-history><span class="tb-k">Entry</span>{{ entryLine }}<small v-if="coachLine">Coaches: {{ coachLine }}</small></p>
             <CaptainVacantDialog v-if="captainOpen && vacant && mayAppoint" :team-name="picked.name" :players="captainRows" :appoint="appointCaptain" @close="captainOpen = false" />
             <p v-if="ctx && ctx.role.organiser && ctx.needDecision" class="sf-notice ts-decide" role="status" data-need-decision>
               {{ ctx.needDecision }} unplayed {{ ctx.needDecision === 1 ? "fixture needs" : "fixtures need" }} a decision.
@@ -234,6 +279,8 @@ const COG_ICON = "/icons/league/league-settings.png";
           @add-skill="(s) => send([{ op: 'addSkill', playerId: menu!.id, skill: s }], `${s} added.`)"
           @injury="onInjury" :fresh="freshRoll" :taken="takenRoll" @roll="onRoll" @resolve="onResolve"
         />
+        <TeamSwapDialog v-if="swapping && ctx?.role.organiser" :league-id="leagueId" :season-id="season.id" :team-id="picked.id" :team-name="picked.name" :revision="ctx.revision" @close="swapping = false" @swapped="onSwapped" />
+        <p v-if="lib?.state.error" class="sf-error" role="alert">{{ lib.state.error }}</p>
         <TeamStatusDialog v-if="status && ctx?.role.organiser" :view="ctx" :start="status" :busy="busy" :error="page?.state.error" @close="status = null" @status="onStatus" @decide="onDecide" />
       </template>
     </template>
