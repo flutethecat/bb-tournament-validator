@@ -259,6 +259,62 @@ export interface LeagueFixture {
    * automatically.
    */
   inactiveDecision?: { teamId: string; decision: "cancel" | "forfeit" | "leave"; by: string; at: string };
+  /**
+   * An administrative forfeit (src/leagues/forfeit.ts, the TourPlay-style dialog): the F markers, "No effect on standings"
+   * and the penalty points. Public (the F markers show on the fixture); the details live in forfeitDetail.
+   */
+  forfeit?: FixtureForfeit;
+  /** Internal (never in a read model): who entered the forfeit, the numbers applied to the rosters and the defection rolls. */
+  forfeitDetail?: FixtureForfeitDetail;
+  /** Internal (never in a read model): defection rolls made from the forfeit dialog and not applied yet (no rerolling). */
+  forfeitDraft?: FixtureForfeitDraft;
+  /** Admin per-game setting (the fixture's admin panel, or the recorder's Admin panel): false = a forfeit rolls no
+   *  defections. Absent = on (FFB rolls them after an illegal concession). */
+  defectionRolls?: false;
+}
+
+/** The public part of a forfeit. */
+export interface FixtureForfeit {
+  home: boolean;
+  away: boolean;
+  /** "No effect on standings": the fixture counts nowhere in the table. */
+  noStandings?: true;
+  /** Points taken off each forfeiting team's standings (organiser-set). */
+  penalty?: { home: number; away: number };
+  at: string;
+}
+
+export interface ForfeitDefectionRoll { playerId: string; name: string; number?: number | null; advancements: number; roll: number; leaves: boolean; rollId?: string }
+
+export interface FixtureForfeitDraft {
+  side: "home" | "away";
+  rolls: ForfeitDefectionRoll[];
+  at: string;
+  by: string;
+}
+
+export interface FixtureForfeitDetail {
+  by: string;
+  at: string;
+  legalConcession: boolean;
+  /** The numbers applied per side (winnings in gold, fans, MVP and miss-next-game player ids). */
+  sides: Record<"home" | "away", { winnings: number; fans: number; mvp: string[]; missNextGame: string[] }>;
+  /** Defection rolls of the forfeiting team, when rolled. */
+  defections?: { side: "home" | "away"; rolls: ForfeitDefectionRoll[] };
+  /** The recorder match this forfeit closed, when entered from the recorder. */
+  matchId?: string;
+  /** When the end-of-match report was posted (never twice). */
+  announcedAt?: string;
+  /** What the undo restores (both rosters and the fixture result before the forfeit) and the rosters' fingerprint after it. */
+  undo?: {
+    teams: Partial<Record<"home" | "away", LeagueTeam>>;
+    fixture: {
+      home: { score: number | null; cas: number | null; conceded: boolean };
+      away: { score: number | null; cas: number | null; conceded: boolean };
+      finishedAt?: string; resultEdit?: { by?: string; at: string }; deadlineOutcome?: FixtureDeadlineOutcome;
+    };
+    afterHash: string;
+  };
 }
 
 // ---- Fixture deadlines (spec-main-landing-nav §2.2, ruling §6(d); deadlines.ts) ----
@@ -659,7 +715,7 @@ export interface LeagueTeam {
 export interface TeamHistoryEntry {
   at: string;
   by: string;
-  kind: "coach-edit" | "organiser-edit" | "status" | "fixture-decision";
+  kind: "coach-edit" | "organiser-edit" | "status" | "fixture-decision" | "forfeit";
   changes: Array<{ what: string; from?: string; to?: string }>;
 }
 
@@ -805,7 +861,7 @@ export interface LeagueNewsPost {
   editedAt?: string;
 }
 
-export type LeagueEventKind = "fixture-created" | "fixture-deleted" | "match-started" | "match-result" | "team-coach" | "team-value-diff" | "team-value-unresolved" | "fixture-deadline";
+export type LeagueEventKind = "fixture-created" | "fixture-deleted" | "match-started" | "match-result" | "team-coach" | "team-value-diff" | "team-value-unresolved" | "fixture-deadline" | "forfeit" | "defection";
 
 export interface LeagueEventEntry {
   at: string;

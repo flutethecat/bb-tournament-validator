@@ -464,7 +464,7 @@ export const STORE_COLLECTORS: StoreCollector[] = [
             season: s.name, number: s.number,
             teams: objs(s.teams).filter(linked),
             // resultEdit names the organiser who overrode a result: never given to the fixture's participants (see resultEdits).
-            fixtures: objs(s.fixtures).filter((f) => linked(f.home) || linked(f.away)).map(({ resultEdit: _e, ...f }) => f),
+            fixtures: objs(s.fixtures).filter((f) => linked(f.home) || linked(f.away)).map(({ resultEdit: _e, forfeitDetail: _d, forfeitDraft: _r, ...f }) => f),
             // Result overrides this coach made as an organiser (the actor only).
             resultEdits: objs(s.fixtures).filter((f) => isObj(f.resultEdit) && isMine(ctx.keys, (f.resultEdit as Obj).by))
               .map((f) => ({ fixture: f.id, home: (f.home as Obj | undefined)?.team, away: (f.away as Obj | undefined)?.team, at: (f.resultEdit as Obj).at })),
@@ -487,14 +487,15 @@ export const STORE_COLLECTORS: StoreCollector[] = [
   },
   {
     id: "tabletop",
-    location: "TABLETOP_DIR (matches/, events/, journals/)",
+    location: "TABLETOP_DIR (matches/, events/, journals/, dice/)",
     export: (ctx) => {
       const out: unknown[] = [];
       let matchFiles: string[] = [];
       try { matchFiles = listFiles(join(ctx.deps.tabletopDir, "matches"), ".json"); } catch { /* none */ }
       for (const path of matchFiles) {
         const m = readJsonLoose<Obj & { id?: string; home?: { coach?: string }; away?: { coach?: string }; createdBy?: string }>(path);
-        if (!m || !(isMine(ctx.keys, m.home?.coach) || isMine(ctx.keys, m.away?.coach) || isMine(ctx.keys, m.createdBy))) continue;
+        const forfeitBy = isObj(m?.forfeit) ? (m!.forfeit as Obj).by : undefined;
+        if (!m || !(isMine(ctx.keys, m.home?.coach) || isMine(ctx.keys, m.away?.coach) || isMine(ctx.keys, m.createdBy) || isMine(ctx.keys, forfeitBy))) continue;
         let events: unknown[] = [];
         try {
           events = readFileSync(join(ctx.deps.tabletopDir, "events", `${String(m.id).replace(/[^\w-]/g, "_")}.ndjson`), "utf8")
@@ -505,7 +506,19 @@ export const STORE_COLLECTORS: StoreCollector[] = [
       let teamFiles: string[] = [];
       try { teamFiles = listFiles(join(ctx.deps.tabletopDir, "teams"), ".json"); } catch { /* none */ }
       const teams = teamFiles.map((p) => readJsonLoose<{ coach?: string }>(p)).filter((c) => c && isMine(ctx.keys, c.coach));
-      return [{ name: "tabletop-matches.json", content: json({ matches: out, teamRevisions: teams }) }];
+      // The dice log (src/dice/log.ts): every roll this coach made, and every block-die choice they submitted.
+      const diceRolls: unknown[] = [];
+      for (const path of listFiles(join(ctx.deps.tabletopDir, "dice"), ".ndjson")) {
+        let text = "";
+        try { text = readFileSync(path, "utf8"); } catch { continue; }
+        for (const line of text.split(/\r?\n/)) {
+          if (!line.trim()) continue;
+          let o: unknown;
+          try { o = JSON.parse(line); } catch { continue; }
+          if (isObj(o) && isMine(ctx.keys, o.by)) diceRolls.push(o);
+        }
+      }
+      return [{ name: "tabletop-matches.json", content: json({ matches: out, teamRevisions: teams, ...(diceRolls.length ? { diceRolls } : {}) }) }];
     },
     erase: ["anonymise-tabletop"],
   },
@@ -711,7 +724,8 @@ team-logos/             Team logos you uploaded.
 tournament-entries.json Your tournament entries, fixtures, the tournaments you run, and tournament awards to or by you.
 league-teams.json       League teams, fixtures, standings and awards linked to your account, awards you gave,
                         Hall of Fame entries you pinned, and leagues you run.
-tabletop-matches.json   Tabletop matches you played or recorded, with their event logs, and your tabletop team history.
+tabletop-matches.json   Tabletop matches you played or recorded, with their event logs, your tabletop team history, and
+                        the dice you rolled in the match recorder (the dice log).
 results.json            Game results with you as home or away coach, your rating title, and your cached NAF games
                         (when your NAF link is verified).
 notifications.json      Your notifications.
@@ -908,6 +922,9 @@ function anonymiseSeason(an: Anonymiser, tx: TextReplacer, displays: ReadonlySet
     if (isObj(f.resultEdit)) mark(an.fields(f.resultEdit, ["by"], []));
     // Team page v2: the organiser who decided the fixture of an inactive team.
     if (isObj(f.inactiveDecision)) mark(an.fields(f.inactiveDecision, ["by"], []));
+    // The organiser who entered a forfeit, or rolled its defections (leagues/forfeit.ts).
+    if (isObj(f.forfeitDetail)) mark(an.fields(f.forfeitDetail, ["by"], []));
+    if (isObj(f.forfeitDraft)) mark(an.fields(f.forfeitDraft, ["by"], []));
   }
   if (isObj(s.deadlinePolicy)) mark(an.fields(s.deadlinePolicy, ["updatedBy"], []));
   for (const p of objs(s.participants)) {
@@ -960,6 +977,9 @@ function anonymiseTabletopMatch(an: Anonymiser, tx: TextReplacer, m: Obj): boole
   mark(an.fields(m.away, ["coach"], []));
   mark(an.fields(m, ["createdBy", "publishedBy"], []));
   mark(an.fields(m.confirmedBy, ["by"], []));
+  // The organiser who entered a forfeit for the match (and the pending marker written before it applied).
+  mark(an.fields(m.forfeit, ["by"], []));
+  mark(an.fields(m.forfeitPending, ["by"], []));
   mark(an.keyedMap(m.confirmations)); // coach -> confirmation time: a known coach-keyed map
   mark(tx.texts(m, ["note"]));
   // Coach's comments (keyed by side, so the seat above carries the coach): their text, and who hid one.
@@ -1250,6 +1270,8 @@ export const DELETE_STEPS: DeleteStep[] = [
         });
       }
       for (const p of listFiles(join(deps.tabletopDir, "events"), ".ndjson")) rewriteNdjson(p, (e) => anonymiseTabletopEvent(an, e));
+      // The dice log: the roller of a roll and the coach who chose a block die (the rolls themselves stay).
+      for (const p of listFiles(join(deps.tabletopDir, "dice"), ".ndjson")) rewriteNdjson(p, (e) => an.fields(e, ["by"], []));
       return "done";
     },
   },

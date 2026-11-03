@@ -13,7 +13,8 @@
  *
  * Points: the phase's own `points` when set, else W3 D1 L0 (DEFAULT_POINTS; no league setting exists yet).
  * Tiebreaks: the phase's own `tiebreaks` when set, else PTS, TD difference, CAS difference, head-to-head, name.
- * A concession or a forfeit counts as the data says (identity.ts fixtureOutcome: the conceding side loses); a suspended
+ * A concession or a forfeit counts as the data says (identity.ts fixtureOutcome: the conceding side loses), less a
+ * forfeit's penalty points; a forfeit marked "No effect on standings" is left out entirely; a suspended
  * 0-0 with no concession is "not played" and is left out; a suspended game with a score counts.
  */
 import { fixtureOutcome } from "./identity.js";
@@ -78,7 +79,7 @@ function phaseFixtures(season: Pick<SeasonRecord, "fixtures">, phase: LeaguePhas
 /** Last results per team (oldest first, at most LATEST_MAX): "W" | "D" | "L". */
 export function latestForm(fixtures: LeagueFixture[]): Map<string, Array<"W" | "D" | "L">> {
   const out = new Map<string, Array<"W" | "D" | "L">>();
-  const ordered = fixtures.map((f, i) => ({ f, i })).filter(({ f }) => fixtureOutcome(f))
+  const ordered = fixtures.map((f, i) => ({ f, i })).filter(({ f }) => fixtureOutcome(f) && !f.forfeit?.noStandings)
     .sort((a, b) => fixtureTime(a.f).localeCompare(fixtureTime(b.f)) || a.f.round - b.f.round || a.i - b.i);
   for (const { f } of ordered) {
     const o = fixtureOutcome(f)!;
@@ -113,7 +114,7 @@ function headToHead(rows: StandingRow[], fixtures: LeagueFixture[], pts: { win: 
     const h = keys.get(teamKey(f.home));
     const a = keys.get(teamKey(f.away));
     const o = fixtureOutcome(f);
-    if (!h || !a || h === a || !o) continue;
+    if (!h || !a || h === a || !o || f.forfeit?.noStandings) continue;
     out.set(h, out.get(h)! + pts[o.home]);
     out.set(a, out.get(a)! + pts[o.away]);
   }
@@ -170,7 +171,7 @@ export function computePhaseStandings(season: Pick<SeasonRecord, "fixtures" | "t
   const stats = new Set<StandingsStat>();
   for (const f of fixtures) {
     const o = fixtureOutcome(f);
-    if (!o) continue;
+    if (!o || f.forfeit?.noStandings) continue; // a forfeit marked "No effect on standings" counts nowhere
     const result = f.fork?.result;
     if (result) for (const k of ["completions", "interceptions", "injuries", "deaths", "fouls"] as const) stats.add(k);
     for (const [me, them, res, mine, theirs] of [
@@ -180,6 +181,9 @@ export function computePhaseStandings(season: Pick<SeasonRecord, "fixtures" | "t
       row.played += 1;
       if (res === "win") row.wins += 1; else if (res === "draw") row.draws += 1; else row.losses += 1;
       row.points += pts[res];
+      // A forfeiting team's penalty points (forfeit dialog, organiser-set) come off its total.
+      const penalty = f.forfeit?.penalty?.[me === f.home ? "home" : "away"] ?? 0;
+      if (penalty > 0) row.points -= penalty;
       row.tdFor += me.score ?? 0;
       row.tdAgainst += them.score ?? 0;
       row.casFor += me.cas ?? 0;

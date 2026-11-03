@@ -348,7 +348,9 @@ import { leagueLobbyFixture, type LeagueLobbyDeps } from "./fixtureLobby/league.
 import { lobbyConfirmRules } from "./fixtureLobby/core.js";
 import { LOBBY_BODY_MAX as TOURNAMENT_LOBBY_BODY_MAX, tournamentLobbyFixture, tournamentLobbyKey, tournamentLobbyPath, tournamentLobbyRoute, type TournamentLobbyDeps } from "./fixtureLobby/tournament.js";
 import { LEAGUE_FIXTURE_REF, leagueFixtureView, recordLeagueFixture, retractLeagueFixture } from "./leagues/tabletopFixtures.js";
-import { FileTabletopRepository } from "./tabletop/store.js";
+import { FileTabletopRepository, type MatchRecord } from "./tabletop/store.js";
+import { FileDiceLog } from "./dice/log.js";
+import { announceForfeit, applyForfeit, forfeitModel, rollDefections, setDefectionRolls, type ForfeitIds } from "./leagues/forfeit.js";
 import { createRecorderWebhook, recorderAnnouncement } from "./tabletop/discord.js";
 import { isAdminTestingPath, testingApi } from "./tabletop/testing.js";
 import { parseTeamRef, saveCaptainError, teamFileFromLibraryDetail, teamFileFromSave } from "./tabletop/teamFile.js";
@@ -822,6 +824,14 @@ function lobbyAuthFor(req: IncomingMessage): { coach: string; method: string; te
 
 // Tabletop match recorder store (env TABLETOP_DIR), created lazily on first use, beside the builder saves by default.
 const TABLETOP_DIR = resolve(process.env.TABLETOP_DIR || join(dirname(LIBRARY_DIR), "tabletop"));
+// The dice log (src/dice/log.ts): every site roll of a match (recorder dice roller, forfeit defections), written before it is shown.
+const diceLog = new FileDiceLog(join(TABLETOP_DIR, "dice"));
+/** A recorder match on a league fixture -> the league forfeit route ids; undefined for any other match. */
+const leagueFixtureIds = (match: MatchRecord): ForfeitIds | undefined => {
+  const m = match.fixtureRef ? LEAGUE_FIXTURE_REF.exec(match.fixtureRef) : null;
+  return m ? { leagueId: m[1]!, seasonId: m[2]!, fixtureId: m[3]! } : undefined;
+};
+const NOT_LEAGUE_FIXTURE = { status: 409, body: { error: "Forfeits are entered on league fixtures; this match is not on one." } };
 
 // Privacy (spec 2026-10-31 §2/§3): GET /api/me/export, POST /api/me/delete, POST /api/admin/coaches/:coach/delete.
 // State (delete journals, pseudonym counter, blocklist, audit) lives in <FORK_STATE_DIR>/privacy/.
@@ -1023,6 +1033,29 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
       return coachLevel(coach) !== "player" || isOrganizer(coach); // a casual match: the recorder's organisers
     },
     publishClock: (matchId, payload) => superService?.publishTabletopClock(matchId, payload),
+    // The dice roller (src/tabletop/dice.ts): its log, the live push to the match room, the kick-off table's ruleset.
+    diceLog,
+    publishDice: (matchId, payload) => superService?.publishTabletopFeature(matchId, "tabletop-dice", payload),
+    rulesetOf: (match) => {
+      const ids = leagueFixtureIds(match);
+      const leagueId = ids?.leagueId ?? match.leagueSeason?.leagueId;
+      const seasonId = ids?.seasonId ?? match.leagueSeason?.seasonId;
+      return leagueId && seasonId ? leagueStore.season(leagueId, seasonId)?.ruleset : undefined;
+    },
+    // The forfeit dialog in the recorder: a league fixture's forfeit routes (src/leagues/forfeit.ts) for its managers.
+    forfeit: {
+      isAdmin: (coach) => isAdmin(coach),
+      model: (match, who) => { const ids = leagueFixtureIds(match); return ids ? forfeitModel({ store: leagueStore, diceLog }, ids, who) : NOT_LEAGUE_FIXTURE; },
+      roll: (match, who, body) => { const ids = leagueFixtureIds(match); return ids ? rollDefections({ store: leagueStore, diceLog }, ids, who, body, { matchId: match.id }) : NOT_LEAGUE_FIXTURE; },
+      settings: (match, who, on) => { const ids = leagueFixtureIds(match); return ids ? setDefectionRolls({ store: leagueStore, diceLog }, ids, who, on) : NOT_LEAGUE_FIXTURE; },
+      apply: async (match, who, body) => {
+        const ids = leagueFixtureIds(match);
+        if (!ids) return NOT_LEAGUE_FIXTURE;
+        if (draftLeagueMatch(leagueStore, match)) return { status: 409, body: { error: "This league is a draft: publish it before entering results." } };
+        return applyForfeit({ store: leagueStore, diceLog }, ids, who, body, { matchId: match.id, announce: false });
+      },
+      announce: async (match) => { const ids = leagueFixtureIds(match); if (ids) await announceForfeit({ store: leagueStore, diceLog }, ids); },
+    },
     // the spectator view follows the game pages' player-lines policy (read here: tabletopDeps can run before that const)
     publicPlayerLines: publicPlayerLinesFromEnv(process.env.GAME_PAGES_PUBLIC_PLAYER_LINES),
     ...(recorderWebhook ? { announce: (a) => {
@@ -2408,6 +2441,7 @@ async function handleApi(
       packageExists: (name) => packages.get(name) !== undefined,
       // a finished league game links its game page only once the results store can serve it (Calendar, Sol 11-03)
       gamePage: (gameId) => { try { return onlineGamePageServes(gameId, tournamentResults.get(gameId)); } catch { return false; } },
+      diceLog,
     });
     if (league) {
       for (const [name, value] of Object.entries(league.headers ?? {})) res.setHeader(name, value);

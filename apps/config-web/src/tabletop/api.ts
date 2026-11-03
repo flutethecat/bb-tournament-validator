@@ -9,13 +9,17 @@
  *   POST /api/tabletop/matches/:id/pregame/advance run / record the current pre-game step (see pregameAdvance)
  *   POST /api/tabletop/matches/:id/pregame/skip    organiser: skip the rest of the pre-game (logged)
  *   POST /api/tabletop/matches/:id/seats/swap      organiser: swap home and away before the pre-game starts (logged)
+ *   GET  /api/tabletop/matches/:id/dice            the dice roller: latest rolls, open block choices, the dice log (dice.ts)
+ *   POST /api/tabletop/matches/:id/dice/roll|choose|log   roll on the server, choose a block die, the "Show dice log" toggle
+ *   GET|POST /api/tabletop/matches/:id/forfeit[/defections|/settings]  managers: the forfeit dialog for a league fixture
  * Auth: Discord session for every write (401 anonymous, 403 non-Discord session / banned / non-participant).
  * The match view (GET /api/tabletop/matches/:id) is also open read-only (owner ruling 10-30): any signed-in coach who is
  * neither a participant nor an organiser gets `role: "spectator"`, and an anonymous visitor (or a non-Discord session)
  * does too when the match is not a test match. Every write from a spectator is refused with 403.
  */
 
-import { createHash, randomBytes, randomInt } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
+import { cryptoRoller, dieFrom, flipCoin, type Roller } from "../dice/roller.js";
 import { nafTimestamp } from "../tournaments/nafExport.js";
 import { BANNED_ACCOUNT_MESSAGE } from "../auth/access.js";
 import type { StoredTournamentResult } from "../tournamentResults.js";
@@ -33,6 +37,9 @@ import {
   type ClockState, type MatchTimers, type TurnTimerPolicy,
 } from "./clock.js";
 import { decorateRoster } from "./eligibility.js";
+import { diceRead, diceWrite } from "./dice.js";
+import type { DiceLogStore } from "../dice/log.js";
+import type { DiceRuleset } from "../dice/tables.js";
 import { withRosterArt } from "./rosterArt.js";
 import { leagueStandings, type LeaguePoints } from "./standings.js";
 import { customOptionExtras, seasonInducementOffers } from "../leagues/inducements.js";
@@ -166,7 +173,9 @@ export interface TabletopApiDeps {
   };
   /** A fixture's team id (the entrant's fork team) as a team the recorder can load for that coach, if it can. */
   resolveFixtureTeam?: (coach: string, teamId: string) => { ref: string; name: string } | undefined;
-  /** Die roller for the server-side pre-game rolls: 1..sides. Default is crypto-random; tests inject. */
+  /** The site roller (src/dice/roller.ts) for every roll here: pre-game, seat draw, the dice roller. Default cryptoRoller; tests inject. */
+  roller?: Roller;
+  /** Die roller for the server-side pre-game rolls: 1..sides. Default is the site roller; tests inject. */
   rollDie?: (sides: number) => number;
   /** The seat draw at match creation: true = swap the home and away the request named. Default is crypto-random
    *  (owner ruling 10-30: seats are randomised for casual, fixture and test matches alike); tests inject. */
@@ -216,6 +225,27 @@ export interface TabletopApiDeps {
   onResult?: (match: MatchRecord, events: readonly TabletopEvent[], teams: Record<Side, TabletopTeamFile | undefined>) => Promise<unknown> | void;
   /** Coach's comments are on for this match's competition (src/discord/comments.ts). Absent = on. */
   commentsEnabled?: (match: MatchRecord) => boolean;
+  /** The dice log (src/dice/log.ts); unset = the dice roller answers 404. */
+  diceLog?: DiceLogStore;
+  /** Live dice sync: push to the match's socket room after a roll or a choice is logged (the Super socket). Fire-and-forget. */
+  publishDice?: (matchId: string, payload: unknown) => void;
+  /** The match's ruleset for the kick-off table (a league season's; default BB2025). */
+  rulesetOf?: (match: MatchRecord) => DiceRuleset | undefined;
+  /** The forfeit dialog for a match on a league fixture (src/leagues/forfeit.ts through server.ts); unset = 404. */
+  forfeit?: TabletopForfeitGateway;
+}
+
+/** The league forfeit routes as the recorder reaches them (the gateway checks the league organiser itself). */
+export interface ForfeitGatewayResult { status: number; body?: unknown; headers?: Record<string, string> }
+export interface TabletopForfeitGateway {
+  model(match: MatchRecord, who: { coach: string; admin: boolean }): ForfeitGatewayResult;
+  roll(match: MatchRecord, who: { coach: string; admin: boolean }, body: Record<string, unknown>): ForfeitGatewayResult;
+  apply(match: MatchRecord, who: { coach: string; admin: boolean }, body: Record<string, unknown>): Promise<ForfeitGatewayResult>;
+  settings(match: MatchRecord, who: { coach: string; admin: boolean }, on: unknown): ForfeitGatewayResult;
+  /** Post the end-of-match report (once), after the forfeit and the match close are both written. */
+  announce?(match: MatchRecord): Promise<void>;
+  /** Is `coach` a site admin (the league routes' admin flag)? */
+  isAdmin?(coach: string): boolean;
 }
 
 /** After a finalising confirm committed: both coaches hear the result is confirmed (never for Testing Suite matches). */
@@ -324,7 +354,7 @@ export async function tabletopApi(
   }
   const captain = await tabletopCaptainApi(method, path, query, body, me, organiser, deps, dropAllSnapshots);
   if (captain) return captain;
-  const m = /^\/api\/tabletop\/matches\/([\w-]{1,64})(?:\/(events|submit|confirm|publish|undo-revision|resolve-conflict|pregame\/advance|pregame\/skip|seats\/swap|turn\/start|turn\/end|turn\/set|inducements|comment|comment\/hide))?$/.exec(path);
+  const m = /^\/api\/tabletop\/matches\/([\w-]{1,64})(?:\/(events|submit|confirm|publish|undo-revision|resolve-conflict|pregame\/advance|pregame\/skip|seats\/swap|turn\/start|turn\/end|turn\/set|inducements|comment|comment\/hide|dice|dice\/roll|dice\/choose|dice\/log|forfeit|forfeit\/defections|forfeit\/settings))?$/.exec(path);
   if (!m) return err(404, "Not found.");
   const id = m[1]!;
   const action = m[2];
@@ -350,6 +380,51 @@ export async function tabletopApi(
   if (!action) {
     if (method !== "GET") return err(405, "Method not allowed.");
     return matchView(match, role, deps, manage);
+  }
+  // The dice roller (dice.ts): seats and organisers only, reads included; writes under the match lock.
+  if (action === "dice" || action.startsWith("dice/")) {
+    const v = { role, manage, me };
+    if (action === "dice") return method === "GET" || method === "HEAD" ? diceRead(match, v, deps) : err(405, "Method not allowed.");
+    if (method !== "POST") return err(405, "Method not allowed.");
+    return serial(id, async () => diceWrite((await repo.getMatch(id))!, action, body, v, deps, now));
+  }
+  // The forfeit dialog for a league fixture (managers of the competition; the league routes check the organiser again).
+  if (action === "forfeit" || action.startsWith("forfeit/")) {
+    if (!manage) return err(403, "Only an organiser of this league (or an admin) can enter a forfeit.");
+    if (!deps.forfeit) return err(404, "Forfeits are not available here.");
+    const who = { coach: me, admin: deps.forfeit.isAdmin?.(me) ?? false };
+    const asResult = (r: ForfeitGatewayResult): TabletopResult => ({ status: r.status, body: r.body ?? {}, ...(r.headers ? { headers: r.headers } : {}) });
+    if (action === "forfeit" && (method === "GET" || method === "HEAD")) return asResult(deps.forfeit.model(match, who));
+    if (method !== "POST") return err(405, "Method not allowed.");
+    const b = (body && typeof body === "object" && !Array.isArray(body) ? body : {}) as Record<string, unknown>;
+    if (action === "forfeit/defections") return asResult(deps.forfeit.roll(match, who, b));
+    if (action === "forfeit/settings") return asResult(deps.forfeit.settings(match, who, b.defectionRolls));
+    return serial(id, async () => {
+      const fresh = (await repo.getMatch(id))!;
+      if (fresh.forfeit) return err(409, "This match was already forfeited.");
+      if (!fresh.forfeitPending && (fresh.state === "confirmed" || fresh.state === "published")) return err(409, `This match is ${fresh.state}: undo its result before entering a forfeit.`);
+      // Two writes (the league fixture, then this match): the pending marker goes first, so a crash between them is finished
+      // by a retry (the league side answers the forfeit it already applied for this match) instead of a 409.
+      const at = now().toISOString();
+      const pending = fresh.forfeitPending ?? { at, by: me };
+      if (!fresh.forfeitPending) await repo.updateMatch({ ...fresh, forfeitPending: pending, updatedAt: at });
+      const out = asResult(await deps.forfeit!.apply(fresh, who, b));
+      if (out.status !== 200) {
+        // refused (bad input, blocked fixture): nothing was applied, so the match is not left pending
+        const now2 = (await repo.getMatch(id))!;
+        const { forfeitPending: _p, ...rest } = now2;
+        await repo.updateMatch(rest as MatchRecord);
+        return out;
+      }
+      // The forfeit replaces the report: the match closes (published, no results row, no team revisions), keeping its score.
+      const score = (out.body as { score?: { home: number; away: number } }).score;
+      const { forfeitPending: _p, ...base } = fresh;
+      const closed: MatchRecord = { ...base, state: "published", forfeit: { at: pending.at, by: pending.by, ...(score ? { score } : {}) }, publishedAt: at, publishedBy: me, updatedAt: at };
+      await repo.updateMatch(closed);
+      // The Discord report only after both writes (fire-and-forget; posted once).
+      void deps.forfeit!.announce?.(closed).catch(() => undefined);
+      return { status: 200, body: { ...(out.body as Record<string, unknown>), match: closed } };
+    }, matchTeamKeys(match));
   }
   // Coach's comments (end-game step): a seat writes its own; a manager of the competition hides one.
   if (action === "comment" || action === "comment/hide") {
@@ -377,6 +452,7 @@ export async function tabletopApi(
       return recoveryFailure(e);
     }
     const fresh = (await repo.getMatch(id))!;
+    if (fresh.forfeit || fresh.forfeitPending) return err(409, "This match was forfeited: its result is the forfeit entered by an organiser.");
     if (action === "events") return postEvents(fresh, me, organiser, body, deps, now, manage);
     if (action === "turn/set") return turnSet(fresh, me, organiser, body, deps, now);
     if (action === "turn/start" || action === "turn/end") return turnAction(fresh, me, organiser, action, body, deps, now);
@@ -530,7 +606,19 @@ async function buildSnapshot(match: MatchRecord, deps: TabletopApiDeps): Promise
 
 /** GET /api/tabletop/matches/:id: the whole match view for a seat or an organiser; a spectator gets the allowlisted
  *  public view model (spectatorView). The page hides every control for a spectator; the server refuses their writes. */
+/** A forfeited match shows the forfeit's score (the result an organiser entered), not the events' count. */
+function withForfeitScore(r: TabletopResult, match: MatchRecord): TabletopResult {
+  const score = match.forfeit?.score;
+  const body = r.body as { tally?: { score?: unknown } } | undefined;
+  if (!score || r.status !== 200 || !body?.tally) return r;
+  return { ...r, body: { ...body, tally: { ...body.tally, score: { home: score.home, away: score.away } }, forfeitScore: score } };
+}
+
 async function matchView(match: MatchRecord, role: ViewerRole, deps: TabletopApiDeps, manage = false): Promise<TabletopResult> {
+  return withForfeitScore(await matchViewInner(match, role, deps, manage), match);
+}
+
+async function matchViewInner(match: MatchRecord, role: ViewerRole, deps: TabletopApiDeps, manage = false): Promise<TabletopResult> {
   const now = deps.now?.() ?? new Date();
   const snap = await matchSnapshot(match, deps);
   const full = {
@@ -766,7 +854,7 @@ export async function createMatch(
   if (home.coach !== me && away.coach !== me && !organiser) return err(403, "You can only record a match you play in (or as an organiser).");
   // Home and away are drawn at random here (owner ruling 10-30), for every kind of match; the request only names the two
   // teams. The fixture check below runs on the drawn seats, so a fixture match records which way round it was played.
-  const swapped = (deps.drawSeats ?? (() => randomInt(2) === 1))();
+  const swapped = (deps.drawSeats ?? (() => flipCoin(deps.roller ?? cryptoRoller)))();
   if (swapped) [home, away] = [away, home];
   if (deps.isBanned(home.coach) || deps.isBanned(away.coach)) return err(403, "A banned account cannot play a recorded match.");
   if (b.league !== undefined && (typeof b.league !== "string" || b.league.length > 60)) return err(400, "league must be a short string.");
@@ -1569,7 +1657,7 @@ async function pregameAdvance(
   const baseTeams = await currentTeams(deps.repo, match);
   if (!baseTeams.home || !baseTeams.away) return err(409, "Team files are missing.");
   const at = now().toISOString();
-  const die = deps.rollDie ?? ((sides: number) => randomInt(1, sides + 1));
+  const die = deps.rollDie ?? dieFrom(deps.roller ?? cryptoRoller);
   const sides = ["home", "away"] as const;
   const out: TabletopEvent[] = [];
   const have = (id: string) => stored.some((e) => e.id === id);

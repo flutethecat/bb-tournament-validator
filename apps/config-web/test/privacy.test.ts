@@ -387,6 +387,10 @@ describe("export", () => {
     expect(leagues[0].awards.map((x: { id: string }) => x.id)).toEqual(["a-1", "a-2"]);
     expect(leagues[0].hallOfFame.map((x: { id: string }) => x.id)).toEqual(["p-1"]);
     expect(JSON.parse(text("tabletop-matches.json")).matches[0].events).toHaveLength(3);
+    // a match she forfeited as an organiser is in her export too
+    expect(JSON.parse(text("tabletop-matches.json")).matches.map((m: { id: string }) => m.id)).toEqual(["tm1", "tm2"]);
+    // the dice log: Alice's roll and her block choice, never Bob's roll
+    expect(JSON.parse(text("tabletop-matches.json")).diceRolls.map((r: { t: string; id?: string; rollId?: string }) => r.id ?? `choice:${r.rollId}`)).toEqual(["r1", "choice:r2"]);
     const results = JSON.parse(text("results.json"));
     expect(results.results.map((r: { gameId: string }) => r.gameId)).toEqual(["g1"]);
     expect(results.title.title).toBe("Star");
@@ -533,8 +537,13 @@ describe("delete", () => {
     const tm = readJ(join(deps.tabletopDir, "matches", "tm1.json"));
     expect(tm.home.coach).toBe(P);
     expect(tm.createdBy).toBe(P);
+    expect(tm.forfeit.by).toBe(P);
+    expect(tm.forfeitPending.by).toBe(P);
+    expect(readJ(join(deps.tabletopDir, "matches", "tm2.json")).forfeit.by).toBe(P);
     expect(Object.keys(tm.confirmations).sort()).toEqual(["Bob", P].sort());
     expect(readFileSync(join(deps.tabletopDir, "events", "tm1.ndjson"), "utf8")).toContain(`"by":"${P}"`);
+    const dice = readFileSync(join(deps.tabletopDir, "dice", "tm1.ndjson"), "utf8").trim().split(/\r?\n/).map((l) => JSON.parse(l));
+    expect(dice.map((l: { by: string }) => l.by)).toEqual([P, "Bob", P]); // the rolls stay, the roller is anonymised
     expect(existsSync(join(deps.tabletopDir, "teams", "chain-alice.json"))).toBe(false);
     expect(existsSync(join(deps.tabletopDir, "teams", "chain-bob.json"))).toBe(true);
     const results = readJ(join(deps.stateDir, "tournament-results.json")).results;

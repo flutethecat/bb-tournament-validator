@@ -585,7 +585,7 @@ describe("tabletop-clock over the Super socket", () => {
     const alice = await open("Alice");
     alice.send({ type: "hello", tabletopId: "tm_socket" });
     const welcome = await alice.waitFor((f) => f.type === "tabletopWelcome");
-    expect(welcome).toMatchObject({ matchId: "tm_socket", coach: "Alice", features: ["tabletop-clock"], clock: { turn: 0 } });
+    expect(welcome).toMatchObject({ matchId: "tm_socket", coach: "Alice", features: ["tabletop-clock", "tabletop-dice"], clock: { turn: 0 } });
     const org = await open("Org");
     org.send({ type: "hello", tabletopId: "tm_socket" });
     await org.waitFor((f) => f.type === "tabletopWelcome");

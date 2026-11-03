@@ -16,7 +16,8 @@
  *     the rest of the team is drafted under the normal rules (11 to 16 players, position limits). Unspent gold becomes
  *     the new team's treasury.
  */
-import { createHash, randomBytes, randomInt } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
+import { cryptoRoller, rollDie } from "../dice/roller.js";
 import { findPosition, findRoster, findSkill, type DatasetPosition, type DatasetRoster } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 import { buildCoachAliases, fixtureOutcome, seasonCoachFacets, teamSeat, type CoachAliases } from "./identity.js";
@@ -242,7 +243,8 @@ export function redraftBoard(
 export const restTarget = (apothecary: boolean): number => (apothecary ? 3 : 4);
 
 export type Roller = () => number;
-export const d6: Roller = () => randomInt(1, 7);
+/** The site roller (src/dice/roller.ts): one fair d6. */
+export const d6: Roller = () => rollDie(cryptoRoller, 6);
 
 /**
  * One roll per niggling injury. mode "site" rolls with `roll`; mode "entered" takes the coach's results per player

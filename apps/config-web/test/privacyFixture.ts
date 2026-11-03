@@ -205,10 +205,13 @@ export async function seed(root: string, opts: SeedOptions = {}): Promise<void> 
   });
 
   // tabletop
-  w(join(d.tabletopDir, "matches", "tm1.json"), { id: "tm1", state: "published", home: { coach: "Alice", teamSaveId: "s1", teamName: "Green Orcs" }, away: { coach: "Bob", teamSaveId: "b1", teamName: "Blue Elves" }, createdBy: "Alice", confirmations: { Alice: "2026-10-01", Bob: "2026-10-01" } });
+  w(join(d.tabletopDir, "matches", "tm1.json"), { id: "tm1", state: "published", home: { coach: "Alice", teamSaveId: "s1", teamName: "Green Orcs" }, away: { coach: "Bob", teamSaveId: "b1", teamName: "Blue Elves" }, createdBy: "Alice", confirmations: { Alice: "2026-10-01", Bob: "2026-10-01" }, forfeit: { at: "2026-10-01", by: "Alice" }, forfeitPending: { at: "2026-10-01", by: "Alice" } });
+  // a match of two other coaches that Alice forfeited as an organiser (export + anonymise of forfeit.by)
+  w(join(d.tabletopDir, "matches", "tm2.json"), { id: "tm2", state: "published", home: { coach: "Bob", teamSaveId: "b1", teamName: "Blue Elves" }, away: { coach: "Carol", teamSaveId: "c1", teamName: "Reds" }, createdBy: "Bob", confirmations: {}, forfeit: { at: "2026-10-02", by: "Alice" } });
   w(join(d.tabletopDir, "events", "tm1.ndjson"), `${JSON.stringify({ seq: 0, by: "Bob", type: "seats", payload: { home: { coach: "Alice" }, away: { coach: "Bob" } } })}\n${JSON.stringify({ seq: 1, by: "Alice", kind: "touchdown" })}\n${JSON.stringify({ seq: 2, by: "Bob", kind: "touchdown" })}\n`);
   w(join(d.tabletopDir, "journals", "tm1.json"), { matchId: "tm1", opId: "o1", kind: "confirm", by: "Alice", homeChain: { expect: { head: 0, revisions: 0 }, target: { saveId: "s1", coach: "Alice", head: 1, revisions: [] } }, result: null, match: { id: "tm1", home: { coach: "Alice" }, away: { coach: "Bob" }, createdBy: "Alice", confirmations: {} } });
   w(join(d.tabletopDir, "teams", "chain-alice.json"), { saveId: "s1", coach: "Alice", head: 0, revisions: [] });
+  w(join(d.tabletopDir, "dice", "tm1.ndjson"), `${JSON.stringify({ t: "roll", id: "r1", logId: "tm1", by: "Alice", kind: "d6", dice: [4], result: { total: 4 } })}\n${JSON.stringify({ t: "roll", id: "r2", logId: "tm1", by: "Bob", kind: "block", dice: [1, 6], result: {} })}\n${JSON.stringify({ t: "choice", rollId: "r2", index: 1, by: "Alice" })}\n`);
   w(join(d.tabletopDir, "teams", "chain-bob.json"), { saveId: "b1", coach: "Bob", head: 0, revisions: [] });
 
   // results, ratings, NAF, replays

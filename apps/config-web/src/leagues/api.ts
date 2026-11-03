@@ -21,6 +21,7 @@
  *   PATCH  /api/leagues/:id/seasons/:seasonId/teams/:teamId       { revision, coachId, allSeasons? } assign a coach account (teamCoach.ts)
  *   POST   /api/leagues/:id/seasons/:seasonId/teams/:teamId/captain { revision, playerId } appoint a new Team Captain (captainApi.ts)
  *   PATCH  /api/leagues/:id/seasons/:seasonId/fixtures/:fixtureId { forkEnabled?, forkAllowLate?, forkCancelled? } Super FUMBBL per fixture
+ *   GET|POST .../fixtures/:fixtureId/forfeit[/defections|/settings]  the forfeit dialog and its defection rolls (forfeit.ts)
  *   GET|POST /api/leagues/:id/seasons/:seasonId/participants, PATCH .../participants/:teamId  Participants tab flags: see participants.ts
  *                                                                 { date?, round?, result? } fixtures editor (events.ts)
  * News and the fixtures editor (create / delete): see events.ts.
@@ -63,6 +64,7 @@ import type { NotificationInput } from "../notifications.js";
 import { buildMilestonePost, buildTestPost, discordEvents, postWebhook as defaultPoster, type DiscordPayload, type WebhookPoster } from "./discord.js";
 import { buildNewsPost, editFixture, leagueEventRoutes, postLeagueEvent, seasonCoaches } from "./events.js";
 import { ChangeMessageError, CONFIRM_AFTER_START_LEAGUE, parseChangeMessage, rulesChangeBody, rulesChangeDiff, rulesChangeNews, rulesNotices, type RulesChangeCoalescer, type RulesState } from "../competition/rulesChange.js";
+import { leagueForfeitRoutes } from "./forfeit.js";
 import { populateSeasonDiscord } from "../discord/api.js";
 import { cleanPayload } from "../discord/clean.js";
 import { leagueCsvFiles, zipFiles } from "./exportZip.js";
@@ -169,8 +171,14 @@ export interface LeagueApiDeps {
   /** Team page v2: coalescing of the coach's "An organiser updated your team" note and the record-change note (teamPage.ts).
    *  Absent = the process-wide one. */
   teamNotices?: RulesChangeCoalescer;
-  /** Rest & Relaxation die for "Roll for me" (tests stub it; default crypto d6). */
+  /** Rest & Relaxation die for "Roll for me" (tests stub it; default the site roller's d6). */
   rollD6?: () => number;
+  /** The site roller (src/dice/roller.ts) for forfeit defection rolls; default cryptoRoller (tests inject). */
+  roller?: import("../dice/roller.js").Roller;
+  /** The dice log (src/dice/log.ts): defection rolls are written here before they are shown. */
+  diceLog?: import("../dice/log.js").DiceLogStore;
+  /** GAME_PAGES_PUBLIC_PLAYER_LINES for the forfeit webhook report (default: the Discord setting). */
+  publicNames?: () => boolean;
   /** Discord webhook poster (tests stub it; default POSTs with fetch). */
   postWebhook?: WebhookPoster;
   /** Play on Super FUMBBL: the fork (forkClient.ts on the server, a stub in tests); unset = not connected (503 on fork actions). */
@@ -430,6 +438,9 @@ export async function leagueApi(
   if (teamBudget) return teamBudget;
   const redraft = await redraftRoutes(method, route.rest, league, auth, deps, query);
   if (redraft) return redraft;
+  // Forfeit dialog (forfeit.ts): GET/POST .../seasons/:seasonId/fixtures/:fixtureId/forfeit[/defections|/settings].
+  const forfeit = await leagueForfeitRoutes(method, route.rest, league, auth, deps);
+  if (forfeit) return forfeit;
   const events = await leagueEventRoutes(method, route.rest, league, auth, deps);
   if (events) return events;
   const participants = await leagueParticipantRoutes(method, route.rest, league, auth, deps);
@@ -1117,7 +1128,7 @@ export function seasonForViewer(league: LeagueRecord, full: SeasonRecord, auth: 
   const teamsCopy = derived.teams.some((t) => t.players.some((p) => p.mngGames !== undefined)) ? structuredClone(derived.teams) : derived.teams;
   if (teamsCopy !== derived.teams) settleServedMng({ ...derived, teams: teamsCopy } as SeasonRecord);
   const season = { ...derived, teams: teamsCopy.map(publicTeam) };
-  const fixtures = season.fixtures.map((f) => (f.forkNotice || f.fork || f.resultEdit ? publicForkState(f, gamePage) : f));
+  const fixtures = season.fixtures.map((f) => (f.forkNotice || f.fork || f.resultEdit || f.forfeitDetail || f.forfeitDraft ? publicForkState(f, gamePage) : f));
   // Organiser-only log entries (team value diff / not recomputed) stay with organisers and admins.
   const manager = Boolean(auth && (auth.admin || isLeagueOrganiser(league, auth.coach)));
   const payment = seasonPayment(league, full, auth, manager);

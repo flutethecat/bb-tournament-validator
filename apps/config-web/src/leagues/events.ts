@@ -416,6 +416,9 @@ export async function editFixture(
       homeCas: parseScore(r.homeCas, "Home casualties", true), awayCas: parseScore(r.awayCas, "Away casualties", true),
     };
   }
+  // A forfeit applied roster changes once: its result is changed only by undoing it (forfeit.ts undoForfeit), which reverses
+  // them; defection rolls stay with the fixture either way, so nothing is ever rerolled or applied twice.
+  if (result !== undefined && fixture.forfeit) throw new SettingsError(409, "This fixture holds a forfeit. Undo the forfeit first (Forfeit dialog): that reverses its roster changes.", "result");
   // A team in an open redraft window (or still needing its redraft) cannot play: no result for it (redraftWindow.ts).
   if (result) {
     const blocked = fixtureRedraftBlock(deps.store.seasons(league.id), fixture, deps.now?.() ?? new Date());

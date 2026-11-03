@@ -389,7 +389,7 @@ export class SuperService {
     this.tabletopRooms.set(matchId, joined);
     let clock: unknown = null;
     try { clock = await bridge.clock(matchId); } catch { /* the first clock event will carry it */ }
-    this.safeSend(conn, { type: "tabletopWelcome", v: 1, matchId, coach, features: ["tabletop-clock"], clock });
+    this.safeSend(conn, { type: "tabletopWelcome", v: 1, matchId, coach, features: ["tabletop-clock", "tabletop-dice"], clock });
   }
 
   // -- Coach notification rooms (landing spec §4.1) ---------------------------------------------------------
@@ -442,6 +442,17 @@ export class SuperService {
     const room = this.tabletopRooms.get(matchId);
     if (!room) return;
     const text = JSON.stringify({ type: "event", v: 1, matchId, coach: "", feature: "tabletop-clock", payload, ts: Date.now() });
+    for (const c of [...room]) {
+      if (!this.lobbySessionValid(c)) { c.close(); continue; }
+      try { c.send(text); } catch { /* ignore */ }
+    }
+  }
+
+  /** Push another tabletop feature (e.g. `tabletop-dice`, the dice roller's live sync) to the same match room. */
+  publishTabletopFeature(matchId: string, feature: string, payload: unknown): void {
+    const room = this.tabletopRooms.get(matchId);
+    if (!room) return;
+    const text = JSON.stringify({ type: "event", v: 1, matchId, coach: "", feature, payload, ts: Date.now() });
     for (const c of [...room]) {
       if (!this.lobbySessionValid(c)) { c.close(); continue; }
       try { c.send(text); } catch { /* ignore */ }
