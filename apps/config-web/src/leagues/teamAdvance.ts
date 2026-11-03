@@ -42,8 +42,9 @@ export interface AdvanceCtx {
   logRoll: (roll: DiceRoll) => void;
   /** The team's dice log (an unsaved earlier roll is restored from it, never rolled again). */
   readRolls: () => DiceRoll[];
-  /** Told the id of the roll this request stored (the route marks it saved in the log once the season is written). */
-  rolled?: (id: string) => void;
+  /** Told which logged roll this request settled (the route marks it in that roll's log once the season is written):
+   *  "saved" = stored on the player, "void" = an unsaved roll that no longer fits the player, set aside uncharged. */
+  rolled?: (id: string, logId: string, mark: "saved" | "void") => void;
 }
 
 const who = (p: LeaguePlayer): string => `${p.name || p.position}${p.number !== null ? ` (#${p.number})` : ""}`;
@@ -87,8 +88,23 @@ function takeSkill(p: LeaguePlayer, skill: string, access: "primary" | "secondar
 export function unsavedRoll(rolls: readonly DiceRoll[], p: Pick<LeaguePlayer, "playerId" | "advanceRolls" | "pendingAdvance">): DiceRoll | undefined {
   const mine = rolls.filter((r) => (r.kind === "advance-skill" || r.kind === "advance-stat") && r.result?.playerId === p.playerId);
   const last = mine.at(-1);
-  if (!last || last.choice || (p.advanceRolls ?? []).includes(last.id) || p.pendingAdvance?.id === last.id) return undefined;
+  // Only rolls written by this recovery-aware format (result.v 2, which also records advanceRolls) can be restored: an
+  // older roll has no saved marker to tell, so it is never re-applied.
+  if (!last || last.result?.v !== 2 || last.choice || (p.advanceRolls ?? []).includes(last.id) || p.pendingAdvance?.id === last.id) return undefined;
   return last;
+}
+
+/** Why a logged-but-unsaved roll no longer fits the player ("" = it still fits and is restored). */
+function voidReason(orphan: DiceRoll, p: LeaguePlayer, count: number, primary: readonly string[]): string {
+  const res = orphan.result as Record<string, unknown>;
+  if (res.count !== count) return "an advancement was taken since it was rolled";
+  if (orphan.kind === "advance-skill") {
+    const picks = (res.picks ?? []) as string[];
+    const owned = new Set(p.skills.map((x) => x.toLowerCase()));
+    const bad = picks.find((x) => owned.has(x.toLowerCase()) || !primary.includes(x));
+    if (bad) return `${who(p)} can't take ${bad} any more`;
+  }
+  return "";
 }
 
 /** { op: "rollAdvance" }: rolls (or restores an unsaved roll from the log), logs, stores the pending choice (or takes a
@@ -102,17 +118,24 @@ export function rollAdvance(ctx: AdvanceCtx, raw: Record<string, unknown>): Chan
   const count = advancementCount(p, pos);
   const choices = skillChoices(p, pos);
   const admin = ctx.mode === "organiser";
-  const record = (id: string): void => { p.advanceRolls = [...(p.advanceRolls ?? []), id].slice(-20); ctx.rolled?.(id); };
+  const record = (id: string, logId: string): void => { p.advanceRolls = [...(p.advanceRolls ?? []), id].slice(-20); ctx.rolled?.(id, logId, "saved"); };
 
-  // An earlier roll that was logged but never saved comes back, whatever was asked this time.
+  // An earlier roll that was logged but never saved comes back, whatever was asked this time, if it still fits the
+  // player as they are now; otherwise it is voided (no charge, said in the history) and the coach rolls again.
   const orphan = unsavedRoll(ctx.readRolls(), p);
   if (orphan) {
+    const why = voidReason(orphan, p, count, choices.primary);
+    if (why) {
+      p.advanceRolls = [...(p.advanceRolls ?? []), orphan.id].slice(-20);
+      ctx.rolled?.(orphan.id, orphan.logId, "void");
+      return [{ what: `${who(p)}: an earlier unsaved roll was voided (${why}); no SPP charged. Roll again.` }];
+    }
     const res = orphan.result as Record<string, unknown>;
     const cost = typeof res.cost === "number" ? res.cost : Number.NaN;
     if (!Number.isSafeInteger(cost) || cost <= 0) throw new AdvanceError(409, "An earlier roll for this player could not be restored. Ask an organiser.");
     if (p.availableSpp < cost) throw new AdvanceError(409, `An earlier roll for ${who(p)} (${cost} SPP) is waiting to be restored, but the player now has ${p.availableSpp} SPP. Ask an organiser.`);
     p.availableSpp -= cost;
-    record(orphan.id);
+    record(orphan.id, orphan.logId);
     const meta = { id: orphan.id, at: orphan.at, by: orphan.by, ...(orphan.admin ? { admin: true as const } : {}), cost, count };
     if (orphan.kind === "advance-skill") {
       const category = String(res.category ?? "");
@@ -157,10 +180,10 @@ export function rollAdvance(ctx: AdvanceCtx, raw: Record<string, unknown>): Chan
     const r = rollRandomSkill(ctx.roller, category, (sk) => primary.has(sk));
     ctx.logRoll({
       ...base, kind: "advance-skill", purpose: `Random Primary skill (${category}) for ${who(p)}`, dice: r.rolls.flatMap((x) => x.dice),
-      result: { team: ctx.team.name, playerId: p.playerId, player: who(p), category, rolls: r.rolls, picks: r.picks, forced: r.forced, cost },
+      result: { v: 2, team: ctx.team.name, playerId: p.playerId, player: who(p), category, rolls: r.rolls, picks: r.picks, forced: r.forced, cost, count },
     });
     p.availableSpp -= cost;
-    record(id);
+    record(id, ctx.logId);
     const lines: Change[] = [{ what: `${who(p)} rolled a Random Primary skill (${category}, ${cost} SPP)${behalf(ctx)}`, to: r.rolls.map(rollLine).join(", ") }];
     if (r.forced) {
       takeSkill(p, r.picks[0], "primary", count);
@@ -174,10 +197,10 @@ export function rollAdvance(ctx: AdvanceCtx, raw: Record<string, unknown>): Chan
   const stats = statChoices(p, pos, roll);
   ctx.logRoll({
     ...base, kind: "advance-stat", purpose: `Characteristic Improvement (D8) for ${who(p)}`, dice: [roll],
-    result: { team: ctx.team.name, playerId: p.playerId, player: who(p), roll, allowed: [...(CHARACTERISTIC_TABLE[roll] ?? [])], choices: stats, cost },
+    result: { v: 2, team: ctx.team.name, playerId: p.playerId, player: who(p), roll, allowed: [...(CHARACTERISTIC_TABLE[roll] ?? [])], choices: stats, cost, count },
   });
   p.availableSpp -= cost;
-  record(id);
+  record(id, ctx.logId);
   p.pendingAdvance = {
     id, kind: "characteristic", at: ctx.at, by: ctx.actor, ...(admin ? { admin: true as const } : {}), cost, count, roll, choices: stats,
     skills: { primary: choices.primary, secondary: choices.secondary },

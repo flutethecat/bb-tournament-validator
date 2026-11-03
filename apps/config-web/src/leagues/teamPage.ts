@@ -44,7 +44,7 @@ import {
   advanceCostOf, type AdvancementPriceMethod, type InjuryType, type StaffKey,
 } from "./teamOps.js";
 import { refreshTeamValue } from "./teamValue.js";
-import { AdvanceError, randomCategories, resolveAdvance, rollAdvance } from "./teamAdvance.js";
+import { AdvanceError, randomCategories, resolveAdvance, rollAdvance, unsavedRoll } from "./teamAdvance.js";
 import { cryptoRoller } from "../dice/roller.js";
 import { teamLogId, type DiceRoll } from "../dice/log.js";
 import { EMPTY_PLAYER_STATS, type LeagueFixture, type LeaguePlayer, type LeagueRecord, type LeagueTeam, type SeasonRecord, type TeamHistoryEntry } from "./types.js";
@@ -136,6 +136,19 @@ export interface TeamPageView {
  *  which exist before the first write (a uid minted by a write that then fails would move the log, and an unsaved roll
  *  must be found again on the retry). */
 export const teamAdvanceLogId = (leagueId: string, seasonId: string, teamId: string): string => teamLogId(`league:${leagueId}:${seasonId}:${teamId}`);
+/** Every log a team's advancement rolls may sit in, oldest key first: the first build keyed it by the team's uid (or
+ *  `id:<teamId>` before one existed); reads merge them so no logged roll goes missing. New rolls go to the current key. */
+export function teamAdvanceLogIds(leagueId: string, seasonId: string, team: Pick<LeagueTeam, "id" | "teamUid">): string[] {
+  const legacy = [...(team.teamUid ? [teamLogId(`league:${leagueId}:${team.teamUid}`)] : []), teamLogId(`league:${leagueId}:id:${team.id}`)];
+  return [...legacy, teamAdvanceLogId(leagueId, seasonId, team.id)];
+}
+/** The team's advancement rolls from every key, oldest first. */
+export function readTeamAdvanceLog(diceLog: Pick<NonNullable<LeagueApiDeps["diceLog"]>, "read">, leagueId: string, seasonId: string, team: Pick<LeagueTeam, "id" | "teamUid">): DiceRoll[] {
+  const seen = new Set<string>();
+  return teamAdvanceLogIds(leagueId, seasonId, team).flatMap((id) => diceLog.read(id))
+    .filter((r) => (seen.has(r.id) ? false : (seen.add(r.id), true)))
+    .sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+}
 
 export function teamPageView(league: LeagueRecord, stored: SeasonRecord, teamId: string, auth: LeagueApiIdentity | undefined, diceLog?: Pick<NonNullable<LeagueApiDeps["diceLog"]>, "read">): TeamPageView | undefined {
   const season = structuredClone(stored);
@@ -174,7 +187,7 @@ export function teamPageView(league: LeagueRecord, stored: SeasonRecord, teamId:
     limits: rosterLimitErrors(team, roster),
     injuries: injuryTable(season.ruleset),
     advancement,
-    diceLog: (diceLog?.read(teamAdvanceLogId(league.id, season.id, team.id)) ?? []).slice(-50).reverse(),
+    diceLog: (diceLog ? readTeamAdvanceLog(diceLog, league.id, season.id, team) : []).slice(-50).reverse(),
     ...(organiser ? { skills: allSkills(), fixtures: decidable.map((f) => fixtureRow(f, team)) } : {}),
     needDecision: organiser ? fixturesNeedingDecision(season, team).length : 0,
     history: team.history ?? [],
@@ -214,7 +227,7 @@ type Change = TeamHistoryEntry["changes"][number];
 interface OpCtx {
   season: SeasonRecord; team: LeagueTeam; roster: DatasetRoster | undefined; mode: "coach" | "organiser"; pregame: boolean; actor: string; at: string; games: number; usedIds: Set<string>;
   /** Advancement rolls (teamAdvance.ts): the site roller and the team's dice log. Absent = rolls are unavailable (503). */
-  dice?: { roller: import("../dice/roller.js").Roller; logId: string; logRoll: (roll: DiceRoll) => void; readRolls: () => DiceRoll[]; rolled?: (id: string) => void };
+  dice?: { roller: import("../dice/roller.js").Roller; logId: string; logRoll: (roll: DiceRoll) => void; readRolls: () => DiceRoll[]; rolled?: (id: string, logId: string, mark: "saved" | "void") => void };
 }
 
 const TEAM_NUMBER_FIELDS = ["treasury", "rerolls", "fans", "assistantCoaches", "cheerleaders"] as const;
@@ -471,6 +484,11 @@ export function applyOp(ctx: OpCtx, raw: unknown): Change[] {
     case "advance":
       if (!coach) throw new OpError(400, "Organisers add skills directly (op addSkill).");
       if (ctx.pregame) throw new OpError(403, "Advancements come from SPP earned in games.");
+      {
+        // a logged roll that never reached the season binds the player: restore (or void) it first by rolling again
+        const p = ctx.team.players.find((x) => x.playerId === o.playerId);
+        if (p && ctx.dice && unsavedRoll(ctx.dice.readRolls(), p)) throw new OpError(409, "An earlier advancement roll for this player was never saved. Roll again to restore it before taking another advancement.");
+      }
       return [advance(ctx, o.playerId, o.skill, o.method)];
     case "rollAdvance":
     case "resolveAdvance": {
@@ -638,7 +656,7 @@ export async function teamPageRoutes(
   ensureTeamIdentity(team);
   let changes: Change[] = [];
   /** The advancement roll this request stored: marked saved in the dice log once the season is written. */
-  let savedRoll: { logId: string; id: string } | undefined;
+  let savedRoll: { logId: string; id: string; mark: "saved" | "void" } | undefined;
   let kind: TeamHistoryEntry["kind"] = mode === "coach" ? "coach-edit" : "organiser-edit";
   try {
     if (action === "edit") {
@@ -656,8 +674,8 @@ export async function teamPageRoutes(
       const dice = diceLog ? {
         roller: deps.roller ?? cryptoRoller, logId,
         logRoll: (r: DiceRoll) => { try { diceLog.appendRoll(r); } catch { throw new OpError(500, "The roll could not be logged, so it was not made. Try again."); } },
-        readRolls: () => diceLog.read(logId),
-        rolled: (id: string) => { savedRoll = { logId, id }; },
+        readRolls: () => readTeamAdvanceLog(diceLog, lg.id, season.id, team),
+        rolled: (id: string, rollLog: string, mark: "saved" | "void") => { savedRoll = { logId: rollLog, id, mark }; },
       } : undefined;
       const ctx: OpCtx = { season, team, roster: datasetRoster(team.race), mode, pregame, actor: auth.coach, at, games: teamGamesPlayed(season, team.id), usedIds, ...(dice ? { dice } : {}) };
       const limitsBefore = rosterLimitMetrics(before, ctx.roster);
@@ -703,7 +721,7 @@ export async function teamPageRoutes(
     return fail(500, "Could not save the team right now.");
   }
   // The roll is in the season now: mark it saved in the log (best effort; the season's advanceRolls also says so).
-  if (savedRoll) { try { deps.diceLog?.appendChoice(savedRoll.logId, savedRoll.id, { index: 0, face: "saved", by: auth.coach, at }); } catch { /* the season record suffices */ } }
+  if (savedRoll) { try { deps.diceLog?.appendChoice(savedRoll.logId, savedRoll.id, { index: 0, face: savedRoll.mark, by: auth.coach, at }); } catch { /* the season record suffices */ } }
   if (kind !== "coach-edit" && !(kind === "advancement" && mode === "coach")) sendTeamNotices(lg, season, team, auth.coach, changes.map(changeLine), deps);
   const saved = deps.store.season(lg.id, season.id) ?? season;
   return ok({ ok: true, revision: saved.revision ?? 0, view: teamPageView(lg, saved, team.id, auth, deps.diceLog) });

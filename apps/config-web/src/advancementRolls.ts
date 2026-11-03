@@ -68,8 +68,9 @@ export const SKILL_RESTRICTIONS: Readonly<Record<string, { needsAny?: readonly s
   Saboteur: { needsAny: ["Secret Weapon"] },
   Bullseye: { needsAny: ["Throw Team-mate"] },
   "Strong Arm": { needsAny: ["Throw Team-mate"] },
-  // a trait (or Monstrous Mouth) that grants a Special Action
-  "Violent Innovator": { needsAny: ["Ball & Chain", "Bombardier", "Breathe Fire", "Chainsaw", "Hypnotic Gaze", "Kick Team-mate", "Monstrous Mouth", "Projectile Vomit", "Stab"] },
+  // a TRAIT that grants a Special Action (the eight Traits whose text names one; Monstrous Mouth's Chomp and Punt are
+  // Skills, Throw Team-mate grants an Action, not a Special Action)
+  "Violent Innovator": { needsAny: ["Ball & Chain", "Bombardier", "Breathe Fire", "Chainsaw", "Hypnotic Gaze", "Kick Team-mate", "Projectile Vomit", "Stab"] },
   Frenzy: { excludes: ["Grab", "Hit and Run", "Multiple Block", "Ball & Chain"] },
   Grab: { excludes: ["Frenzy", "Ball & Chain"] },
   "Multiple Block": { excludes: ["Frenzy", "Ball & Chain"] },

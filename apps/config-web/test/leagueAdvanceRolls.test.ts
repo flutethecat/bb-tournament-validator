@@ -8,7 +8,7 @@ import { CHARACTERISTIC_TABLE, rollRandomSkill, skillTable, skillTakeBlock, tabl
 import { skillChoices } from "../src/leagues/teamOps";
 import { findPosition } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
-import { MemoryDiceLog } from "../src/dice/log";
+import { MemoryDiceLog, teamLogId } from "../src/dice/log";
 import { sequenceRoller, type Roller } from "../src/dice/roller";
 import { leagueApi, type LeagueApiDeps, type LeagueApiIdentity, type LeagueApiResult } from "../src/leagues/api";
 import { LeagueStore } from "../src/leagues/store";
@@ -103,6 +103,9 @@ describe("BB2025 taking restrictions (advancementRolls.ts skillTakeBlock)", () =
     expect(skillTakeBlock("Strong Arm", [])).toMatch(/Throw Team-mate/);
     expect(skillTakeBlock("Violent Innovator", ["Stab"])).toBe("");
     expect(skillTakeBlock("Violent Innovator", ["Block"])).toMatch(/needs/);
+    expect(skillTakeBlock("Violent Innovator", ["Monstrous Mouth"])).toMatch(/needs/); // a Mutation skill, not a Trait
+    expect(skillTakeBlock("Violent Innovator", ["Punt"])).toMatch(/needs/); // a Skill too
+    for (const t of ["Ball & Chain", "Bombardier", "Breathe Fire", "Chainsaw", "Hypnotic Gaze", "Kick Team-mate", "Projectile Vomit", "Stab"]) expect(skillTakeBlock("Violent Innovator", [t]), t).toBe("");
     expect(skillTakeBlock("Grab", ["Frenzy"])).toMatch(/can't be combined with Frenzy/);
     expect(skillTakeBlock("Frenzy", ["Multiple Block"])).toMatch(/Multiple Block/);
     expect(skillTakeBlock("Hit And Run", ["Frenzy"])).toMatch(/Frenzy/);
@@ -232,6 +235,44 @@ describe("league team page: advancement by roll", () => {
     store.putSeason(s);
     expect((await rollStat()).status).toBe(200);
     expect(p1().pendingAdvance).toMatchObject({ roll: 8 });
+  });
+
+  it("Sol: an unsaved double can't be bought twice: other advancements wait for it, and a roll that no longer fits is voided uncharged", async () => {
+    roller = sequenceRoller([1, 2, 1, 2]); // double Dauntless
+    const put = store.putSeason.bind(store);
+    let fail = true;
+    store.putSeason = ((x: SeasonRecord) => { if (fail) { fail = false; throw new Error("disk full"); } return put(x); }) as typeof store.putSeason;
+    expect((await rollRandom()).status).toBe(500);
+    expect(p1().skills).not.toContain("Dauntless");
+    // the coach tries to buy Dauntless while the logged double is unsaved: refused
+    const bought = await edit(COACH, "coach", [{ op: "advance", playerId: "p1", skill: "Dauntless", method: "chosenPrimary" }]);
+    expect(bought.status).toBe(409);
+    expect((bought.body as { error: string }).error).toMatch(/Roll again to restore it/);
+    expect(p1().availableSpp).toBe(20);
+    // an organiser adds Dauntless directly in the meantime: the logged double no longer fits and is voided, uncharged
+    expect((await edit(ORG, "organiser", [{ op: "addSkill", playerId: "p1", skill: "Dauntless" }])).status).toBe(200);
+    roller = sequenceRoller([4, 6, 1, 3]);
+    const retry = await rollRandom();
+    expect(retry.status).toBe(200);
+    expect(p1().skills.filter((x) => x === "Dauntless")).toHaveLength(1);
+    expect(p1().availableSpp).toBe(20);
+    expect(p1().pendingAdvance).toBeUndefined();
+    const v = await view();
+    expect(v.history[0]!.changes[0]!.what).toMatch(/earlier unsaved roll was voided \(.*\); no SPP charged/);
+    expect(log.read(v.diceLog[0]!.logId)[0]!.choice).toMatchObject({ face: "void" });
+    // the next roll is a fresh one
+    expect((await rollRandom()).status).toBe(200);
+    expect(p1().pendingAdvance).toMatchObject({ choices: ["Wrestle", "Fend"] });
+  });
+
+  it("a roll saved under the first build's log key is still in the view, and never restored (it has no saved marker)", async () => {
+    log.appendRoll({ id: "rOLD1", logId: teamLogId("league:lg:id:rollers"), at: "2026-11-03T09:00:00.000Z", by: "dee", kind: "advance-stat", purpose: "D8", dice: [3], result: { playerId: "p1", roll: 3, choices: ["AV"], cost: 14 } });
+    const before = await view();
+    expect(before.diceLog.map((r) => r.id)).toEqual(["rOLD1"]);
+    roller = sequenceRoller([7]);
+    expect((await rollStat()).status).toBe(200);
+    expect(p1().pendingAdvance).toMatchObject({ roll: 7 }); // fresh dice, not the legacy 3
+    expect((await view()).diceLog.map((r) => r.dice[0])).toEqual([7, 3]); // both keys merged, newest first
   });
 
   it("random rolls reroll results the restrictions forbid (a Frenzy player never gets Grab or Multiple Block)", async () => {
