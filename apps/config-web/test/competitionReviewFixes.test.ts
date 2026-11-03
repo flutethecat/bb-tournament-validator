@@ -11,6 +11,7 @@ import { bb2025 } from "@bb/validator/dataset";
 import { houseRulesStamp, parseHouseRules, type HouseRules } from "../src/competition/houseRules.js";
 import { applyHouseRulesToPackage, HOUSE_RULE_STAT_RULE_ID, houseRuleStatRule, houseRuleValidatorRules } from "../src/competition/packageOverlay.js";
 import { tournamentApi, type TournamentApiDeps, type TournamentApiIdentity } from "../src/tournaments/api.js";
+import { RulesChangeCoalescer } from "../src/competition/rulesChange.js";
 import { HOUSE_RULES_CHANGED_PROBLEM, TournamentStore } from "../src/tournaments/store.js";
 import type { TournamentSubmission } from "../src/tournaments/types.js";
 
@@ -26,6 +27,11 @@ function deps(store: TournamentStore, ignoreHouseRules = false): TournamentApiDe
     store, now: () => now, packageExists: (n) => n === "Rules", teamOwner: (id) => TEAMS[id],
     teamBuild: (id) => (TEAMS[id] ? { teamName: `${TEAMS[id]} XI`, race: "Orc" } : undefined),
     registeredCoach: (n) => n,
+    revalidateSubmission: (_coach, submission, packageName, at, houseRules) => ({
+      ...submission,
+      validation: { ok: true, problems: [], checkedAt: at.toISOString(), packageName, ...(!ignoreHouseRules && houseRulesStamp(houseRules) ? { houseRulesKey: houseRulesStamp(houseRules) } : {}) },
+    }),
+    rulesNotices: new RulesChangeCoalescer(0, () => undefined),
     validateSubmission: (coach, ref, packageName, at, houseRules): TournamentSubmission => ({
       saveId: ref, revision: "r1", submittedAt: at.toISOString(), teamName: `${coach} XI`, race: "Orc", snapshot: { coach },
       validation: {

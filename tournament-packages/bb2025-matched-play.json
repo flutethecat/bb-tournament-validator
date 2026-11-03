@@ -2,8 +2,8 @@
   "$schema": "../schemas/tournament-package.schema.json",
   "name": "BB2025 Matched Play",
   "ruleset": "bb2025-default",
-  "description": "BB2025 matched play (the core rules' Matched Play section): a 1,150,000 gold team draft, at least 11 players, inducements and sideline staff bought on the draft list, no advancement between games. Four tiers get 6, 8, 9 or 10 Skill Points: a Primary skill costs 1 SP, a Secondary 2 SP, one added skill per player, at most 4 Elite skills. Star Players cost their gold plus 2 SP (a Mega-star 4 SP, at most one); at most 2 Star Players, and a hired pair counts as one pick. Purchased skills add no value.",
-  "dataNote": "Sources: bloodbowlbase.ru BB2025 core rules, Matched Play section and the Latest FAQ (Team Tiers May 2026, Mega-stars), read 2026-11-02; cross-checked with the repo's BB2025 dataset. Hand-check: 1. Tier 1 teams may hire at most 1 Star Player (Tiers 2-4: 2). 2. Secondary skills are capped per tier: Tier 1 one, Tier 2 two, Tier 3 three, Tier 4 four. 3. Teams start with 0 Dedicated Fans. 4. The rules leave the budget to the event (1,100,000 / 1,150,000 / 1,200,000 are common): this card uses 1,150,000; duplicate it to change. 5. Unspent gold is lost. 6. The site's tier table flattens badly: Shambling Undead (Tier 2), Underworld Denizens (Tier 3) and Skaven (Tier 1) were read by column order and should be checked against the published table. Slann is not on the May 2026 tier list and is left out.",
+  "description": "BB2025 matched play (the core rules' Matched Play section): a 1,150,000 gold team draft, at least 11 players, inducements and sideline staff bought on the draft list (no free Dedicated Fans), no advancement between games. Four tiers get 6, 8, 9 or 10 Skill Points and 1, 2, 3 or 4 Secondary skills: a Primary skill costs 1 SP, a Secondary 2 SP, one added skill per player, each Elite skill at most 4 times. Star Players cost their gold plus 2 SP (a Mega-star 4 SP, at most one): Tier 1 may hire 1, Tiers 2-4 up to 2, and a hired pair counts as one pick. Purchased skills add no value.",
+  "dataNote": "Sources: bloodbowlbase.ru BB2025 core rules, Matched Play section, and its Latest FAQ (Team Tiers May 2026, Mega-stars), read 2026-11-02; cross-checked with the Games Workshop team tiers PDF dated October 2025 (assets.warhammer-community.com) and the repo's BB2025 dataset. Tiers follow May 2026; the October 2025 PDF had Dwarf in Tier 1 (May 2026 lists it in Tier 2). Hand-check: 1. The rules leave the budget to the event (1,100,000 / 1,150,000 / 1,200,000 are common): this card uses 1,150,000; duplicate it to change. 2. Unspent gold is lost. 3. Slann is not on the May 2026 tier list and is left out.",
   "eligibleRosters": [
     "Amazon",
     "Chaos Dwarf",
@@ -11,8 +11,8 @@
     "High Elf",
     "Lizardmen",
     "Norse",
-    "Orc",
-    "Skaven",
+    "Old World Alliance",
+    "Underworld Denizens",
     "Wood Elf",
     "Bretonnian",
     "Dwarf",
@@ -20,7 +20,9 @@
     "Human",
     "Imperial Nobility",
     "Necromantic Horror",
+    "Orc",
     "Shambling Undead",
+    "Skaven",
     "Tomb Kings",
     "Vampire",
     "Black Orc",
@@ -28,8 +30,6 @@
     "Chaos Renegade",
     "Khorne",
     "Nurgle",
-    "Old World Alliance",
-    "Underworld Denizens",
     "Gnome",
     "Goblin",
     "Halfling",
@@ -47,8 +47,8 @@
         "High Elf",
         "Lizardmen",
         "Norse",
-        "Orc",
-        "Skaven",
+        "Old World Alliance",
+        "Underworld Denizens",
         "Wood Elf"
       ],
       "gold": null,
@@ -57,7 +57,9 @@
           "label": "Tier 1: 6 Skill Points",
           "gold": 1150000,
           "skillPointBudget": 6,
-          "maxPerPlayer": 1
+          "maxPerPlayer": 1,
+          "maxSecondarySkills": 1,
+          "maxStars": 1
         }
       ],
       "starPlayersAllowed": true,
@@ -73,7 +75,9 @@
         "Human",
         "Imperial Nobility",
         "Necromantic Horror",
+        "Orc",
         "Shambling Undead",
+        "Skaven",
         "Tomb Kings",
         "Vampire"
       ],
@@ -83,7 +87,9 @@
           "label": "Tier 2: 8 Skill Points",
           "gold": 1150000,
           "skillPointBudget": 8,
-          "maxPerPlayer": 1
+          "maxPerPlayer": 1,
+          "maxSecondarySkills": 2,
+          "maxStars": 2
         }
       ],
       "starPlayersAllowed": true,
@@ -97,9 +103,7 @@
         "Chaos Chosen",
         "Chaos Renegade",
         "Khorne",
-        "Nurgle",
-        "Old World Alliance",
-        "Underworld Denizens"
+        "Nurgle"
       ],
       "gold": null,
       "skillPackages": [
@@ -107,7 +111,9 @@
           "label": "Tier 3: 9 Skill Points",
           "gold": 1150000,
           "skillPointBudget": 9,
-          "maxPerPlayer": 1
+          "maxPerPlayer": 1,
+          "maxSecondarySkills": 3,
+          "maxStars": 2
         }
       ],
       "starPlayersAllowed": true,
@@ -129,7 +135,9 @@
           "label": "Tier 4: 10 Skill Points",
           "gold": 1150000,
           "skillPointBudget": 10,
-          "maxPerPlayer": 1
+          "maxPerPlayer": 1,
+          "maxSecondarySkills": 4,
+          "maxStars": 2
         }
       ],
       "starPlayersAllowed": true,
@@ -151,7 +159,7 @@
     "skillCostSP": {},
     "maxPerPlayer": 1,
     "maxSameSkillTeamwide": null,
-    "eliteMaxTotal": 4
+    "eliteMaxSameSkill": 4
   },
   "goldBudget": 1150000,
   "starPlayers": {
@@ -661,7 +669,8 @@
     "maxApothecary": 1,
     "maxCheerleaders": null,
     "maxAssistantCoaches": null,
-    "maxDedicatedFans": null
+    "maxDedicatedFans": null,
+    "dedicatedFansStart": 0
   },
   "special": {
     "insignificantTraitConstraint": true,
@@ -670,5 +679,6 @@
     "statIncreasesAllowed": false,
     "bannedSkills": [],
     "minPlayers": 11
-  }
+  },
+  "staffPrices": {}
 }

@@ -80,6 +80,9 @@ export function resolveBuilderPackage(
   baseline: TournamentPackage,
   packageName: string | undefined,
   league?: (name: string) => ResolvedBuilderPackage | { error: string } | undefined,
+  /** drafts: false = a package whose own visibility is "draft" answers as unknown (creation wizards v2). Absent = server
+   *  internal callers (a competition's own roster checks), which may read it. */
+  opts: { drafts?: boolean } = {},
 ): ResolvedBuilderPackage | { error: string } {
   if (!packageName) return { pkg: baseline };
   // League mode (lane L7): "league:<leagueId>:<seasonId>" resolves to the package derived from that season's rules.
@@ -92,6 +95,7 @@ export function resolveBuilderPackage(
     return { pkg: SEVENS_FREE_CREATE_BUILD_PACKAGE, selected: { name: SEVENS_FREE_CREATE_LABEL, description: SEVENS_FREE_CREATE_DESCRIPTION } };
   const found = packages.get(packageName);
   if (!found) return { error: `Unknown tournament package "${packageName}".` };
+  if (opts.drafts === false && found.pkg.visibility === "draft") return { error: `Unknown tournament package "${packageName}".` };
   return { pkg: found.pkg, selected: { name: found.pkg.name, description: found.pkg.description } };
 }
 

@@ -438,11 +438,23 @@ export const skillPackages: Rule = {
       const { primarySlots, secondarySlots } = countPackSlots(p);
       return fitsSkillCounts(primaryCount, secondaryCount, primarySlots, secondarySlots, false);
     };
+    // Star picks (a dataset pair is one pick) for a pack's own star cap.
+    const starPicks = (): number => {
+      const seen = new Set<string>();
+      for (const rp of players) {
+        if (!isStarName(data, rp.player.positionName)) continue;
+        const s = findStar(data, rp.player.positionName);
+        seen.add(normName(s?.pairedWith && !s.pairPrimary ? s.pairedWith : s?.name ?? rp.player.positionName));
+      }
+      return seen.size;
+    };
     const fits = packs.some(
       (p) =>
         goldUsed <= p.gold &&
         fitsSkills(p) &&
         (p.maxPerPlayer == null || maxOnAPlayer <= p.maxPerPlayer) &&
+        (p.maxSecondarySkills == null || secondaryCount <= p.maxSecondarySkills) &&
+        (p.maxStars == null || starPicks() <= p.maxStars) &&
         (!hasStars || p.starPlayersAllowed !== false),
     );
     if (!fits) {
@@ -453,12 +465,14 @@ export const skillPackages: Rule = {
           (p) =>
             `${p.label ? `${p.label}: ` : ""}${isCountPack(p) ? countPackText(p) : `${p.skillPointBudget} SP`} @ ${fmtGold(p.gold)}` +
             (p.maxPerPlayer != null ? ` (≤${p.maxPerPlayer}/player)` : "") +
+            (p.maxSecondarySkills != null ? ` (≤${p.maxSecondarySkills} secondary)` : "") +
+            (p.maxStars != null ? ` (≤${p.maxStars} star${p.maxStars === 1 ? "" : "s"})` : "") +
             (p.starPlayersAllowed === false ? " (no stars)" : ""),
         )
         .join("; ");
       const used = [
         anySP ? `${spUsed} SP` : "",
-        anyCount ? `${primaryCount + secondaryCount} skill${primaryCount + secondaryCount === 1 ? "" : "s"} (${secondaryCount} secondary)` : "",
+        anyCount || packs.some((p) => p.maxSecondarySkills != null) ? `${primaryCount + secondaryCount} skill${primaryCount + secondaryCount === 1 ? "" : "s"} (${secondaryCount} secondary)` : "",
         fmtGold(goldUsed),
       ].filter(Boolean).join(" + ");
       const actual =
@@ -805,6 +819,20 @@ export const starPlayers: Rule = {
           suggestion: "Remove the Star Player(s).",
         }),
       );
+    }
+    // One of each Star Player per team (dataset and custom stars alike).
+    const copies = new Map<string, number>();
+    for (const s of stars) {
+      const k = normName(findStar(data, s.player.positionName)?.name ?? s.player.positionName);
+      copies.set(k, (copies.get(k) ?? 0) + 1);
+    }
+    for (const [k, n] of copies)
+      if (n > 1) {
+        const name = stars.find((s) => normName(findStar(data, s.player.positionName)?.name ?? s.player.positionName) === k)!.player.positionName;
+        findings.push(err("star-players", `${name} is hired ${n} times; a team may hire each Star Player once.`, { expected: "1", actual: n, suggestion: `Remove ${n - 1} copy of ${name}.` }));
+      }
+    if (!allowed) {
+      /* reported above */
     } else if (pkg.starPlayers.maxCount != null) {
       // With star packs a dataset pair (Grak & Crumbleberry) is ONE pick; otherwise count players.
       const n = pkg.starPacks?.length ? starPackPicks(players, pkg, data).picks.length : stars.length;
@@ -1270,6 +1298,16 @@ export const customStarTerms: Rule = {
           playerRef: rp.player.number, expected: fmtGold(star.cost), actual: fmtGold(rp.player.cost), suggestion: `Hire ${star.name} again from the Stars list.`,
         }));
       const want = customStarStats(star);
+      // Printed skills and traits exactly as the package defines them (parameters included: Loner (4+) is not Loner (2+)).
+      const key = (s: string): string => decodeEntities(s).normalize("NFC").trim().toLowerCase().replace(/\s+/g, " ");
+      const have = rp.player.skills.map(key).sort();
+      const defined = star.skills.map(key).sort();
+      const missing = star.skills.filter((s) => !have.includes(key(s)));
+      const extra = rp.player.skills.filter((s) => !defined.includes(key(s)));
+      if (missing.length || extra.length || have.length !== defined.length)
+        findings.push(err("custom-stars", `${who} does not carry the ruleset's skills${missing.length ? ` (missing ${missing.join(", ")})` : ""}${extra.length ? ` (extra ${extra.join(", ")})` : ""}; Star Players can't be changed.`, {
+          playerRef: rp.player.number, expected: star.skills.join(", "), actual: rp.player.skills.join(", "),
+        }));
       const diff = (["MA", "ST", "AG", "PA", "AV"] as const).filter((k) => String(rp.player[k]) !== String(want[k]));
       if (diff.length)
         findings.push(err("custom-stars", `${who} has changed characteristics (${diff.join(", ")}); Star Players can't be changed.`, {

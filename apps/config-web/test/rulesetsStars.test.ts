@@ -15,7 +15,7 @@ import { PackageFiles } from "../src/data.js";
 import { packagesApi } from "../src/packagesApi.js";
 import { rulesetSummary } from "../src/rulesetSummary.js";
 import { parseHouseRules } from "../src/competition/houseRules.js";
-import { CHANGE_MESSAGE_MAX, parseChangeMessage, rulesChangeDiff } from "../src/competition/rulesChange.js";
+import { CHANGE_MESSAGE_MAX, parseChangeMessage, RULES_NOTICE_WINDOW_MS, RulesChangeCoalescer, rulesChangeDiff } from "../src/competition/rulesChange.js";
 import { tournamentApi, type TournamentApiDeps, type TournamentApiIdentity } from "../src/tournaments/api.js";
 import { TournamentStore } from "../src/tournaments/store.js";
 import type { TournamentSubmission } from "../src/tournaments/types.js";
@@ -177,6 +177,9 @@ describe("ruleset summary (export)", () => {
 const now = new Date("2026-11-02T12:00:00.000Z");
 const owner: TournamentApiIdentity = { coach: "Veers", organizer: true, admin: false };
 const TEAMS: Record<string, string> = { "team-alice": "Alice", "team-bob": "Bob", "team-cara": "Cara" };
+let rechecked: Array<{ coach: string; snapshot: unknown }> = [];
+let flushes: Array<() => void> = [];
+let clock = now.getTime();
 function changeDeps(store: TournamentStore, sent: Array<{ coach: string; input: NotificationInput }>, invalidUnder: string): TournamentApiDeps {
   const note = (coach: string, input: NotificationInput) => void sent.push({ coach, input });
   return {
@@ -187,6 +190,13 @@ function changeDeps(store: TournamentStore, sent: Array<{ coach: string; input: 
       saveId: ref, revision: "r1", submittedAt: at.toISOString(), teamName: `${coach} XI`, race: "Orc", snapshot: { coach },
       validation: { ok: !(coach === "Bob" && packageName === invalidUnder), problems: coach === "Bob" && packageName === invalidUnder ? ["Too many Blitzers."] : [], checkedAt: at.toISOString(), packageName },
     }),
+    // The re-check after a rules change sees the STORED submission only (recorded for the snapshot test).
+    revalidateSubmission: (coach, submission, packageName, at): TournamentSubmission => {
+      rechecked.push({ coach, snapshot: submission.snapshot });
+      const bad = coach === "Bob" && packageName === invalidUnder;
+      return { ...submission, validation: { ok: !bad, problems: bad ? ["Too many Blitzers."] : [], checkedAt: at.toISOString(), packageName } };
+    },
+    rulesNotices: new RulesChangeCoalescer(RULES_NOTICE_WINDOW_MS, (fn) => void flushes.push(fn), () => clock),
     notify: { coach: note, managers: () => undefined, entrants: () => undefined },
   };
 }
@@ -272,7 +282,14 @@ describe("BB2025 matched play package", () => {
     expect(pkg.name).toBe("BB2025 Matched Play");
     expect(pkg.goldBudget).toBe(1_150_000);
     expect(pkg.tiers!.map((t) => t.skillPackages![0]!.skillPointBudget)).toEqual([6, 8, 9, 10]);
-    expect(pkg.skillAllotment).toMatchObject({ primaryCostSP: 1, secondaryMultiplier: 2, eliteSurchargeSP: 0, maxPerPlayer: 1, eliteMaxTotal: 4 });
+    // Elite: each Elite skill at most 4 times (per skill, not combined)
+    expect(pkg.skillAllotment).toMatchObject({ primaryCostSP: 1, secondaryMultiplier: 2, eliteSurchargeSP: 0, maxPerPlayer: 1, eliteMaxSameSkill: 4 });
+    expect(pkg.skillAllotment.eliteMaxTotal ?? null).toBeNull();
+    // Secondary caps and star caps by tier; no free Dedicated Fans
+    expect(pkg.tiers!.map((t) => t.skillPackages![0]!.maxSecondarySkills)).toEqual([1, 2, 3, 4]);
+    expect(pkg.tiers!.map((t) => t.skillPackages![0]!.maxStars)).toEqual([1, 2, 2, 2]);
+    expect(pkg.sideline.dedicatedFansStart).toBe(0);
+    expect(pkg.staffPrices).toBeDefined();
     expect(pkg.starPlayers.maxCount).toBe(2);
     expect(pkg.starPacks!.find((p) => p.id === "mega")).toMatchObject({ max: 1 });
     expect(pkg.starPacks!.find((p) => p.id === "mega")!.stars).toContain("Morg 'n' Thorg");
@@ -286,8 +303,16 @@ describe("BB2025 matched play package", () => {
     expect(placed).toHaveLength(30);
     expect(new Set(placed).size).toBe(30);
     for (const r of placed) expect(findRoster(bb2025, r), r).toBeDefined();
-    expect(resolveTeamConfig(pkg, "Snotling").tierNumber).toBe(4);
-    expect(resolveTeamConfig(pkg, "Amazon").tierNumber).toBe(1);
+    // May 2026 table (bloodbowlbase.ru Latest FAQ), checked against the GW PDF (Oct 2025: Dwarf was Tier 1 then)
+    const TIERS: Record<number, string[]> = {
+      1: ["Amazon", "Chaos Dwarf", "Dark Elf", "High Elf", "Lizardmen", "Norse", "Old World Alliance", "Underworld Denizens", "Wood Elf"],
+      2: ["Bretonnian", "Dwarf", "Elven Union", "Human", "Imperial Nobility", "Necromantic Horror", "Orc", "Shambling Undead", "Skaven", "Tomb Kings", "Vampire"],
+      3: ["Black Orc", "Chaos Chosen", "Chaos Renegade", "Khorne", "Nurgle"],
+      4: ["Gnome", "Goblin", "Halfling", "Ogre", "Snotling"],
+    };
+    for (const [tier, teams] of Object.entries(TIERS)) for (const team of teams) expect(resolveTeamConfig(pkg, team).tierNumber, team).toBe(Number(tier));
+    expect(resolveTeamConfig(pkg, "Old World Alliance").skillPackages![0]!.skillPointBudget).toBe(6);
+    expect(resolveTeamConfig(pkg, "Orc").skillPackages![0]!.skillPointBudget).toBe(8);
     expect(pkg.dataNote).toContain("Hand-check");
   });
   it("is in the Featured row of the shared ruleset picker", async () => {
@@ -300,5 +325,159 @@ describe("BB2025 matched play package", () => {
     const ok = composeTeam({ forkRosterXml: xml, coach: "Ann", teamName: "MP", picks: [{ positionId: "1", count: 11 }], reRolls: 2, apothecary: false }, bb2025);
     // Human is Tier 2 (8 SP): a clean 11-lineman team fits
     expect(validate(ok.roster, pkg, bb2025).errors, JSON.stringify(validate(ok.roster, pkg, bb2025).errors)).toEqual([]);
+  });
+});
+
+// ---- Sol review round 1 (P1/P2 fixes) ----
+describe("review fixes: custom stars", () => {
+  it("P1: the dialog's Save works on reactive proxies (no DataCloneError) and the Creator takes the plain copy", async () => {
+    const { reactive } = await import("vue");
+    const { saveDraftStar, plainStar } = await import("../spa/src/tournaments/customStars");
+    const draft = reactive(plainStar({ ...HOUND, id: "" })) as never;
+    expect(() => structuredClone(draft)).toThrow(); // the bug: a reactive draft can't be structured-cloned
+    const result = saveDraftStar(draft, [], []);
+    expect("star" in result).toBe(true);
+    const star = (result as { star: CustomStar }).star;
+    expect(() => structuredClone(star)).not.toThrow();
+    const creator = createTournamentCreator({ api: (async () => { throw new Error("offline"); }) as never });
+    creator.newBlank();
+    creator.setField("name", "Hound Cup");
+    creator.saveCustomStar(star);
+    expect((creator.serialize().customStars as CustomStar[])[0]).toMatchObject({ name: "Grim Hound", skills: HOUND.skills, specialRules: HOUND.specialRules });
+    expect(saveDraftStar({ ...star, name: "" }, [], [])).toEqual({ error: "Give the star a name." });
+  });
+
+  it("P2: a star name written differently on the sheet (Grim-Hound) still gets the price, stat and skill checks", () => {
+    const pkg = basePkg();
+    const roster = team(pkg, [linemen, { positionId: "cs-grim-hound", count: 1 }]).roster;
+    const renamed = { ...roster, players: roster.players.map((p) => (p.positionName === "Grim Hound" ? { ...p, positionName: "Grim-Hound", cost: 50_000 } : p)) };
+    expect(validate(renamed, pkg, bb2025).errors.map((e) => e.ruleId)).toContain("custom-stars");
+    // and the save refuses a custom star whose name normalises onto a BB2025 star
+    const files = new PackageFiles(tmp("bbtv-cs-norm-"));
+    const r = packagesApi(files, "POST", "/api/packages", new URLSearchParams(), { name: "Bad", skillAllotment: { skillPointBudget: 0 }, customStars: [{ ...HOUND, name: "Griff-Oberwald" }] });
+    expect(JSON.stringify(r?.body)).toContain("name of a BB2025 Star Player");
+  });
+
+  it("P2: printed skills and traits must be exactly the package's (removing Loner, Loner 2+, adding Regeneration all fail)", () => {
+    const pkg = basePkg();
+    const roster = team(pkg, [linemen, { positionId: "cs-grim-hound", count: 1 }]).roster;
+    const withSkills = (skills: string[]) => ({ ...roster, players: roster.players.map((p) => (p.positionName === "Grim Hound" ? { ...p, skills } : p)) });
+    for (const skills of [["Dodge", "Sure Feet"], ["Loner (2+)", "Dodge", "Sure Feet"], [...HOUND.skills, "Regeneration"]])
+      expect(validate(withSkills(skills), pkg, bb2025).errors.map((e) => e.ruleId), skills.join()).toContain("custom-stars");
+    expect(validate(withSkills([...HOUND.skills]), pkg, bb2025).errors).toEqual([]);
+  });
+
+  it("P2: one of each Star Player per team (custom and dataset)", () => {
+    const pkg = basePkg({ starPlayers: { allowed: true, maxCount: 3, maxCombinedCost: null } });
+    const roster = team(pkg, [linemen, { positionId: "cs-grim-hound", count: 1 }]).roster;
+    const star = roster.players.find((p) => p.positionName === "Grim Hound")!;
+    const twice = { ...roster, players: [...roster.players, { ...star, number: 13 }] };
+    expect(validate(twice, pkg, bb2025).errors.map((e) => e.message).join()).toContain("hired 2 times");
+  });
+});
+
+describe("review fixes: rules-change flow", () => {
+  it("P1: the re-check uses the SUBMITTED snapshot, and a display-only change never touches submissions", async () => {
+    const { store, id } = eventWithEntries();
+    const bob = store.entrants(id).find((e) => e.coach.ffbCoachId === "Bob")!;
+    store.submitTeam(id, bob.id, { saveId: "save:b1", revision: "r0", submittedAt: now.toISOString(), snapshot: { rosterId: "orc", picks: [{ positionId: "1", count: 11 }] }, validation: { ok: true, problems: [], checkedAt: now.toISOString(), packageName: "Rules" } }, now);
+    rechecked = [];
+    const call = (body: unknown) => tournamentApi("PATCH", `/api/tournaments/${id}`, new URLSearchParams(), owner, body, changeDeps(store, [], "Rules2"));
+    // display only (Brawling Brutes): no re-check, the submission is byte-identical
+    const before = JSON.stringify(store.entrants(id).find((e) => e.id === bob.id)!.submission);
+    expect((await call({ houseRules: { brawlingBrutes: "on" }, changeMessage: "Brawling Brutes are on now." }))?.status).toBe(200);
+    expect(rechecked).toEqual([]);
+    expect(JSON.stringify(store.entrants(id).find((e) => e.id === bob.id)!.submission)).toBe(before);
+    // enforced (the package): re-checked from the stored snapshot; the snapshot itself is kept
+    expect((await call({ packageName: "Rules2", changeMessage: "Moving to the Rules2 package." }))?.status).toBe(200);
+    expect(rechecked).toEqual([{ coach: "Bob", snapshot: { rosterId: "orc", picks: [{ positionId: "1", count: 11 }] } }]);
+    const after = store.entrants(id).find((e) => e.id === bob.id)!.submission!;
+    expect(after.snapshot).toEqual({ rosterId: "orc", picks: [{ positionId: "1", count: 11 }] });
+    expect(after.saveId).toBe("save:b1");
+    expect(after.validation).toMatchObject({ ok: false, packageName: "Rules2" });
+  });
+
+  it("P1: revalidateSubmission composes the stored snapshot (never reads the live save)", async () => {
+    const { revalidateSubmission } = await import("../src/tournaments/submissionCheck.js");
+    const bodies: unknown[] = [];
+    const deps = { packageRevision: () => "v2", isSecretLeague: () => false, validateBody: (body: Record<string, unknown>) => { bodies.push(body); return { ok: true, problems: [] }; } };
+    const sub: TournamentSubmission = { saveId: "save:x", revision: "r", submittedAt: now.toISOString(), teamName: "Orcs", snapshot: { rosterId: "orc", picks: [{ positionId: "1", count: 11 }] }, validation: { ok: false, problems: ["old"], checkedAt: now.toISOString(), packageName: "Rules" } };
+    const out = revalidateSubmission(deps, "Bob", sub, "Rules2", now);
+    expect(bodies).toEqual([{ rosterId: "orc", picks: [{ positionId: "1", count: 11 }], coach: "Bob", teamName: "Orcs", packageName: "Rules2" }]);
+    expect(out).toMatchObject({ snapshot: sub.snapshot, validation: { ok: true, packageName: "Rules2", packageRevision: "v2" } });
+    expect(revalidateSubmission(deps, "Bob", { ...sub, snapshot: null }, "Rules2", now).validation.ok).toBe(false);
+  });
+
+  it("P2: rapid edits are coalesced: one notice now, then ONE combined notice (all messages, all changes) per window", async () => {
+    const { store, id } = eventWithEntries();
+    const sent: Array<{ coach: string; input: NotificationInput }> = [];
+    flushes = [];
+    clock = now.getTime();
+    const d = changeDeps(store, sent, "");
+    const call = (body: unknown) => tournamentApi("PATCH", `/api/tournaments/${id}`, new URLSearchParams(), owner, body, d);
+    expect((await call({ houseRules: { brawlingBrutes: "on" }, changeMessage: "First change: brutes on." }))?.status).toBe(200);
+    expect((await call({ houseRules: { brawlingBrutes: "off" }, changeMessage: "Second change: brutes off." }))?.status).toBe(200);
+    expect((await call({ houseRules: { prayers: { mode: "banned" } }, changeMessage: "Third change: no Prayers." }))?.status).toBe(200);
+    const notes = () => sent.filter((s) => s.input.type === "ruleset-change");
+    expect(notes()).toHaveLength(3); // one per coach, for the first change only
+    expect(store.tournament(id)!.news).toHaveLength(1);
+    clock += RULES_NOTICE_WINDOW_MS;
+    flushes.shift()!();
+    expect(notes()).toHaveLength(6); // one combined notice per coach
+    const combined = notes()[5]!.input;
+    expect(combined.title).toContain("(2 changes)");
+    expect(combined.body).toContain("Second change: brutes off.");
+    expect(combined.body).toContain("Third change: no Prayers.");
+    expect(combined.body).toContain("Prayers to Nuffle");
+    expect(store.tournament(id)!.news).toHaveLength(2);
+  });
+
+  it("P2: the league diff includes the base ruleset (BB2025 -> BB2020)", () => {
+    const hr = parseHouseRules({}, "league");
+    expect(rulesChangeDiff("league", { packageName: "", houseRules: hr, ruleset: "BB2025" }, { packageName: "", houseRules: hr, ruleset: "BB2020" })).toEqual(["Base ruleset: BB2025 → BB2020"]);
+  });
+});
+
+describe("review fixes: BB2025 matched play enforcement", () => {
+  const { pkg } = loadPackage(matchedPlayJson as unknown as Partial<TournamentPackage>);
+  const compose = (race: string, picks: TeamPick[], dedicatedFans = 0) =>
+    composeTeam({ forkRosterXml: forkXml(race), coach: "Ann", teamName: "MP", picks, reRolls: 2, apothecary: false, dedicatedFans, staffPrices: {}, freeDedicatedFans: 0 }, bb2025);
+  const linemanOf = (race: string) => { const r = findRoster(bb2025, race)!; const i = r.positions.findIndex((p) => p.max >= 11); return { id: String(i + 1), pos: r.positions[i]! }; };
+  const secondaries = (race: string, n: number) => {
+    const { pos } = linemanOf(race);
+    return Object.entries(bb2025.skills).filter(([, m]) => pos.secondaryCategories.includes(m.category!) && !m.elite && !m.trait).slice(0, n).map(([s]) => s);
+  };
+
+  it("the per-tier Secondary cap holds (Tier 1 = one Secondary); 0 Dedicated Fans is legal", () => {
+    const { id } = linemanOf("Amazon");
+    const [s1, s2] = secondaries("Amazon", 2);
+    const one = compose("Amazon", [{ positionId: id, count: 1, chosenSkills: [s1!] }, { positionId: id, count: 10 }]);
+    expect(validate(one.roster, pkg, bb2025).errors.map((e) => e.ruleId)).not.toContain("skill-packages");
+    const two = compose("Amazon", [{ positionId: id, count: 1, chosenSkills: [s1!] }, { positionId: id, count: 1, chosenSkills: [s2!] }, { positionId: id, count: 9 }]);
+    { const errs = validate(two.roster, pkg, bb2025).errors; expect(errs.map((e) => e.message).join()).toContain("2 skills (2 secondary)"); expect(JSON.stringify(errs)).toContain("≤1 secondary"); }
+    expect(validate(one.roster, pkg, bb2025).errors.map((e) => e.ruleId)).not.toContain("sideline");
+  });
+
+  it("the Elite cap is per skill: 5 Guards fail, 4 Guards pass", () => {
+    const orc = findRoster(bb2025, "Orc")!;
+    const i = orc.positions.findIndex((p) => p.primaryCategories.includes("Strength") && p.max >= 5);
+    const guards = (n: number) => compose("Orc", [{ positionId: String(i + 1), count: n, chosenSkills: ["Guard"] }, { positionId: linemanOf("Orc").id, count: 11 - n }]);
+    expect(validate(guards(5).roster, pkg, bb2025).errors.map((e) => e.message).join()).toMatch(/Guard/);
+    expect(validate(guards(4).roster, pkg, bb2025).errors.map((e) => e.message).join()).not.toMatch(/copies of Guard|Guard.*limit/i);
+  });
+
+  it("Tier 1 may hire one star (pack cap), Tiers 2-4 two", () => {
+    expect(resolveTeamConfig(pkg, "Amazon").skillPackages![0]).toMatchObject({ maxStars: 1, maxSecondarySkills: 1, skillPointBudget: 6 });
+    expect(resolveTeamConfig(pkg, "Gnome").skillPackages![0]).toMatchObject({ maxStars: 2, maxSecondarySkills: 4, skillPointBudget: 10 });
+    const cheap = bb2025.stars.filter((s) => (s.teams.length === 0 || s.teams.includes("Amazon")) && !s.pairedWith && s.cost != null && s.skills).sort((a, b) => a.cost! - b.cost!);
+    const [star, star2] = [cheap[0]!, cheap[1]!];
+    const withStars = (names: string[]) => {
+      const base = compose("Amazon", [{ positionId: linemanOf("Amazon").id, count: 11 }]).roster;
+      return { ...base, players: [...base.players, ...names.map((n, k) => ({ ...base.players[0]!, number: 12 + k, positionName: n, cost: bb2025.stars.find((s) => s.name === n)!.cost ?? 0, skills: [...(bb2025.stars.find((s) => s.name === n)!.skills ?? [])] }))] };
+    };
+    const errs = validate(withStars([star.name, star2.name]), pkg, bb2025).errors;
+    expect(validate(withStars([star.name]), pkg, bb2025).errors.map((e) => e.ruleId)).not.toContain("skill-packages");
+    expect(errs.map((e) => e.ruleId)).toContain("skill-packages");
+    expect(JSON.stringify(errs)).toContain("≤1 star");
   });
 });

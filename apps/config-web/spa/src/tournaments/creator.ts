@@ -1005,7 +1005,8 @@ export function createTournamentCreator(deps: CreatorDeps) {
     } catch (error) {
       const msg = message(error);
       state.problems = [msg, ...safeArray<unknown>(errorData(error).problems).map(String).filter((p) => p !== msg)];
-      if (errorStatus(error) === 409) state.conflict = msg;
+      // A ruleset in use (inUse): not a revision conflict; the message tells the organiser to change it from the competition.
+      if (errorStatus(error) === 409 && !Array.isArray(errorData(error).inUse)) state.conflict = msg;
       if (errorStatus(error) === 401) blockAuth();
     } finally {
       state.busy = false;

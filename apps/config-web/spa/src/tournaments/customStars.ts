@@ -147,3 +147,16 @@ export function skillGroups(raw: unknown): SkillGroup[] {
   if (traits.length) groups.push({ category: "Traits", skills: traits });
   return groups;
 }
+
+/** A plain deep copy (JSON): Vue reactive proxies (the Creator's package, the dialog's draft) are refused by structuredClone
+ *  with a DataCloneError, so every copy in and out of the star dialog goes through this. */
+export function plainStar<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+/** The star dialog's Save: the checked, plain copy to hand to the Creator, or the error text to show. */
+export function saveDraftStar(draft: CustomStarDoc, others: readonly CustomStarDoc[], datasetStars: readonly string[]): { star: CustomStarDoc } | { error: string } {
+  const problem = customStarError(draft, others, datasetStars);
+  if (problem) return { error: problem };
+  return { star: plainStar({ ...draft, name: draft.name.trim() }) };
+}

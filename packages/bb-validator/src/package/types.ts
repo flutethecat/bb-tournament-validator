@@ -34,6 +34,11 @@ export interface SkillPackage {
   maxSkills?: number | null;
   /** COUNT-mode pack: how many of the added skills may be secondary (0 = primary only). */
   maxSecondary?: number | null;
+  /** SP-mode pack: most SECONDARY added skills under this pack (BB2025 matched play caps them by tier). Does not make the
+   *  pack count-mode. null/absent = no cap. */
+  maxSecondarySkills?: number | null;
+  /** Most Star Player picks under this pack (a dataset pair is one pick); null/absent = only the package's own cap. */
+  maxStars?: number | null;
 }
 
 /** Is this skill package COUNT-mode (skill counts) rather than an SP budget? */

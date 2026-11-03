@@ -62,7 +62,7 @@ import { AVATAR_CONTENT_TYPE, avatarRateLimit, sniffImage, type AvatarExt, type 
 import type { NotificationInput } from "../notifications.js";
 import { buildMilestonePost, buildTestPost, discordEvents, postWebhook as defaultPoster, type DiscordPayload, type WebhookPoster } from "./discord.js";
 import { buildNewsPost, editFixture, leagueEventRoutes, postLeagueEvent, seasonCoaches } from "./events.js";
-import { ChangeMessageError, CONFIRM_AFTER_START_LEAGUE, parseChangeMessage, rulesChangeBody, rulesChangeDiff, rulesChangeNews, type RulesState } from "../competition/rulesChange.js";
+import { ChangeMessageError, CONFIRM_AFTER_START_LEAGUE, parseChangeMessage, rulesChangeBody, rulesChangeDiff, rulesChangeNews, rulesNotices, type RulesChangeCoalescer, type RulesState } from "../competition/rulesChange.js";
 import { populateSeasonDiscord } from "../discord/api.js";
 import { cleanPayload } from "../discord/clean.js";
 import { leagueCsvFiles, zipFiles } from "./exportZip.js";
@@ -159,6 +159,8 @@ export interface LeagueApiDeps {
   memberContact?: (viewer: { coach: string; admin?: boolean }, coach: string, leagueId: string) => { coach: string } | undefined;
   /** Stores one notification (fire-and-forget; src/notifications.ts NotificationStore.add). */
   notify?: (coach: string, input: NotificationInput) => void;
+  /** Rules-change notice coalescing (creation wizards v2). Absent = the process-wide one. */
+  rulesNotices?: RulesChangeCoalescer;
   /** Rest & Relaxation die for "Roll for me" (tests stub it; default crypto d6). */
   rollD6?: () => number;
   /** Discord webhook poster (tests stub it; default POSTs with fetch). */
@@ -699,17 +701,17 @@ export { requestRevision };
  * its organisers). League rosters are not checked against a package, so there is nothing to re-validate here.
  */
 function announceRulesChange(
-  league: LeagueRecord, season: SeasonRecord, message: string, diff: readonly string[], started: boolean, coaches: readonly string[], who: LeagueApiIdentity, deps: LeagueApiDeps, now: Date,
+  league: LeagueRecord, season: SeasonRecord, message: string, diff: readonly string[], started: boolean, coaches: readonly string[], actor: string, count: number, deps: LeagueApiDeps, now: Date,
 ): void {
   const news = rulesChangeNews(message || "The organiser changed the rules.", diff, started);
-  const post: LeagueNewsPost = { id: randomBytes(6).toString("hex"), title: news.title, body: news.body.slice(0, 4000), by: who.coach, at: now.toISOString(), pinned: false };
+  const post: LeagueNewsPost = { id: randomBytes(6).toString("hex"), title: news.title, body: news.body.slice(0, 4000), by: actor, at: now.toISOString(), pinned: false };
   const fresh = deps.store.season(league.id, season.id) ?? season;
   fresh.news = [...(fresh.news ?? []), post];
   deps.store.putSeason(fresh);
   const link = `/app/leagues/${encodeURIComponent(league.id)}`;
-  const body = rulesChangeBody(message, diff);
+  const body = rulesChangeBody(message || "The organiser changed the rules.", diff);
   for (const coach of coaches) {
-    try { deps.notify?.(coach, { type: "ruleset-change", title: `${league.name}: the rules changed`, body, link, from: who.coach, subject: league.name, action: true }); } catch { /* fire-and-forget */ }
+    try { deps.notify?.(coach, { type: "ruleset-change", title: `${league.name}: the rules changed${count > 1 ? ` (${count} changes)` : ""}`, body, link, from: actor, subject: league.name, action: true }); } catch { /* fire-and-forget */ }
   }
   void postLeagueEvent(deps.store, league, "news", buildNewsPost(league, fresh, post), deps.postWebhook ?? defaultPoster, { seasonId: fresh.id }).catch(() => undefined);
 }
@@ -780,10 +782,13 @@ function patchSettings(league: LeagueRecord, who: LeagueApiIdentity, input: Reco
 
   // A ruleset / house-rules change with registered coaches (creation wizards v2 Q2): the organiser's message is required
   // (400 without it); once the season has started the "Are you sure?" confirmation is required too (409 without it).
-  const rulesBefore: RulesState = { packageName: league.rulesetPackage ?? "", houseRules: houseRulesOf(league, "league") };
+  const rulesBefore: RulesState = { packageName: league.rulesetPackage ?? "", houseRules: houseRulesOf(league, "league"), ruleset: league.ruleset ?? "BB2025" };
+  const packageAfter = info?.rulesetPackage !== undefined ? info.rulesetPackage ?? "" : rulesBefore.packageName;
   const rulesAfter: RulesState = {
-    packageName: info?.rulesetPackage !== undefined ? info.rulesetPackage ?? "" : rulesBefore.packageName,
+    packageName: packageAfter,
     houseRules: houseRules ?? rulesBefore.houseRules,
+    // A picked package always plays on BB2025 (the write below sets it); otherwise the requested base ruleset.
+    ruleset: info?.rulesetPackage ? "BB2025" : info?.ruleset ?? rulesBefore.ruleset,
   };
   const rulesDiff = rulesChangeDiff("league", rulesBefore, rulesAfter, (n) => n || "BB2025");
   const current = deps.store.seasons(league.id)[0];
@@ -836,7 +841,15 @@ function patchSettings(league: LeagueRecord, who: LeagueApiIdentity, input: Reco
     if (redraftRules) l.redraftRules = redraftRules;
     l.revision = revisionNow + 1;
   }, now);
-  if (rulesDiff.length && current && (coaches.length || started)) announceRulesChange(updated, current, changeMessage, rulesDiff, started, coaches, who, deps, now);
+  if (rulesDiff.length && current && (coaches.length || started)) {
+    // Coalesced per league: a burst of edits = one combined news post, note and DM per window.
+    (deps.rulesNotices ?? rulesNotices).submit(`league:${updated.id}`, { message: changeMessage, diff: rulesDiff, afterStart: started, actor: who.coach }, (n) => {
+      const lg = deps.store.league(updated.id);
+      const season = lg ? deps.store.seasons(lg.id)[0] : undefined;
+      if (!lg || !season) return;
+      announceRulesChange(lg, season, n.message, n.diff, n.afterStart, seasonStage(season) !== "completed" ? seasonCoaches(season) : [], n.actor, n.count, deps, deps.now?.() ?? new Date());
+    });
+  }
   return { status: 200, body: { ok: true, settings: view(updated, who, deps, team?.seasonId), ...(rulesDiff.length ? { changes: rulesDiff } : {}) } };
 }
 

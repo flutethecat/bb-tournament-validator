@@ -23,8 +23,8 @@ import type {
 import { tournamentLink, type TournamentNotify } from "../notifications.js";
 import { paymentLinksView } from "../payments/links.js";
 import { FormatError, parsePairingAvoid, parsePointsScheme, parseRegions, parseTiebreakerChain, tiebreakerChainOf } from "../competition/format.js";
-import { HouseRulesError, houseRulesOf, parseHouseRules, type HouseRules } from "../competition/houseRules.js";
-import { ChangeMessageError, CONFIRM_AFTER_START_TOURNAMENT, parseChangeMessage, rulesChangeBody, rulesChangeDiff, rulesChangeNews, type RulesState } from "../competition/rulesChange.js";
+import { HouseRulesError, houseRulesOf, houseRulesStamp, parseHouseRules, type HouseRules } from "../competition/houseRules.js";
+import { ChangeMessageError, CONFIRM_AFTER_START_TOURNAMENT, parseChangeMessage, rulesChangeBody, rulesChangeDiff, rulesChangeNews, rulesNotices, type RulesChangeCoalescer, type RulesState } from "../competition/rulesChange.js";
 
 /** A package name as the change list prints it. */
 const rulesetLabel = (name: string): string => name || "no ruleset";
@@ -54,6 +54,11 @@ export interface TournamentApiDeps {
   coachRating?(coach: string): number | undefined;
   /** v4: snapshot + validate a coach's Team Builder save (`save:<id>`) or library team (`library:<teamId>`) against a package. */
   validateSubmission?(coach: string, ref: string, packageName: string, now: Date, houseRules?: HouseRules): TournamentSubmission | { error: string; status?: 400 | 404 | 409 };
+  /** Creation wizards v2: re-check a STORED submission's snapshot against a package after a rules change (never the
+   *  coach's live save). Absent = no automatic re-check (the store's "ruleset changed" verdict stays). */
+  revalidateSubmission?(coach: string, submission: TournamentSubmission, packageName: string, now: Date, houseRules?: HouseRules): TournamentSubmission;
+  /** Rules-change notice coalescing (one combined notice per competition per window). Absent = the process-wide one. */
+  rulesNotices?: RulesChangeCoalescer;
   /** v4: the stored spelling of a registered coach id (identities store), or undefined when nobody has that id. */
   registeredCoach?(coachId: string): string | undefined;
   /** v4: the package file's current revision; Start refuses rosters checked against another revision. */
@@ -551,36 +556,54 @@ function logRulesChange(deps: TournamentApiDeps, tournament: TournamentRecord, m
  * changed), and tell each coach whose roster is now invalid that it needs changes (inbox + DM). A draft (unpublished)
  * tournament notifies nobody.
  */
-function applyRulesChange(deps: TournamentApiDeps, tournament: TournamentRecord, message: string, diff: readonly string[], afterStart: boolean, actor: string, now: Date): TournamentRecord {
-  let updated = logRulesChange(deps, tournament, message, diff, afterStart, actor, now);
+function applyRulesChange(deps: TournamentApiDeps, tournament: TournamentRecord, message: string, diff: readonly string[], afterStart: boolean, actor: string, now: Date, enforced: boolean): TournamentRecord {
+  let updated = tournament;
+  // Only a change to what the validator enforces (the package, the PtN ban, the stat caps) re-checks rosters, and only the
+  // SUBMITTED snapshots: a display-only change never touches a submission. The re-check is immediate.
   const submitted = deps.store.entrants(updated.id).filter((e) => e.droppedAt === undefined && e.submission);
-  if (submitted.length && deps.validateSubmission) {
-    const checks = rosterChecks(updated, submitted, deps, now);
+  if (enforced && submitted.length && deps.revalidateSubmission) {
+    const checks: Record<string, TournamentSubmission | { error: string }> = {};
+    const rules = houseRulesOf(updated, "tournament");
+    for (const e of submitted) {
+      try { checks[e.id] = deps.revalidateSubmission(e.coach.ffbCoachId, e.submission!, updated.packageName, now, rules); }
+      catch { checks[e.id] = { error: "The roster could not be re-checked on this host." }; }
+    }
     deps.store.recheckRosters(updated.id, checks, now);
     updated = deps.store.tournament(updated.id) ?? updated;
   }
-  if (!deps.notify || updated.unpublished === true) return updated;
-  const link = tournamentLink(updated.id, "overview");
-  const body = rulesChangeBody(message, diff);
+  // The news post, the notes and the DMs are coalesced per tournament (a burst of edits = one combined notice per window).
+  const coalescer = deps.rulesNotices ?? rulesNotices;
+  coalescer.submit(`tournament:${updated.id}`, { message, diff: [...diff], afterStart, actor }, (n) => announceRulesChange(deps, updated.id, n, deps.now?.() ?? new Date()));
+  return deps.store.tournament(updated.id) ?? updated;
+}
+
+/** One (possibly combined) rules-change notice: the news log entry, then every registered coach's note + DM and, for each
+ *  coach whose submitted roster is invalid NOW, a "needs changes" note + DM. A draft (unpublished) tournament tells nobody. */
+function announceRulesChange(deps: TournamentApiDeps, tournamentId: string, n: { message: string; diff: string[]; afterStart: boolean; actor: string; count: number }, now: Date): void {
   quietly(() => {
+    const current = deps.store.tournament(tournamentId);
+    if (!current) return;
+    logRulesChange(deps, current, n.message, n.diff, n.afterStart, n.actor, now);
+    if (!deps.notify || current.unpublished === true) return;
+    const link = tournamentLink(current.id, "overview");
+    const body = rulesChangeBody(n.message || "The organiser changed the rules.", n.diff);
     const seen = new Set<string>();
-    for (const entrant of deps.store.entrants(updated.id)) {
+    for (const entrant of deps.store.entrants(current.id)) {
       if (entrant.droppedAt !== undefined) continue;
       const coach = entrant.coach.ffbCoachId;
       if (seen.has(coachKey(coach))) continue;
       seen.add(coachKey(coach));
-      deps.notify!.coach(coach, { type: "ruleset-change", title: `${updated.name}: the rules changed`, body, link, from: actor, subject: updated.name, action: true });
+      deps.notify!.coach(coach, { type: "ruleset-change", title: `${current.name}: the rules changed${n.count > 1 ? ` (${n.count} changes)` : ""}`, body, link, from: n.actor, subject: current.name, action: true });
       const validation = entrant.submission?.validation;
       if (validation && !validation.ok && !entrant.flags?.rosterVerified) {
         deps.notify!.coach(coach, {
-          type: "roster-problems", title: `${updated.name}: your roster needs changes`,
+          type: "roster-problems", title: `${current.name}: your roster needs changes`,
           body: `After the rules change your roster is not valid any more (${validation.problems.length} ${validation.problems.length === 1 ? "problem" : "problems"}). Open the tournament to see what to fix and resubmit.`,
-          link, from: actor, subject: updated.name, action: true,
+          link, from: n.actor, subject: current.name, action: true,
         });
       }
     }
   });
-  return updated;
 }
 
 /** Entrants still invalid with problems after a roster check: tell each coach the count. */
@@ -1488,11 +1511,13 @@ export async function tournamentApi(
       if (registration !== undefined) tournament = deps.store.setRegistration(tournamentId, registration, now);
       let recheck: ReturnType<typeof validationTable> | undefined;
       if (rulesDiff.length && registered.length) {
-        tournament = applyRulesChange(deps, tournament, changeMessage, rulesDiff, afterStart, identity.coach, now);
+        const enforced = rulesBefore.packageName !== rulesAfter.packageName || houseRulesStamp(rulesBefore.houseRules) !== houseRulesStamp(rulesAfter.houseRules);
+        tournament = applyRulesChange(deps, tournament, changeMessage, rulesDiff, afterStart, identity.coach, now, enforced);
         recheck = validationTable(deps.store.entrants(tournamentId), deps);
       } else if (rulesDiff.length && afterStart) {
         // No registered coach to tell, but a change during play is still logged in the news.
-        tournament = logRulesChange(deps, tournament, "", rulesDiff, true, identity.coach, now);
+        (deps.rulesNotices ?? rulesNotices).submit(`tournament:${tournament.id}`, { message: "", diff: rulesDiff, afterStart: true, actor: identity.coach }, (n) => announceRulesChange(deps, tournament.id, n, deps.now?.() ?? new Date()));
+        tournament = deps.store.tournament(tournament.id) ?? tournament;
       }
       return {
         status: 200,

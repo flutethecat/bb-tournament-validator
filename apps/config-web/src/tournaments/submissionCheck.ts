@@ -88,3 +88,35 @@ export function checkTournamentSubmission(
     return { ...base, validation: validation(false, [(e as Error).message]) };
   }
 }
+
+/**
+ * Re-check a STORED submission after a rules change (creation wizards v2): the snapshot the coach submitted is validated
+ * against the new package / enforced house rules. The coach's live save is never re-read, so later unsubmitted edits never
+ * replace what was submitted. A snapshot that can't be checked automatically (no sheet, Secret League) says so.
+ */
+export function revalidateSubmission(
+  deps: Pick<SubmissionCheckDeps, "packageRevision" | "isSecretLeague" | "validateBody">,
+  coach: string,
+  submission: TournamentSubmission,
+  packageName: string,
+  now: Date,
+  houseRules?: HouseRules,
+): TournamentSubmission {
+  const checkedAt = now.toISOString();
+  const packageRevision = (() => { try { return deps.packageRevision(packageName); } catch { return undefined; } })();
+  const validation = (ok: boolean, problems: string[]): TournamentSubmissionValidation => ({
+    ok, problems, checkedAt, packageName, ...(packageRevision ? { packageRevision } : {}),
+    ...(houseRulesStamp(houseRules) ? { houseRulesKey: houseRulesStamp(houseRules) } : {}),
+  });
+  const snapshot = submission.snapshot && typeof submission.snapshot === "object" ? submission.snapshot as Record<string, unknown> : null;
+  if (!snapshot || typeof snapshot.rosterId !== "string") return { ...submission, validation: validation(false, [UNCHECKABLE_LIBRARY]) };
+  if (deps.isSecretLeague(snapshot.rosterId)) return { ...submission, validation: validation(false, [UNCHECKABLE_SECRET_LEAGUE]) };
+  try {
+    const body = { ...snapshot, coach, teamName: String(snapshot.teamName || submission.teamName || "Team"), packageName };
+    const result = deps.validateBody(body, packageName, houseRules);
+    if (!result) return { ...submission, validation: validation(false, [UNCHECKABLE_HOST]) };
+    return { ...submission, validation: validation(result.ok && result.problems.length === 0, result.problems) };
+  } catch (e) {
+    return { ...submission, validation: validation(false, [(e as Error).message]) };
+  }
+}

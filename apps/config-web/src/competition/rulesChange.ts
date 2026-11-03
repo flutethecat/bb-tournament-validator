@@ -36,12 +36,15 @@ export function parseChangeMessage(raw: unknown): string {
 export interface RulesState {
   packageName: string;
   houseRules: HouseRules;
+  /** League only: the base ruleset (BB2025 / BB2020) when no package is picked. */
+  ruleset?: string;
 }
 
 /** What changed, one plain line per setting ("Ruleset: A -> B", "Prayers to Nuffle: As the ruleset says -> Banned"). */
 export function rulesChangeDiff(kind: CompetitionKind, before: RulesState, after: RulesState, label: (packageName: string) => string = (n) => n || "BB2025"): string[] {
   const out: string[] = [];
   if (before.packageName !== after.packageName) out.push(`Ruleset: ${label(before.packageName)} → ${label(after.packageName)}`);
+  if ((before.ruleset ?? "") !== (after.ruleset ?? "") && before.ruleset !== undefined && after.ruleset !== undefined) out.push(`Base ruleset: ${before.ruleset} → ${after.ruleset}`);
   const was = houseRulesRows(before.houseRules, kind);
   const now = houseRulesRows(after.houseRules, kind);
   now.forEach((row, i) => {
@@ -60,3 +63,64 @@ export function rulesChangeBody(message: string, diff: readonly string[]): strin
 export function rulesChangeNews(message: string, diff: readonly string[], afterStart: boolean): { title: string; body: string } {
   return { title: afterStart ? "Rules changed during play" : "Rules changed", body: rulesChangeBody(message, diff) };
 }
+
+/** One organiser's change as the coaches hear about it. */
+export interface RulesNotice {
+  message: string;
+  diff: string[];
+  afterStart: boolean;
+  actor: string;
+}
+
+/** What goes out: the change(s) combined; `count` = how many changes it covers. */
+export type RulesNoticeSender = (notice: RulesNotice & { count: number }) => void;
+
+export const RULES_NOTICE_WINDOW_MS = 10 * 60 * 1000;
+
+/**
+ * Coalesces rules-change notices per competition (Sol P2): the first change in a quiet competition goes out at once; every
+ * later change within the window is held and goes out as ONE combined notice (all the organisers' messages, every changed
+ * setting) when the window closes. So a burst of edits sends each coach at most one inbox note, one Discord DM and one news
+ * post per window. Held notices live in memory: a restart inside a window drops them (re-validation already happened).
+ */
+export class RulesChangeCoalescer {
+  private readonly open = new Map<string, { until: number; pending: RulesNotice[]; send: RulesNoticeSender }>();
+  constructor(
+    private readonly windowMs = RULES_NOTICE_WINDOW_MS,
+    private readonly schedule: (fn: () => void, ms: number) => void = (fn, ms) => { const t = setTimeout(fn, ms); (t as { unref?: () => void }).unref?.(); },
+    private readonly clock: () => number = () => Date.now(),
+  ) {}
+
+  /** "sent" = went out now; "held" = joins the combined notice at the end of the window. */
+  submit(key: string, notice: RulesNotice, send: RulesNoticeSender): "sent" | "held" {
+    const w = this.open.get(key);
+    if (w && this.clock() < w.until) {
+      w.pending.push(notice);
+      w.send = send;
+      return "held";
+    }
+    this.start(key, send);
+    send({ ...notice, count: 1 });
+    return "sent";
+  }
+
+  /** Close the window: send the held changes as one notice (and keep throttling for another window if it sent). */
+  flush(key: string): void {
+    const w = this.open.get(key);
+    this.open.delete(key);
+    if (!w || !w.pending.length) return;
+    const diff: string[] = [];
+    for (const n of w.pending) for (const line of n.diff) if (!diff.includes(line)) diff.push(line);
+    const message = w.pending.map((n) => n.message).filter(Boolean).join("\n\n");
+    this.start(key, w.send);
+    w.send({ message, diff, afterStart: w.pending.some((n) => n.afterStart), actor: w.pending[w.pending.length - 1]!.actor, count: w.pending.length });
+  }
+
+  private start(key: string, send: RulesNoticeSender): void {
+    this.open.set(key, { until: this.clock() + this.windowMs, pending: [], send });
+    this.schedule(() => this.flush(key), this.windowMs);
+  }
+}
+
+/** The process-wide coalescer (tournament and league routes); tests pass their own. */
+export const rulesNotices = new RulesChangeCoalescer();

@@ -13,6 +13,7 @@
  */
 
 import type { Dataset, DatasetStar } from "../dataset/types";
+import { normName } from "../dataset/lookup";
 import type { TournamentPackage } from "./types";
 
 export interface CustomStarRule {
@@ -57,7 +58,9 @@ export const CUSTOM_STAR_LIMITS = {
 export const customStarPositionId = (star: Pick<CustomStar, "id">): string => `cs-${star.id}`;
 export const isCustomStarPositionId = (id: string): boolean => /^cs-[a-z0-9-]{1,40}$/.test(id);
 
-const norm = (s: string): string => s.normalize("NFC").trim().toLowerCase().replace(/\s+/g, " ");
+/** The SAME normaliser star detection uses (isStarName / findStar: dataset/lookup normName), so any name that resolves as
+ *  a star resolves to the same custom star here. */
+const norm = (s: string): string => normName(s.normalize("NFC"));
 
 /** The package's custom stars (an empty list when it has none or the field is malformed). */
 export function customStarsOf(pkg: Pick<TournamentPackage, "customStars"> | undefined): CustomStar[] {
@@ -119,7 +122,7 @@ export function customStarProblems(raw: unknown): string[] {
     else if (ids.has(id)) out.push(`${at}.id "${id}" is used twice.`);
     ids.add(id);
     const name = typeof s.name === "string" ? s.name.trim() : "";
-    if (!name || name.length > L.nameChars) out.push(`${at}.name must be 1-${L.nameChars} characters.`);
+    if (!name || name.length > L.nameChars || !norm(name)) out.push(`${at}.name must be 1-${L.nameChars} characters, with letters or digits.`);
     else if (names.has(norm(name))) out.push(`Two custom stars are called "${name}".`);
     names.add(norm(name));
     const int = (k: string, min: number, max: number, nullable = false) => {

@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { requireSession } from "../src/auth/requireSession.js";
+import { TournamentStore } from "../src/tournaments/store.js";
 
 const root = mkdtempSync(join(tmpdir(), "ruleset-summary-"));
 const previousEnv = new Map<string, string | undefined>();
@@ -41,6 +42,12 @@ beforeAll(async () => {
   writeFileSync(join(root, "state", "fork-reload-state.json"), JSON.stringify({ lastReloadAt: "2026-02-01T00:00:00.000Z" }), "utf8");
   writeFileSync(join(root, "packages", "open-cup.json"), pkg("Open Cup"), "utf8");
   writeFileSync(join(root, "packages", "secret-cup.json"), pkg("Secret Cup", { visibility: "draft" }), "utf8");
+  writeFileSync(join(root, "packages", "used-cup.json"), pkg("Used Cup"), "utf8");
+  // a tournament with a registered coach on "Used Cup" (fake data)
+  const store = new TournamentStore(join(root, "tournaments"));
+  const at = new Date("2026-11-02T12:00:00Z");
+  const t = store.createTournament({ name: "Used Open", packageName: "Used Cup", maxPlayers: 8, format: "swiss", organizerCoachId: "Org", roundCount: 3 }, at);
+  store.registerEntrant(t.id, { coachId: "Ann", ffbCoachId: "Ann", verifiedAt: at.toISOString() }, "team-ann", at);
   ({ server } = await import("../src/server.js"));
   if (!server.listening) await once(server, "listening");
   origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -97,5 +104,32 @@ describe("GET /api/ruleset-summary", () => {
     expect(plain.traits).toBeUndefined();
     const withTraits = (await (await get("/api/skills?traits=1")).json()) as { traits: Array<{ name: string }> };
     expect(withTraits.traits.some((t) => t.name === "Loner")).toBe(true);
+  });
+
+  it("every package resolver hides a draft: team-builder tiers, limits and inducements answer as unknown for the public", async () => {
+    for (const route of ["tiers", "limits", "inducements"]) {
+      expect((await get(`/api/fork/team-builder/${route}?packageName=Secret%20Cup`)).status, route).toBe(400);
+      expect((await get(`/api/fork/team-builder/${route}?packageName=Secret%20Cup`, basic)).status, route).toBe(200);
+      expect((await get(`/api/fork/team-builder/${route}?packageName=Open%20Cup`)).status, route).toBe(200);
+    }
+  });
+});
+
+describe("Creator saves of a ruleset in use", () => {
+  const post = async (doc: Record<string, unknown>) => {
+    const { revision } = (await (await get("/api/packages/Used%20Cup", basic)).json()) as { revision: string };
+    return fetch(`${origin}/api/packages?replace=Used%20Cup`, { method: "POST", headers: { ...basic, "content-type": "application/json", "x-cw-auth": "1", "if-match": revision }, body: JSON.stringify(doc) });
+  };
+  const current = JSON.parse(pkg("Used Cup")) as Record<string, unknown>;
+  it("refuses a rules edit to a package a competition with registered coaches uses, naming it", async () => {
+    const res = await post({ ...current, goldBudget: 1_100_000 });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string; inUse: string[] };
+    expect(body.inUse).toEqual(["Used Open"]);
+    expect(body.error).toContain("switch the competition");
+  });
+  it("lets a notes-only edit (description, rules note, visibility) through", async () => {
+    const res = await post({ ...current, description: "Clarified wording.", dataNote: "Hand-check nothing." });
+    expect(res.status).toBe(200);
   });
 });

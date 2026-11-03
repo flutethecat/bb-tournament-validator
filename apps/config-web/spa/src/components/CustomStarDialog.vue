@@ -10,7 +10,7 @@ import { API_KEY } from "../app";
 import LeagueDialog from "./LeagueDialog.vue";
 import CustomStarSpecialRules from "./CustomStarSpecialRules.vue";
 import {
-  CUSTOM_STAR, RULE_KIND_LABEL, STAR_STATS, blankCustomStar, customStarError, skillGroups, spriteOptions, statValue, stepStat,
+  CUSTOM_STAR, RULE_KIND_LABEL, STAR_STATS, blankCustomStar, customStarError, plainStar, saveDraftStar, skillGroups, spriteOptions, statValue, stepStat,
   type CustomStarDoc, type CustomStarRuleDoc, type SkillGroup, type SpriteOption, type StarStat,
 } from "../tournaments/customStars";
 import "../leagues/leagues.css";
@@ -20,7 +20,8 @@ const props = defineProps<{ star: CustomStarDoc | null; others: CustomStarDoc[];
 const emit = defineEmits<{ close: []; save: [star: CustomStarDoc] }>();
 const api = inject(API_KEY)!;
 
-const draft = ref<CustomStarDoc>(structuredClone(props.star ? { ...props.star, specialRules: props.star.specialRules ?? [] } : blankCustomStar()));
+// Plain deep copies in and out (plainStar): the star and the draft are reactive proxies, which structuredClone refuses.
+const draft = ref<CustomStarDoc>(plainStar(props.star ? { ...props.star, specialRules: props.star.specialRules ?? [] } : blankCustomStar()));
 const costK = computed({
   get: () => Math.round(draft.value.cost / 1000),
   set: (v: number) => { draft.value = { ...draft.value, cost: Math.max(0, Math.min(CUSTOM_STAR.costMax, Math.round(Number(v) || 0) * 1000)) }; },
@@ -83,8 +84,9 @@ const initials = computed(() => (draft.value.name.trim() || "Star").slice(0, 2).
 
 function save(): void {
   tried.value = true;
-  if (problem.value) { error.value = problem.value; return; }
-  emit("save", structuredClone({ ...draft.value, name: draft.value.name.trim() }));
+  const result = saveDraftStar(draft.value, props.others, props.datasetStars);
+  if ("error" in result) { error.value = result.error; return; }
+  emit("save", result.star);
 }
 </script>
 

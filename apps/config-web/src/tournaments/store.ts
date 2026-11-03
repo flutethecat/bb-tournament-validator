@@ -1178,7 +1178,8 @@ export class TournamentStore {
         if (entrant.tournamentId !== tournamentId || entrant.droppedAt !== undefined || !entrant.submission) continue;
         const check = checks[entrant.id];
         if (!check) continue;
-        if (!("error" in check)) entrant.submission = structuredClone(check);
+        // The snapshot stays the one the coach submitted: only its verdict changes.
+        if (!("error" in check)) entrant.submission = { ...entrant.submission, validation: structuredClone(check.validation) };
         else entrant.submission.validation = { ok: false, problems: [check.error], checkedAt: timestamp, packageName: tournament.packageName };
         entrant.flags = withVerified(entrant);
         out.push(entrant);

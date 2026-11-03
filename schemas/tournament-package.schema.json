@@ -55,7 +55,9 @@
           "maxPerPlayer": { "type": ["integer", "null"], "minimum": 0 },
           "starPlayersAllowed": { "type": "boolean", "description": "Whether a roster on this pack may field Star Players (default true)." },
           "maxSkills": { "type": ["integer", "null"], "minimum": 0, "description": "COUNT mode: total added skills under this pack (skillPointBudget then ignored)." },
-          "maxSecondary": { "type": ["integer", "null"], "minimum": 0, "description": "COUNT mode: how many of the added skills may be secondary; a secondary slot may hold a primary." }
+          "maxSecondary": { "type": ["integer", "null"], "minimum": 0, "description": "COUNT mode: how many of the added skills may be secondary; a secondary slot may hold a primary." },
+          "maxSecondarySkills": { "type": ["integer", "null"], "minimum": 0, "description": "SP-mode pack: most SECONDARY added skills under this pack (BB2025 matched play: by tier)." },
+          "maxStars": { "type": ["integer", "null"], "minimum": 0, "description": "Most Star Player picks under this pack (a hired pair is one pick); null = the package's own star cap." }
         }
       }
     }
