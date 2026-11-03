@@ -24,7 +24,10 @@ interface Model {
   legalLocked?: boolean;
   draft?: { side: Side; rolls: DefRoll[] }; blocked: string;
   /** The forfeit already applied (the Undo forfeit button reverses it). */
-  applied?: { by: string; at: string };
+  applied?: { by: string; at: string; matchId?: string };
+  /** Recorder only: a forfeit whose match close did not finish (Finish forfeit retries it) / the match is closed by one. */
+  pending?: boolean;
+  closed?: boolean;
 }
 
 const props = defineProps<{ base: string; api: Fetcher; title?: string }>();
@@ -76,6 +79,18 @@ function setLegal(on: boolean): void {
   else notes.value = [];
 }
 const undoing = ref(false);
+/** Retries the close of a forfeit that was applied but not finished (the server answers the forfeit it already applied). */
+async function finishForfeit(): Promise<void> {
+  busy.value = true; error.value = "";
+  try {
+    await props.api(props.base, { method: "POST", body: {} });
+    emit("done");
+  } catch (e) {
+    // nothing was applied after all: the form opens normally
+    error.value = (e as Error).message;
+    await load();
+  } finally { busy.value = false; }
+}
 /** Reverses the applied forfeit (the server restores both rosters exactly, or refuses when one changed since). */
 async function undoForfeit(): Promise<void> {
   busy.value = true; error.value = "";
@@ -125,7 +140,11 @@ async function submit(): Promise<void> {
     <p v-else-if="!model" class="muted">Loading...</p>
     <template v-else>
       <p class="sf-notice ff-warn">Entering a forfeit replaces any result on this fixture and marks it forfeited [F]. It counts as an administrative result. Roster changes (winnings, fans, MVPs, missed games, defections) are applied once and stay if the result is cleared later.</p>
-      <p v-if="model.blocked" class="sf-error" role="alert">{{ model.blocked }}</p>
+      <div v-if="model.pending" class="sf-notice" role="status">
+        <p>This forfeit was started but the match was not closed (the connection or the server stopped). Finish forfeit completes it; nothing is applied twice.</p>
+        <button class="sf-btn primary" type="button" :disabled="busy" @click="finishForfeit">Finish forfeit</button>
+      </div>
+      <p v-else-if="model.blocked && !model.applied" class="sf-error" role="alert">{{ model.blocked }}</p>
       <div v-if="model.applied" class="sf-notice" role="status">
         <p>This fixture was forfeited by {{ model.applied.by }}. Undo forfeit puts both rosters and the fixture back exactly as they were before it; the defection rolls are kept, so entering it again never rerolls them.</p>
         <button v-if="!undoing" class="sf-btn danger" type="button" :disabled="busy" @click="undoing = true">Undo forfeit</button>

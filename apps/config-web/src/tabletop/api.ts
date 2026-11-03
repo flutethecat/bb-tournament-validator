@@ -242,6 +242,8 @@ export interface TabletopForfeitGateway {
   roll(match: MatchRecord, who: { coach: string; admin: boolean }, body: Record<string, unknown>): ForfeitGatewayResult;
   apply(match: MatchRecord, who: { coach: string; admin: boolean }, body: Record<string, unknown>): Promise<ForfeitGatewayResult>;
   settings(match: MatchRecord, who: { coach: string; admin: boolean }, on: unknown): ForfeitGatewayResult;
+  /** Reverse the forfeit this match entered (the recorder then reopens the match). */
+  undo?(match: MatchRecord, who: { coach: string; admin: boolean }): ForfeitGatewayResult;
   /** Post the end-of-match report (once), after the forfeit and the match close are both written. */
   announce?(match: MatchRecord): Promise<void>;
   /** Is `coach` a site admin (the league routes' admin flag)? */
@@ -354,7 +356,7 @@ export async function tabletopApi(
   }
   const captain = await tabletopCaptainApi(method, path, query, body, me, organiser, deps, dropAllSnapshots);
   if (captain) return captain;
-  const m = /^\/api\/tabletop\/matches\/([\w-]{1,64})(?:\/(events|submit|confirm|publish|undo-revision|resolve-conflict|pregame\/advance|pregame\/skip|seats\/swap|turn\/start|turn\/end|turn\/set|inducements|comment|comment\/hide|dice|dice\/roll|dice\/choose|dice\/log|forfeit|forfeit\/defections|forfeit\/settings))?$/.exec(path);
+  const m = /^\/api\/tabletop\/matches\/([\w-]{1,64})(?:\/(events|submit|confirm|publish|undo-revision|resolve-conflict|pregame\/advance|pregame\/skip|seats\/swap|turn\/start|turn\/end|turn\/set|inducements|comment|comment\/hide|dice|dice\/roll|dice\/choose|dice\/log|forfeit|forfeit\/defections|forfeit\/settings|forfeit\/undo))?$/.exec(path);
   if (!m) return err(404, "Not found.");
   const id = m[1]!;
   const action = m[2];
@@ -394,11 +396,32 @@ export async function tabletopApi(
     if (!deps.forfeit) return err(404, "Forfeits are not available here.");
     const who = { coach: me, admin: deps.forfeit.isAdmin?.(me) ?? false };
     const asResult = (r: ForfeitGatewayResult): TabletopResult => ({ status: r.status, body: r.body ?? {}, ...(r.headers ? { headers: r.headers } : {}) });
-    if (action === "forfeit" && (method === "GET" || method === "HEAD")) return asResult(deps.forfeit.model(match, who));
+    if (action === "forfeit" && (method === "GET" || method === "HEAD")) {
+      // a close that did not finish (a crash after the league write): the dialog offers Finish forfeit
+      const r = asResult(deps.forfeit.model(match, who));
+      if (r.status !== 200 || !r.body || typeof r.body !== "object") return r;
+      return { ...r, body: { ...(r.body as Record<string, unknown>), ...(match.forfeitPending ? { pending: true } : {}), ...(match.forfeit ? { closed: true } : {}) } };
+    }
     if (method !== "POST") return err(405, "Method not allowed.");
     const b = (body && typeof body === "object" && !Array.isArray(body) ? body : {}) as Record<string, unknown>;
     if (action === "forfeit/defections") return asResult(deps.forfeit.roll(match, who, b));
     if (action === "forfeit/settings") return asResult(deps.forfeit.settings(match, who, b.defectionRolls));
+    if (action === "forfeit/undo") {
+      return serial(id, async () => {
+        const fresh = (await repo.getMatch(id))!;
+        if (!fresh.forfeit && !fresh.forfeitPending) return err(409, "This match has no forfeit to undo.");
+        if (!deps.forfeit!.undo) return err(404, "Undo is not available here.");
+        const out = asResult(deps.forfeit!.undo(fresh, who));
+        // nothing applied on the league side (a close that never got there) counts as undone too
+        if (out.status !== 200 && !(fresh.forfeitPending && !fresh.forfeit && out.status === 409)) return out;
+        // the match reopens where it was before the forfeit
+        const at = now().toISOString();
+        const { forfeit: f0, forfeitPending: _p, publishedAt: _pa, publishedBy: _pb, ...rest } = fresh;
+        const reopened: MatchRecord = { ...rest, state: f0?.priorState ?? (fresh.state === "published" ? "recording" : fresh.state), updatedAt: at };
+        await repo.updateMatch(reopened);
+        return { status: 200, body: { ...(out.body as Record<string, unknown>), match: reopened } };
+      }, matchTeamKeys(match));
+    }
     return serial(id, async () => {
       const fresh = (await repo.getMatch(id))!;
       if (fresh.forfeit) return err(409, "This match was already forfeited.");
@@ -419,7 +442,7 @@ export async function tabletopApi(
       // The forfeit replaces the report: the match closes (published, no results row, no team revisions), keeping its score.
       const score = (out.body as { score?: { home: number; away: number } }).score;
       const { forfeitPending: _p, ...base } = fresh;
-      const closed: MatchRecord = { ...base, state: "published", forfeit: { at: pending.at, by: pending.by, ...(score ? { score } : {}) }, publishedAt: at, publishedBy: me, updatedAt: at };
+      const closed: MatchRecord = { ...base, state: "published", forfeit: { at: pending.at, by: pending.by, priorState: fresh.state === "published" ? "recording" : fresh.state, ...(score ? { score } : {}) }, publishedAt: at, publishedBy: me, updatedAt: at };
       await repo.updateMatch(closed);
       // The Discord report only after both writes (fire-and-forget; posted once).
       void deps.forfeit!.announce?.(closed).catch(() => undefined);

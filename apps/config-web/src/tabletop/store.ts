@@ -82,7 +82,7 @@ export interface MatchRecord {
   /** The match recorder toggle "Show dice log" (per match, off by default): the coaches see the dice log. Organisers always do. */
   diceLogShown?: true;
   /** Set when an organiser entered a forfeit for this match's league fixture (src/leagues/forfeit.ts): the match is closed. */
-  forfeit?: { at: string; by: string; score?: { home: number; away: number } };
+  forfeit?: { at: string; by: string; score?: { home: number; away: number }; /** the state to reopen to when undone */ priorState?: MatchState };
   /** Written BEFORE the league forfeit is applied: a retry after a crash re-applies it (idempotent for this match) and closes. */
   forfeitPending?: { at: string; by: string };
   /** Coach's comments (end-game step, src/discord/comments.ts): one per seat, at most 120 characters, keyed by SIDE (the

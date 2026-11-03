@@ -535,7 +535,7 @@ usePageTitle(() => (match.value ? `${match.value.home.teamName} vs ${match.value
         v-else-if="organiser" collapsible @hide="setAdminHidden(true)" :recording="recording" :can-override="canOverrideEnd" :edit-mode="editMode" :busy="state.busy" :state="match.state" :can-confirm="canConfirm"
         @add="(k) => openPick(k)" @other="other = true" @change-turn="turnSetOpen = true" @override-end="overrideEnd"
         @reopen="rec.undoRevision()" @confirm="rec.confirm()" @edit="(on) => (editMode = on)" @inducements="inducementEditOpen = true"
-        :forfeit="match.forfeit || match.state === 'confirmed' || match.state === 'published' ? null : forfeitTools" @forfeit="forfeitOpen = true" @defections="setDefections"
+        :forfeit="!match.forfeit && (match.state === 'confirmed' || match.state === 'published') ? null : forfeitTools && { ...forfeitTools, closed: Boolean(match.forfeit) }" @forfeit="forfeitOpen = true" @defections="setDefections"
       />
     </TabletopRail>
 
@@ -569,7 +569,7 @@ usePageTitle(() => (match.value ? `${match.value.home.teamName} vs ${match.value
           :recording="recording" :can-override="canOverrideEnd" :edit-mode="editMode" :busy="state.busy" :state="match.state" :can-confirm="canConfirm"
           @add="(k) => { adminOpen = false; openPick(k); }" @other="adminOpen = false; other = true" @change-turn="adminOpen = false; turnSetOpen = true" @override-end="adminOpen = false; overrideEnd()"
           @reopen="rec.undoRevision()" @confirm="rec.confirm()" @edit="(on) => (editMode = on)" @inducements="adminOpen = false; inducementEditOpen = true"
-          :forfeit="match.forfeit || match.state === 'confirmed' || match.state === 'published' ? null : forfeitTools" @forfeit="adminOpen = false; forfeitOpen = true" @defections="setDefections"
+          :forfeit="!match.forfeit && (match.state === 'confirmed' || match.state === 'published') ? null : forfeitTools && { ...forfeitTools, closed: Boolean(match.forfeit) }" @forfeit="adminOpen = false; forfeitOpen = true" @defections="setDefections"
         />
       </div>
     </div>

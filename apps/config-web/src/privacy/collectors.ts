@@ -495,7 +495,8 @@ export const STORE_COLLECTORS: StoreCollector[] = [
       for (const path of matchFiles) {
         const m = readJsonLoose<Obj & { id?: string; home?: { coach?: string }; away?: { coach?: string }; createdBy?: string }>(path);
         const forfeitBy = isObj(m?.forfeit) ? (m!.forfeit as Obj).by : undefined;
-        if (!m || !(isMine(ctx.keys, m.home?.coach) || isMine(ctx.keys, m.away?.coach) || isMine(ctx.keys, m.createdBy) || isMine(ctx.keys, forfeitBy))) continue;
+        const pendingBy = isObj(m?.forfeitPending) ? (m!.forfeitPending as Obj).by : undefined;
+        if (!m || !(isMine(ctx.keys, m.home?.coach) || isMine(ctx.keys, m.away?.coach) || isMine(ctx.keys, m.createdBy) || isMine(ctx.keys, forfeitBy) || isMine(ctx.keys, pendingBy))) continue;
         let events: unknown[] = [];
         try {
           events = readFileSync(join(ctx.deps.tabletopDir, "events", `${String(m.id).replace(/[^\w-]/g, "_")}.ndjson`), "utf8")
@@ -923,7 +924,24 @@ function anonymiseSeason(an: Anonymiser, tx: TextReplacer, displays: ReadonlySet
     // Team page v2: the organiser who decided the fixture of an inactive team.
     if (isObj(f.inactiveDecision)) mark(an.fields(f.inactiveDecision, ["by"], []));
     // The organiser who entered a forfeit, or rolled its defections (leagues/forfeit.ts).
-    if (isObj(f.forfeitDetail)) mark(an.fields(f.forfeitDetail, ["by"], []));
+    if (isObj(f.forfeitDetail)) {
+      mark(an.fields(f.forfeitDetail, ["by"], []));
+      // The undo snapshot holds both rosters and the fixture result as they were: anonymised like the live ones, so an
+      // undo can never bring a deleted coach's identity back.
+      const undo = f.forfeitDetail.undo;
+      if (isObj(undo)) {
+        for (const t of vals(undo.teams)) {
+          if (!isObj(t)) continue;
+          if (linked(t)) mark(LINKED_ROW(an, t));
+          if (isObj(t.coachAssigned)) mark(an.fields(t.coachAssigned, ["by"], []));
+          mark(anonymiseTeamRecords(an, tx, t));
+        }
+        if (isObj(undo.fixture)) {
+          if (isObj(undo.fixture.resultEdit)) mark(an.fields(undo.fixture.resultEdit, ["by"], []));
+          if (isObj(undo.fixture.deadlineOutcome)) mark(an.fields(undo.fixture.deadlineOutcome, ["by"], []));
+        }
+      }
+    }
     if (isObj(f.forfeitDraft)) mark(an.fields(f.forfeitDraft, ["by"], []));
   }
   if (isObj(s.deadlinePolicy)) mark(an.fields(s.deadlinePolicy, ["updatedBy"], []));

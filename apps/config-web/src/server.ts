@@ -350,7 +350,7 @@ import { LOBBY_BODY_MAX as TOURNAMENT_LOBBY_BODY_MAX, tournamentLobbyFixture, to
 import { LEAGUE_FIXTURE_REF, leagueFixtureView, recordLeagueFixture, retractLeagueFixture } from "./leagues/tabletopFixtures.js";
 import { FileTabletopRepository, type MatchRecord } from "./tabletop/store.js";
 import { FileDiceLog } from "./dice/log.js";
-import { announceForfeit, applyForfeit, forfeitModel, rollDefections, setDefectionRolls, type ForfeitIds } from "./leagues/forfeit.js";
+import { announceForfeit, applyForfeit, forfeitModel, rollDefections, setDefectionRolls, undoForfeit, type ForfeitIds } from "./leagues/forfeit.js";
 import { createRecorderWebhook, recorderAnnouncement } from "./tabletop/discord.js";
 import { isAdminTestingPath, testingApi } from "./tabletop/testing.js";
 import { parseTeamRef, saveCaptainError, teamFileFromLibraryDetail, teamFileFromSave } from "./tabletop/teamFile.js";
@@ -1055,6 +1055,7 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
         return applyForfeit({ store: leagueStore, diceLog }, ids, who, body, { matchId: match.id, announce: false });
       },
       announce: async (match) => { const ids = leagueFixtureIds(match); if (ids) await announceForfeit({ store: leagueStore, diceLog }, ids); },
+      undo: (match, who) => { const ids = leagueFixtureIds(match); return ids ? undoForfeit({ store: leagueStore, diceLog }, ids, who, { matchId: match.id }) : NOT_LEAGUE_FIXTURE; },
     },
     // the spectator view follows the game pages' player-lines policy (read here: tabletopDeps can run before that const)
     publicPlayerLines: publicPlayerLinesFromEnv(process.env.GAME_PAGES_PUBLIC_PLAYER_LINES),

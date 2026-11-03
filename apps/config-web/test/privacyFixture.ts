@@ -186,6 +186,12 @@ export async function seed(root: string, opts: SeedOptions = {}): Promise<void> 
       id: "f1", home: { team: "Green Orcs", teamId: "green-orcs", coach: "AliceNaf", coachId: "Alice", race: "Orc", score: 2 }, away: { team: "Blue Elves", coach: "BobNaf", coachId: "Bob", race: "Elf", score: 1 },
       fork: { status: "finished", teams: { home: { teamId: "ft1", coach: "Alice" }, away: { teamId: "ft2", coach: "Bob" } }, generatedBy: "Alice", log: [{ at: "", by: "Alice", text: "Alice generated the game for Bob" }] },
       resultEdit: { by: "Alice", at: "2026-10-30T00:00:00.000Z" },
+      // a forfeit's undo snapshot (leagues/forfeit.ts): her team as it was, and the result she had typed
+      forfeitDetail: { by: "Bob", at: "", legalConcession: false, sides: {}, undo: {
+        teams: { home: { id: "green-orcs", name: "Green Orcs", race: "Orc", coach: "Alice Smith", coachId: "Alice", nafUser: "AliceNaf", players: [{ name: "Grub", injuries: [{ type: "dead", at: "", by: "Alice" }] }], history: [{ at: "", by: "Alice", kind: "organiser-edit", changes: [{ what: "Alice Smith fixed Grub" }] }] } },
+        fixture: { home: { score: 1, cas: 0, conceded: false }, away: { score: 1, cas: 0, conceded: false }, resultEdit: { by: "Alice", at: "" } },
+        afterHash: "x",
+      } },
     }],
     redraft: {
       startedAt: "", byCoach: "Bob", capEnabled: false, cap: 0, revision: 1, log: [{ at: "", by: "Alice", text: "Alice submitted a draft" }],
@@ -208,6 +214,8 @@ export async function seed(root: string, opts: SeedOptions = {}): Promise<void> 
   w(join(d.tabletopDir, "matches", "tm1.json"), { id: "tm1", state: "published", home: { coach: "Alice", teamSaveId: "s1", teamName: "Green Orcs" }, away: { coach: "Bob", teamSaveId: "b1", teamName: "Blue Elves" }, createdBy: "Alice", confirmations: { Alice: "2026-10-01", Bob: "2026-10-01" }, forfeit: { at: "2026-10-01", by: "Alice" }, forfeitPending: { at: "2026-10-01", by: "Alice" } });
   // a match of two other coaches that Alice forfeited as an organiser (export + anonymise of forfeit.by)
   w(join(d.tabletopDir, "matches", "tm2.json"), { id: "tm2", state: "published", home: { coach: "Bob", teamSaveId: "b1", teamName: "Blue Elves" }, away: { coach: "Carol", teamSaveId: "c1", teamName: "Reds" }, createdBy: "Bob", confirmations: {}, forfeit: { at: "2026-10-02", by: "Alice" } });
+  // only the pending marker names Alice (a forfeit she started whose close did not finish)
+  w(join(d.tabletopDir, "matches", "tm3.json"), { id: "tm3", state: "recording", home: { coach: "Bob", teamSaveId: "b1", teamName: "Blue Elves" }, away: { coach: "Carol", teamSaveId: "c1", teamName: "Reds" }, createdBy: "Bob", confirmations: {}, forfeitPending: { at: "2026-10-03", by: "Alice" } });
   w(join(d.tabletopDir, "events", "tm1.ndjson"), `${JSON.stringify({ seq: 0, by: "Bob", type: "seats", payload: { home: { coach: "Alice" }, away: { coach: "Bob" } } })}\n${JSON.stringify({ seq: 1, by: "Alice", kind: "touchdown" })}\n${JSON.stringify({ seq: 2, by: "Bob", kind: "touchdown" })}\n`);
   w(join(d.tabletopDir, "journals", "tm1.json"), { matchId: "tm1", opId: "o1", kind: "confirm", by: "Alice", homeChain: { expect: { head: 0, revisions: 0 }, target: { saveId: "s1", coach: "Alice", head: 1, revisions: [] } }, result: null, match: { id: "tm1", home: { coach: "Alice" }, away: { coach: "Bob" }, createdBy: "Alice", confirmations: {} } });
   w(join(d.tabletopDir, "teams", "chain-alice.json"), { saveId: "s1", coach: "Alice", head: 0, revisions: [] });

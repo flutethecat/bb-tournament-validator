@@ -9,7 +9,7 @@ import { EMPTY_PLAYER_STATS, type LeagueFixture, type LeaguePlayer, type LeagueT
 import { MemoryDiceLog, fixtureLogId, type DiceRoll } from "../src/dice/log";
 import { sequenceRoller } from "../src/dice/roller";
 import { advancementCount, suggestForfeit } from "../src/forfeit/rules";
-import { applyForfeit, rollDefections } from "../src/leagues/forfeit";
+import { applyForfeit, forfeitModel, rollDefections, undoForfeit } from "../src/leagues/forfeit";
 import { createMatch, tabletopApi, type TabletopApiDeps, type TabletopResult } from "../src/tabletop/api";
 import type { TabletopPlayer, TabletopTeamFile } from "../src/tabletop/postMatch";
 import { FileTabletopRepository } from "../src/tabletop/store";
@@ -142,6 +142,19 @@ describe("#3 legality locks once defections are rolled", () => {
   });
 });
 
+describe("re-review #3 any logged defection roll locks legality", () => {
+  it("a partial log (no draft saved) still refuses a legal concession", async () => {
+    let n = 0;
+    const flaky = new MemoryDiceLog();
+    log = flaky;
+    const failing = { read: (i: string) => flaky.read(i), appendChoice: () => undefined, appendRoll: (r: DiceRoll) => { n += 1; if (n === 2) throw new Error("disk"); flaky.appendRoll(r); } };
+    expect(rollDefections({ store, diceLog: failing, roller: sequenceRoller([1, 4]) }, IDS, { coach: "Jay", admin: false }, { side: "home" }).status).toBe(500);
+    expect(store.season("tabbl", "s1")!.fixtures[0]!.forfeitDraft).toBeUndefined();
+    expect(((await call("GET", F)).body as any).legalLocked).toBe(true);
+    expect((await call("POST", F, homeForfeits({ legalConcession: true }))).status).toBe(409);
+  });
+});
+
 describe("#4 advancements are counted one by one", () => {
   it("a listed +MA (cancelled by injury on the line) and a separate ST increase are two advancements", () => {
     expect(advancementCount(pl("x", "Orc Lineman", ["+MA"], { ma: 5, st: 4 }), "Orc", "BB2025")).toBe(2);
@@ -183,7 +196,8 @@ describe("#5 #8 #9 recorder forfeit", () => {
     loadTeamFile: (coach) => (coach === "Alice" ? tfile("Humans", "h") : tfile("Orcs", "o")),
     isBanned: () => false, drawSeats: () => false, isOrganizer: (c) => c === "Org", now: () => NOW,
     forfeit: {
-      model: () => ({ status: 200, body: {} }),
+      model: (_m, who) => forfeitModel({ store, diceLog: log }, IDS, who),
+      undo: (m, who) => undoForfeit({ store, diceLog: log }, IDS, who, { matchId: m.id }),
       roll: (m, who, b) => rollDefections({ store, diceLog: log, roller: sequenceRoller([2, 5]) }, IDS, who, b, { matchId: m.id }),
       settings: () => ({ status: 200, body: {} }),
       apply: async (m, who, b) => { applyCalls += 1; return applyForfeit({ store, diceLog: log, postWebhook: async (_u, p) => { posts.push(p); return { ok: true, status: 204 }; } }, IDS, who, b, { matchId: m.id, announce: false }); },
@@ -235,6 +249,45 @@ describe("#5 #8 #9 recorder forfeit", () => {
     expect(applyCalls).toBe(1);
     expect((await repo.getMatch(id))!.forfeitPending).toBeUndefined();
     expect((await as("Alice", "POST", `/api/tabletop/matches/${id}/events`, { events: [] })).status).not.toBe(409);
+  });
+
+  it("re-review #2 a recorder forfeit is undone in the recorder (the match reopens); the league side refuses and points there", async () => {
+    await as("Org", "POST", `/api/tabletop/matches/${id}/forfeit/defections`, { side: "home" });
+    expect((await as("Org", "POST", `/api/tabletop/matches/${id}/forfeit`, homeForfeits())).status).toBe(200);
+    const league = await call("POST", `${F}/undo`, {});
+    expect(league.status).toBe(409);
+    expect((league.body as any).matchId).toBe(id);
+    const undo = await as("Org", "POST", `/api/tabletop/matches/${id}/forfeit/undo`, {});
+    expect(undo.status).toBe(200);
+    expect((undo.body as any).match).toMatchObject({ state: "recording" });
+    expect((undo.body as any).match.forfeit).toBeUndefined();
+    expect(store.season("tabbl", "s1")!.fixtures[0]!.forfeit).toBeUndefined();
+    expect((await as("Alice", "POST", `/api/tabletop/matches/${id}/events`, { events: [] })).status).not.toBe(409); // writable again (not refused as forfeited)
+    expect((await as("Alice", "POST", `/api/tabletop/matches/${id}/forfeit/undo`, {})).status).toBe(403);
+  });
+
+  it("re-review #4 a pending close shows in the dialog model and Finish forfeit completes it", async () => {
+    await as("Org", "POST", `/api/tabletop/matches/${id}/forfeit/defections`, { side: "home" });
+    const m = (await repo.getMatch(id))!;
+    await repo.updateMatch({ ...m, forfeitPending: { at: NOW.toISOString(), by: "Org" } });
+    await applyForfeit({ store, diceLog: log }, IDS, { coach: "Org", admin: false }, homeForfeits() as never, { matchId: id, announce: false });
+    const model = (await as("Org", "GET", `/api/tabletop/matches/${id}/forfeit`)).body as any;
+    expect(model.pending).toBe(true);
+    const finish = await as("Org", "POST", `/api/tabletop/matches/${id}/forfeit`, {}); // the dialog's Finish forfeit sends no form
+    expect(finish.status).toBe(200);
+    expect((finish.body as any).match.state).toBe("published");
+    const after = (await as("Org", "GET", `/api/tabletop/matches/${id}/forfeit`)).body as any;
+    expect(after.pending).toBeUndefined();
+    expect(after.closed).toBe(true);
+    expect(after.applied.matchId).toBe(id);
+  });
+
+  it("re-review #5 a draft rolled in the fixtures editor reaches the recorder's dice log, once", async () => {
+    expect((await call("POST", `${F}/defections`, { side: "home" })).status).toBe(201);
+    expect(log.read(id)).toHaveLength(0);
+    await as("Org", "POST", `/api/tabletop/matches/${id}/forfeit/defections`, { side: "home" });
+    await as("Org", "POST", `/api/tabletop/matches/${id}/forfeit/defections`, { side: "home" });
+    expect(log.read(id).map((r) => [r.kind, r.dice[0]])).toEqual([["defection", 2], ["defection", 5]]);
   });
 
   it("#8 the closed recorder shows the forfeit's score", async () => {

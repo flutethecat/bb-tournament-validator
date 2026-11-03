@@ -75,6 +75,11 @@ const teamOf = (season: SeasonRecord, f: LeagueFixture, s: ForfeitSide): LeagueT
 };
 export const defectionsOn = (f: Pick<LeagueFixture, "defectionRolls">): boolean => f.defectionRolls !== false;
 
+/** Any defection roll is in this fixture's dice log (a draft, or an attempt that logged some rolls before failing). */
+function defectionsLogged(deps: Pick<ForfeitDeps, "diceLog">, ids: ForfeitIds): boolean {
+  return (deps.diceLog?.read(fixtureLogId(leagueFixtureRef(ids.leagueId, ids.seasonId, ids.fixtureId))) ?? []).some((r) => r.kind === "defection");
+}
+
 /** Why a forfeit cannot be entered on this fixture now ("" = it can). */
 function blockedReason(f: LeagueFixture): string {
   if (f.fork?.result) return "This fixture has a Super FUMBBL result: its rosters already took that game. Reset the game first.";
@@ -119,7 +124,7 @@ export function forfeitModel(deps: ForfeitDeps, ids: ForfeitIds, who: ForfeitWho
       both: suggestForfeit({ home: true, away: true }, true),
     },
     /** A legal concession is locked off once defections are rolled. */
-    legalLocked: Boolean(f.forfeitDraft),
+    legalLocked: Boolean(f.forfeitDraft) || defectionsLogged(deps, ids),
     ...(f.forfeitDraft ? { draft: f.forfeitDraft } : {}),
     ...(f.forfeitDetail ? { applied: (({ undo: _u, ...rest }) => rest)(f.forfeitDetail) } : {}),
     blocked: blockedReason(f),
@@ -139,6 +144,20 @@ export function rollDefections(deps: ForfeitDeps, ids: ForfeitIds, who: ForfeitW
   const side = body.side as ForfeitSide;
   if (f.forfeitDraft) {
     if (f.forfeitDraft.side !== side) return fail(409, `Defections were already rolled for the ${f.forfeitDraft.side} team.`, { draft: f.forfeitDraft });
+    // rolled earlier (the fixtures editor, or before a restart): the recorder's own dice log gets each roll once
+    if (opts.matchId && deps.diceLog) {
+      const draft = f.forfeitDraft;
+      const inMatch = new Set(deps.diceLog.read(opts.matchId).map((r) => r.id));
+      try {
+        for (const r of draft.rolls) {
+          if (!r.rollId || inMatch.has(r.rollId)) continue;
+          deps.diceLog.appendRoll({
+            id: r.rollId, logId: opts.matchId, at: draft.at, by: draft.by, side: draft.side, kind: "defection", purpose: `Defection roll: ${r.name}`, dice: [r.roll],
+            result: { playerId: r.playerId, name: r.name, leaves: r.leaves, fixture: ids.fixtureId, league: ids.leagueId, season: ids.seasonId }, admin: true,
+          });
+        }
+      } catch { return fail(500, "The rolls could not be copied to the match's dice log. Try again."); }
+    }
     return ok(200, { draft: f.forfeitDraft, already: true });
   }
   const team = teamOf(season, f, side);
@@ -256,12 +275,16 @@ export async function announceForfeit(deps: ForfeitDeps, ids: ForfeitIds): Promi
  * refused when either roster changed since. The defection rolls are kept as the fixture's draft: entering the forfeit again
  * reuses them, never rerolls.
  */
-export function undoForfeit(deps: ForfeitDeps, ids: ForfeitIds, who: ForfeitWho): LeagueApiResult {
+export function undoForfeit(deps: ForfeitDeps, ids: ForfeitIds, who: ForfeitWho, opts: { matchId?: string } = {}): LeagueApiResult {
   const at = locate(deps.store, ids, who);
   if (isResult(at)) return at;
   const { season, fixture: f } = at;
   const d = f.forfeitDetail;
-  if (!f.forfeit || !d?.undo) return fail(409, "This fixture has no forfeit to undo.");
+  if (!f.forfeit || !d) return fail(409, "This fixture has no forfeit to undo.");
+  // Entered from the match recorder: undone there, which also reopens the recorder match (never left closed by a forfeit
+  // that no longer exists).
+  if (d.matchId && d.matchId !== opts.matchId) return fail(409, "This forfeit was entered in the match recorder. Undo it there (Admin, Forfeit details): that also reopens the match.", { matchId: d.matchId });
+  if (!d.undo) return fail(409, "This forfeit cannot be reversed automatically. Correct the rosters by hand.");
   const teams = { home: teamOf(season, f, "home"), away: teamOf(season, f, "away") };
   if (rosterHash([teams.home, teams.away]) !== d.undo.afterHash)
     return fail(409, "A roster changed since the forfeit was entered, so it cannot be reversed automatically. Correct the rosters by hand.");
@@ -310,7 +333,7 @@ export async function applyForfeit(deps: ForfeitDeps, ids: ForfeitIds, who: Forf
   }
   const single: ForfeitSide | undefined = input.home.forfeit !== input.away.forfeit ? (input.home.forfeit ? "home" : "away") : undefined;
   // Legality is locked once defections are rolled: a legal concession would quietly discard the departures.
-  if (f.forfeitDraft && input.legalConcession) return fail(409, "Defections were already rolled for this fixture, so the concession cannot be marked legal.", { field: "legalConcession" });
+  if ((f.forfeitDraft || defectionsLogged(deps, ids)) && input.legalConcession) return fail(409, "Defections were already rolled for this fixture, so the concession cannot be marked legal.", { field: "legalConcession" });
   // A legal concession carries none of FFB's illegal-concession penalties: the conceder's fan loss is dropped unless the
   // organiser overrides it on purpose (overridePenalties).
   const ignored: string[] = [];

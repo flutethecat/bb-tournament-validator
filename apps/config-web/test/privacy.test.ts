@@ -388,7 +388,7 @@ describe("export", () => {
     expect(leagues[0].hallOfFame.map((x: { id: string }) => x.id)).toEqual(["p-1"]);
     expect(JSON.parse(text("tabletop-matches.json")).matches[0].events).toHaveLength(3);
     // a match she forfeited as an organiser is in her export too
-    expect(JSON.parse(text("tabletop-matches.json")).matches.map((m: { id: string }) => m.id)).toEqual(["tm1", "tm2"]);
+    expect(JSON.parse(text("tabletop-matches.json")).matches.map((m: { id: string }) => m.id)).toEqual(["tm1", "tm2", "tm3"]);
     // the dice log: Alice's roll and her block choice, never Bob's roll
     expect(JSON.parse(text("tabletop-matches.json")).diceRolls.map((r: { t: string; id?: string; rollId?: string }) => r.id ?? `choice:${r.rollId}`)).toEqual(["r1", "choice:r2"]);
     const results = JSON.parse(text("results.json"));
@@ -525,6 +525,14 @@ describe("delete", () => {
     expect(season.teams[1]).toMatchObject({ coach: "BobNaf", nafUser: "BobNaf" });
     expect(season.fixtures[0].home.coach).toBe(P);
     expect(season.fixtures[0].resultEdit.by).toBe(P);
+    // the forfeit's undo snapshot is anonymised too: an undo can never bring her identity back
+    const snap = season.fixtures[0].forfeitDetail.undo;
+    expect(snap.teams.home).toMatchObject({ coach: P, coachId: P });
+    expect(snap.teams.home.nafUser).toBeUndefined();
+    expect(snap.teams.home.players[0].injuries[0].by).toBe(P);
+    expect(snap.teams.home.history[0].by).toBe(P);
+    expect(snap.fixture.resultEdit.by).toBe(P);
+    expect(JSON.stringify(snap)).not.toMatch(/Alice/);
     expect(season.participants[0].coach).toBe(P); // linked through the coach's team
     expect(season.phases[0].standings[0].coach).toBe(P); // unlinked row: display name learned from the linked team row
     expect(season.honours[0].rows[0]).toMatchObject({ name: "Grub", coach: P });
