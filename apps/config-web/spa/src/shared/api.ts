@@ -231,6 +231,42 @@ export interface TournamentEntrant {
   nafPending?: boolean;
   /** Managers only: what the coach shares with this tournament's organisers (the coach name plus granted fields). */
   shared?: TournamentSharedContact;
+  /** Coach and managers only (lane L4): the payment reference for PayPal / Venmo notes, the coach's "I've paid", who
+   *  checked the coach in, and the region they picked. */
+  refCode?: string;
+  coachSaysPaid?: { at: string };
+  checkedInBy?: { by: string; at: string };
+  region?: string;
+}
+
+/** Registration (lane L4): an entry's state (only accepted entries are ever in `entrants`). */
+export type EntryState = "pending" | "accepted" | "waitlisted" | "declined" | "withdrawn" | "dropped";
+
+/** The public registration facts of a tournament (places left count accepted entries only). */
+export interface TournamentRegistrationStatus {
+  open: boolean; reason?: string; message?: string;
+  approval: "auto" | "organiser"; waitlist: boolean; rosterLater: boolean; rosterBy?: string; opensAt?: string; closesAt?: string;
+  cap: number | null; placesLeft: number | null;
+}
+
+/** Check-in times (public settings) and whether it is open now / over. */
+export interface TournamentCheckIn { opensAt: string; closesAt?: string; self: boolean; open: boolean; closed: boolean }
+
+/** The signed-in coach's own entry in any state. */
+export interface TournamentMyRegistration extends TournamentEntrant { state: EntryState; position?: number; reason?: string }
+
+/** One row of the organisers' Registrations panel (GET /api/tournaments/:id/registrations). */
+export interface TournamentRegistrationRow extends Partial<TournamentEntrant> {
+  id: string; coachId: string; state: EntryState; enteredAt: string; submittedAt?: string; position?: number; nextInLine?: boolean;
+  decided?: { by: string; at: string; reason?: string };
+}
+
+export interface TournamentRegistrationsResponse {
+  counts: { accepted: number; pending: number; waitlisted: number; cap: number | null; placesLeft: number | null };
+  settings: { approval: "auto" | "organiser"; waitlist: boolean; rosterLater: boolean; rosterBy?: string; selfCheckIn: boolean };
+  entries: TournamentRegistrationRow[];
+  checkIn?: TournamentCheckIn & { checkedIn: number; total: number };
+  noShows: Array<{ id: string; coachId: string; teamName?: string }>;
 }
 
 export interface TournamentSharedContact { coach: string; preferredName?: string; email?: string; phones?: Array<{ number: string; label?: string }> }
@@ -301,6 +337,10 @@ export interface TournamentDetailResponse {
   activity?: TournamentActivityEntry[];
   /** What the viewer may do here (the server stays the authority). */
   capabilities?: { manage: boolean; assignRoles: boolean };
+  /** Registration (lane L4): the public facts, the check-in times, and the viewer's own entry in any state. */
+  registrationStatus?: TournamentRegistrationStatus;
+  checkIn?: TournamentCheckIn;
+  myRegistration?: TournamentMyRegistration;
 }
 
 /** GET /api/fork/team-builder/saves rows the team picker reads. */

@@ -216,7 +216,8 @@ describe("tournament page views (server-rendered against a mocked API)", () => {
 
   it("a signed-in coach not entered gets Register; a manager gets Edit, Edit ruleset, the news composer and per-post actions", async () => {
     const notEntered = await render("/tournaments/t1", { ...AS("Bob"), "/api/tournaments/t1": detailBody({ entrants: [] }) });
-    expect(notEntered).toMatch(/>Register<\/a>/);
+    // Lane L4: Register opens the register sheet (a button, not a jump to My entry).
+    expect(notEntered).toMatch(/data-register[^>]*>Register<\/button>/);
     const body = detailBody({ capabilities: { manage: true, assignRoles: true } });
     const html = await render("/tournaments/t1", { ...AS("Veers"), "/api/tournaments/t1": body });
     expect(html).toContain(">Edit</a>");

@@ -41,6 +41,8 @@ export interface SubmitOptions {
   data?: Record<string, unknown>;
   /** Organisers adding a coach when it's full: put them on the waitlist instead of refusing. */
   waitlistIfFull?: boolean;
+  /** One thing the organisers must know about this entry, added to their notice (a tournament: "not a NAF member"). */
+  organiserFlag?: string;
 }
 
 const coachKey = (coach: string) => coach.trim().toLowerCase();
@@ -214,7 +216,7 @@ export function createRegistrationService(deps: RegistrationServiceDeps) {
         notifyPromotions(ctx, promotions);
         const position = waitlistPosition(entries, after.id);
         notifyCoachOutcome(ctx, after, to === "accepted" ? "accepted" : to === "waitlisted" ? "waitlisted" : "pending", position ? { position } : {});
-        notifyOrganisersOfRegistration(ctx, after, actor.coach, position ? { position } : {});
+        notifyOrganisersOfRegistration(ctx, after, actor.coach, { ...(position ? { position } : {}), ...(opts.organiserFlag ? { flag: opts.organiserFlag } : {}) });
         return result(after, true, promotions);
       });
     },

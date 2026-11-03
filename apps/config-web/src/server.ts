@@ -324,6 +324,8 @@ import { houseRulesOf } from "./competition/houseRules.js";
 import { leagueVisibleTo } from "./leagues/lifecycle.js";
 import { DEFAULT_TOURNAMENT_TURN_TIMER } from "./tournaments/types.js";
 import { RateLimiter } from "./translate/guards.js";
+import { registrationContactFor, type EntryState } from "./registration/index.js";
+import { sweepTournamentRegistrations, tournamentRegistrationService } from "./tournaments/registration.js";
 import { createTournamentNotifier, isNotificationApiPath, NotificationStore, notificationsApi, SenderRateLimiter, setActiveNotifier, setOrganiserThreadSink, type NotificationInput, type NotificationRecord } from "./notifications.js";
 import { appendFixtureMessage, appendOrganiserMessage, fixtureMessageAllowed, createSocialLimiters, isSocialApiPath, socialApi, type SocialApiDeps } from "./social/api.js";
 import { SocialStore } from "./social/store.js";
@@ -552,6 +554,19 @@ function sharedContacts(viewer: { coach: string; admin?: boolean }, coaches: rea
   const identities = readIdentities().coaches;
   return coaches.map((coach) => sharedContactFor(viewer, identities[normalizeFfbCoachId(coach)], scope, sharingSources));
 }
+/** Tournament Registrations panel (lane L4): what a manager sees of each entry's coach while it is pending, waitlisted or
+ *  accepted (src/registration/privacy.ts: the grant given for the current entry; nothing once declined or withdrawn). */
+function tournamentRegistrationContacts(
+  viewer: { coach: string; admin?: boolean },
+  entries: ReadonlyArray<{ coach: string; state: EntryState; enteredAt: string; competitionId: string }>,
+  managers: readonly string[],
+) {
+  const identities = readIdentities().coaches;
+  return entries.map((entry) => {
+    const scope = parseShareScope(`tournament:${entry.competitionId}`);
+    return scope ? registrationContactFor(viewer, identities[normalizeFfbCoachId(entry.coach)], scope, entry, managers) : undefined;
+  });
+}
 registerLeagueEvents({ store: leagueStore, notify: (coach, input) => { try { notificationStore.add(coach, input); } catch { /* fire-and-forget */ } } });
 
 const packages = new PackageFiles(PACKAGES_DIR);
@@ -734,6 +749,20 @@ const leagueRedraftTick = (): void => {
 setTimeout(leagueRedraftTick, 7_000).unref();
 setInterval(leagueRedraftTick, 60_000).unref();
 setActiveNotifier(tournamentNotifier);
+// Tournament registration notices (lane L4, src/tournaments/registration.ts): check-in open (inbox + Discord DM through
+// the queue) and roster due, once per entry per window, recorded before anyone is told. Every minute; never from a GET.
+let tournamentRegistrationSweeping = false;
+const tournamentRegistrationTick = (): void => {
+  if (tournamentRegistrationSweeping) return;
+  tournamentRegistrationSweeping = true;
+  const notify = (coach: string, input: NotificationInput) => { try { notificationStore.add(coach, input); } catch { /* fire-and-forget */ } };
+  void sweepTournamentRegistrations(tournamentStore, tournamentRegistrationService(tournamentStore, { notify }), notify)
+    .then((out) => { if (out.checkIn || out.rosterDue) console.log(`[registration] check-in notices ${out.checkIn}, roster reminders ${out.rosterDue}`); })
+    .catch((e) => console.error(`[registration] sweep failed: ${(e as Error).message}`))
+    .finally(() => { tournamentRegistrationSweeping = false; });
+};
+setTimeout(tournamentRegistrationTick, 9_000).unref();
+setInterval(tournamentRegistrationTick, 60_000).unref();
 // NAF-sanctioned entries that owe their NAF answer but are not marked yet: marked once, one notice per coach (idempotent).
 try { settleNafOwedEntries({ store: tournamentStore, notify: tournamentNotifier, identityRecords: (coachIds) => { const all = readIdentities().coaches; return coachIds.map((c) => all[normalizeFfbCoachId(c)]); } }); } catch (e) { console.error(`[naf] startup settle failed: ${(e as Error).message}`); }
 const messageLimiter = new SenderRateLimiter(30, 60_000);
@@ -2568,6 +2597,7 @@ async function handleApi(
         grant: (coach, scope, fields, at) => { storeGrant(coach, scope, fields, at); },
         contact: (viewer, coach, tournamentId) => sharedContact(viewer, coach, `tournament:${tournamentId}`),
         contacts: (viewer, coaches, tournamentId) => sharedContacts(viewer, coaches, `tournament:${tournamentId}`),
+        registrationContacts: (viewer, entries, managers) => tournamentRegistrationContacts(viewer, entries, managers),
       },
       registeredCoach: (coachId) => readIdentities().coaches[normalizeFfbCoachId(coachId)]?.ffbCoachId,
       coachRating: (coach) => {

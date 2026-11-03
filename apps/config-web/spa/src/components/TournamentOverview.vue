@@ -14,17 +14,26 @@ import HouseRulesPanel from "./HouseRulesPanel.vue";
 import PayEntryFee from "./PayEntryFee.vue";
 import { rulesetLabel } from "../shared/competition";
 import TournamentNews from "./TournamentNews.vue";
+import { SESSION_KEY, writesAllowed } from "../session";
 
 const props = defineProps<{ tournament: TournamentSummary }>();
 const facts = computed(() => factsStrip(props.tournament));
 const detail = inject(TOURNAMENT_DETAIL_KEY, null);
+const session = inject(SESSION_KEY, null);
 const rulesetName = computed(() => rulesetLabel(props.tournament.rulesetPackName ?? props.tournament.packageName, "the ruleset"));
 const houseEdit = computed(() => (detail?.state.capabilities.manage ? { name: "tournament-manage", params: { id: props.tournament.id }, hash: "#tn-edit-h" } : null));
+// The viewer's own live entry (lane L4): its payment reference and "I've paid" go in the Pay block (coach only).
+const mine = computed(() => {
+  const r = detail?.state.myRegistration;
+  return r && (r.state === "pending" || r.state === "waitlisted" || r.state === "accepted") ? r : null;
+});
 const showPay = computed(() => {
   const t = props.tournament;
-  if (!t.paymentLinks || t.status === "completed" || t.status === "cancelled") return false;
+  if (t.status === "completed" || t.status === "cancelled") return false;
+  if (!t.paymentLinks && !(mine.value?.refCode && t.entryFee)) return false;
   return !t.unpublished || detail?.state.capabilities.manage === true;
 });
+const claimable = computed(() => Boolean(mine.value && session && (writesAllowed(session) || props.tournament.test === true)));
 </script>
 
 <template>
@@ -44,7 +53,11 @@ const showPay = computed(() => {
             </dd>
           </div>
         </dl>
-        <PayEntryFee v-if="showPay" id-prefix="tn" :entry-fee="tournament.entryFee" :links="tournament.paymentLinks" />
+        <PayEntryFee
+          v-if="showPay" id-prefix="tn" :entry-fee="tournament.entryFee" :links="tournament.paymentLinks"
+          :ref-code="mine?.refCode" :coach-says-paid="Boolean(mine?.coachSaysPaid)" :paid="mine?.flags?.paid === true" :claimable="claimable"
+          :busy="Boolean(detail?.state.busy)" @claim="(paid) => mine && detail?.claimPaid(mine.id, paid)"
+        />
       </section>
       <HouseRulesPanel kind="tournament" :rules="tournament.houseRules" :ruleset="rulesetName" id-prefix="tn" :edit-to="houseEdit" />
     </div>

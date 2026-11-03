@@ -12,6 +12,7 @@ import MessageCoachModal from "./MessageCoachModal.vue";
 import NafEntrantModal from "./NafEntrantModal.vue";
 import { nextFixtureFor, ROSTER_LABEL, ROSTER_TONE, rosterState, TOURNAMENT_DETAIL_KEY } from "../tournaments/detail";
 import { SESSION_KEY, writesAllowed } from "../session";
+import { coachSaysPaidLine, noRosterLate } from "../tournaments/registration";
 
 const detail = inject(TOURNAMENT_DETAIL_KEY)!;
 const { state } = detail;
@@ -112,7 +113,7 @@ function seed(e: TournamentEntrant, raw: string) {
           </td>
           <td data-label="Team" class="tn-team">
             <Crest :url="r.e.logoUrl" />
-            <span class="tn-side-text"><strong>{{ r.e.submission?.teamName || r.e.teamName || r.e.teamId }}</strong><span class="muted">{{ r.e.coachId }}</span></span>
+            <span class="tn-side-text"><strong>{{ r.e.submission?.teamName || r.e.teamName || r.e.teamId || "Roster to come" }}</strong><span class="muted">{{ r.e.coachId }}{{ r.e.region ? ` · ${r.e.region}` : "" }}</span><span v-if="r.e.refCode" class="muted" data-ref-code="true">Ref {{ r.e.refCode }}</span></span>
           </td>
           <td data-label="Shared" class="tn-shared">
             <span v-for="(line, i) in sharedLines(r.e)" :key="i">{{ line }}</span>
@@ -122,7 +123,8 @@ function seed(e: TournamentEntrant, raw: string) {
             <span v-if="r.e.nafPending"><span class="sf-chip" data-tone="soon" data-naf="pending">NAF pending</span></span>
           </td>
           <td data-label="Roster">
-            <span class="sf-chip" :data-tone="ROSTER_TONE[r.roster]" :data-roster="r.roster">{{ ROSTER_LABEL[r.roster] }}</span>
+            <span v-if="state.tournament && noRosterLate(state.tournament, r.e)" class="sf-chip" data-tone="urgent" data-roster="missing">No roster</span>
+            <span v-else class="sf-chip" :data-tone="ROSTER_TONE[r.roster]" :data-roster="r.roster">{{ ROSTER_LABEL[r.roster] }}</span>
             <span v-if="r.e.rosterVerifiedOverride !== undefined" class="muted"> by hand</span>
           </td>
           <td v-for="f in FLAGS" :key="f.key" :data-label="f.label" class="tn-flag" :title="f.key === 'paid' && paidBy(r.e) ? paidBy(r.e) : undefined">
@@ -133,6 +135,7 @@ function seed(e: TournamentEntrant, raw: string) {
               type="checkbox" :checked="r.flags[f.key]" :aria-label="`${f.label}: ${r.e.teamName || r.e.teamId}`" :disabled="busyRow(r.e.id)"
               @change="toggle(r.e, f.key, ($event.target as HTMLInputElement).checked)"
             />
+            <span v-if="f.key === 'paid' && coachSaysPaidLine(r.e)" class="sf-chip" data-tone="soon" data-coach-says-paid="true" :title="coachSaysPaidLine(r.e)">Coach says paid</span>
           </td>
           <td data-label="Next fixture">
             <template v-if="r.next">R{{ r.next.round }}: {{ r.next.opponentEntrantId ? `vs ${r.next.opponentTeam}` : "Bye" }}</template>

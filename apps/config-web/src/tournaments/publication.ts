@@ -83,8 +83,8 @@ function boolField(value: unknown, field: string, fallback: boolean): boolean {
   return value;
 }
 
-/** Organiser approval of entries comes with the registration lane (L4), which turns this on. */
-export const ORGANISER_APPROVAL_AVAILABLE = false;
+/** Organiser approval of entries (lane L4: the Registrations panel in Manage decides pending entries). */
+export const ORGANISER_APPROVAL_AVAILABLE = true;
 export const ORGANISER_APPROVAL_REFUSAL = "Organiser approval is coming with registration approvals. Use automatic acceptance for now.";
 
 /** The defaults the owner accepted (11-02): auto-accept (Q5), waitlist on (Q6), roster later on (Q4), self check-in on (Q11). */
@@ -92,13 +92,18 @@ export function defaultTournamentRegistration(): TournamentRegistrationSettings 
   return { approval: "auto", waitlist: true, rosterLater: true, checkIn: { self: true } };
 }
 
+/** A tournament written before registration settings existed (spec §8.1: absent = today's behaviour): every entry is
+ *  accepted while there is room, "Tournament is full." when there is none, a team at registration, no self check-in.
+ *  Saving registration settings in Manage replaces it. */
+export const LEGACY_REGISTRATION: TournamentRegistrationSettings = Object.freeze({ approval: "auto", waitlist: false, rosterLater: false, checkIn: Object.freeze({ self: false }) }) as TournamentRegistrationSettings;
+
 /** A request's `registration` object (absent fields take the defaults). Throws 400 on a bad value. */
 export function parseRegistrationSettings(value: unknown): TournamentRegistrationSettings {
   if (!value || typeof value !== "object" || Array.isArray(value)) return bad("registration must be an object.");
   const raw = value as Record<string, unknown>;
   const base = defaultTournamentRegistration();
   if (raw.approval !== undefined && raw.approval !== "auto" && raw.approval !== "organiser") bad("registration.approval must be auto or organiser.");
-  // Self-entry still accepts at once until the approval flow ships (lane L4), so no tournament may promise an approval step.
+  // Kept as a switch: with ORGANISER_APPROVAL_AVAILABLE off no tournament could promise an approval step.
   if (raw.approval === "organiser" && !ORGANISER_APPROVAL_AVAILABLE) bad(ORGANISER_APPROVAL_REFUSAL);
   const checkInRaw = raw.checkIn === undefined || raw.checkIn === null ? {} : raw.checkIn;
   if (typeof checkInRaw !== "object" || Array.isArray(checkInRaw)) bad("registration.checkIn must be an object.");
@@ -135,9 +140,11 @@ export function assertRegistrationOrder(registration: TournamentRegistrationSett
 
 /** The tournament's registration window in the core's shape (close values from deadlines, cap from maxPlayers). */
 export function tournamentRegistrationWindow(t: TournamentRecord): RegistrationWindow {
-  const r = t.registration ?? defaultTournamentRegistration();
+  const r = t.registration ?? LEGACY_REGISTRATION;
   // A blank close means "until the start" (what the wizard promises): no self-entry once the tournament has started.
-  const closesAt = t.deadlines?.registration ?? t.startsAt;
+  // A record written before registration settings existed closes only at its own registration deadline (lane L4
+  // enforces deadlines.registration; the start-date fallback is for tournaments that chose a window).
+  const closesAt = t.deadlines?.registration ?? (t.registration ? t.startsAt : undefined);
   const checkInCloses = t.deadlines?.checkIn;
   return resolveRegistrationWindow("tournament", {
     ...(r.opensAt ? { opensAt: r.opensAt } : {}),
@@ -168,11 +175,11 @@ export function tournamentCompetition(t: TournamentRecord, round1: boolean): Com
   };
 }
 
-/** May a coach enter themselves now? Unpublished drafts never; a tournament with registration settings only inside its
- *  window. Legacy records (no settings) keep today's rules (the store's status / round 1 / lock checks). */
+/** May a coach enter themselves now? Unpublished drafts never; otherwise inside the window (lane L4: a record without
+ *  registration settings has no opening time and closes at deadlines.registration, plus the status / round 1 / lock
+ *  checks it always had). */
 export function selfRegistrationStatus(t: TournamentRecord, round1: boolean, now: Date): WindowStatus {
   if (!isTournamentPublished(t)) return { open: false, reason: "unpublished", message: "Registration is not open yet." };
-  if (!t.registration) return { open: true };
   return windowStatus(tournamentCompetition(t, round1), now);
 }
 

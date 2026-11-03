@@ -389,7 +389,7 @@ export function createTournamentWizard(deps: { api: Fetcher; onSignedOut?: () =>
         if (saved.form.tiebreakerChain === undefined && (saved.form.primaryTiebreaker === "buchholz" || saved.form.primaryTiebreaker === "sonnebornBerger"))
           form.tiebreakerChain = chainFromPrimary(saved.form.primaryTiebreaker);
       }
-      if (form.approval !== "auto") form.approval = "auto"; // organiser approval waits for lane L4
+      if (form.approval !== "auto" && form.approval !== "organiser") form.approval = "auto";
       state.form = form;
       state.step = migrateStep(saved?.step) ?? "ruleset";
       if (opts.seriesId) state.form.seriesId = opts.seriesId;

@@ -13,3 +13,13 @@
 .pay-status { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; font-size: 14px; }
 .pay-status li[data-paid="true"] { color: var(--sf-gold); }
 .pay-note { margin: 0; font-size: 13px; color: var(--ui-muted); }
+
+/* ---- Pay block: reference code and "I've paid" ---- */
+.pay-ref { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 6px 0 0; font-size: 14px; }
+.pay-ref-code {
+  padding: 2px 8px; font: 600 15px/1.4 var(--font-heading); letter-spacing: .12em; color: var(--sf-gold);
+  background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: var(--sf-bevel); user-select: all;
+}
+.pay-claim { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 8px 0 0; }
+.pay-claim .muted { font-size: 13px; }
+

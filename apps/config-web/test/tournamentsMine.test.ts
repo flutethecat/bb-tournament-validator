@@ -35,6 +35,8 @@ function fixture() {
     tournaments: (statuses: readonly string[]) => tournaments.filter((t) => statuses.includes(t.status)),
     activeTournaments: () => tournaments.filter((t) => t.status === "active"),
     entrants: (id: string) => entrants[id] ?? [],
+    // Lane L4: the coach's own entries in any state (here the field only).
+    registrationEntries: (id: string) => entrants[id] ?? [],
   } as unknown as TournamentStore;
   return { teamBuild: () => undefined, store } as TournamentApiDeps;
 }

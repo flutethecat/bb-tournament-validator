@@ -27,6 +27,7 @@ import TournamentStandings from "../components/TournamentStandings.vue";
 import TournamentStatistics from "../components/TournamentStatistics.vue";
 import TournamentHonours from "../components/TournamentHonours.vue";
 import TournamentAwards from "../components/TournamentAwards.vue";
+import TournamentCheckInBar from "../components/TournamentCheckInBar.vue";
 import type { TournamentEntrant } from "../shared/api";
 import { createTournamentHonours, resultsStamp, TOURNAMENT_HONOURS_KEY } from "../tournaments/honours";
 import { createTournamentDetail, TOURNAMENT_DETAIL_KEY, type DetailTab } from "../tournaments/detail";
@@ -97,10 +98,12 @@ const sharedLines = (e: TournamentEntrant): string[] => {
 const nafLine = (e: TournamentEntrant): string => (e.notNafMember ? "Not a NAF member" : e.nafNumber ? `${e.nafName ?? ""} #${e.nafNumber}`.trim() : "");
 /** The management sub-panel's groups (the old Manage tab's panels), as jump links. */
 const MANAGE_GROUPS = [
-  { id: "tn-summary-h", label: "Summary" }, { id: "tn-edit-h", label: "Settings" }, { id: "tn-page-h", label: "Tournament page" }, { id: "tn-discord-h", label: "Discord" },
+  { id: "tn-summary-h", label: "Summary" }, { id: "tn-reg-h", label: "Registrations" }, { id: "tn-edit-h", label: "Settings" }, { id: "tn-page-h", label: "Tournament page" }, { id: "tn-discord-h", label: "Discord" },
   { id: "tn-part-h", label: "Participants" }, { id: "tn-re-rounds-h", label: "Results" },
 ];
 const hashNow = computed(() => route.hash.replace(/^#/, ""));
+// A test sign-in session may change a test tournament (registration spec Q13).
+const writesAllowedHere = computed(() => writesAllowed(session) || state.tournament?.test === true);
 </script>
 
 <template>
@@ -109,6 +112,7 @@ const hashNow = computed(() => route.hash.replace(/^#/, ""));
     <p v-else-if="!state.loaded || !state.tournament" class="hm-empty" role="status">Loading tournament...</p>
     <template v-else>
       <TournamentSectionHeader :id="id" :active="tab" />
+      <TournamentCheckInBar />
       <p v-if="createdNotice" class="tn-notice" role="status">{{ createdNotice }}</p>
       <!-- the management sub-panel (the cog): the existing Manage panels with their groups as a left sub-nav -->
       <div v-if="tab === 'manage'" class="sh-manage sf-fill">
@@ -124,7 +128,10 @@ const hashNow = computed(() => route.hash.replace(/^#/, ""));
           <TournamentFront />
           <TournamentOverview :tournament="state.tournament"><TournamentMyEntry /></TournamentOverview>
         </template>
-        <TournamentEntrants v-else-if="tab === 'participants'" :entrants="state.entrants" :organiser="state.capabilities.manage" @coach="profile = $event" />
+        <TournamentEntrants
+          v-else-if="tab === 'participants'" :entrants="state.entrants" :organiser="state.capabilities.manage" :check-in="state.capabilities.manage && writesAllowedHere"
+          :busy="Boolean(state.busy)" @coach="profile = $event" @check-in="(e) => detail.patchEntrant(e.id, { flags: { checkedIn: true } })"
+        />
         <TournamentRounds v-else-if="tab === 'fixtures'" :data="state" />
         <TournamentDraws v-else-if="tab === 'draws'" :data="state" />
         <TournamentStandings v-else-if="tab === 'standings'" :data="state" />

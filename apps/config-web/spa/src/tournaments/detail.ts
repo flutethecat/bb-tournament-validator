@@ -25,6 +25,10 @@ import {
   type TournamentRound,
   type TournamentStandingRow,
   type TournamentSummary,
+  type TournamentCheckIn,
+  type TournamentMyRegistration,
+  type TournamentRegistrationStatus,
+  type TournamentRegistrationsResponse,
 } from "../shared/api";
 import type { Fetcher } from "../session";
 import type { ShareField } from "../account/sharing";
@@ -75,6 +79,12 @@ export interface TournamentDetailState {
   preview: TournamentRoundPreview | null;
   /** The Start Tournament outcome: refused = some roster is not verified (the table shows which). */
   startOutcome: "" | "refused" | "started";
+  /** Registration (lane L4): the public facts, the check-in times, and the viewer's own entry in any state. */
+  registrationStatus: TournamentRegistrationStatus | null;
+  checkIn: TournamentCheckIn | null;
+  myRegistration: TournamentMyRegistration | null;
+  /** The organisers' Registrations panel (GET .../registrations, managers only). */
+  registrations: { status: "idle" | "loading" | "ok" | "error"; data: TournamentRegistrationsResponse | null; error: string };
 }
 
 export interface RegistrationExtras { share?: ShareField[]; notNafMember?: boolean }
@@ -157,6 +167,8 @@ export interface TournamentSettingsPatch {
   summary?: string | null;
   notes?: string | null;
   deadlines?: TournamentDeadlines | null;
+  /** Registration settings (lane L4, Manage → Registrations): replaced as a whole; null clears back to the old rules. */
+  registration?: NonNullable<TournamentSummary["registration"]> | null;
 }
 
 export interface NewsInput { title?: string; body?: string; pinned?: boolean }
@@ -187,11 +199,13 @@ export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () =>
     loaded: false, loading: false, notFound: false, error: "",
     capabilities: { manage: false, assignRoles: false }, busy: "", actionError: "", notice: "", lastAction: "",
     teamOptions: { status: "idle", library: [], saves: [] }, preview: null, startOutcome: "",
+    registrationStatus: null, checkIn: null, myRegistration: null, registrations: { status: "idle", data: null, error: "" },
   });
 
   // Request generations: a response is applied only if no newer request of its kind started (A -> B -> A safe).
   let loadGen = 0;
   let standingsGen = 0;
+  let registrationsGen = 0;
   const signedOut = (err: unknown): boolean => {
     if (err instanceof ApiError && err.status === 401 && deps.onSignedOut) { deps.onSignedOut(); return true; }
     return false;
@@ -204,6 +218,8 @@ export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () =>
       state.standings = []; state.standingsStatus = "idle"; state.standingsError = "";
       state.capabilities = { manage: false, assignRoles: false }; state.preview = null; state.startOutcome = "";
       state.actionError = ""; state.notice = "";
+      state.registrationStatus = null; state.checkIn = null; state.myRegistration = null; state.registrations = { status: "idle", data: null, error: "" };
+      registrationsGen++;
       standingsGen++;
     }
     state.id = id;
@@ -219,6 +235,9 @@ export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () =>
       state.fixtures = res.scheduledMatches ?? [];
       state.activity = Array.isArray(res.activity) ? res.activity : [];
       state.capabilities = { manage: res.capabilities?.manage === true, assignRoles: res.capabilities?.assignRoles === true };
+      state.registrationStatus = res.registrationStatus ?? null;
+      state.checkIn = res.checkIn ?? null;
+      state.myRegistration = res.myRegistration ?? null;
       state.error = "";
       state.notFound = false;
     } catch (err) {
@@ -254,10 +273,31 @@ export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () =>
     }
   }
 
-  /** Background refresh: the tournament, and the standings if that tab has been opened. */
+  /** The organisers' Registrations panel (managers only; a failure keeps what is on screen when silent). */
+  async function loadRegistrations(silent = false): Promise<void> {
+    const id = state.id;
+    if (!id || !state.capabilities.manage) return;
+    const mine = ++registrationsGen;
+    if (!silent) state.registrations.status = "loading";
+    try {
+      const res = await deps.api<TournamentRegistrationsResponse>(`/api/tournaments/${encodeURIComponent(id)}/registrations`);
+      if (mine !== registrationsGen) return;
+      state.registrations = { status: "ok", data: res, error: "" };
+    } catch (err) {
+      if (mine !== registrationsGen) return;
+      if (silent && state.registrations.status === "ok") return;
+      state.registrations = { status: "error", data: null, error: signedOut(err) ? "Signed out. Sign in and try again." : err instanceof Error ? err.message : "Can't load registrations." };
+    }
+  }
+
+  /** Background refresh: the tournament, and the standings / registrations if they have been opened. */
   async function refresh(): Promise<void> {
     if (!state.id) return;
-    await Promise.all([load(state.id, true), state.standingsStatus === "idle" ? Promise.resolve() : loadStandings(true)]);
+    await Promise.all([
+      load(state.id, true),
+      state.standingsStatus === "idle" ? Promise.resolve() : loadStandings(true),
+      state.registrations.status === "idle" ? Promise.resolve() : loadRegistrations(true),
+    ]);
   }
 
   /** Loads what a tab needs the first time it is shown. */
@@ -314,6 +354,34 @@ export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () =>
     run("naf", () => deps.api(`${base()}/entrants/${encodeURIComponent(entrantId)}/naf`, {
       method: "POST", body: answer.notNafMember ? { notNafMember: true } : { fromProfile: true },
     }), "NAF answer saved.");
+  // ---- registration (lane L4) ----
+  /** The register sheet's request (registration.ts registerBody). The confirmation follows the server's outcome. */
+  async function registerEntry(body: Record<string, unknown>): Promise<boolean> {
+    const out = await run("register", () => deps.api<{ registration?: { state?: string; position?: number } }>(`${base()}/entrants`, { method: "POST", body }));
+    if (out === undefined) return false;
+    const s = out?.registration?.state;
+    state.notice = s === "pending" ? "Entry received. The organisers review every entry."
+      : s === "waitlisted" ? `It's full, so you're on the waitlist${out?.registration?.position ? ` (#${out.registration.position})` : ""}.`
+        : "You are registered.";
+    return true;
+  }
+  /** Withdraw the viewer's own entry in any live state (pending and waitlisted entries are not in `entrants`). */
+  const withdrawEntry = (entrantId: string) =>
+    run("withdraw", () => deps.api(`${base()}/entrants/${encodeURIComponent(entrantId)}`, { method: "DELETE" }), "Your entry is withdrawn.");
+  /** Self check-in during the check-in window. */
+  const checkIn = () => run("checkin", () => deps.api(`${base()}/check-in`, { method: "POST", body: {} }), "You are checked in.");
+  /** "I've paid" (or taking it back): the organisers see "Coach says paid" and still tick Paid themselves. */
+  const claimPaid = (entrantId: string, paid: boolean) =>
+    run("paid", () => deps.api(`${base()}/entrants/${encodeURIComponent(entrantId)}/paid-claim`, { method: "POST", body: { paid } }),
+      paid ? "Thanks. The organisers will check the payment and mark it received." : "Payment note removed.");
+  /** Organisers: accept / waitlist / decline / promote / remove (with "promote" = take the next in line). */
+  const decide = (entrantId: string, verb: "accept" | "waitlist" | "decline" | "promote" | "remove", extra: { reason?: string; promote?: boolean } = {}) => {
+    const words = { accept: "Entry accepted.", waitlist: "Moved to the waitlist.", decline: "Entry declined.", promote: "Promoted from the waitlist.", remove: "Entry removed." } as const;
+    return run(`reg:${entrantId}`, () => deps.api(`${base()}/registrations/${encodeURIComponent(entrantId)}/${verb}`, {
+      method: "POST", body: { ...(extra.reason?.trim() ? { reason: extra.reason.trim() } : {}), ...(extra.promote ? { promote: true } : {}) },
+    }), words[verb]);
+  };
+
   const withdraw = () => {
     const mine = state.tournament?.myEntrantId;
     return mine
@@ -409,6 +477,7 @@ export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () =>
     state, load, loadStandings, ensureTab, refresh, loadTeamOptions,
     editResult, clearResult,
     register, withdraw, submit, answerNaf,
+    registerEntry, withdrawEntry, checkIn, claimPaid, decide, loadRegistrations,
     saveSettings, setOwner, addOrganizer, removeOrganizer, lockRosters, unlockRosters, finish, publish, unpublish, patchEntrant,
     start, previewRound, generateRound,
     savePage, uploadBanner, removeBanner, postNews, editNews, deleteNews,
@@ -697,7 +766,9 @@ export function safeBannerUrl(url: string | undefined): string {
 /** Write names whose messages show in their own panel (the page form, the News panel, Manage → Rounds and its Edit
  *  result dialog), not in My entry / Summary. */
 export const isPageAction = (name: string): boolean =>
-  name === "page" || name === "banner" || name === "news" || name.startsWith("news:") || name.startsWith("result:");
+  name === "page" || name === "banner" || name === "news" || name.startsWith("news:") || name.startsWith("result:")
+  // Registration (lane L4): the Registrations panel and the Check in bar show their own messages.
+  || name.startsWith("reg:") || name === "checkin";
 
 // ---- organiser result edits (pure) ----
 

@@ -6,7 +6,9 @@
 // management sub-panel's Tournament page settings, plus "Edit ruleset" into the Tournament Creator).
 import { computed, inject, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
+import TournamentRegisterDialog from "./TournamentRegisterDialog.vue";
 import { appPath, discordLoginUrl, SESSION_KEY, writesAllowed } from "../session";
+import { STATE_TONE, stateChip } from "../tournaments/registration";
 import {
   myEntrant, registrationOpen, rulesetCreatorHref, rulesetInitials, safeBannerUrl, TOURNAMENT_DETAIL_KEY,
 } from "../tournaments/detail";
@@ -17,7 +19,8 @@ const session = inject(SESSION_KEY)!;
 const { state } = detail;
 const t = computed(() => state.tournament!);
 const coach = computed(() => session.coach());
-const canWrite = computed(() => writesAllowed(session));
+// A test sign-in session may change a test tournament (registration spec Q13).
+const canWrite = computed(() => writesAllowed(session) || state.tournament?.test === true);
 const banner = computed(() => safeBannerUrl(t.value.bannerUrl));
 const failed = ref(false);
 watch(banner, () => { failed.value = false; });
@@ -25,9 +28,17 @@ const ruleset = computed(() => t.value.rulesetPackName || t.value.packageName ||
 const initials = computed(() => rulesetInitials(ruleset.value || t.value.name));
 const mine = computed(() => myEntrant(state));
 const entered = computed(() => Boolean(mine.value && !mine.value.droppedAt));
-const open = computed(() => registrationOpen(t.value, state.rounds));
+const open = computed(() => (state.registrationStatus ? state.registrationStatus.open : registrationOpen(t.value, state.rounds)));
+// Registration (lane L4): a pending or waitlisted entry shows its state; a withdrawn coach may register again.
+const reg = computed(() => state.myRegistration);
+const held = computed(() => !entered.value && Boolean(reg.value && (reg.value.state === "pending" || reg.value.state === "waitlisted")));
+const mayRegister = computed(() => !reg.value || reg.value.state === "withdrawn");
+const registering = ref(false);
 const closed = computed(() => t.value.status === "completed" || t.value.status === "cancelled");
-const team = computed(() => mine.value?.submission?.teamName || mine.value?.teamName || mine.value?.teamId || "");
+const team = computed(() => {
+  const e = entered.value ? mine.value : held.value ? reg.value : undefined;
+  return e?.submission?.teamName || e?.teamName || e?.teamId || "Roster to come";
+});
 const entryLink = computed(() => ({ name: "tournament-detail", params: { id: t.value.id }, hash: "#tn-entry-h" }));
 const editLink = computed(() => ({ name: "tournament-manage", params: { id: t.value.id }, hash: "#tn-page-h" }));
 const signIn = computed(() => discordLoginUrl(appPath(`/tournaments/${t.value.id}`)));
@@ -60,8 +71,12 @@ const signIn = computed(() => discordLoginUrl(appPath(`/tournaments/${t.value.id
             <button class="sf-btn small" type="button" :disabled="Boolean(state.busy)" @click="detail.withdraw()">Withdraw</button>
           </template>
         </template>
+        <template v-else-if="held && reg">
+          <span class="tn-front-reg">Registered: <strong>{{ team }}</strong> <span class="sf-chip" :data-tone="STATE_TONE[reg.state]" :data-entry-state="reg.state">{{ stateChip(reg) }}</span></span>
+          <RouterLink class="sf-btn small" :to="entryLink">My entry</RouterLink>
+        </template>
         <template v-else-if="open && !closed">
-          <RouterLink v-if="coach && canWrite && !mine" class="sf-btn primary" :to="entryLink">Register</RouterLink>
+          <button v-if="coach && canWrite && mayRegister" class="sf-btn primary" type="button" data-register @click="registering = true">{{ reg?.state === "withdrawn" ? "Register again" : "Register" }}</button>
           <a v-else-if="!coach" class="sf-btn primary" :href="signIn">Sign in to register</a>
         </template>
         <template v-if="state.capabilities.manage && canWrite">
@@ -70,5 +85,6 @@ const signIn = computed(() => discordLoginUrl(appPath(`/tournaments/${t.value.id
         </template>
       </div>
     </div>
+    <Teleport to="body"><TournamentRegisterDialog v-if="registering" @close="registering = false" /></Teleport>
   </header>
 </template>

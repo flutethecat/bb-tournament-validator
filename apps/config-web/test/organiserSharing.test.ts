@@ -267,8 +267,9 @@ describe("NAF-sanctioned tournaments (section 5)", () => {
       ["Veers", "Alice registered for Veers Open — not a NAF member"],
       ["Piett", "Alice registered for Veers Open — not a NAF member"],
     ]);
-    expect(notices[0]!.body).toBe("Alice registered for Veers Open and is not a NAF member.");
-    expect(notices[0]!.link).toBe(`/app/tournaments/${t.id}?tab=manage`);
+    // Lane L4: the registration core's organiser notice, flagged, linking the Registrations panel.
+    expect(notices[0]!.body).toBe("Alice is not a NAF member. They're in.");
+    expect(notices[0]!.link).toBe(`/app/tournaments/${t.id}/manage#tn-reg-h`);
     expect(h.grants).toEqual([{ coach: "Alice", scope: `tournament:${t.id}`, fields: ["email"] }]);
     // A number the coach types is not taken on a sanctioned tournament (it belongs on the profile).
     expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Bob"), { teamId: "team-bob", nafNumber: "0042" }))).toMatchObject({ status: 400, body: { error: NAF_REQUIRED_MESSAGE } });
@@ -323,7 +324,9 @@ describe("registration notices and the organiser-made entry (sections 4 and 6)",
     owners["team-veers"] = "Veers";
     const t = await createTournament(h);
     expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, owner, { teamId: "team-veers" }))?.status).toBe(201);
-    expect(h.inbox.map((n) => n.coach)).toEqual(["Piett"]);
+    // The organisers' notice skips the actor (law 24); the actor gets only their own entry's confirmation (lane L4).
+    expect(h.inbox.filter((n) => n.type === "registration").map((n) => n.coach)).toEqual(["Piett"]);
+    expect(h.inbox.filter((n) => n.type !== "registration").map((n) => [n.coach, n.type])).toEqual([["Veers", "registration-outcome"]]);
     delete owners["team-veers"];
   });
 

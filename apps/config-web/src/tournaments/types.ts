@@ -132,6 +132,10 @@ export interface TournamentRecord {
   /** Site-authorised event (owner round 3: every event run on the site is authorised for now). Absent = true (records
    *  written before the flag existed); the read model always carries the derived boolean. */
   authorised?: boolean;
+  /** Registration (lane L4): who was sent the check-in-open notice for which check-in window (src/registration). */
+  checkInNotice?: { window: string; entryIds: string[]; at: string };
+  /** Registration (lane L4): who was sent the "roster due" reminder for which roster deadline (once per entry per deadline). */
+  rosterDueNotice?: { rosterBy: string; entryIds: string[]; at: string };
   createdAt: string;
   updatedAt: string;
 }
@@ -266,6 +270,26 @@ export interface TournamentEntrantRecord {
   region?: string | null;
   /** The club the coach represents in this tournament (clubs lane). Absent/null = none. */
   clubId?: string | null;
+  // ---- Registration (lane L4, src/tournaments/registration.ts over the src/registration core) ----------------------
+  /** The entry's state. Absent = accepted (legacy rows), or withdrawn when droppedAt is set. Only accepted (and entries
+   *  that left after acceptance: withdrawn / dropped with droppedAt) live in `entrants`; pending, waitlisted, declined and
+   *  entries withdrawn before acceptance live in the data file's `heldEntrants`, so no reader of `entrants` ever sees them. */
+  entryState?: "pending" | "accepted" | "waitlisted" | "declined" | "withdrawn" | "dropped";
+  /** The first submission when the coach re-entered (registeredAt is then the current submission). */
+  firstRegisteredAt?: string;
+  waitlistAt?: string;
+  waitlistSeq?: number;
+  /** The last organiser decision (coach and managers only). */
+  decided?: { by: string; at: string; reason?: string };
+  /** The audited transitions, oldest first (managers only). */
+  registrationLog?: Array<{ action: string; from: string | null; to: string; by: string; at: string; reason?: string }>;
+  /** The entry's payment reference (e.g. SF-7Q2K) for PayPal / Venmo notes. Coach and managers only. Absent on rows
+   *  written before it existed (derived on read: src/tournaments/registration.ts referenceCodes). */
+  refCode?: string;
+  /** The coach pressed "I've paid" (coach and managers only); organisers still tick Paid themselves. */
+  coachSaysPaid?: { at: string };
+  /** When the entry was checked in, and by whom (the coach, or an organiser). */
+  checkedInBy?: { by: string; at: string };
 }
 
 export interface TournamentRoundRecord {
@@ -428,6 +452,10 @@ export interface TournamentDataFileV4 extends Omit<TournamentDataFileV2, "versio
   version: 4;
   /** Tournament Series (phase 5, additive, no version bump): absent on files written before series existed. */
   series?: Record<string, TournamentSeriesRecord>;
+  /** Registration (lane L4, additive): entries not in the field - pending, waitlisted, declined, or withdrawn before they
+   *  were accepted. Same record shape as `entrants`; an entry moves into `entrants` when it is accepted. Never read by
+   *  the field's readers (pairing, standings, public lists, notifications, sharing). */
+  heldEntrants?: Record<string, TournamentEntrantRecord>;
 }
 
 /** How a series totals each coach's event points: every event, or each coach's N best events. */

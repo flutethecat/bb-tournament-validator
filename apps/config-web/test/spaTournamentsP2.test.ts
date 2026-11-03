@@ -314,17 +314,14 @@ describe("phase 2/3 views (server-rendered against a mocked API)", () => {
     expect(html).toContain("Veers, Piett");
   });
 
-  it("signed-in coach not entered: Register with a library team picker", async () => {
+  it("signed-in coach not entered: My entry offers Register (the sheet holds the team, share and NAF steps)", async () => {
     const body = detailBody({ entrants: [bob()] });
     const { html } = await render("/tournaments/t1", { ...AS("Alice"), "/api/tournaments/t1": body, ...OPTIONS }, loaded("t1", "Alice"));
     expect(html).toContain("My entry");
     expect(html).toContain("You are not entered yet.");
-    expect(html).toContain(">Register</button>");
-    expect(html).toContain("Spare Humans (Human");
+    expect(html).toMatch(/data-register[^>]*>Register<\/button>/);
     expect(html).not.toContain("Submit team");
-    // Share picker (owner 10-31): three boxes, none ticked; no NAF block on a tournament that is not NAF sanctioned.
-    expect(html).toContain("Share with the organiser");
-    for (const label of ["Preferred name", "Email", "Phone"]) expect(html).toContain(`<span>${label}`);
+    // Lane L4: the team picker, share picker and NAF block moved into the register sheet (spaTournamentRegistration).
     expect(html).not.toContain('class="tn-reg-naf"');
   });
 
@@ -340,7 +337,7 @@ describe("phase 2/3 views (server-rendered against a mocked API)", () => {
     const body = detailBody({ tournament: tournament({ nafSanctioned: true }), entrants: [bob()] });
     const { html } = await render("/tournaments/t1", { ...AS("Alice"), "/api/tournaments/t1": body, ...OPTIONS }, loaded("t1", "Alice"));
     expect(html).toContain('data-naf="sanctioned">NAF sanctioned</span>');
-    expect(html).toContain("required, this tournament is NAF sanctioned");
+    // Lane L4: the NAF block is in the register sheet's Share & NAF step (spaTournamentRegistration.test.ts).
     expect(html).not.toContain("NAF number (required");
   });
 

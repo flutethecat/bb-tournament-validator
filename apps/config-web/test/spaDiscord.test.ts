@@ -222,7 +222,9 @@ describe("discord components (server-rendered)", () => {
     expect(src("../spa/src/components/GameReporterView.vue")).toContain("Coach's comments");
     expect(src("../spa/src/components/TournamentManage.vue")).toContain('heading-id="tn-discord-h"');
     expect(src("../spa/src/views/TournamentDetailView.vue")).toContain('{ id: "tn-discord-h", label: "Discord" }');
-    expect(src("../spa/src/components/TournamentMyEntry.vue")).toContain("<DiscordDmNotice />");
+    // Lane L4: the DM notice line sits in the register sheet (step 2), which My entry and the front block open.
+    expect(src("../spa/src/components/TournamentRegisterDialog.vue")).toContain("<DiscordDmNotice />");
+    expect(src("../spa/src/components/TournamentMyEntry.vue")).toContain("<TournamentRegisterDialog");
     expect(src("../spa/src/components/LeagueBuildTeamLink.vue")).toContain("<DiscordDmNotice");
   });
 });

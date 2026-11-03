@@ -294,11 +294,16 @@ describe("tournament hooks", () => {
   it("a coach's own withdrawal notifies the managers (owner + organisers), never the coach; an organiser drop notifies the entrant", async () => {
     const { notify, call, entrant, id } = hookFixture();
     await call("DELETE", `/api/tournaments/${id}/entrants/${encodeURIComponent(entrant("Bob").id)}`, coach("Bob"));
+    // Lane L4: the registration core's withdrawal notice (organisers except the actor, law 24), linking the Registrations panel.
     expect(notify.sent.map((s) => s.coach).sort()).toEqual(["Piett", "Veers"]);
-    expect(notify.sent[0]!.input).toMatchObject({ type: "withdrawal", title: "Spike Open: Bob withdrew", link: `/app/tournaments/${id}?tab=manage`, from: "Bob" });
+    expect(notify.sent[0]!.input).toMatchObject({ type: "withdrawal", title: "Bob withdrew from Spike Open", link: `/app/tournaments/${id}/manage#tn-reg-h`, from: "Bob" });
     notify.sent.length = 0;
     await call("DELETE", `/api/tournaments/${id}/entrants/${encodeURIComponent(entrant("Cy").id)}`, coach("Piett"));
-    expect(notify.sent).toEqual([{ coach: "Cy", input: expect.objectContaining({ type: "withdrawal", title: "Spike Open: you were withdrawn", from: "Piett" }) }]);
+    // An organiser removing an accepted entry: the coach hears the outcome, the other managers hear who removed it.
+    expect(notify.sent).toEqual([
+      { coach: "Cy", input: expect.objectContaining({ type: "registration-outcome", title: "Entry removed: Spike Open" }) },
+      { coach: "Veers", input: expect.objectContaining({ type: "withdrawal", title: "Cy was removed from Spike Open", from: "Piett" }) },
+    ]);
   });
 
   it("a repeated DELETE of an already-withdrawn entrant notifies nobody again", async () => {

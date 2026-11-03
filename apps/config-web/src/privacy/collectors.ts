@@ -210,6 +210,8 @@ function readOrganizers(file: string | undefined, strict = true): string[] | und
 type TournamentFile = {
   tournaments?: Record<string, Obj & { name?: string; status?: string; ownerCoachId?: string; organizerCoachId?: string; organizerCoachIds?: string[] }>;
   entrants?: Record<string, Obj & { tournamentId?: string; coach?: { ffbCoachId?: string; coachId?: string } }>;
+  /** Registration (lane L4): pending, waitlisted, declined and withdrawn-before-acceptance entries (same row shape). */
+  heldEntrants?: Record<string, Obj & { tournamentId?: string; coach?: { ffbCoachId?: string; coachId?: string } }>;
   scheduledMatches?: Record<string, Obj & { tournamentId?: string; home?: { coach?: { ffbCoachId?: string } }; away?: { coach?: { ffbCoachId?: string } } }>;
   /** Tournament Series (phase 5): creator and organisers are coach ids. */
   series?: Record<string, Obj & { name?: string; createdBy?: string; organisers?: string[]; tournaments?: string[] }>;
@@ -276,7 +278,8 @@ export function otherCoachKeys(deps: PrivacyDeps, keys: ReadonlySet<string>): Se
   for (const r of Object.values(readIdentitiesStrict().coaches)) add(r.ffbCoachId);
   for (const p of listFiles(deps.libraryDir, ".json")) for (const t of objs(readJson<unknown>(p))) add(t.coach);
   for (const r of vals(readJson<Obj>(join(deps.stateDir, "tournament-results.json"))?.results)) { if (isObj(r.home)) add(r.home.coach); if (isObj(r.away)) add(r.away.coach); }
-  for (const e of vals(readJson<TournamentFile>(tournamentsFile(deps))?.entrants)) if (isObj(e.coach)) add(e.coach.ffbCoachId);
+  const tFile = readJson<TournamentFile>(tournamentsFile(deps));
+  for (const e of [...vals(tFile?.entrants), ...vals(tFile?.heldEntrants)]) if (isObj(e.coach)) add(e.coach.ffbCoachId);
   for (const p of listFiles(join(deps.tabletopDir, "matches"), ".json")) { const m = readJson<Obj>(p); if (m) { if (isObj(m.home)) add(m.home.coach); if (isObj(m.away)) add(m.away.coach); } }
   for (const dir of leagueDirs(deps)) for (const p of listFiles(join(dir, "seasons"), ".json")) for (const t of objs(readJson<Obj>(p)?.teams)) add(t.coachId);
   for (const k of keys) out.delete(k);
@@ -406,7 +409,8 @@ export const STORE_COLLECTORS: StoreCollector[] = [
     export: (ctx) => {
       const data = readJsonLoose<TournamentFile>(tournamentsFile(ctx.deps));
       const tName = (id?: string) => (id && data?.tournaments?.[id]?.name) || id || "";
-      const entries = Object.values(data?.entrants ?? {}).filter((e) => isMine(ctx.keys, e.coach?.ffbCoachId))
+      // The field and the held entries (pending, waitlisted, declined, withdrawn before acceptance: lane L4).
+      const entries = [...Object.values(data?.entrants ?? {}), ...Object.values(data?.heldEntrants ?? {})].filter((e) => isMine(ctx.keys, e.coach?.ffbCoachId))
         .map((e) => ({ tournament: tName(e.tournamentId), ...e }));
       // Paid marks the coach made as a manager on other coaches' entries: the competition and the entry reference, what
       // they set and when (nothing else of that coach's entry).
@@ -829,7 +833,8 @@ function anonymiseTournaments(an: Anonymiser, tx: TextReplacer, data: Obj): bool
     for (const e of objs(t.activity)) { mark(an.fields(e, ["by"], [])); mark(tx.texts(e, ["reason"])); }
   }
   const identity = ["coachId", "ffbCoachId"];
-  for (const e of vals(data.entrants)) {
+  // The field and the held entries (registration lane L4) are the same row shape.
+  for (const e of [...vals(data.entrants), ...vals(data.heldEntrants)]) {
     // The coach's own NAF answers at registration (NAF number, "not a NAF member") go with the entry's identity.
     if (isObj(e.coach) && an.matches(e.coach.ffbCoachId)) {
       for (const k of ["nafNumber", "notNafMember", "nafPending", "nafSnapshot"]) if (k in e) { delete e[k]; changed = true; }
@@ -837,6 +842,8 @@ function anonymiseTournaments(an: Anonymiser, tx: TextReplacer, data: Obj): bool
     mark(an.fields(e.coach, identity, ["discordUserId"]));
     // Participants: the manager who last marked the entry paid (or not).
     if (isObj(e.paidUpdated)) mark(an.fields(e.paidUpdated, ["by"], []));
+    // Who checked the coach in (the coach, or an organiser).
+    if (isObj(e.checkedInBy)) mark(an.fields(e.checkedInBy, ["by"], []));
     // Registration core (src/registration): the organiser decision and the audited transitions.
     mark(anonymiseRegistrationTrail(an, tx, e));
   }

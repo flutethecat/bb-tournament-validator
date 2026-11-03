@@ -59,7 +59,7 @@ function toManagers(ctx: NotifyContext, actor: string, input: NotificationInput)
 }
 
 /** A new (or renewed) registration: organisers except the actor (law 24). Actionable only when it waits for them. */
-export function notifyOrganisersOfRegistration(ctx: NotifyContext, entry: RegistrationEntry, actor: string, extra: { position?: number } = {}): void {
+export function notifyOrganisersOfRegistration(ctx: NotifyContext, entry: RegistrationEntry, actor: string, extra: { position?: number; flag?: string } = {}): void {
   const name = ctx.competition.name;
   const tail: Partial<Record<RegistrationEntry["state"], string>> = {
     pending: "Accept, waitlist or decline the entry.",
@@ -67,10 +67,12 @@ export function notifyOrganisersOfRegistration(ctx: NotifyContext, entry: Regist
     accepted: "They're in.",
   };
   const byOrganiser = key(actor) !== key(entry.coach);
+  // flag: one thing the organisers must know about this entry (a tournament: "not a NAF member"), in the title and body.
+  const flag = extra.flag?.trim();
   toManagers(ctx, actor, {
     type: "registration",
-    title: `${entry.coach} registered for ${name}`,
-    body: `${byOrganiser ? `${actor} entered ${entry.coach}. ` : ""}${tail[entry.state] ?? ""}`.trim(),
+    title: `${entry.coach} registered for ${name}${flag ? ` — ${flag}` : ""}`,
+    body: `${byOrganiser ? `${actor} entered ${entry.coach}. ` : ""}${flag ? `${entry.coach} is ${flag}. ` : ""}${tail[entry.state] ?? ""}`.trim(),
     link: ctx.link("organiser"),
     from: actor,
     subject: name,

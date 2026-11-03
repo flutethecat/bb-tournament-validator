@@ -7,6 +7,7 @@ import { computed, inject, nextTick, ref } from "vue";
 import CompetitionDiscordPanel from "./CompetitionDiscordPanel.vue";
 import TournamentPageForm from "./TournamentPageForm.vue";
 import TournamentParticipants from "./TournamentParticipants.vue";
+import TournamentRegistrations from "./TournamentRegistrations.vue";
 import TournamentResultsEditor from "./TournamentResultsEditor.vue";
 import TournamentSettingsForm from "./TournamentSettingsForm.vue";
 import TournamentStartModal from "./TournamentStartModal.vue";
@@ -79,6 +80,8 @@ async function editTournament() {
 
     <div class="hm-col tn-main-col">
       <TournamentStartModal v-if="open && canWrite" @close="open = false" />
+
+      <TournamentRegistrations />
 
       <section ref="editPane" class="hm-panel" aria-labelledby="tn-edit-h">
         <header class="hm-band" data-tone="admin"><h2 id="tn-edit-h">{{ started ? "Edit Tournament" : "Settings" }}</h2></header>

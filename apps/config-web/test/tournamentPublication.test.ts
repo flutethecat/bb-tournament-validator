@@ -275,15 +275,15 @@ describe("registration and the publication / window", () => {
     expect(store.tournament(t.id)!.registration).toBeUndefined();
   });
 
-  it("organiser approval is refused (400) on create and on PATCH until the approval flow ships", async () => {
+  it("organiser approval is accepted on create and on PATCH now that the approval flow ships (lane L4)", async () => {
     const store = newStore();
     const res = await call(store, "POST", "/api/tournaments", owner, { name: "Approve", packageName: "Spike 2026", maxPlayers: 4, format: "swiss", publish: true, registration: { approval: "organiser" } });
-    expect(res?.status).toBe(400);
-    expect((res?.body as { error: string }).error).toContain("coming with registration approvals");
-    expect(store.tournaments(["draft"])).toHaveLength(0);
+    expect(res?.status).toBe(201);
+    expect((res?.body as { tournament: TournamentRecord }).tournament.registration?.approval).toBe("organiser");
     const t = await createDraft(store, { registration: {} });
-    expect((await call(store, "PATCH", `/api/tournaments/${t.id}`, owner, { registration: { approval: "organiser" } }))?.status).toBe(400);
-    expect(store.tournament(t.id)!.registration?.approval).toBe("auto");
+    expect((await call(store, "PATCH", `/api/tournaments/${t.id}`, owner, { registration: { approval: "organiser" } }))?.status).toBe(200);
+    expect(store.tournament(t.id)!.registration?.approval).toBe("organiser");
+    expect((await call(store, "PATCH", `/api/tournaments/${t.id}`, owner, { registration: { approval: "maybe" } }))?.status).toBe(400);
   });
 
   it("a blank registration close falls back to the start: no self-entry once the tournament has started", async () => {

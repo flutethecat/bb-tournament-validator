@@ -550,6 +550,22 @@ function applyPagePatch(data: TournamentDataFileV4, tournamentId: string, patch:
   return tournament;
 }
 
+/** The registration fields a registration write always sets (absent = removed). */
+const REGISTRATION_KEYS = ["entryState", "registeredAt", "firstRegisteredAt", "waitlistAt", "waitlistSeq", "decided", "registrationLog"] as const;
+
+/** One entry change from the registration core (src/tournaments/registration.ts). */
+export interface RegistrationWrite {
+  id: string;
+  /** A brand-new entry: the record to create (ignored when the id exists). */
+  create?: TournamentEntrantRecord;
+  /** Fields from a (re)submission or a departure (team, submission, NAF answers, region, NAF report snapshot). */
+  patch?: Partial<TournamentEntrantRecord>;
+  /** The registration fields; `registeredAt` is the current submission. */
+  reg: { entryState: NonNullable<TournamentEntrantRecord["entryState"]> } & Partial<Pick<TournamentEntrantRecord, (typeof REGISTRATION_KEYS)[number]>>;
+  /** A withdrawn coach registering again on the same row. */
+  reentry?: boolean;
+}
+
 export class TournamentStoreError extends Error {
   constructor(readonly status: 400 | 401 | 403 | 404 | 409 | 428 | 503, message: string) {
     super(message);
@@ -687,7 +703,8 @@ export class TournamentStore {
       } else {
         if (tournament.unpublished === true) return tournament;
         if (tournament.status !== "draft") throw new TournamentStoreError(409, "Only a draft tournament can be unpublished.");
-        const entered = Object.values(data.entrants).some((e) => e.tournamentId === tournamentId && e.droppedAt === undefined);
+        const entered = Object.values(data.entrants).some((e) => e.tournamentId === tournamentId && e.droppedAt === undefined)
+          || Object.values(data.heldEntrants ?? {}).some((e) => e.tournamentId === tournamentId && (e.entryState === "pending" || e.entryState === "waitlisted"));
         if (entered) throw new TournamentStoreError(409, "Coaches are entered. Withdraw their entries before unpublishing.");
         tournament.unpublished = true;
         delete tournament.publishedAt;
@@ -902,6 +919,146 @@ export class TournamentStore {
     });
   }
 
+  // ---- registration (lane L4: src/tournaments/registration.ts over src/registration) ---------------------------------
+
+  /** The held entries of a tournament (pending, waitlisted, declined, withdrawn before acceptance). Never the field. */
+  heldEntrants(tournamentId: string): TournamentEntrantRecord[] {
+    return Object.values(this.snapshot().heldEntrants ?? {})
+      .filter((entrant) => entrant.tournamentId === tournamentId)
+      .sort((left, right) => left.seed - right.seed || left.id.localeCompare(right.id));
+  }
+
+  /** Every entry of a tournament in any state: the field (`entrants`) and the held entries. */
+  registrationEntries(tournamentId: string): TournamentEntrantRecord[] {
+    const data = this.snapshot();
+    return [...Object.values(data.entrants), ...Object.values(data.heldEntrants ?? {})]
+      .filter((entrant) => entrant.tournamentId === tournamentId);
+  }
+
+  /** One live (pending / waitlisted / accepted) entry by id, from the field or the held entries. */
+  liveEntry(tournamentId: string, entrantId: string): TournamentEntrantRecord | undefined {
+    const data = this.snapshot();
+    const field = data.entrants[entrantId];
+    if (field && field.tournamentId === tournamentId) return field.droppedAt === undefined ? field : undefined;
+    const held = data.heldEntrants?.[entrantId];
+    return held && held.tournamentId === tournamentId && (held.entryState === "pending" || held.entryState === "waitlisted") ? held : undefined;
+  }
+
+  /**
+   * Apply registration writes in ONE mutation (the registration core's commit: all or nothing). Each write lands on the
+   * entry as stored now (organiser flags written meanwhile are kept): `create` for a new entry, `patch` from a
+   * (re)submission, then the registration fields. Accepted entries live in `entrants` (moving in takes the next seed);
+   * an entry that leaves the field after acceptance stays there with droppedAt; everything else is held.
+   */
+  commitRegistration(tournamentId: string, writes: readonly RegistrationWrite[], now = new Date()): TournamentEntrantRecord[] {
+    return this.mutate((data) => {
+      const tournament = data.tournaments[tournamentId];
+      if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
+      const held = data.heldEntrants ?? {};
+      const at = now.toISOString();
+      const out: TournamentEntrantRecord[] = [];
+      for (const write of writes) {
+        const inField = data.entrants[write.id];
+        const inHeld = held[write.id];
+        const current = inField ?? inHeld;
+        if (current && current.tournamentId !== tournamentId) throw new TournamentStoreError(409, "That entry belongs to another tournament.");
+        const base = current ?? write.create;
+        if (!base) throw new TournamentStoreError(404, "Tournament entrant not found.");
+        const state = write.reg.entryState;
+        const live = state === "pending" || state === "waitlisted" || state === "accepted";
+        // An unpublished draft takes no entries from anyone (lane L3).
+        if (live && tournament.unpublished === true) throw new TournamentStoreError(409, "Registration is not open yet.");
+        const record: TournamentEntrantRecord = { ...structuredClone(base), ...(write.patch ? structuredClone(write.patch) : {}) };
+        if (write.reentry) {
+          // A fresh entry on the same row: no carried check-in, frozen NAF report details or standby.
+          record.flags = { ...DEFAULT_ENTRANT_FLAGS, ...(record.flags ?? {}), checkedIn: false, active: true, frozen: false };
+          delete record.checkedInBy;
+          delete record.nafSnapshot;
+        }
+        for (const key of REGISTRATION_KEYS) {
+          const value = write.reg[key];
+          if (value === undefined) delete record[key];
+          else (record as unknown as Record<string, unknown>)[key] = structuredClone(value);
+        }
+        const toField = state === "accepted" || ((state === "withdrawn" || state === "dropped") && inField !== undefined);
+        if (toField) {
+          if (!inField) {
+            const seeds = Object.values(data.entrants).filter((e) => e.tournamentId === tournamentId).map((e) => e.seed);
+            record.seed = seeds.reduce((highest, seed) => Math.max(highest, seed), 0) + 1;
+          }
+          if (state === "accepted") delete record.droppedAt;
+          else record.droppedAt ??= at;
+          record.flags = { ...DEFAULT_ENTRANT_FLAGS, ...(record.flags ?? {}) };
+          data.entrants[record.id] = record;
+          delete held[record.id];
+        } else {
+          delete record.droppedAt;
+          held[record.id] = record;
+          delete data.entrants[record.id];
+        }
+        assertId(record.id, "entrant id");
+        assertVerifiedCoach(record.coach);
+        out.push(record);
+      }
+      if (Object.keys(held).length) data.heldEntrants = held;
+      else delete data.heldEntrants;
+      tournament.updatedAt = at;
+      delete data.standings[tournamentId];
+      return out;
+    });
+  }
+
+  /** Records who was sent the check-in-open notice for the current window (the registration core's guard). */
+  setCheckInNotice(tournamentId: string, notice: NonNullable<TournamentRecord["checkInNotice"]>): void {
+    this.mutate((data) => {
+      const tournament = data.tournaments[tournamentId];
+      if (tournament) tournament.checkInNotice = structuredClone(notice);
+    });
+  }
+
+  /** Records who was sent the "roster due" reminder for the current roster deadline. */
+  setRosterDueNotice(tournamentId: string, notice: NonNullable<TournamentRecord["rosterDueNotice"]>): void {
+    this.mutate((data) => {
+      const tournament = data.tournaments[tournamentId];
+      if (tournament) tournament.rosterDueNotice = structuredClone(notice);
+    });
+  }
+
+  /** Check an accepted entry in (the coach during the window, or an organiser). Idempotent. */
+  checkInEntrant(tournamentId: string, entrantId: string, by: string, now = new Date()): TournamentEntrantRecord {
+    return this.mutate((data) => {
+      const tournament = data.tournaments[tournamentId];
+      if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
+      const entrant = data.entrants[entrantId];
+      if (!entrant || entrant.tournamentId !== tournamentId || entrant.droppedAt !== undefined)
+        throw new TournamentStoreError(404, "No active entry with that id.");
+      const flags = { ...DEFAULT_ENTRANT_FLAGS, ...(entrant.flags ?? {}) };
+      if (flags.checkedIn) return entrant;
+      entrant.flags = { ...flags, checkedIn: true };
+      entrant.checkedInBy = { by, at: now.toISOString() };
+      tournament.updatedAt = now.toISOString();
+      return entrant;
+    });
+  }
+
+  /** The coach's "I've paid" (true) or taking it back (false), on their live entry. Organisers still tick Paid. */
+  setCoachSaysPaid(tournamentId: string, entrantId: string, paid: boolean, now = new Date()): TournamentEntrantRecord {
+    return this.mutate((data) => {
+      const tournament = data.tournaments[tournamentId];
+      if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
+      const field = data.entrants[entrantId];
+      const held = data.heldEntrants?.[entrantId];
+      const entrant = field && field.tournamentId === tournamentId && field.droppedAt === undefined
+        ? field
+        : held && held.tournamentId === tournamentId && (held.entryState === "pending" || held.entryState === "waitlisted") ? held : undefined;
+      if (!entrant) throw new TournamentStoreError(404, "No active entry with that id.");
+      if (paid) entrant.coachSaysPaid ??= { at: now.toISOString() };
+      else delete entrant.coachSaysPaid;
+      tournament.updatedAt = now.toISOString();
+      return entrant;
+    });
+  }
+
   tournament(tournamentId: string): TournamentRecord | undefined {
     return this.snapshot().tournaments[tournamentId];
   }
@@ -1071,7 +1228,9 @@ export class TournamentStore {
     return this.mutate((data) => {
       const tournament = data.tournaments[tournamentId];
       if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
-      const entrant = data.entrants[entrantId];
+      // A pending or waitlisted (held) entry may submit too: "register now, roster later" works before acceptance.
+      const held = data.heldEntrants?.[entrantId];
+      const entrant = data.entrants[entrantId] ?? (held && (held.entryState === "pending" || held.entryState === "waitlisted") ? held : undefined);
       if (!entrant || entrant.tournamentId !== tournamentId) throw new TournamentStoreError(404, "Tournament entrant not found.");
       if (entrant.droppedAt) throw new TournamentStoreError(400, "A withdrawn entry cannot submit a team.");
       if (tournament.status === "completed" || tournament.status === "cancelled")
@@ -1204,6 +1363,7 @@ export class TournamentStore {
       if (!entrant || entrant.tournamentId !== tournamentId) throw new TournamentStoreError(404, "Tournament entrant not found.");
       const flags = { ...DEFAULT_ENTRANT_FLAGS, ...(entrant.flags ?? {}) };
       const paidBefore = flags.paid;
+      const checkedInBefore = flags.checkedIn;
       for (const [key, value] of Object.entries(patch.flags ?? {})) {
         if (!(key in DEFAULT_ENTRANT_FLAGS)) throw new TournamentStoreError(400, `Unknown participant flag "${key}".`);
         if (typeof value !== "boolean") throw new TournamentStoreError(400, `${key} must be true or false.`);
@@ -1214,6 +1374,9 @@ export class TournamentStore {
       entrant.flags = withVerified(entrant);
       // Who marked the entry paid (or not), and when: the organiser's record (laws 21-22: never on a public read).
       if (flags.paid !== paidBefore) entrant.paidUpdated = { by: by ?? "", at: now.toISOString() };
+      // Who checked the coach in (an organiser's one click here, or the coach's own check-in).
+      if (flags.checkedIn && !checkedInBefore) entrant.checkedInBy = { by: by ?? "", at: now.toISOString() };
+      else if (!flags.checkedIn) delete entrant.checkedInBy;
       if (patch.manualSeed === null) delete entrant.manualSeed;
       else if (patch.manualSeed !== undefined) {
         if (!Number.isSafeInteger(patch.manualSeed) || patch.manualSeed < 1 || patch.manualSeed > 999)
