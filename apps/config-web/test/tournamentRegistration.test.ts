@@ -387,7 +387,7 @@ describe("check-in", () => {
     await h.call("POST", `/api/tournaments/${t.id}/registrations/${id("Carol")}/waitlist`, OWNER, {});
     expect((await h.call("PATCH", `/api/tournaments/${t.id}/entrants/${id("Alice")}`, CO, { flags: { checkedIn: true } }))?.status).toBe(200);
     expect(h.store.entrants(t.id).find((e) => e.coach.ffbCoachId === "Alice")).toMatchObject({ checkedInBy: { by: "Piett" } });
-    let panel = (await h.panel(t)).body as { noShows: unknown[]; checkIn: Record<string, unknown> };
+    let panel = (await h.panel(t)).body as { noShows: Array<{ coachId: string }>; checkIn: Record<string, unknown> };
     expect(panel.noShows).toEqual([]);
     expect(panel.checkIn).toMatchObject({ open: true, checkedIn: 1, total: 2 });
     h.clock.now = new Date(startsAt);
