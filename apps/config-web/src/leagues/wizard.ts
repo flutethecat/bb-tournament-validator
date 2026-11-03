@@ -20,6 +20,7 @@
  * the same things. Test sign-in sessions (Q13): a league a test session creates is marked test, and a test session writes
  * only in test leagues (testSession.ts).
  */
+import { announceUpcomingOnPublish } from "./leagueEvents.js";
 import { existsSync } from "node:fs";
 import { assertTestSessionMayWrite, RegistrationError, registrationCounts } from "../registration/index.js";
 import { artUrl, assertRulesetPackage, leaguePath, seasonSummary, type LeagueApiDeps, type LeagueApiIdentity, type LeagueApiResult } from "./api.js";
@@ -391,6 +392,9 @@ function publish(league: LeagueRecord, who: LeagueApiIdentity, deps: LeagueApiDe
   }, now);
   // The wizard's seasons take the league's webhook and Discord options now (they were made before Connections was set).
   for (const s of deps.store.seasons(league.id)) populateSeasonDiscord(deps.store, league.id, s.id);
+  // League Events: a draft told nobody; publishing sends one "upcoming events" note and lets the Discord sync run.
+  try { announceUpcomingOnPublish(deps.store, updated, deps.notify, now); } catch { /* never blocks publish */ }
+  try { deps.leagueEvents?.kick?.(); } catch { /* the sync timer picks it up */ }
   void who;
   return res(200, { ok: true, changed: true, visibility: leagueVisibility(updated), publishedAt: updated.publishedAt, revision: updated.revision });
 }

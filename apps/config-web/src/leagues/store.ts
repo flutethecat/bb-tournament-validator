@@ -309,12 +309,20 @@ export class LeagueStore {
     if (!existsSync(path)) return { events: [] };
     const raw = this.readJson<LeagueEventsFile>(path);
     if (!raw || typeof raw !== "object" || !Array.isArray(raw.events)) throw new LeagueStoreError(500, "The league's events could not be read.");
-    return { events: raw.events, ...(Array.isArray(raw.discordDeletes) && raw.discordDeletes.length ? { discordDeletes: raw.discordDeletes } : {}) };
+    return {
+      events: raw.events,
+      ...(Array.isArray(raw.discordDeletes) && raw.discordDeletes.length ? { discordDeletes: raw.discordDeletes } : {}),
+      ...(Array.isArray(raw.discordDeadLetters) && raw.discordDeadLetters.length ? { discordDeadLetters: raw.discordDeadLetters } : {}),
+    };
   }
 
   putLeagueEvents(id: string, file: LeagueEventsFile): void {
     if (!this.league(id)) throw new LeagueStoreError(404, "League not found.");
-    this.write(join(this.leagueDir(id), "events.json"), { events: file.events, ...(file.discordDeletes?.length ? { discordDeletes: file.discordDeletes } : {}) });
+    this.write(join(this.leagueDir(id), "events.json"), {
+      events: file.events,
+      ...(file.discordDeletes?.length ? { discordDeletes: file.discordDeletes } : {}),
+      ...(file.discordDeadLetters?.length ? { discordDeadLetters: file.discordDeadLetters } : {}),
+    });
   }
 
   /** Every season of the league, newest first. A season stored before player ids existed is given the ids (and career links) the importer would assign. */

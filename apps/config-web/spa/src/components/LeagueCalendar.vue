@@ -21,17 +21,19 @@ import { fitMode } from "../shell/fit";
 import type { SeasonRecord } from "../leagues/types";
 import "../leagues/calendar.css";
 
-const props = defineProps<{ season: SeasonRecord; leagueId: string; zone?: string; now?: number; events?: LeagueEventView[]; manage?: boolean; openEvent?: string }>();
+const props = defineProps<{ season?: SeasonRecord; leagueId: string; zone?: string; now?: number; events?: LeagueEventView[]; manage?: boolean; openEvent?: string }>();
 const router = useRouter();
 
 const zone = computed(() => (validZone(props.zone) ? props.zone : "UTC"));
-const ctx = computed<CalendarContext>(() => ({ leagueId: props.leagueId, seasonId: props.season.id, zone: zone.value }));
+// Without a season (a league with none yet) the calendar still shows its League Events.
+const fixtures = computed(() => props.season?.fixtures ?? []);
+const ctx = computed<CalendarContext>(() => ({ leagueId: props.leagueId, seasonId: props.season?.id ?? "", zone: zone.value }));
 // The calendar's sources (type field): the season's fixtures, the league's events, and gates (an empty typed source until
 // gates exist: give gateItems the gates read). Deadlines can join the same way.
-const sources = computed<CalendarSource[]>(() => [(c) => fixtureItems(props.season.fixtures, c), (c) => leagueEventItems(props.events ?? [], c), gateItems()]);
+const sources = computed<CalendarSource[]>(() => [(c) => fixtureItems(fixtures.value, c), (c) => leagueEventItems(props.events ?? [], c), gateItems()]);
 const items = computed(() => calendarItems(sources.value, ctx.value));
 const byDay = computed(() => itemsByDay(items.value));
-const undated = computed(() => props.season.fixtures.length - items.value.filter((i) => i.type === "fixture").length);
+const undated = computed(() => fixtures.value.length - items.value.filter((i) => i.type === "fixture").length);
 
 const storage = (): Storage | undefined => (typeof window === "undefined" ? undefined : window.localStorage);
 const view = ref<CalendarView>(loadCalendarView(storage));
@@ -44,7 +46,7 @@ onMounted(() => { ticker = setInterval(() => { clock.value = Date.now(); }, 60_0
 onBeforeUnmount(() => { if (ticker) clearInterval(ticker); });
 const today = computed(() => todayIn(props.now ?? clock.value, zone.value));
 const anchor = ref(initialAnchor(items.value, today.value));
-watch(() => props.season.id, () => { anchor.value = initialAnchor(items.value, today.value); dayOpen.value = ""; });
+watch(() => props.season?.id, () => { anchor.value = initialAnchor(items.value, today.value); dayOpen.value = ""; });
 const label = computed(() => rangeLabel(view.value, anchor.value));
 const UNIT: Record<CalendarView, string> = { list: "", week: "week", month: "month", year: "year" };
 const step = (dir: -1 | 1): void => { anchor.value = shiftAnchor(view.value, anchor.value, dir); };
@@ -168,7 +170,7 @@ const editEvent = (): void => {
       </div>
 
       <div class="lgc-body">
-        <p v-if="!items.length" class="hm-empty lgc-empty">No fixture of {{ season.name }} has a date yet.</p>
+        <p v-if="!items.length" class="hm-empty lgc-empty">{{ season ? `No fixture of ${season.name} has a date yet.` : "Nothing on the calendar yet." }}</p>
 
         <!-- List: today's view, kept (fixtures by day, month by month) -->
         <div v-else-if="view === 'list'" class="lgc-list">

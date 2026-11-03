@@ -10,7 +10,7 @@ import { WORDS_ROT13 } from "../src/discord/profanityList";
 import { leagueApi, leaguePath, type LeagueApiDeps, type LeagueApiResult } from "../src/leagues/api";
 import type { DiscordPayload } from "../src/leagues/discord";
 import {
-  gateScheduleSource, leagueCoaches, occurrences, parseLeagueEvent, runLeagueEventReminders, scheduleEntries, LeagueEventError, SCHEDULE_SOURCES,
+  gateScheduleSource, leagueCoaches, LeagueEventNoticeCoalescer, occurrences, parseLeagueEvent, runLeagueEventReminders, scheduleEntries, LeagueEventError, SCHEDULE_SOURCES,
 } from "../src/leagues/leagueEvents";
 import { LeagueStore } from "../src/leagues/store";
 import type { LeagueCalendarEvent, LeagueTeam, SeasonRecord } from "../src/leagues/types";
@@ -54,8 +54,17 @@ describe("League Events: recurrence in the league zone", () => {
     const occ = occurrences({ start: "2027-03-21T10:00", end: "2027-03-21T12:00", recurrence: { everyWeeks: 2, until: "2027-04-04" } }, "Europe/London");
     expect(occ.map((o) => new Date(o.start).toISOString())).toEqual(["2027-03-21T10:00:00.000Z", "2027-04-04T09:00:00.000Z"]);
     const overnight = occurrences({ start: "2026-10-31T22:00", end: "2026-11-01T02:00", recurrence: { everyWeeks: 1, until: "2026-11-07" } }, "America/New_York");
-    // 22:00 EDT -> 02:00 EST spans the repeated hour: 5 real hours; the next week is a plain 4
-    expect(overnight.map((o) => (o.end - o.start) / 3_600_000)).toEqual([5, 4]);
+    // every occurrence lasts the first one's real duration (22:00 EDT -> 02:00 EST is 5 real hours)
+    expect(overnight.map((o) => (o.end - o.start) / 3_600_000)).toEqual([5, 5]);
+  });
+
+  it("#2 a repeating start the clocks skip moves forward and still ends after it starts (start + the real duration)", () => {
+    // 02:30-03:00 every week: on 14 Mar 2027 (New York) 02:30 does not exist and moves to 03:30, which used to end at 03:00
+    const occ = occurrences({ start: "2027-03-07T02:30", end: "2027-03-07T03:00", recurrence: { everyWeeks: 1, until: "2027-03-21" } }, "America/New_York");
+    expect(occ.map((o) => new Date(o.start).toISOString())).toEqual(["2027-03-07T07:30:00.000Z", "2027-03-14T07:30:00.000Z", "2027-03-21T06:30:00.000Z"]);
+    expect(occ.every((o) => o.end - o.start === 30 * 60_000)).toBe(true);
+    // the editor accepts it (every occurrence checked)
+    expect(() => parseLeagueEvent({ ...NIGHT, start: "2027-03-07T02:30", end: "2027-03-07T03:00", recurrence: { everyWeeks: 1, until: "2027-03-21" } }, { zone: "America/New_York", seasons: [] })).not.toThrow();
   });
 
   it("a single event is one occurrence; a time the clocks skip moves forward", () => {
@@ -97,6 +106,9 @@ describe("League Events: routes", () => {
   let posts: DiscordPayload[];
   let notes: Array<{ coach: string; title: string; body: string; link: string }>;
   let kicks: number;
+  let held: Array<() => void>;
+  let clockMs: number;
+  let notices: LeagueEventNoticeCoalescer;
   const deps = (): LeagueApiDeps => ({
     store,
     readBody: async () => Buffer.from(body === undefined ? "" : JSON.stringify(body)),
@@ -105,7 +117,7 @@ describe("League Events: routes", () => {
     notify: (coach, input) => { notes.push({ coach, title: input.title, body: input.body, link: input.link }); },
     postWebhook: async (_url, payload) => { posts.push(payload); return { ok: true, status: 204 }; },
     identities: () => [{ coach: "Root", level: "admin" }],
-    leagueEvents: { kick: () => { kicks += 1; } },
+    leagueEvents: { kick: () => { kicks += 1; }, notices },
   });
   const call = async (method: string, path: string, auth?: { coach: string; admin?: boolean }, b?: unknown): Promise<LeagueApiResult> => {
     body = b;
@@ -130,6 +142,8 @@ describe("League Events: routes", () => {
     store.putSeason(season("tabbl", 2, "active", ["Ann", "Bob", "Jay"]));
     store.putSeason(season("other", 1, "active", ["Zed"]));
     posts = []; notes = []; kicks = 0; ifMatch = undefined; now = NOW;
+    held = []; clockMs = NOW.getTime();
+    notices = new LeagueEventNoticeCoalescer(10 * 60_000, (fn) => { held.push(fn); }, () => clockMs);
   });
   afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 
@@ -240,6 +254,7 @@ describe("League Events: routes", () => {
     expect(notes[0]).toMatchObject({ title: "New league event: Thursday league night", link: `/app/leagues/tabbl?tab=calendar&event=${ev.id}` });
     expect(notes[0]!.body).toContain("Thu 29 Oct 2026, 19:00 to 22:00 (America/New York)");
     notes = [];
+    clockMs += 11 * 60_000; // past the create's window
     await call("PATCH", `/api/leagues/tabbl/events/${ev.id}`, JAY, { revision: 1, remind: false, announce: false });
     expect(notes).toEqual([]);
     await call("PATCH", `/api/leagues/tabbl/events/${ev.id}`, JAY, { revision: 2, start: "2026-10-29T20:00", location: { kind: "online", text: "https://example.com/room" } });
@@ -254,6 +269,45 @@ describe("League Events: routes", () => {
     await create({ start: "2026-10-01T19:00", end: "2026-10-01T22:00" });
     expect(notes).toEqual([]);
     expect(leagueCoaches(store.seasons("tabbl"), "ann")).toEqual(["Bob", "Jay"]);
+  });
+
+  it("#9 rapid edits are coalesced: one combined 'updated' note per event per 10 minutes, the event as it ends up", async () => {
+    const ev = await create();
+    notes = [];
+    for (const [rev, over] of [[1, { title: "Night A" }], [2, { description: "New text" }], [3, { start: "2026-10-29T20:00" }], [4, { title: "Night B" }]] as const) {
+      await call("PATCH", `/api/leagues/tabbl/events/${ev.id}`, JAY, { revision: rev, ...over });
+    }
+    expect(notes).toEqual([]); // inside the create's window: held
+    clockMs += 10 * 60_000;
+    for (const fn of held.splice(0)) fn();
+    expect(notes).toHaveLength(2); // one per coach
+    expect(notes[0]!.title).toBe("League event updated: Night B");
+    expect(notes[0]!.body).toContain("Title, description and time changed.");
+    // a cancel drops anything held
+    notes = [];
+    clockMs += 11 * 60_000;
+    await call("PATCH", `/api/leagues/tabbl/events/${ev.id}`, JAY, { revision: 5, title: "Night C" }); // sent now, opens a window
+    await call("PATCH", `/api/leagues/tabbl/events/${ev.id}`, JAY, { revision: 6, title: "Night D" }); // held
+    await call("DELETE", `/api/leagues/tabbl/events/${ev.id}`, JAY, { revision: 7 });
+    for (const fn of held.splice(0)) fn();
+    expect(notes.map((n) => n.title)).toEqual(["League event changed: Night C", "League event changed: Night C", "League event cancelled: Night D", "League event cancelled: Night D"]);
+  });
+
+  it("#8 a draft never marks a reminder delivered; Publish sends one 'upcoming events' note for the next 7 days", async () => {
+    store.updateLeague("tabbl", (l) => { l.visibility = "draft"; l.wizard = { step: 5, createdBy: "Jay" }; });
+    now = new Date("2026-10-29T12:00:00.000Z"); // 11 hours before the night
+    const ev = await create();
+    await create({ title: "Far away", start: "2026-12-10T19:00", end: "2026-12-10T22:00" });
+    expect(store.leagueEvents("tabbl").events.find((e) => e.id === ev.id)!.reminded).toBeUndefined();
+    expect(notes).toEqual([]);
+    const pub = await call("POST", "/api/leagues/tabbl/publish", JAY, {});
+    expect(pub.status, JSON.stringify(pub.body)).toBe(200);
+    const upcoming = notes.filter((n) => n.title === "TABBL: upcoming league events");
+    expect(upcoming.map((n) => n.coach).sort()).toEqual(["Ann", "Bob", "Jay"]);
+    expect(upcoming[0]!.body).toContain("Thursday league night: Thu 29 Oct 2026, 19:00 to 22:00");
+    expect(upcoming[0]!.body).not.toContain("Far away");
+    // the publish note covered the night inside 24 hours: no reminder on top
+    expect(runLeagueEventReminders({ store, notify: () => { throw new Error("covered"); }, now: () => now }).reminded).toEqual([]);
   });
 
   it("reminder 24 hours before each occurrence, once (a second tick or a restart never repeats it); inside the window at creation = covered", async () => {

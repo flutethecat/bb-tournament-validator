@@ -27,7 +27,7 @@
  * News and the fixtures editor (create / delete): see events.ts.
  *
  * League Events (league nights, drafts, socials; calendar + Schedule page + Discord scheduled events): see leagueEvents.ts.
- *   GET|POST /api/leagues/:id/events, PATCH|DELETE .../events/:eventId, GET|PATCH .../events/discord, GET .../schedule
+ *   GET|POST /api/leagues/:id/events, PATCH|DELETE .../events/:eventId, GET|PATCH .../events/discord, POST .../events/discord/cleanup (leagueEventsDiscord.ts), GET .../schedule
  *
  * League registration (lane L6; join, the Registrations tab, accept -> team, "I've paid"): see registrationApi.ts.
  *   GET .../seasons/:seasonId/join, GET|POST .../seasons/:seasonId/registrations, POST .../registrations/:rid/<verb>
@@ -97,6 +97,7 @@ import { defaultSeasonRegistration, seasonRegistrationOf } from "./seasonRegistr
 import { paymentLinksView } from "../payments/links.js";
 import { createLeagueRoute, leagueLifecycleRoutes } from "./wizard.js";
 import { leagueCalendarEventRoutes, type LeagueEventsDeps } from "./leagueEvents.js";
+import { leagueEventsDiscordRoutes } from "./leagueEventsDiscord.js";
 import { TEST_SESSION_REFUSAL, testSessionMayWrite } from "../registration/testSession.js";
 import { leagueTimeZone } from "./timeZone.js";
 import { isLeagueOrganiser, LEAGUE_ART_DIR, LEAGUE_ART_PATH, leagueOwner, LeagueStore, LeagueStoreError, SEASON_ID } from "./store.js";
@@ -425,6 +426,8 @@ export async function leagueApi(
   const lifecycle = await leagueLifecycleRoutes(method, route.rest, league, auth, deps);
   if (lifecycle) return lifecycle;
   // League Events (leagueEvents.ts): GET|POST .../events, PATCH|DELETE .../events/:eventId, .../events/discord, GET .../schedule.
+  const eventsDiscord = await leagueEventsDiscordRoutes(method, route.rest, league, auth, deps);
+  if (eventsDiscord) return eventsDiscord;
   const calendarEvents = await leagueCalendarEventRoutes(method, route.rest, league, auth, deps);
   if (calendarEvents) return calendarEvents;
 

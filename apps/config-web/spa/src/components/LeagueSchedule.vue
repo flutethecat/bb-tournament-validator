@@ -81,7 +81,7 @@ watch([() => route.query.event, loaded], ([id, ok]) => {
   if (ev) editing.value = ev;
 }, { immediate: true });
 
-const STATE_TONE: Record<string, string> = { synced: "ok", pending: "info", failed: "urgent", draft: "muted", off: "muted", past: "muted" };
+const STATE_TONE: Record<string, string> = { synced: "ok", pending: "info", failed: "urgent", blocked: "urgent", draft: "muted", off: "muted", past: "muted" };
 </script>
 
 <template>

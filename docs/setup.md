@@ -189,7 +189,13 @@ event's own "Post to Discord" starts ticked for league nights). Events live in `
 on "Create Discord events" in League settings, External connections, and pick the server (and optionally a voice channel
 for online events). Each League Event then keeps one Discord scheduled event for its next occurrence: created, updated,
 moved and deleted with it, and rolled on to the next week for a repeating event. Calls run in the background, retried with
-backoff (30 s, 2 min, 10 min, 30 min, 2 h, then 6 h; 8 attempts), and never hold up a save.
+backoff (30 s, 2 min, 10 min, 30 min, 2 h, then 6 h; 8 attempts), and never hold up a save. Removals that run out of
+retries are kept and listed in Connections with "Retry cleanup".
+
+**Who can pick a server.** The bot is shared by every league, so an organiser sees and can pick only servers where their
+LINKED Discord account (Account page) has Manage Events or Administrator; config-web reads the member and roles with the
+bot token. Every sync re-checks that at least one current organiser of the league still has it; if none has (permission
+removed, Discord unlinked), the sync stops and Connections says why, and it resumes once a manager has it again.
 
 1. **Token.** `DISCORD_BOT_TOKEN` (see [Discord DMs](#discord-dms)). Unset = the option shows "Add the Super FUMBBL bot to
    your server to create Discord events" and nothing is sent to Discord.

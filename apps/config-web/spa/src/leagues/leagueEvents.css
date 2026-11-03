@@ -89,3 +89,8 @@
   .lev-form, .lev-group { grid-template-columns: minmax(0, 1fr); }
   .lev-kv > div { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Discord events: why the sync stopped, and the removals that ran out of retries */
+.lev-blocked { margin: 0 12px; padding: 8px 10px; font: 15px/1.4 var(--font-body); color: var(--ui-text); background: var(--ui-surface-2); border: 1px solid var(--sf-panel-line); border-left: 3px solid var(--ui-danger); border-radius: 2px; }
+.lev-cleanup { display: grid; gap: 6px; justify-items: start; margin-top: 10px; padding: 8px 10px; background: var(--ui-surface-2); border: 1px solid var(--sf-panel-line); border-left: 3px solid var(--ui-warn); border-radius: 2px; }
+.lev-cleanup ul { margin: 0; padding-left: 18px; font-size: 14px; color: var(--ui-text); }

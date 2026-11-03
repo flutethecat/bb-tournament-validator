@@ -364,7 +364,8 @@ import { canSeeTournament, hiddenTournamentPath, testSessionTournamentRefusal } 
 import { isLeagueOrganiser, LeagueStore } from "./leagues/store.js";
 import { myLeagueDeadlines, myLeagues } from "./leagues/myLeagues.js";
 import { runDeadlineJob } from "./leagues/deadlines.js";
-import { createDiscordSyncRunner, runLeagueEventReminders, type LeagueEventsDeps } from "./leagues/leagueEvents.js";
+import { runLeagueEventReminders, type LeagueEventsDeps } from "./leagues/leagueEvents.js";
+import { createDiscordSyncRunner } from "./leagues/leagueEventsDiscord.js";
 import { createGuildEventsClient } from "./discord/scheduledEvents.js";
 import { runRedraftWindowJob } from "./leagues/redraftWindow.js";
 import { createLeagueForkClient } from "./leagues/forkClient.js";
@@ -1012,8 +1013,14 @@ const discordReach = createDiscordReach({
 // told) and, with DISCORD_BOT_TOKEN set, the Discord scheduled events (src/discord/scheduledEvents.ts; retried with backoff,
 // never in a request). The token is read here only; nothing logs it.
 const leagueEventsGuild = process.env.DISCORD_BOT_TOKEN?.trim() ? createGuildEventsClient({ token: process.env.DISCORD_BOT_TOKEN.trim() }) : undefined;
-const leagueEventsSync = createDiscordSyncRunner({ store: leagueStore, guild: leagueEventsGuild, log: (line) => console.error(line) });
-const leagueEventsDeps: LeagueEventsDeps = { guild: leagueEventsGuild, clientId: process.env.DISCORD_CLIENT_ID, kick: leagueEventsSync.kick };
+// A coach's linked Discord id: proof of authority over a server (never answered, never logged).
+const linkedDiscordId = (coach: string): string | undefined => {
+  const record = readIdentities().coaches[normalizeFfbCoachId(coach)];
+  const id = record && !record.banned ? record.identities?.discordUserId : undefined;
+  return typeof id === "string" ? id : undefined;
+};
+const leagueEventsSync = createDiscordSyncRunner({ store: leagueStore, guild: leagueEventsGuild, discordUserId: linkedDiscordId, log: (line) => console.error(line) });
+const leagueEventsDeps: LeagueEventsDeps = { guild: leagueEventsGuild, clientId: process.env.DISCORD_CLIENT_ID, kick: leagueEventsSync.kick, discordUserId: linkedDiscordId };
 const leagueEventsTick = (): void => {
   try {
     const out = runLeagueEventReminders({ store: leagueStore, notify: leagueNotify });

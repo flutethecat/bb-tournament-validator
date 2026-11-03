@@ -47,7 +47,11 @@ export interface LeagueRecord {
   timeZone?: string;
   /** League Events: Discord scheduled events in the organiser's server (src/discord/scheduledEvents.ts; needs the bot there).
    *  Organiser read model only; never on a public read. Absent = off. */
-  scheduledEvents?: { enabled: boolean; guildId?: string; channelId?: string };
+  scheduledEvents?: {
+    enabled: boolean; guildId?: string; channelId?: string; channelType?: "voice" | "stage";
+    /** The sync stopped: no organiser of the league (with a linked Discord account) can manage events in that server. */
+    blocked?: { reason: string; at: string };
+  };
   /** Play on Super FUMBBL (default off): fixtures an admin allows can then be generated on the fork (later lane). */
   playOnFork?: boolean;
   /** A test competition (registration spec Q13): the only kind a test sign-in may write in (src/registration/testSession.ts). */
@@ -189,18 +193,32 @@ export interface LeagueCalendarEvent {
   updatedAt: string;
   /** Occurrence keys (local start) already reminded or covered by the create / change notice: once each. */
   reminded?: string[];
-  /** The Discord Guild Scheduled Event mirroring the next occurrence (server side; never on a public read). */
-  discord?: { guildId: string; eventId: string; occurrence: string };
-  /** A Discord sync waiting to run (retried with backoff; `failed` after the last attempt, until the next edit). */
-  discordSync?: { attempts: number; nextAt: string; error?: string; failed?: boolean };
+  /** The Discord Guild Scheduled Event mirroring the next occurrence (server side; never on a public read). `start` / `end`
+   *  are the UTC instants it was given, `channelId` its channel: the drift check compares them with what is wanted now. */
+  discord?: DiscordMirror;
+  /** Earlier occurrences' Discord events still under way: tracked until they end (plus a grace period), so a delete, a
+   *  disable, a server change or a move can still remove them. */
+  discordLive?: DiscordMirror[];
+  /** Bumped every time the event is queued for a Discord sync (an edit, a settings change); a sync result for an older
+   *  generation never clears or fails a newer one. */
+  syncGen?: number;
+  /** A Discord sync waiting to run (retried with backoff; `failed` after the last attempt, until the next edit). `gen` =
+   *  the syncGen it was queued for. */
+  discordSync?: { attempts: number; nextAt: string; error?: string; failed?: boolean; gen?: number };
 }
 
 /** A Discord scheduled event still to remove (its League Event was deleted, or the server changed). */
-export interface PendingDiscordDelete { guildId: string; eventId: string; attempts: number; nextAt: string }
+export interface DiscordMirror { guildId: string; eventId: string; occurrence: string; start: string; end: string; channelId?: string }
+
+export interface PendingDiscordDelete { guildId: string; eventId: string; attempts: number; nextAt: string; title?: string; error?: string }
+
+/** A cleanup that ran out of retries: kept (never dropped) and shown in Connections with "Retry cleanup". */
+export interface DiscordDeadLetter { guildId: string; eventId: string; title?: string; at: string; error: string }
 
 export interface LeagueEventsFile {
   events: LeagueCalendarEvent[];
   discordDeletes?: PendingDiscordDelete[];
+  discordDeadLetters?: DiscordDeadLetter[];
 }
 
 /** <leagueDir>/secrets.json: server-side only, masked in every read model, never logged. */

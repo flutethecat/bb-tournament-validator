@@ -29,11 +29,7 @@
 import { randomBytes } from "node:crypto";
 import type { NotificationInput } from "../notifications.js";
 import { post, safe } from "../discord/posts.js";
-import { starProfanity } from "../discord/profanity.js";
-import {
-  describeDiscordError, DISCORD_SYNC_MAX_ATTEMPTS, discordRetryDelayMs, DiscordEventsError, isSnowflake, MANAGE_EVENTS_PERMISSION,
-  type ChannelSummary, type GuildEventsClient, type GuildSummary, type ScheduledEventBody,
-} from "../discord/scheduledEvents.js";
+import type { GuildEventsClient } from "../discord/scheduledEvents.js";
 import { zonedInstant } from "../discord/weekly.js";
 import type { LeagueApiIdentity, LeagueApiResult } from "./api.js";
 import type { WebhookPoster } from "./discord.js";
@@ -120,21 +116,22 @@ export interface Occurrence { key: string; start: number; end: number }
 export const OCCURRENCES_MAX = 120;
 
 /**
- * Every occurrence of an event in the league zone: the first, then every N weeks on the same wall-clock times up to and
- * including the recurrence's last day. Each start and end is converted on its own day, so a 19:00 league night stays at
- * 19:00 local across a daylight-saving change (its UTC instant moves instead).
+ * Every occurrence of an event in the league zone: the first, then every N weeks at the same wall-clock START time up to and
+ * including the recurrence's last day, so a 19:00 league night stays at 19:00 local across a daylight-saving change (its
+ * UTC instant moves instead). Each occurrence lasts the first one's real duration (end = start + that duration), so a start
+ * the clocks skip (moved forward) can never end before it starts.
  */
 export function occurrences(ev: Pick<LeagueCalendarEvent, "start" | "end" | "recurrence">, zone: string): Occurrence[] {
   const [sd, st] = ev.start.split("T") as [string, string];
-  const [ed, et] = ev.end.split("T") as [string, string];
-  const span = dayDiff(sd, ed);
+  const duration = Math.max(MIN, wallInstant(ev.end, zone) - wallInstant(ev.start, zone));
   const step = ev.recurrence ? ev.recurrence.everyWeeks * 7 : 0;
   const out: Occurrence[] = [];
   for (let k = 0; k < OCCURRENCES_MAX; k++) {
     const day = addDays(sd, k * step);
     if (k > 0 && (!step || !ev.recurrence || day > ev.recurrence.until)) break;
     const key = `${day}T${st}`;
-    out.push({ key, start: wallInstant(key, zone), end: wallInstant(`${addDays(day, span)}T${et}`, zone) });
+    const start = wallInstant(key, zone);
+    out.push({ key, start, end: start + duration });
   }
   return out;
 }
@@ -244,6 +241,11 @@ export function parseLeagueEvent(raw: Record<string, unknown>, ctx: { zone: stri
     recurrence = { everyWeeks: n, until };
   }
 
+  // every occurrence is checked, not just the first: each one ends after it starts and after the one before it starts
+  const occ = occurrences({ start, end, ...(recurrence ? { recurrence } : {}) }, ctx.zone);
+  occ.forEach((o, i) => {
+    if (o.end <= o.start || (i > 0 && o.start <= occ[i - 1]!.start)) throw new LeagueEventError(400, `The date on ${o.key.slice(0, 10)} does not work in the league's time zone.`, recurrence ? "recurrence" : "start");
+  });
   const remind = raw.remind === undefined ? true : bool(raw.remind, "remind", "Reminder");
   const announce = raw.announce === undefined ? type === "league-night" : bool(raw.announce, "announce", "Post to Discord");
   return {
@@ -302,7 +304,7 @@ export interface PublicLeagueEvent {
   occurrences: Array<{ key: string; start: string; end: string }>;
 }
 
-export type DiscordSyncState = "off" | "draft" | "pending" | "synced" | "failed" | "past";
+export type DiscordSyncState = "off" | "draft" | "blocked" | "pending" | "synced" | "failed" | "past";
 
 export interface OrganiserLeagueEvent extends PublicLeagueEvent {
   remind: boolean;
@@ -325,6 +327,7 @@ export function publicLeagueEvent(ev: LeagueCalendarEvent, zone: string, seasons
 export function discordState(ev: LeagueCalendarEvent, league: Pick<LeagueRecord, "scheduledEvents" | "visibility">, zone: string, now: number): OrganiserLeagueEvent["discord"] {
   if (!league.scheduledEvents?.enabled) return { state: "off" };
   if (isDraftLeague(league)) return { state: "draft" };
+  if (league.scheduledEvents.blocked) return { state: "blocked", error: league.scheduledEvents.blocked.reason };
   if (ev.discordSync?.failed) return { state: "failed", ...(ev.discordSync.error ? { error: ev.discordSync.error } : {}) };
   if (ev.discordSync) return { state: "pending", ...(ev.discordSync.error ? { error: ev.discordSync.error } : {}) };
   if (!nextOccurrence(ev, zone, now)) return { state: "past" };
@@ -382,26 +385,6 @@ export function buildLeagueEventPost(league: Pick<LeagueRecord, "name">, ev: Lea
   return post(`${safe(league.name, 100)}: New league event`, lines.join("\n"), 0x3b82c4, { fields, ...(siteUrl ? { url: siteUrl } : {}) });
 }
 
-// ---- Discord scheduled events: the payload ----------------------------------------------------------------------------
-
-/** The Discord scheduled event for one occurrence (names and descriptions starred; Discord's own length limits). */
-export function scheduledEventBody(ev: LeagueCalendarEvent, o: Occurrence, league: Pick<LeagueRecord, "name">, channelId?: string): ScheduledEventBody {
-  const star = (s: string): string => starProfanity(s);
-  const desc = [`${LEAGUE_EVENT_TYPE_LABEL[ev.type]} · ${league.name}`, ev.recurrence ? repeatText(ev.recurrence) : "", ev.description].filter(Boolean).join("\n\n");
-  const voice = ev.location.kind === "online" && isSnowflake(channelId);
-  const where = ev.location.text || (ev.location.kind === "online" ? "Online" : league.name);
-  return {
-    name: clip(star(ev.title), 100),
-    description: clip(star(desc), 1000),
-    scheduled_start_time: new Date(o.start).toISOString(),
-    scheduled_end_time: new Date(o.end).toISOString(),
-    privacy_level: 2,
-    entity_type: voice ? 2 : 3,
-    channel_id: voice ? channelId! : null,
-    entity_metadata: voice ? null : { location: clip(star(where), 100) },
-  };
-}
-
 // ---- deps ---------------------------------------------------------------------------------------------------------------
 
 export interface LeagueEventsDeps {
@@ -411,6 +394,10 @@ export interface LeagueEventsDeps {
   clientId?: string;
   /** Start a Discord sync now (never awaited by a route). */
   kick?: () => void;
+  /** A coach's LINKED Discord account id (server side only; never answered): proof of authority over a server. */
+  discordUserId?: (coach: string) => string | undefined;
+  /** Change-notice coalescing (one combined "updated" note per event per window). Absent = the process-wide one. */
+  notices?: LeagueEventNoticeCoalescer;
 }
 
 export interface LeagueEventRouteDeps extends BodyDeps {
@@ -422,15 +409,61 @@ export interface LeagueEventRouteDeps extends BodyDeps {
   leagueEvents?: LeagueEventsDeps;
 }
 
-/** The bot invite for scheduled events: the usual permissions plus Manage Events. */
-export function eventsBotInviteUrl(clientId: string | undefined): string | undefined {
-  const id = clientId?.trim();
-  if (!id || !/^\d{5,25}$/.test(id)) return undefined;
-  const permissions = BigInt(1024 + 2048 + 16384) + BigInt(MANAGE_EVENTS_PERMISSION);
-  return `https://discord.com/oauth2/authorize?client_id=${id}&scope=bot&permissions=${permissions.toString()}`;
+// ---- change notices: coalesced per event ------------------------------------------------------------------------------
+
+export const EVENT_NOTICE_WINDOW_MS = 10 * 60_000;
+
+/**
+ * Coalesces "League event changed" notes per event (the RulesChangeCoalescer pattern): the first change in a quiet window
+ * goes out at once; later changes inside the window are held and go out as ONE combined "updated" note (every change named
+ * once, the event as it is at the end) when the window closes. A cancel drops what is held for that event. In memory: a
+ * restart inside a window drops a held note (the calendar already shows the change).
+ */
+export class LeagueEventNoticeCoalescer {
+  private readonly open = new Map<string, { until: number; changes: string[]; send?: (changes: string[]) => void }>();
+  constructor(
+    private readonly windowMs = EVENT_NOTICE_WINDOW_MS,
+    private readonly schedule: (fn: () => void, ms: number) => void = (fn, ms) => { const t = setTimeout(fn, ms); (t as { unref?: () => void }).unref?.(); },
+    private readonly clock: () => number = () => Date.now(),
+  ) {}
+
+  /** Opens a window without sending (a create: its own notice went out). */
+  touch(key: string): void {
+    if (!this.open.has(key)) this.start(key);
+  }
+
+  submit(key: string, changes: string[], send: (changes: string[]) => void): "sent" | "held" {
+    const w = this.open.get(key);
+    if (w && this.clock() < w.until) {
+      for (const c of changes) if (!w.changes.includes(c)) w.changes.push(c);
+      w.send = send;
+      return "held";
+    }
+    if (w) this.flush(key, false);
+    this.start(key);
+    send(changes);
+    return "sent";
+  }
+
+  drop(key: string): void { this.open.delete(key); }
+
+  flush(key: string, reopen = true): void {
+    const w = this.open.get(key);
+    this.open.delete(key);
+    if (!w || !w.changes.length || !w.send) return;
+    if (reopen) this.start(key);
+    w.send(w.changes);
+  }
+
+  private start(key: string): void {
+    const until = this.clock() + this.windowMs;
+    this.open.set(key, { until, changes: [] });
+    this.schedule(() => { const w = this.open.get(key); if (w && w.until === until) this.flush(key); }, this.windowMs);
+  }
 }
 
-export const ADD_BOT_TEXT = "Add the Super FUMBBL bot to your server to create Discord events";
+/** The process-wide coalescer; tests pass their own. */
+export const leagueEventNotices = new LeagueEventNoticeCoalescer();
 
 // ---- schedule sources (the organiser Schedule page) --------------------------------------------------------------------
 
@@ -464,11 +497,11 @@ export function scheduleEntries(ctx: ScheduleContext, sources: readonly Schedule
 
 // ---- routes -----------------------------------------------------------------------------------------------------------
 
-function readFile(store: LeagueStore, id: string): LeagueEventsFile {
+export function readFile(store: LeagueStore, id: string): LeagueEventsFile {
   return store.leagueEvents(id);
 }
 
-function gate(league: LeagueRecord | undefined, auth: LeagueApiIdentity | undefined): LeagueApiResult | undefined {
+export function gate(league: LeagueRecord | undefined, auth: LeagueApiIdentity | undefined): LeagueApiResult | undefined {
   if (!auth) return fail(401, "Sign in to manage this league.");
   if (!league) return fail(404, "League not found.");
   if (!managesLeague(league, auth)) return fail(403, "This league is not one of yours: only its organisers and site admins can change it.");
@@ -477,19 +510,25 @@ function gate(league: LeagueRecord | undefined, auth: LeagueApiIdentity | undefi
 
 const newId = (): string => randomBytes(6).toString("hex");
 
-/** Marks the event for a Discord sync when the league uses Discord events or it already has one. */
-function markSync(ev: LeagueCalendarEvent, league: LeagueRecord, nowIso: string): void {
-  if (league.scheduledEvents?.enabled || ev.discord) ev.discordSync = { attempts: 0, nextAt: nowIso };
-  else delete ev.discordSync;
+/**
+ * Queues the event for a Discord sync when the league uses Discord events or a Discord event of it is still tracked. Each
+ * queueing is a new generation (syncGen): a sync started for an older one never clears or fails this one.
+ */
+export function markSync(ev: LeagueCalendarEvent, league: Pick<LeagueRecord, "scheduledEvents">, nowIso: string): void {
+  if (league.scheduledEvents?.enabled || ev.discord || ev.discordLive?.length) {
+    ev.syncGen = (ev.syncGen ?? 0) + 1;
+    ev.discordSync = { attempts: 0, nextAt: nowIso, gen: ev.syncGen };
+  } else delete ev.discordSync;
 }
 
-/** Occurrences inside the next 24 hours are covered by the create / change notice: their reminder is not sent again. */
+/** Occurrences inside the next 24 hours are covered by the create / change notice: their reminder is not sent again.
+ *  Never while the league is a draft (that notice was not sent): the callers check. */
 function coverWindow(ev: LeagueCalendarEvent, zone: string, now: number): void {
   const keys = occurrences(ev, zone).filter((o) => o.start > now && o.start - now <= REMINDER_MS).map((o) => o.key);
   if (keys.length) ev.reminded = [...new Set([...(ev.reminded ?? []), ...keys])];
 }
 
-function kick(deps: LeagueEventRouteDeps): void {
+export function kick(deps: Pick<LeagueEventRouteDeps, "leagueEvents">): void {
   try { deps.leagueEvents?.kick?.(); } catch { /* the job retries on its timer */ }
 }
 
@@ -510,7 +549,7 @@ export async function leagueCalendarEventRoutes(
     return res(200, { timeZone: zone, entries });
   }
   if (first !== "events" || more.length) return undefined;
-  if (second === "discord") return discordSettingsRoute(method, league, auth, deps);
+  if (second === "discord") return undefined; // leagueEventsDiscord.ts
   const read = method === "GET" || method === "HEAD";
   if (second === undefined && !read && method !== "POST") return fail(405, "Use GET or POST.");
   if (second !== undefined && method !== "PATCH" && method !== "DELETE") return fail(405, "Use PATCH or DELETE.");
@@ -546,18 +585,22 @@ export async function leagueCalendarEventRoutes(
   const who = auth!;
   const link = (id: string) => leagueEventLink(lg.id, id);
   const recipients = () => leagueCoaches(seasons, who.coach);
+  const draft = isDraftLeague(lg);
+  const notices = deps.leagueEvents?.notices ?? leagueEventNotices;
+  const noticeKey = (id: string) => `${lg.id}:${id}`;
 
   try {
     if (second === undefined) {
       if (file.events.length >= EVENTS_PER_LEAGUE_MAX) return fail(409, `A league can hold at most ${EVENTS_PER_LEAGUE_MAX} events; delete an old one first.`);
       const parsed = parseLeagueEvent(input, { zone, seasons });
       const ev: LeagueCalendarEvent = { id: newId(), revision: 1, ...parsed, createdAt: iso, updatedAt: iso };
-      coverWindow(ev, zone, nowMs);
+      if (!draft) coverWindow(ev, zone, nowMs);
       markSync(ev, lg, iso);
       file.events = [...file.events, ev];
       deps.store.putLeagueEvents(lg.id, file);
       kick(deps);
       if (upcoming(ev, zone, nowMs).length) {
+        notices.touch(noticeKey(ev.id)); // quick follow-up edits fold into one "updated" note
         tell(deps.notify, recipients(), { type: "league-broadcast", title: clip(`New league event: ${ev.title}`, 120), body: noticeBody(lg, ev, zone, nowMs), link: link(ev.id), from: who.coach });
         if (ev.announce) {
           const seasonId = ev.link?.kind === "season" ? ev.link.id : undefined;
@@ -577,8 +620,10 @@ export async function leagueCalendarEventRoutes(
     if (method === "DELETE") {
       const hadUpcoming = upcoming(ev, zone, nowMs).length > 0;
       file.events = file.events.filter((e) => e.id !== ev.id);
-      // Its Discord scheduled event goes too (queued: the removal never holds up the delete).
-      if (ev.discord) file.discordDeletes = [...(file.discordDeletes ?? []), { guildId: ev.discord.guildId, eventId: ev.discord.eventId, attempts: 0, nextAt: iso }];
+      // Its Discord scheduled events go too, an occurrence under way included (queued: never holds up the delete).
+      const tracked = [...(ev.discord ? [ev.discord] : []), ...(ev.discordLive ?? [])];
+      if (tracked.length) file.discordDeletes = [...(file.discordDeletes ?? []), ...tracked.map((m) => ({ guildId: m.guildId, eventId: m.eventId, attempts: 0, nextAt: iso, title: ev.title }))];
+      notices.drop(noticeKey(ev.id));
       deps.store.putLeagueEvents(lg.id, file);
       kick(deps);
       if (hadUpcoming) tell(deps.notify, recipients(), { type: "league-broadcast", title: clip(`League event cancelled: ${ev.title}`, 120), body: noticeBody(lg, ev, zone, nowMs, "cancelled. "), link: `/app/leagues/${encodeURIComponent(lg.id)}?tab=calendar`, from: who.coach });
@@ -594,15 +639,21 @@ export async function leagueCalendarEventRoutes(
     if (parsed.recurrence) ev.recurrence = parsed.recurrence; else delete ev.recurrence;
     ev.revision += 1;
     ev.updatedAt = iso;
-    if (changes.includes("time") || changes.includes("repeat")) coverWindow(ev, zone, nowMs);
+    if (!draft && (changes.includes("time") || changes.includes("repeat"))) coverWindow(ev, zone, nowMs);
     markSync(ev, lg, iso);
     deps.store.putLeagueEvents(lg.id, file);
     kick(deps);
     if (changes.length && (wasUpcoming || upcoming(ev, zone, nowMs).length)) {
-      const what = changes.length === 1 ? `the ${changes[0]} changed` : `${changes.slice(0, -1).join(", ")} and ${changes.at(-1)} changed`;
-      tell(deps.notify, recipients(), {
-        type: "league-broadcast", title: clip(`League event changed: ${ev.title}`, 120),
-        body: noticeBody(lg, ev, zone, nowMs, `${what.charAt(0).toUpperCase()}${what.slice(1)}. `), link: link(ev.id), from: who.coach,
+      // Coalesced per event: the first change goes now, a burst within the window becomes one combined "updated" note.
+      const snapshot = structuredClone(ev);
+      const coaches = recipients();
+      const notify = deps.notify;
+      notices.submit(noticeKey(ev.id), changes, (all) => {
+        const what = all.length === 1 ? `the ${all[0]} changed` : `${all.slice(0, -1).join(", ")} and ${all.at(-1)} changed`;
+        tell(notify, coaches, {
+          type: "league-broadcast", title: clip(`League event ${all === changes ? "changed" : "updated"}: ${snapshot.title}`, 120),
+          body: noticeBody(lg, snapshot, zone, nowMs, `${what.charAt(0).toUpperCase()}${what.slice(1)}. `), link: link(snapshot.id), from: who.coach,
+        });
       });
     }
     return res(200, { event: organiserLeagueEvent(ev, lg, zone, seasons, nowMs) });
@@ -611,103 +662,6 @@ export async function leagueCalendarEventRoutes(
     if (e instanceof LeagueStoreError) return fail(e.status, e.message);
     return fail(500, "Could not save that right now.");
   }
-}
-
-// ---- "Create Discord events" settings ----------------------------------------------------------------------------------
-
-export interface DiscordEventsSettingsView {
-  /** The bot token is set (the site can talk to Discord as the bot). */
-  available: boolean;
-  /** "Add the Super FUMBBL bot to your server" (with Manage Events). */
-  inviteUrl?: string;
-  enabled: boolean;
-  guildId?: string;
-  channelId?: string;
-  /** The bot's servers (empty without a bot, or when Discord did not answer). */
-  guilds: GuildSummary[];
-  /** Voice / stage channels of the picked server (online events can be held there). */
-  channels: ChannelSummary[];
-  /** The picked server still has the bot. */
-  botInServer: boolean;
-  error?: string;
-  notice: string;
-}
-
-async function settingsView(league: LeagueRecord, deps: LeagueEventRouteDeps): Promise<DiscordEventsSettingsView> {
-  const guild = deps.leagueEvents?.guild;
-  const cfg = league.scheduledEvents;
-  const invite = eventsBotInviteUrl(deps.leagueEvents?.clientId);
-  const base = {
-    available: Boolean(guild), ...(invite ? { inviteUrl: invite } : {}), enabled: cfg?.enabled === true,
-    ...(cfg?.guildId ? { guildId: cfg.guildId } : {}), ...(cfg?.channelId ? { channelId: cfg.channelId } : {}),
-  };
-  if (!guild) return { ...base, guilds: [], channels: [], botInServer: false, notice: ADD_BOT_TEXT };
-  let guilds: GuildSummary[] = [];
-  let channels: ChannelSummary[] = [];
-  let error: string | undefined;
-  try {
-    guilds = await guild.guilds();
-    if (cfg?.guildId && guilds.some((g) => g.id === cfg.guildId)) channels = await guild.channels(cfg.guildId);
-  } catch (e) { error = describeDiscordError(e); }
-  const botInServer = Boolean(cfg?.guildId && guilds.some((g) => g.id === cfg.guildId));
-  const notice = !guilds.length && !error ? ADD_BOT_TEXT : "";
-  return { ...base, guilds, channels, botInServer, ...(error ? { error } : {}), notice };
-}
-
-async function discordSettingsRoute(method: string, league: LeagueRecord | undefined, auth: LeagueApiIdentity | undefined, deps: LeagueEventRouteDeps): Promise<LeagueApiResult> {
-  const read = method === "GET" || method === "HEAD";
-  if (!read && method !== "PATCH") return fail(405, "Use GET or PATCH.");
-  const early = gate(league, auth);
-  if (early) return early;
-  if (read) return res(200, { discordEvents: await settingsView(league!, deps) });
-  const body = await readJsonObject(deps, 4096);
-  if (!body.ok) return { ...fail(body.status, body.error), ...(body.close ? { close: true } : {}) };
-  const b = body.value;
-  const guild = deps.leagueEvents?.guild;
-  const prior = deps.store.league(league!.id)?.scheduledEvents ?? { enabled: false };
-  const next = { ...prior };
-  if (b.enabled !== undefined) {
-    if (typeof b.enabled !== "boolean") return fail(400, "enabled must be true or false.", { field: "enabled" });
-    next.enabled = b.enabled;
-  }
-  if (b.guildId !== undefined) {
-    if (b.guildId === null || b.guildId === "") { delete next.guildId; delete next.channelId; }
-    else if (!isSnowflake(b.guildId)) return fail(400, "Pick one of the bot's servers.", { field: "guildId" });
-    else { if (next.guildId !== b.guildId) delete next.channelId; next.guildId = b.guildId; }
-  }
-  if (b.channelId !== undefined) {
-    if (b.channelId === null || b.channelId === "") delete next.channelId;
-    else if (!isSnowflake(b.channelId)) return fail(400, "Pick a voice channel, or none.", { field: "channelId" });
-    else next.channelId = b.channelId;
-  }
-  if (next.enabled && !guild) return fail(409, `${ADD_BOT_TEXT}.`, { field: "enabled" });
-  if (next.enabled && !next.guildId) return fail(400, "Pick the Discord server the events go to.", { field: "guildId" });
-  if (guild && (next.guildId !== prior.guildId || next.channelId !== prior.channelId) && next.guildId) {
-    try {
-      const guilds = await guild.guilds();
-      if (!guilds.some((g) => g.id === next.guildId)) return fail(400, "The Super FUMBBL bot is not in that server. Add it first.", { field: "guildId" });
-      if (next.channelId && !(await guild.channels(next.guildId)).some((c) => c.id === next.channelId)) return fail(400, "That voice channel is not in the server.", { field: "channelId" });
-    } catch (e) {
-      return fail(502, describeDiscordError(e));
-    }
-  }
-  // Re-read after the Discord checks, then write synchronously.
-  const lg = deps.store.league(league!.id);
-  const refused = gate(lg, auth);
-  if (refused || !lg) return refused ?? fail(404, "League not found.");
-  const changed = JSON.stringify(prior) !== JSON.stringify(next);
-  const updated = deps.store.updateLeague(lg.id, (l) => { l.scheduledEvents = next; });
-  if (changed) {
-    // Every event re-syncs: created in the new server, moved, or removed when turned off (the sync job decides).
-    try {
-      const file = readFile(deps.store, lg.id);
-      const iso = (deps.now?.() ?? new Date()).toISOString();
-      for (const ev of file.events) if (next.enabled || ev.discord) ev.discordSync = { attempts: 0, nextAt: iso };
-      deps.store.putLeagueEvents(lg.id, file);
-    } catch { /* the events re-sync on their next edit */ }
-    kick(deps);
-  }
-  return res(200, { ok: true, discordEvents: await settingsView(updated, deps) });
 }
 
 // ---- jobs: reminders (inbox, once per occurrence) ----------------------------------------------------------------------
@@ -763,171 +717,36 @@ export function runLeagueEventReminders(deps: ReminderJobDeps): { reminded: stri
   return { reminded: out };
 }
 
-// ---- jobs: Discord scheduled events ------------------------------------------------------------------------------------
 
-export interface DiscordSyncDeps {
-  store: LeagueStore;
-  guild?: GuildEventsClient;
-  now?: () => Date;
-}
-
-export interface DiscordSyncOutcome { created: string[]; updated: string[]; deleted: string[]; failed: string[] }
-
-const due = (nextAt: string | undefined, now: number): boolean => !nextAt || Date.parse(nextAt) <= now;
+// ---- publish: what drafts held back ------------------------------------------------------------------------------------
 
 /**
- * One pass over every published league that uses Discord events: pending removals first, then each event's scheduled
- * event for its next occurrence (created, moved to the new time / server, rolled on to the next week, or removed when the
- * series is over or the option is off). Calls to Discord happen OUTSIDE the file write; each result is committed onto a
- * fresh read, so an organiser edit made meanwhile is never lost (the event simply syncs again). A failure retries with
- * backoff and never touches the event itself.
+ * Publishing a draft league tells its coaches what is coming up (a draft posts nothing, so nothing was sent while it was
+ * one): ONE note per coach listing the events that start in the next 7 days. Occurrences inside the next 24 hours count as
+ * covered by it (no reminder on top); later ones get their reminder as usual.
  */
-export async function runLeagueEventDiscordSync(deps: DiscordSyncDeps): Promise<DiscordSyncOutcome> {
-  const out: DiscordSyncOutcome = { created: [], updated: [], deleted: [], failed: [] };
-  const guild = deps.guild;
-  if (!guild) return out;
-  const nowAt = () => deps.now?.() ?? new Date();
-  for (const listed of publishedLeagues(deps.store.list())) {
-    const league = deps.store.league(listed.id);
-    if (!league || isDraftLeague(league)) continue;
-    let file: LeagueEventsFile;
-    try { file = deps.store.leagueEvents(league.id); } catch { continue; }
-    const zone = leagueTimeZone(league);
-    const cfg = league.scheduledEvents;
-    const active = Boolean(cfg?.enabled && isSnowflake(cfg.guildId));
-
-    // 1. removals
-    const doneDeletes = new Map<string, PendingDiscordDelete | null>();
-    for (const d of file.discordDeletes ?? []) {
-      if (!due(d.nextAt, nowAt().getTime())) continue;
-      const key = `${d.guildId}:${d.eventId}`;
-      try {
-        await guild.remove(d.guildId, d.eventId);
-        doneDeletes.set(key, null);
-        out.deleted.push(`${league.id}:${d.eventId}`);
-      } catch (e) {
-        if (e instanceof DiscordEventsError && e.gone) { doneDeletes.set(key, null); continue; }
-        const attempts = d.attempts + 1;
-        const retry = !(e instanceof DiscordEventsError) || e.retryable;
-        doneDeletes.set(key, retry && attempts < DISCORD_SYNC_MAX_ATTEMPTS ? { ...d, attempts, nextAt: new Date(nowAt().getTime() + discordRetryDelayMs(attempts)).toISOString() } : null);
-        out.failed.push(`${league.id}:delete:${d.eventId}`);
-      }
-    }
-    if (doneDeletes.size) commit(deps.store, league.id, (f) => {
-      f.discordDeletes = (f.discordDeletes ?? []).flatMap((d) => {
-        const r = doneDeletes.get(`${d.guildId}:${d.eventId}`);
-        return r === undefined ? [d] : r === null ? [] : [r];
-      });
-    });
-
-    // 2. events
-    for (const ev of file.events) {
-      const now = nowAt().getTime();
-      if (ev.discordSync?.failed) continue;
-      const pendingDue = ev.discordSync ? due(ev.discordSync.nextAt, now) : false;
-      if (ev.discordSync && !pendingDue) continue;
-      const next = active ? nextOccurrence(ev, zone, now) : undefined;
-      const want = next ? { guildId: cfg!.guildId!, occurrence: next.key } : undefined;
-      const have = ev.discord;
-      const haveFuture = have ? wallInstant(have.occurrence, zone) > now : false;
-      const drift = (want?.guildId ?? "") !== (have?.guildId ?? "") || (want?.occurrence ?? "") !== (have?.occurrence ?? "");
-      if (!pendingDue && !drift) continue;
-
-      const startRevision = ev.revision;
-      let current = have;
-      const queued: PendingDiscordDelete[] = [];
-      let error: unknown;
-      let permanent = false;
-      try {
-        if (current && (!want || current.guildId !== want.guildId)) {
-          if (haveFuture) {
-            try { await guild.remove(current.guildId, current.eventId); out.deleted.push(`${league.id}:${current.eventId}`); }
-            catch (e) { if (!(e instanceof DiscordEventsError && e.gone)) queued.push({ guildId: current.guildId, eventId: current.eventId, attempts: 1, nextAt: new Date(now + discordRetryDelayMs(1)).toISOString() }); }
-          }
-          current = undefined;
-        }
-        if (want && next) {
-          const body = scheduledEventBody(ev, next, league, cfg?.channelId);
-          if (current && current.guildId === want.guildId && haveFuture) {
-            try {
-              const r = await guild.update(want.guildId, current.eventId, body);
-              current = { guildId: want.guildId, eventId: r.id, occurrence: want.occurrence };
-              out.updated.push(`${league.id}:${ev.id}`);
-            } catch (e) {
-              if (!(e instanceof DiscordEventsError && e.gone)) throw e;
-              const r = await guild.create(want.guildId, body);
-              current = { guildId: want.guildId, eventId: r.id, occurrence: want.occurrence };
-              out.created.push(`${league.id}:${ev.id}`);
-            }
-          } else {
-            const r = await guild.create(want.guildId, body);
-            current = { guildId: want.guildId, eventId: r.id, occurrence: want.occurrence };
-            out.created.push(`${league.id}:${ev.id}`);
-          }
-        } else if (current && !haveFuture) {
-          current = undefined; // the mirrored occurrence is over and nothing follows: forget it (Discord keeps its own record)
-        }
-      } catch (e) {
-        error = e;
-        permanent = e instanceof DiscordEventsError && !e.retryable;
-        out.failed.push(`${league.id}:${ev.id}`);
-      }
-
-      commit(deps.store, league.id, (f) => {
-        if (queued.length) f.discordDeletes = [...(f.discordDeletes ?? []), ...queued];
-        const fresh = f.events.find((x) => x.id === ev.id);
-        if (!fresh) {
-          // Deleted while we talked to Discord: the delete route queued what it knew; remove what we just made too.
-          if (current && current.eventId !== have?.eventId) f.discordDeletes = [...(f.discordDeletes ?? []), { guildId: current.guildId, eventId: current.eventId, attempts: 0, nextAt: new Date(now).toISOString() }];
-          return;
-        }
-        if (current) fresh.discord = current; else delete fresh.discord;
-        if (error !== undefined) {
-          const attempts = (fresh.discordSync?.attempts ?? 0) + 1;
-          fresh.discordSync = {
-            attempts, nextAt: new Date(now + discordRetryDelayMs(attempts)).toISOString(), error: describeDiscordError(error),
-            ...(permanent || attempts >= DISCORD_SYNC_MAX_ATTEMPTS ? { failed: true } : {}),
-          };
-        } else if (fresh.revision !== startRevision) {
-          fresh.discordSync = { attempts: 0, nextAt: new Date(now).toISOString() }; // edited meanwhile: sync the new version
-        } else {
-          delete fresh.discordSync;
-        }
-      });
-    }
+export function announceUpcomingOnPublish(store: LeagueStore, league: LeagueRecord, notify: ((coach: string, input: NotificationInput) => void) | undefined, now: Date): number {
+  let file: LeagueEventsFile;
+  try { file = store.leagueEvents(league.id); } catch { return 0; }
+  const zone = leagueTimeZone(league);
+  const t = now.getTime();
+  const soon = file.events.flatMap((ev) => occurrences(ev, zone).filter((o) => o.start > t && o.start - t <= 7 * REMINDER_MS).map((o) => ({ ev, o })))
+    .sort((a, b) => a.o.start - b.o.start);
+  if (!soon.length) return 0;
+  let covered = false;
+  for (const ev of file.events) {
+    const before = (ev.reminded ?? []).length;
+    coverWindow(ev, zone, t);
+    if ((ev.reminded ?? []).length !== before) covered = true;
   }
-  return out;
-}
-
-/** Read-modify-write of a league's events file on a FRESH read (synchronous: nothing interleaves). */
-function commit(store: LeagueStore, leagueId: string, mutate: (f: LeagueEventsFile) => void): void {
-  try {
-    const f = store.leagueEvents(leagueId);
-    mutate(f);
-    store.putLeagueEvents(leagueId, f);
-  } catch { /* unreadable or gone: the next pass tries again */ }
-}
-
-/**
- * The server's runner: one pass at a time; a kick during a pass runs one more pass after it. `run` resolves when the
- * pass (and any follow-up) is over; routes call `kick` and never wait.
- */
-export function createDiscordSyncRunner(deps: DiscordSyncDeps & { log?: (line: string) => void }) {
-  let running: Promise<void> | undefined;
-  let again = false;
-  const pass = async (): Promise<void> => {
-    do {
-      again = false;
-      try {
-        const r = await runLeagueEventDiscordSync(deps);
-        if (r.failed.length) deps.log?.(`[league-events] Discord sync: ${r.failed.length} failed, will retry`);
-      } catch (e) { deps.log?.(`[league-events] Discord sync failed: ${(e as Error).message}`); }
-    } while (again);
-  };
-  const run = (): Promise<void> => {
-    if (running) { again = true; return running; }
-    running = pass().finally(() => { running = undefined; });
-    return running;
-  };
-  return { run, kick: (): void => { void run(); } };
+  if (covered) { try { store.putLeagueEvents(league.id, file); } catch { /* a reminder may repeat it; never block publish */ } }
+  const lines = soon.slice(0, 6).map(({ ev, o }) => `${ev.title}: ${whenText(o, zone)}`);
+  const more = soon.length > 6 ? ` And ${soon.length - 6} more.` : "";
+  const coaches = leagueCoaches(store.seasons(league.id));
+  tell(notify, coaches, {
+    type: "league-broadcast", title: clip(`${league.name}: upcoming league events`, 120),
+    body: clip(`${league.name} is open. Coming up (${zoneLabel(zone)}): ${lines.join("; ")}.${more}`, 600),
+    link: `/app/leagues/${encodeURIComponent(league.id)}?tab=calendar`, from: league.name,
+  });
+  return coaches.length;
 }

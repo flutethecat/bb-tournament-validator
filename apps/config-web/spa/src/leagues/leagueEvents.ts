@@ -37,7 +37,7 @@ export interface LeagueEventView {
   /** Organiser reads only. */
   remind?: boolean;
   announce?: boolean;
-  discord?: { state: "off" | "draft" | "pending" | "synced" | "failed" | "past"; error?: string };
+  discord?: { state: "off" | "draft" | "blocked" | "pending" | "synced" | "failed" | "past"; error?: string };
 }
 
 export interface LeagueEventsRead { timeZone: string; manage: boolean; events: LeagueEventView[] }
@@ -50,11 +50,19 @@ export interface DiscordEventsSettings {
   available: boolean;
   inviteUrl?: string;
   enabled: boolean;
+  /** Only when the viewer can manage the picked server (else boundToOther). */
   guildId?: string;
   channelId?: string;
+  boundToOther: boolean;
+  /** The viewer has a linked Discord account. */
+  linked: boolean;
+  /** Only servers the viewer's Discord account can manage events in. */
   guilds: Array<{ id: string; name: string }>;
   channels: Array<{ id: string; name: string; type: "voice" | "stage" }>;
-  botInServer: boolean;
+  /** Why the sync stopped (no organiser can manage events there any more). */
+  blocked?: string;
+  /** Discord removals that ran out of retries. */
+  cleanup: Array<{ eventId: string; title: string; error: string; at: string }>;
   error?: string;
   notice: string;
 }
@@ -74,6 +82,7 @@ export const leagueEventsApi = {
   discord: (api: Fetcher, leagueId: string) => api<{ discordEvents: DiscordEventsSettings }>(`${base(leagueId)}/events/discord`),
   saveDiscord: (api: Fetcher, leagueId: string, body: { enabled?: boolean; guildId?: string | null; channelId?: string | null }) =>
     api<{ discordEvents: DiscordEventsSettings }>(`${base(leagueId)}/events/discord`, { method: "PATCH", body }),
+  retryCleanup: (api: Fetcher, leagueId: string) => api<{ requeued: number }>(`${base(leagueId)}/events/discord/cleanup`, { method: "POST", body: {} }),
 };
 
 // ---- calendar sources --------------------------------------------------------------------------------------------------
@@ -151,7 +160,7 @@ export const upcomingOf = (ev: LeagueEventView, now: number): LeagueEventOccurre
 export const safeHttps = (s: string): string | undefined => (/^https:\/\/[^\s<>"']+$/i.test(s.trim()) ? s.trim() : undefined);
 
 export const DISCORD_STATE_TEXT: Record<NonNullable<LeagueEventView["discord"]>["state"], string> = {
-  off: "Discord events off", draft: "Waits for Publish", pending: "Discord: syncing", synced: "On Discord", failed: "Discord: failed", past: "Over",
+  off: "Discord events off", draft: "Waits for Publish", blocked: "Discord: stopped", pending: "Discord: syncing", synced: "On Discord", failed: "Discord: failed", past: "Over",
 };
 
 export interface TimelineDay { key: string; label: string; entries: Array<ScheduleEntry & { time: string }> }

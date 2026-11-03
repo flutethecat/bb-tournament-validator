@@ -14,6 +14,11 @@ import { DISCORD_API } from "../mail/discord.js";
 
 /** Manage Events (1 << 33): the bot permission scheduled events need, on top of the invite's View / Send / Embed. */
 export const MANAGE_EVENTS_PERMISSION = 2 ** 33;
+const MANAGE_EVENTS = 1n << 33n;
+const ADMINISTRATOR = 1n << 3n;
+
+/** A member's permissions (bit field) allow managing a server's events: Administrator or Manage Events. */
+export const permitsEvents = (perms: bigint): boolean => (perms & ADMINISTRATOR) !== 0n || (perms & MANAGE_EVENTS) !== 0n;
 
 export interface GuildSummary { id: string; name: string }
 export interface ChannelSummary { id: string; name: string; type: "voice" | "stage" }
@@ -25,8 +30,8 @@ export interface ScheduledEventBody {
   scheduled_start_time: string;
   scheduled_end_time: string;
   privacy_level: 2;
-  /** 2 voice channel, 3 external (a venue, or an online event without a channel). */
-  entity_type: 2 | 3;
+  /** 1 stage channel, 2 voice channel, 3 external (a venue, or an online event without a channel). */
+  entity_type: 1 | 2 | 3;
   channel_id: string | null;
   entity_metadata: { location: string } | null;
 }
@@ -37,6 +42,13 @@ export interface GuildEventsClient {
   create(guildId: string, body: ScheduledEventBody): Promise<{ id: string }>;
   update(guildId: string, eventId: string, body: ScheduledEventBody): Promise<{ id: string }>;
   remove(guildId: string, eventId: string): Promise<void>;
+  /** The server's scheduled events (id + description): finds one a lost create already made (the sync marker). */
+  listEvents(guildId: string): Promise<Array<{ id: string; description: string }>>;
+  /**
+   * A user's server-wide permissions in a server, as Discord computes them for the base level: the owner has all; else the
+   * @everyone role plus every role the member holds. null = not a member (or the server is unknown to the bot).
+   */
+  memberPermissions(guildId: string, userId: string): Promise<bigint | null>;
 }
 
 /** A failed Discord call. `retryable`: 429, 5xx, 401, 403 (permissions can be fixed) and network errors; `gone`: 404. */
@@ -133,6 +145,31 @@ export function createGuildEventsClient(opts: GuildEventsClientOptions): GuildEv
     },
     async remove(guildId, eventId) {
       await call("DELETE", `/guilds/${guildId}/scheduled-events/${eventId}`);
+    },
+    async listEvents(guildId) {
+      const list = await call("GET", `/guilds/${guildId}/scheduled-events`);
+      if (!Array.isArray(list)) return [];
+      return (list as Array<{ id?: unknown; description?: unknown }>)
+        .filter((e) => isSnowflake(e.id))
+        .map((e) => ({ id: e.id as string, description: typeof e.description === "string" ? e.description : "" }));
+    },
+    async memberPermissions(guildId, userId) {
+      if (!isSnowflake(guildId) || !isSnowflake(userId)) return null;
+      let member: unknown;
+      try { member = await call("GET", `/guilds/${guildId}/members/${userId}`); } catch (e) {
+        if (e instanceof DiscordEventsError && (e.status === 404 || e.status === 403)) return null;
+        throw e;
+      }
+      const guild = (await call("GET", `/guilds/${guildId}`)) as { owner_id?: unknown } | undefined;
+      if (guild?.owner_id === userId) return ADMINISTRATOR | MANAGE_EVENTS;
+      const roles = (await call("GET", `/guilds/${guildId}/roles`)) as Array<{ id?: unknown; permissions?: unknown }> | undefined;
+      const held = new Set([guildId, ...(((member as { roles?: unknown })?.roles as unknown[] | undefined) ?? []).filter((r): r is string => typeof r === "string")]);
+      let perms = 0n;
+      for (const r of Array.isArray(roles) ? roles : []) {
+        if (typeof r.id !== "string" || !held.has(r.id) || typeof r.permissions !== "string" || !/^\d{1,25}$/.test(r.permissions)) continue;
+        perms |= BigInt(r.permissions);
+      }
+      return perms;
     },
   };
 }

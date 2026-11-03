@@ -200,6 +200,8 @@ usePageTitle(() => state.league?.name);
         <div v-else-if="tab === 'awards'" class="lg-stack"><LeagueAwards :manage="manage" :seasons="state.seasons" /></div>
         <LeagueHonours v-else :season="season" :seasons="state.seasons" :manage="manage" :crests="state.crests" :awards="false" />
       </template>
+      <!-- a league with no season yet: the Calendar still shows (and deep-links to) its League Events -->
+      <LeagueCalendar v-else-if="tab === 'calendar' && !current" :league-id="id" :zone="state.league.timeZone" :events="state.events" :manage="manage" :open-event="eventRef" />
       </div>
     </template>
   </div>

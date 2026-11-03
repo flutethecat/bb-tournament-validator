@@ -208,21 +208,64 @@ describe("League Events: server-rendered", () => {
     expect(edit).toContain("data-delete");
   });
 
-  it("Connections: without the bot the option says to add it (invite button, checkbox disabled); with it, the server and channel pickers", async () => {
+  it("Connections: without the bot the option says to add it; without a linked Discord it says to link one; with both, only the organiser's servers", async () => {
+    const base = { enabled: false, guilds: [], channels: [], boundToOther: false, linked: true, cleanup: [] };
     const without = await renderComponent(mods.Discord, { leagueId: "tabbl", initial: {
-      available: false, inviteUrl: "https://discord.com/oauth2/authorize?client_id=123456789012345678&scope=bot&permissions=8589954048", enabled: false,
-      guilds: [], channels: [], botInServer: false, notice: "Add the Super FUMBBL bot to your server to create Discord events",
+      ...base, available: false, inviteUrl: "https://discord.com/oauth2/authorize?client_id=123456789012345678&scope=bot&permissions=8589954048",
+      notice: "Add the Super FUMBBL bot to your server to create Discord events",
     } });
     expect(without).toContain("Add the Super FUMBBL bot to your server to create Discord events.");
     expect(without).toMatch(/<input type="checkbox" disabled/);
     expect(without).toContain("permissions=8589954048");
+    const unlinked = await renderComponent(mods.Discord, { leagueId: "tabbl", initial: {
+      ...base, available: true, linked: false, notice: "Link your Discord account (Account page) to pick a server you manage",
+    } });
+    expect(unlinked).toContain("Link your Discord account (Account page) to pick a server you manage.");
+    expect(unlinked).toContain('href="/app/account"');
+    expect(unlinked).not.toContain("data-enable");
     const withBot = await renderComponent(mods.Discord, { leagueId: "tabbl", initial: {
-      available: true, enabled: true, guildId: "111111111111111111", guilds: [{ id: "111111111111111111", name: "Example League Server" }],
-      channels: [{ id: "333333333333333333", name: "League voice", type: "voice" }], botInServer: true, notice: "",
+      ...base, available: true, enabled: true, guildId: "111111111111111111", guilds: [{ id: "111111111111111111", name: "Example League Server" }],
+      channels: [{ id: "333333333333333333", name: "League voice", type: "voice" }, { id: "444444444444444444", name: "Stage", type: "stage" }], notice: "",
     } });
     expect(withBot).toContain("data-enable");
     expect(withBot).toContain("Example League Server");
-    expect(withBot).toContain("League voice");
+    expect(withBot).toContain("Stage (stage)");
+    expect(withBot).toContain("servers where you can manage events");
     expect(withBot).not.toContain("data-add-bot");
+  });
+
+  it("Connections: a stopped sync says why, and dead-lettered cleanups carry 'Retry cleanup'", async () => {
+    const html = await renderComponent(mods.Discord, { leagueId: "tabbl", initial: {
+      available: true, linked: true, enabled: true, boundToOther: true, guilds: [], channels: [], notice: "",
+      blocked: "Discord events stopped: no organiser of this league can manage events in that Discord server any more (Manage Events or Administrator).",
+      cleanup: [{ eventId: "900000000000000001", title: "Thursday league night", error: "Discord is having trouble right now.", at: "2026-10-30T00:00:00.000Z" }],
+    } });
+    expect(html).toContain("data-blocked");
+    expect(html).toContain("Discord events stopped: no organiser of this league can manage events");
+    expect(html).toContain("Another organiser picked this league");
+    expect(html).toContain("Turn Discord events off");
+    expect(html).toContain("data-retry-cleanup");
+    expect(html).toContain("Thursday league night");
+    expect(html).not.toContain("900000000000000001");
+  });
+
+  it("#11 a league with no season: the Calendar shows its events and ?event= opens the dialog", async () => {
+    const empty = { ...league, seasonCount: 0, currentSeason: undefined };
+    const f = mockFetcher({
+      "/api/auth/session": { authenticated: false },
+      "/api/leagues/tabbl": { league: empty, seasons: [] },
+      "/api/leagues/tabbl/events": { timeZone: "America/New_York", manage: false, events: [ev()] },
+      "/crests/manifest.json": { crests: {} },
+    });
+    const spa = mods.app.createSpa({ history: mods.vueRouter.createMemoryHistory("/app/"), ssr: true, fetcher: f });
+    const d = mods.league.createLeagueDetail({ api: f });
+    await d.load("tabbl");
+    spa.app.provide(mods.league.LEAGUE_DETAIL_KEY, d);
+    await spa.router.push("/leagues/tabbl?tab=calendar&event=e1");
+    await spa.router.isReady();
+    const html = (await mods.renderer.renderToString(spa.app)) as string;
+    expect(html).toContain('class="lg-stack lgc"');
+    expect(html).toContain('data-type="league-event"');
+    expect(html).toContain('aria-labelledby="lev-dialog-h"');
   });
 });
