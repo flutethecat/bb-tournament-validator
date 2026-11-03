@@ -1,5 +1,20 @@
 [
   {
+    "date": "2026-11-03",
+    "title": "Team page v2: one team summary, coach editing and organiser edit mode",
+    "body": "The league team page and the Roster Builder's new Summary step now share one wide team summary with the table-style roster. Coaches edit their own team within the rules (hire, fire and staff before the first game; names, numbers, hires and skills paid with SPP after it), and organisers get an Edit mode for every field, injuries with a band-aid list, Seasons Played, and a status cog to mark a team inactive and decide its unplayed fixtures.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      },
+      {
+        "label": "Roster Builder",
+        "href": "/app/tournament-team-builder"
+      }
+    ]
+  },
+  {
     "date": "2026-11-02",
     "title": "Custom stars, ruleset summaries and BB2025 matched play",
     "body": "Organisers can create their own Star Players in the Tournament Creator (sprite, stats, cost, skills, plus custom traits and rules that print under \"Special rules\" in the Roster Builder and on the PDF), share a read-only summary page and PDF of any ruleset, and must now explain a rules change to registered coaches, who are notified and get their rosters re-checked. BB2025 matched play joins the featured rulesets.",
