@@ -71,7 +71,7 @@ beforeAll(async () => {
   ({ server } = await import("../src/server.js"));
   if (!server.listening) await once(server, "listening");
   origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-});
+}, 60_000); // the setup builds the SPA (~19 s), past the 10 s default
 
 afterAll(async () => {
   if (server?.listening) await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
