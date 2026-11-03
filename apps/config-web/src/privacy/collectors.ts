@@ -481,11 +481,12 @@ export const STORE_COLLECTORS: StoreCollector[] = [
             standings: objs(s.phases).flatMap((p) => objs(p.standings).filter(linked)),
             awards: objs(s.awards).filter(linked),
             registrations: ownLeagueRegistrations(s, (v) => isMine(ctx.keys, v)),
+            takeoverApplications: ownLeagueRegistrations({ registrations: s.takeoverApplications }, (v) => isMine(ctx.keys, v)),
             // Paid marks the coach made as an organiser: the team reference, what they set and when.
             paidActions: objs(s.participants).filter((p) => isObj(p.paidUpdated) && isMine(ctx.keys, (p.paidUpdated as Obj).by))
               .map((p) => ({ ...(typeof p.teamId === "string" ? { teamId: p.teamId } : {}), team: p.team, paid: p.paid === true, at: (p.paidUpdated as Obj).at })),
           };
-        }).filter((r) => r.teams.length + r.fixtures.length + r.resultEdits.length + r.participants.length + r.advancementRolls.length + r.standings.length + r.awards.length + r.registrations.length + r.paidActions.length > 0);
+        }).filter((r) => r.teams.length + r.fixtures.length + r.resultEdits.length + r.participants.length + r.advancementRolls.length + r.standings.length + r.awards.length + r.registrations.length + r.takeoverApplications.length + r.paidActions.length > 0);
         const role = isMine(ctx.keys, league.owner) ? "owner" : (league.organisers ?? []).some((o) => isMine(ctx.keys, o)) ? "organiser" : undefined;
         if (rows.length || role || awards.length || pins.length)
           leagues.push({ league: league.name ?? league.id, id: league.id, ...(role ? { role } : {}), seasons: rows, ...(awards.length ? { awards } : {}), ...(pins.length ? { hallOfFame: pins } : {}) });
@@ -925,9 +926,26 @@ function anonymiseSeason(an: Anonymiser, tx: TextReplacer, displays: ReadonlySet
     if (linked(t)) mark(LINKED_ROW(an, t));
     if (isObj(t.coachAssigned)) mark(an.fields(t.coachAssigned, ["by"], []));
     mark(anonymiseTeamRecords(an, tx, t));
+    // Team library lane: who listed the team for takeover; the entry history's holders (by their own coach / account
+    // only: a span never links through the team), who made each change, and the replaced rosters kept with it.
+    if (isObj(t.takeover)) { mark(an.fields(t.takeover, ["by"], [])); mark(tx.texts(t.takeover, ["note"])); }
+    for (const span of objs(t.entryHistory)) {
+      if (linked({ coach: span.coach, coachId: span.coachId })) mark(LINKED_ROW(an, span));
+      mark(an.fields(span, ["by"], []));
+      if (isObj(span.outgoing)) {
+        if (linked(span.outgoing)) mark(LINKED_ROW(an, span.outgoing));
+        if (isObj(span.outgoing.coachAssigned)) mark(an.fields(span.outgoing.coachAssigned, ["by"], []));
+        mark(anonymiseTeamRecords(an, tx, span.outgoing));
+      }
+    }
   }
   for (const f of objs(s.fixtures)) {
     for (const side of [f.home, f.away]) if (linked(side)) mark(LINKED_ROW(an, side as Obj));
+    // The coach frozen with the result (records follow the coach of each game): linked by its own coach / account only.
+    for (const side of [f.home, f.away]) {
+      const played = isObj(side) ? (side as Obj).playedBy : undefined;
+      if (isObj(played) && linked({ coach: played.coach, coachId: played.coachId })) { mark(an.overwrite(played, ["coach"], ["nafUser"])); if (typeof played.coachId === "string" && played.coachId) { played.coachId = an.swap(played.coachId); changed = true; } }
+    }
     if (isObj(f.fork)) {
       for (const ft of vals(f.fork.teams)) mark(an.fields(ft, ["coach"], []));
       mark(an.fields(f.fork, ["generatedBy"], []));
@@ -969,6 +987,8 @@ function anonymiseSeason(an: Anonymiser, tx: TextReplacer, displays: ReadonlySet
   }
   // League registrations (src/registration): the coach's own rows, and every decision / transition they made.
   for (const r of objs(s.registrations)) mark(anonymiseLeagueRegistration(an, tx, r));
+  // Takeover applications (team library lane): the same field names as a registration row.
+  for (const r of objs(s.takeoverApplications)) mark(anonymiseLeagueRegistration(an, tx, r));
   for (const ph of objs(s.phases)) for (const r of objs(ph.standings)) if (linked(r)) mark(LINKED_ROW(an, r));
   for (const h of objs(s.honours)) {
     for (const r of objs(h.rows)) {

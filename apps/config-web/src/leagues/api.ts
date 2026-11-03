@@ -80,6 +80,7 @@ import { applyPendingDrafts } from "./redraft.js";
 import { assignTeamCoach } from "./teamCoach.js";
 import { publicTeam, settleServedMng } from "./teamOps.js";
 import { teamPageRoutes } from "./teamPage.js";
+import { teamLibraryRoutes, type TeamLibraryApiDeps } from "./teamLibraryApi.js";
 import { myRedraftTasks, redraftRoutes, teamRedraftBudgetRoute } from "./redraftApi.js";
 import { RedraftRulesError, parseRedraftRules } from "./redraftRules.js";
 import { leagueParticipantRoutes, myPaymentStatus, participantsForPublic } from "./participants.js";
@@ -166,7 +167,7 @@ export interface LeagueApiIdentity {
 /** One identity row the coach lookup and the admin list read (identities.json, read-only here). */
 export interface LeagueIdentityRow { coach: string; level: string; banned?: boolean }
 
-export interface LeagueApiDeps extends LeagueRegistrationApiDeps {
+export interface LeagueApiDeps extends LeagueRegistrationApiDeps, TeamLibraryApiDeps {
   store: LeagueStore;
   /** Fork identities (coach-name lookup for organisers; level "admin" rows are the site admins). */
   identities?: () => LeagueIdentityRow[];
@@ -441,6 +442,10 @@ export async function leagueApi(
   // Team page v2 (teamPage.ts): GET .../teams/:teamId/manage, POST .../edit, .../status, .../fixtures.
   const teamPage = await teamPageRoutes(method, route.rest, league, auth, deps);
   if (teamPage) return teamPage;
+  // Team library, swap and takeover (teamLibraryApi.ts): .../library/:coach, .../teams/:teamId/(library|swap|takeover),
+  // .../takeovers[/my-teams|/:listingId/applications[/:appId/(approve|decline|withdraw)]].
+  const library = await teamLibraryRoutes(method, route.rest, league, auth, deps);
+  if (library) return library;
   const lobby = await leagueLobbyRoutes(method, route.rest, league, auth, deps);
   if (lobby) return lobby;
   const inducements = await leagueInducementRoutes(method, route.rest, league, auth, deps, query);
@@ -1142,7 +1147,8 @@ async function patchFixture(league: LeagueRecord, seasonId: string, fixtureId: s
 export function seasonForViewer(league: LeagueRecord, full: SeasonRecord, auth: LeagueApiIdentity | undefined, gamePage?: (gameId: string) => boolean): SeasonRecord {
   // Redraft state (budgets, R&R, draft rosters) is served only by the authorised redraft routes, never in a season read.
   // League registration rows (lane L6) are organiser and coach data, served only by the registration routes.
-  const { redraft: _r, registrations: _reg, ...derived } = withCaptainCandidates(withStandings(full));
+  // Takeover applications (team library lane) are the applicant's and the organisers', served only by takeover routes.
+  const { redraft: _r, registrations: _reg, takeoverApplications: _ta, ...derived } = withCaptainCandidates(withStandings(full));
   // Team page v2: a team-page MNG the team has served reads as cleared (computed on a copy; the next write stores it), and
   // team histories and injury authors stay with the team's coach and the organisers (GET .../teams/:teamId/manage).
   const teamsCopy = derived.teams.some((t) => t.players.some((p) => p.mngGames !== undefined)) ? structuredClone(derived.teams) : derived.teams;

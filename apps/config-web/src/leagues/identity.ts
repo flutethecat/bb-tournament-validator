@@ -14,7 +14,7 @@
  * Fixture outcome: a concession decides the result before the score comparison (the conceding side loses, whatever
  * the recorded touchdowns, which are kept as recorded).
  */
-import type { FixtureSide, LeagueFixture } from "./types.js";
+import type { FixtureSide, LeagueFixture, PlayedCoach } from "./types.js";
 
 export interface CoachFacets {
   coach?: string;
@@ -130,7 +130,7 @@ export function* seasonCoachFacets(s: {
   phases: Array<{ standings: Array<CoachFacets> }>;
   awards: Array<CoachFacets>;
 }): Generator<CoachFacets> {
-  for (const f of s.fixtures) { yield f.home; yield f.away; }
+  for (const f of s.fixtures) { yield gameCoach(f.home); yield gameCoach(f.away); }
   yield* s.participants;
   yield* s.teams;
   for (const p of s.phases) yield* p.standings;
@@ -156,3 +156,46 @@ export function fixtureOutcome(f: Pick<LeagueFixture, "home" | "away" | "suspend
 }
 
 export const sideOf = (f: LeagueFixture, s: FixtureSide): "home" | "away" => (s === f.home ? "home" : "away");
+
+// ---- records follow the coach of each game (team library lane, round answer Q7) ----------------------------------------
+
+/** The coach facets of a side as they stand (what playedBy freezes). */
+function coachFacetsOf(s: FixtureSide): PlayedCoach {
+  return {
+    coach: s.coach,
+    ...(s.coachId ? { coachId: s.coachId } : {}),
+    ...(s.nafUser ? { nafUser: s.nafUser } : {}),
+    ...(s.coachId && s.coachAssigned ? { coachAssigned: true as const } : {}),
+  };
+}
+
+/**
+ * The coach a fixture side's game counts for: the coach frozen when the result came in (playedBy), else the side's own
+ * facets (an unplayed side, or a played one written before the stamp existed: its facets are what the side recorded
+ * then; nothing re-points a played side). Coach records, coach summaries and club stats read only this.
+ */
+export function gameCoach(s: FixtureSide): FixtureSide | (PlayedCoach & Omit<FixtureSide, keyof PlayedCoach>) {
+  if (!s.playedBy) return s;
+  const { coach: _c, coachId: _i, nafUser: _n, coachAssigned: _a, ...rest } = s;
+  return { ...rest, ...s.playedBy };
+}
+
+/**
+ * Freezes the coach of every side that has a result and no stamp yet (in place), and drops the stamp from a side whose
+ * result was cleared (a replay after a takeover then counts for the new coach). The stamp is the side's own facets at
+ * that moment: unplayed sides follow their team (Assign coach account, a swap, an approved takeover re-seat them), so
+ * they name the coach who played. LeagueStore.putSeason runs it on every season write, so every result path (the fork,
+ * the recorder, the fixtures editor, forfeits, deadlines, imports) gets it. Returns how many sides changed.
+ */
+export function stampPlayedCoaches(season: { fixtures?: LeagueFixture[] }): number {
+  let n = 0;
+  for (const f of season.fixtures ?? []) {
+    const played = fixtureOutcome(f) !== undefined;
+    for (const side of [f.home, f.away]) {
+      if (!side) continue;
+      if (played && !side.playedBy && (side.coach || side.coachId)) { side.playedBy = coachFacetsOf(side); n += 1; }
+      else if (!played && side.playedBy) { delete side.playedBy; n += 1; }
+    }
+  }
+  return n;
+}

@@ -54,6 +54,8 @@ export interface MembershipSources {
       /** League registration (lane L6): every entry of the season; a live one (pending / waitlisted / accepted) puts the
        *  coach in the league's sharing scope, so they may change or revoke a grant while waiting for a decision. */
       registrations?: ReadonlyArray<{ coach: string; state: string }>;
+      /** Takeover applications (src/leagues/takeover.ts): live ones count the same way. */
+      takeoverApplications?: ReadonlyArray<{ coach: string; state: string }>;
     }>;
   };
 }
@@ -74,8 +76,9 @@ export function hasLiveLeagueRegistration(coach: string, leagueId: string, sourc
   const key = normalizeFfbCoachId(coach);
   if (!key || !leagueId || !sources.leagues.league(leagueId)) return false;
   const same = sameCoach(key);
-  return sources.leagues.seasons(leagueId).some((season) =>
-    (season.registrations ?? []).some((r) => (r.state === "pending" || r.state === "waitlisted" || r.state === "accepted") && same(r.coach)));
+  const live = (r: { state: string; coach: string }): boolean => (r.state === "pending" || r.state === "waitlisted" || r.state === "accepted") && same(r.coach);
+  // A takeover application (team library lane, src/leagues/takeover.ts) is a league registration too.
+  return sources.leagues.seasons(leagueId).some((season) => (season.registrations ?? []).some(live) || (season.takeoverApplications ?? []).some(live));
 }
 
 /** Tournament membership: an entrant who has not dropped. */

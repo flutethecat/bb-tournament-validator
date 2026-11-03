@@ -273,6 +273,20 @@ export interface FixtureSide {
   score: number | null;
   cas: number | null;
   conceded: boolean;
+  /**
+   * The coach who played this side, frozen when the fixture got its result (team library lane, records follow the coach
+   * of each game: identity.ts stampPlayedCoaches, run by every season write). Coach records, summaries and club stats
+   * attribute the game by it (identity.ts gameCoach), never by the team's current coach. Cleared again when the result is.
+   */
+  playedBy?: PlayedCoach;
+}
+
+/** The coach facets of one side at the time it was played (FixtureSide.playedBy). */
+export interface PlayedCoach {
+  coach: string;
+  coachId?: string;
+  nafUser?: string;
+  coachAssigned?: true;
 }
 
 export interface LeagueFixture {
@@ -842,13 +856,46 @@ export interface LeagueTeam {
    *  library team it came from (when one was used: its teamUid follows that library team across seasons). */
   registrationId?: string;
   libraryTeamId?: string;
+  /**
+   * Available for Takeover (team library lane): a league organiser or a site admin listed the team; coaches (members or
+   * not) apply through the registration core (takeover.ts). `id` names the listing (a fresh one each time it is listed),
+   * `by` never leaves the server in a public read.
+   */
+  takeover?: { id: string; since: string; by?: string; note?: string };
+  /**
+   * The entry's history (team library lane): the teams and coaches that held this season slot, oldest first, each with
+   * the entry's game numbers it covers ("Team A (games 1-5), Team B (games 6-)"). Written by a swap, an approved
+   * application or a takeover; absent = the team has held the entry all season. `outgoing` (the replaced roster, kept so
+   * nothing is lost) stays with the coach and organisers.
+   */
+  entryHistory?: EntrySpan[];
+}
+
+/** One holder of a league entry (LeagueTeam.entryHistory). */
+export interface EntrySpan {
+  name: string;
+  race: string;
+  coach: string;
+  coachId?: string;
+  /** The team's lineage id (teamOps.ts). */
+  teamUid?: string;
+  /** First game of the entry this holder played (1-based); toGame unset = still holding it. */
+  fromGame: number;
+  toGame?: number;
+  /** How this holder came in: "start" = held it from the beginning; swap = an organiser swapped the team in; apply = an
+   *  approved takeover application with the coach's own team; takeover = the coach took the team over. */
+  via: "start" | "swap" | "apply" | "takeover";
+  at: string;
+  by?: string;
+  /** The replaced team as it was when it left the entry (private: coach and organisers only). */
+  outgoing?: LeagueTeam;
 }
 
 /** One team history line: what changed (old -> new), who, when. */
 export interface TeamHistoryEntry {
   at: string;
   by: string;
-  kind: "coach-edit" | "organiser-edit" | "status" | "fixture-decision" | "forfeit" | "advancement";
+  kind: "coach-edit" | "organiser-edit" | "status" | "fixture-decision" | "forfeit" | "advancement" | "swap" | "takeover";
   changes: Array<{ what: string; from?: string; to?: string }>;
 }
 
@@ -976,6 +1023,9 @@ export interface SeasonRecord {
    *  Organisers and the entry's coach only: never in a season read (api.ts seasonForViewer drops it). Accepting an entry
    *  creates its LeagueTeam in the same season write. */
   registrations?: import("./registration.js").LeagueRegistrationRow[];
+  /** Takeover applications (team library lane, takeover.ts), every listing's, in any state. Organisers and the applicant
+   *  only: never in a season read (api.ts seasonForViewer drops it). */
+  takeoverApplications?: import("./takeover.js").TakeoverApplicationRow[];
 }
 
 /** What the league page's "Pay entry fee" block shows (api.ts seasonForViewer). */

@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { atomicWriteTextFile } from "@bb/fork-ops";
 import { linkPlayerCareers, needsPlayerIds } from "./playerIds.js";
 import { markSeasonCaptainVacancies } from "./captain.js";
+import { stampPlayedCoaches } from "./identity.js";
 import { recordLeagueExits } from "../auth/leagueSharing.js";
 import type { LeagueEventsFile, LeagueFixture, LeagueRecord, LeagueSecrets, LeagueTeam, SeasonRecord } from "./types.js";
 
@@ -363,6 +364,8 @@ export class LeagueStore {
     season.revision = Math.max(all.find((s) => s.id === season.id)?.revision ?? 0, season.revision ?? 0) + 1;
     // Team Captain vacancy (leagues/captain.ts): every writer's roster change against the stored copy, so none skips it.
     markSeasonCaptainVacancies(all.find((s) => s.id === season.id), season);
+    // Records follow the coach of each game (team library lane): every result path freezes who played each side.
+    stampPlayedCoaches(season);
     this.write(join(dir, `${season.id}.json`), season);
     this.seasonWrites += 1;
     this.unindexSeason(season.leagueId, season.id);
@@ -398,6 +401,10 @@ export class LeagueStore {
     const seated = rosterAccounts(seasons);
     const live = new Set<string>();
     for (const s of seasons) for (const r of s.registrations ?? []) {
+      if (r.state === "pending" || r.state === "waitlisted" || r.state === "accepted") live.add(r.coach.trim().toLowerCase());
+    }
+    // A live takeover application (takeover.ts) holds the acknowledgement too.
+    for (const s of seasons) for (const r of s.takeoverApplications ?? []) {
       if (r.state === "pending" || r.state === "waitlisted" || r.state === "accepted") live.add(r.coach.trim().toLowerCase());
     }
     const gone = [...new Set(coaches.map((c) => c.trim()).filter(Boolean))].filter((c) => !seated.has(c.toLowerCase()) && !live.has(c.toLowerCase()));

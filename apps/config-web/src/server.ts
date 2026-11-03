@@ -2564,6 +2564,15 @@ async function handleApi(
       notify: leagueNotify,
       // League registration (lane L6): the join's team check and its share acknowledgement, the Registrations tab contacts.
       leagueTeamSheet,
+      // Team library lane: the coach's own saves and (not retired) library teams; the organiser view is gated in the route.
+      coachTeams: (coach) => {
+        try {
+          return [
+            ...readSaves(BUILDER_SAVES_DIR, coach).map((x) => ({ ref: `save:${x.id}`, kind: "save" as const, name: x.name, race: x.raceName ?? "", tv: typeof x.lastPreview?.teamValue === "number" ? (x.lastPreview.teamValue as number) : null })),
+            ...readLibrary(LIBRARY_DIR, coach).filter((t) => t.retired !== true).map((t) => ({ ref: `library:${t.teamId}`, kind: "library" as const, name: t.teamName, race: t.race ?? "", tv: typeof t.teamValue === "number" ? t.teamValue * 1000 : null })),
+          ];
+        } catch { return []; }
+      },
       registrationSharing: {
         acknowledge: (coach, leagueId, fields, at) => { acknowledgeLeagueJoin(coach, leagueId, fields, at); },
         contacts: (viewer, entries, managers) => leagueRegistrationContacts(viewer, entries, managers),

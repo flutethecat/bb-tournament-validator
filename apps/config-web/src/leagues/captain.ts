@@ -47,7 +47,12 @@ export function markCaptainVacancy(before: Pick<LeagueTeam, "players" | "captain
 /** The same for every team of `next` that `prior` (the stored copy of the same season) also holds. */
 export function markSeasonCaptainVacancies(prior: SeasonRecord | undefined, next: SeasonRecord): void {
   const byId = new Map((prior?.teams ?? []).map((t) => [t.id, t] as const));
-  for (const team of next.teams ?? []) markCaptainVacancy(byId.get(team.id), team);
+  for (const team of next.teams ?? []) {
+    const prior = byId.get(team.id);
+    // A swap puts a different team (another teamUid) behind the same season id: the old team's captain is not this one's.
+    const same = !prior || !prior.teamUid || !team.teamUid || prior.teamUid === team.teamUid;
+    markCaptainVacancy(same ? prior : undefined, team);
+  }
 }
 
 /**

@@ -14,7 +14,7 @@
  * number, who, team + race, season numbers, the names tied with it, and a link target. A card with no data is left out
  * (an empty scope has no cards). Add a card by adding a builder to CARD_BUILDERS.
  */
-import { buildCoachAliases, fixtureOutcome, seasonCoachFacets, type CoachAliases, type SideOutcome } from "./identity.js";
+import { buildCoachAliases, fixtureOutcome, gameCoach, seasonCoachFacets, type CoachAliases, type SideOutcome } from "./identity.js";
 import { nameKey } from "./tourplay.js";
 import { rankCoachRecords } from "./coachRanking.js";
 import { EMPTY_PLAYER_STATS, type LeagueFixture, type LeagueRuleset, type PlayerSeasonStats, type SeasonRecord } from "./types.js";
@@ -207,7 +207,9 @@ export function leagueStats(allSeasons: SeasonRecord[], scope: StatsScope): Leag
       for (const side of [f.home, f.away]) if (side.teamId) teamGames.set(`${s.id}\0${side.teamId}`, (teamGames.get(`${s.id}\0${side.teamId}`) ?? 0) + 1);
       touchdowns += hs + as;
       casualties += hc + ac;
-      for (const [side, result, mine, theirs, cf, ca] of [[f.home, outcome.home, hs, as, hc, ac], [f.away, outcome.away, as, hs, ac, hc]] as const) {
+      for (const [played, result, mine, theirs, cf, ca] of [[f.home, outcome.home, hs, as, hc, ac], [f.away, outcome.away, as, hs, ac, hc]] as const) {
+        // Records follow the coach of each game (team library lane): the coach frozen with the result, not the team's current one.
+        const side = gameCoach(played);
         const ck = keyFor(side.coach, side.nafUser, side.coachId);
         // An organiser-assigned account names the side (the imported display name belongs to someone else).
         const shown = side.coachAssigned && side.coachId ? side.coachId : side.coach;
@@ -282,7 +284,7 @@ export function leagueStats(allSeasons: SeasonRecord[], scope: StatsScope): Leag
 function bigWin(s: SeasonRecord, f: LeagueFixture, homeWon: boolean): BigWin {
   const w = homeWon ? f.home : f.away;
   const l = homeWon ? f.away : f.home;
-  const who = (x: typeof w) => ({ team: x.team, ...(x.teamId ? { teamId: x.teamId } : {}), coach: x.coachAssigned && x.coachId ? x.coachId : x.coach, race: x.race, score: x.score! });
+  const who = (raw: typeof w) => { const x = gameCoach(raw); return { team: x.team, ...(x.teamId ? { teamId: x.teamId } : {}), coach: x.coachAssigned && x.coachId ? x.coachId : x.coach, race: x.race, score: x.score! }; };
   return {
     seasonId: s.id,
     fixtureId: f.id,

@@ -209,17 +209,25 @@ function teamUidFor(seasons: readonly SeasonRecord[], libraryTeamId: string | un
   return mint("tm");
 }
 
-/**
- * Builds the LeagueTeam for an accepted row and adds it, with its participant row, to `season` (in place). Treasury =
- * the roster's starting treasury in the season's Team building table, less what the sheet cost; the team value is the
- * league's own recompute (owner 10-30). No fixtures are made: the organisers add them (also mid-season).
- */
-export function placeRegisteredTeam(league: Pick<LeagueRecord, "id" | "slug">, season: SeasonRecord, row: LeagueRegistrationRow, seasons: readonly SeasonRecord[], now: Date): LeagueTeam {
-  const snap = row.teamSnapshot;
-  const race = canonicalRace(snap.race || row.race);
+/** A fresh season-unique team id (`t-<hex>`). */
+export function freshTeamId(season: Pick<SeasonRecord, "teams">): string {
   const taken = new Set((season.teams ?? []).map((t) => t.id));
   let id = mint("t", 5);
   while (taken.has(id)) id = mint("t", 5);
+  return id;
+}
+
+/**
+ * The LeagueTeam a frozen Roster Builder sheet becomes in `season` (not added): fresh player ids under `id`, treasury =
+ * the roster's starting treasury in the season's Team building table less what the sheet cost, the league's own valuation
+ * (owner 10-30). Shared by registration acceptance and the team library lane's swap / approved takeover application.
+ */
+export function teamFromSnapshot(
+  league: Pick<LeagueRecord, "id" | "slug">, season: SeasonRecord, snap: LeagueTeamSnapshot,
+  opts: { id: string; coach: string; teamName?: string; race?: string; by: string; at: string; teamUid: string; entryId: string; libraryTeamId?: string; registrationId?: string },
+): LeagueTeam {
+  const id = opts.id;
+  const race = canonicalRace(snap.race || opts.race || "");
   const rule = teamBuildingTable(season).rosters.find((r) => r.roster === race);
   const budget = (rule?.treasury ?? 1000) * 1000;
   const used = new Set<string>();
@@ -238,15 +246,15 @@ export function placeRegisteredTeam(league: Pick<LeagueRecord, "id" | "slug">, s
       level: "Rookie", availableSpp: 0, niggling: 0, missNextGame: false, stats: { ...EMPTY_PLAYER_STATS }, seasonsPlayed: 0,
     };
   });
-  const at = now.toISOString();
   const team: LeagueTeam = {
-    id, name: snap.teamName || row.teamName, race, coach: row.coach, coachId: row.coach,
-    coachAssigned: { by: row.decided?.by ?? row.coach, at },
+    id, name: snap.teamName || opts.teamName || "Team", race, coach: opts.coach, coachId: opts.coach,
+    coachAssigned: { by: opts.by, at: opts.at },
     teamValue: null, treasury: Math.max(0, budget - snap.cost), rerolls: snap.rerolls, fans: snap.dedicatedFans,
     assistantCoaches: snap.assistantCoaches, cheerleaders: snap.cheerleaders, apothecary: snap.apothecary,
     tier: rule ? String(rule.tier) : "", raceLeague: "", players, formerPlayers: [],
-    teamUid: teamUidFor(seasons, row.libraryTeamId), entryId: mint("en"), registrationId: row.id,
-    ...(row.libraryTeamId ? { libraryTeamId: row.libraryTeamId } : {}),
+    teamUid: opts.teamUid, entryId: opts.entryId,
+    ...(opts.registrationId ? { registrationId: opts.registrationId } : {}),
+    ...(opts.libraryTeamId ? { libraryTeamId: opts.libraryTeamId } : {}),
   };
   // Stored values as the league's own valuation (the banker's fallback: position cost + Primary 20k / Secondary 40k /
   // Elite +10k + characteristic increases), then the team value. A season the dataset can't price (not BB2025, an
@@ -257,9 +265,29 @@ export function placeRegisteredTeam(league: Pick<LeagueRecord, "id" | "slug">, s
     if (typeof p.value === "number") p.purchasePrice = p.value;
   }
   refreshTeamValue(team, season.ruleset);
+  return team;
+}
+
+/** The library team's lineage id when it already played in this league (any season), else a new one. */
+export function lineageFor(seasons: readonly SeasonRecord[], libraryTeamId: string | undefined): string {
+  return teamUidFor(seasons, libraryTeamId);
+}
+
+/**
+ * Builds the LeagueTeam for an accepted row and adds it, with its participant row, to `season` (in place). Treasury =
+ * the roster's starting treasury in the season's Team building table, less what the sheet cost; the team value is the
+ * league's own recompute (owner 10-30). No fixtures are made: the organisers add them (also mid-season).
+ */
+export function placeRegisteredTeam(league: Pick<LeagueRecord, "id" | "slug">, season: SeasonRecord, row: LeagueRegistrationRow, seasons: readonly SeasonRecord[], now: Date): LeagueTeam {
+  const at = now.toISOString();
+  const team = teamFromSnapshot(league, season, row.teamSnapshot, {
+    id: freshTeamId(season), coach: row.coach, teamName: row.teamName, race: row.race, by: row.decided?.by ?? row.coach, at,
+    teamUid: teamUidFor(seasons, row.libraryTeamId), entryId: mint("en"), registrationId: row.id,
+    ...(row.libraryTeamId ? { libraryTeamId: row.libraryTeamId } : {}),
+  });
   season.teams = [...(season.teams ?? []), team];
   const participant: LeagueParticipant = {
-    coach: row.coach, coachId: row.coach, coachAssigned: true, country: "", race, team: team.name, registeredAt: at, active: true,
+    coach: row.coach, coachId: row.coach, coachAssigned: true, country: "", race: team.race, team: team.name, registeredAt: at, active: true,
     teamId: team.id, addedHere: true,
   };
   season.participants = [...(season.participants ?? []), participant];
