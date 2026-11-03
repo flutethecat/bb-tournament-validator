@@ -368,7 +368,8 @@ import { runDeadlineJob } from "./leagues/deadlines.js";
 import { runRedraftWindowJob } from "./leagues/redraftWindow.js";
 import { createLeagueForkClient } from "./leagues/forkClient.js";
 import { syncLeagueForkResults } from "./leagues/forkPlay.js";
-import { leagueForkCleanupRoute, runForkTeamCleanup } from "./leagues/forkCleanup.js";
+import { CLEANUP_BASELINE_FILE, leagueForkCleanupRoute, runForkTeamCleanup } from "./leagues/forkCleanup.js";
+import { acquireServerRunningLock } from "./serverRunningLock.js";
 import { registerLeagueEvents } from "./leagues/events.js";
 import { discordApi, discordApiPath } from "./discord/api.js";
 import { DiscordHub } from "./discord/hub.js";
@@ -521,6 +522,10 @@ onIdentitiesWritten((store) => {
 const BUG_REPORTS_DIR = resolve(process.env.BUG_REPORTS_DIR || join(HERE, "../bug-reports"));
 // Tracks the last successful fork (game server) reload — see @bb/fork-ops's forkReload.
 const FORK_STATE_DIR = resolve(process.env.FORK_STATE_DIR || join(HERE, "../data-store"));
+// Held for the server's lifetime: offline store writers (scripts/fork-team-cleanup.ts --apply) refuse while it is held.
+const serverRunningLock = (() => { try { return acquireServerRunningLock(FORK_STATE_DIR); } catch { return undefined; } })();
+if (!serverRunningLock) console.error("[startup] another live process holds the config-web running lock on this state dir");
+process.once("exit", () => { try { serverRunningLock?.release(); } catch { /* best effort */ } });
 const TOURNAMENTS_DIR = resolve(process.env.TOURNAMENTS_DIR || FORK_STATE_DIR);
 const tournamentMatches = new TournamentMatchStore(FORK_STATE_DIR);
 const tournamentResults = new TournamentResultStore(FORK_STATE_DIR);
@@ -681,7 +686,7 @@ const leagueFork = createLeagueForkClient({
   overtime: () => overtimeEnabled, results: tournamentResults,
 });
 /** First cleanup scan's record of fixtures already finished with their fork copies: left to the backfill (forkCleanup.ts). */
-const LEAGUE_FORK_CLEANUP_BASELINE = join(FORK_STATE_DIR, "league-fork-cleanup-baseline.json");
+const LEAGUE_FORK_CLEANUP_BASELINE = join(FORK_STATE_DIR, CLEANUP_BASELINE_FILE);
 const leagueNotify = (coach: string, input: Parameters<typeof notificationStore.add>[1]): void => { try { notificationStore.add(coach, input); } catch { /* fire-and-forget */ } };
 // Portal mail (src/mail/, docs/mail/setup.md): outbox under <FORK_STATE_DIR>/mail/, Postmark when POSTMARK_SERVER_TOKEN is
 // set, else the log transport. Organisers message league members through it and never see an address.

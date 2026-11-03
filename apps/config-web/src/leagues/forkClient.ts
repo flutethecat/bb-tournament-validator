@@ -314,6 +314,24 @@ export function createLeagueForkClient(cfg: ForkClientConfig): LeagueForkClient 
       }
     },
 
+    releaseRemoval(ids) {
+      const dir = cfg.forkConfig()?.teamsDir;
+      if (!dir) return;
+      const want = [...new Set(ids)].filter((id) => isLeagueForkTeamId(id) && removalPending(dir, id)).sort();
+      if (!want.length) return;
+      const locks: Array<{ release(): void }> = [];
+      try {
+        for (const id of want) {
+          const lock = acquireTeamWriteLock(dir, id);
+          if (!lock) throw new Error("another update is in progress for one of the teams");
+          locks.push(lock);
+        }
+        for (const id of want) clearRemovalPending(dir, id);
+      } finally {
+        for (const lock of locks.reverse()) lock.release();
+      }
+    },
+
     teamCopies(ids) {
       const out = new Map<string, { files: number; libraries: number; pendingReload?: boolean }>();
       const dir = cfg.forkConfig()?.teamsDir;

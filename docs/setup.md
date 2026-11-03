@@ -174,13 +174,17 @@ file in `FORK_TEAMS_DIR` plus a row in the coach's fork library). Owner 11-03: t
   the marker. While a marker is left by a failure, only games with those teams are refused (a fresh build of the team
   replaces it); everything else keeps working. Failures retry with a backoff (2 min doubling to 6 h) and never hold up
   banking. A copy another fixture still needs is kept and removed once nothing needs it; every fixture that recorded a
-  removed copy forgets its build fingerprint, so generating it again rebuilds the team. Each removal is one
+  removed copy forgets its build fingerprint, so generating it again rebuilds the team. If a copy whose removal failed
+  is needed again by another fixture, its marker is dropped and those fingerprints too, so that fixture's next Generate
+  reinstalls it. Each removal is one
   `[leagues] Super FUMBBL team copies removed ...` line in the server log (league / season / fixture ids and fork team
   ids only) and an entry in the fixture's fork history.
 - **First scan baseline.** The first scan on a server writes `<FORK_STATE_DIR>/league-fork-cleanup-baseline.json`
   with the fixtures that were already finished with their copies before this existed. The server never touches those on
   its own; they are the backfill's job. Deleting the file makes the next scan write a new baseline (it never cleans the
-  fixtures it lists).
+  fixtures it lists). The file is read strictly (`createdAt` and `refs`, every ref a `league/season/fixture` key): if it
+  is malformed the scan marks nothing (it fails closed), logs `[leagues] Super FUMBBL team copy scan skipped: ...` every
+  tick, and the backfill and admin route report it, until it is fixed or deleted.
 - **Backfill (one-off).** List first, from the server's folder (reads the server's `.env`: `FORK_STATE_DIR`,
   `FORK_LIBRARY_DIR`, `FORK_TEAMS_DIR`; `--state-dir`, `--library-dir`, `--teams-dir` override them). The dry run only
   reads:
@@ -196,9 +200,11 @@ pnpm --filter config-web exec tsx scripts/fork-team-cleanup.ts
 POST /api/admin/league-fork-cleanup   {"apply": true}
 ```
 
-  `--apply` on the script is only for a stopped server: it refuses while anything listens on the server's port (`PORT`,
-  default 4310, or `--port`). Both need the fork admin API (`FORK_ADMIN_PASSWORD`: live-game check and reload). Only `lg_`
-  league copies are ever touched; a coach's own teams are never listed.
+  `--apply` on the script is only for a stopped server. A running config-web holds `<FORK_STATE_DIR>/.config-web-running.lock`
+  (whatever host or port it listens on), and the script refuses while a live process holds it; a lock left by a process
+  that died is taken over. The script holds the lock while it applies. Both need the fork admin API
+  (`FORK_ADMIN_PASSWORD`: live-game check and reload). Only `lg_` league copies are ever touched; a coach's own teams
+  are never listed.
 
 ## Competition Discord
 

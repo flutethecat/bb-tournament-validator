@@ -76,6 +76,11 @@ export interface LeagueForkClient {
   removeTeams?(teams: Array<{ forkTeamId: string; coach: string }>): Promise<{ removed: string[] }>;
   /** Read-only: team files and library rows still present per league fork team id (the backfill's listing). */
   teamCopies?(forkTeamIds: string[]): Map<string, { files: number; libraries: number; pendingReload?: boolean }>;
+  /**
+   * Drops the reload-required marker of an unfinished removal for ids that are needed again (forkCleanup.ts). The
+   * fixtures that recorded them lose their build fingerprint in the same pass, so their next generate reinstalls them.
+   */
+  releaseRemoval?(forkTeamIds: string[]): void;
 }
 
 export interface ForkRouteDeps extends BodyDeps {

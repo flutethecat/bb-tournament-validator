@@ -121,6 +121,21 @@ export async function cleanupFixtureForkTeams(deps: ForkCleanupDeps, r: FixtureR
     const needed = neededElsewhere(season, f.id);
     const remove = copies.filter((c) => !needed.has(c.forkTeamId));
     const kept = [...new Set(copies.filter((c) => needed.has(c.forkTeamId)).map((c) => c.forkTeamId))];
+    // A kept id may carry the reload-required marker of an earlier failed removal (it was not needed then). Its copy
+    // may be half gone, so: drop the marker, and every fixture that recorded it forgets its fingerprint, so the fixture
+    // that needs it now rebuilds and reinstalls it on its next generate (instead of being refused forever).
+    const stuck = kept.filter((id) => deps.fork.teamCopies?.([id]).get(id)?.pendingReload);
+    if (stuck.length) {
+      try {
+        deps.fork.releaseRemoval?.(stuck);
+      } catch (e) {
+        writeLog(deps, `[leagues] Super FUMBBL team copy marker release failed for ${refText(r)}: ${(e as Error).message}`, true);
+      }
+      saveSeason(deps.store, r, (_x, s) => {
+        for (const o of s.fixtures) for (const c of fixtureForkCopies(o)) if (stuck.includes(c.forkTeamId)) delete o.fork!.teams[c.side]!.revision;
+      });
+      writeLog(deps, `[leagues] Super FUMBBL team copies needed again, marked for a rebuild: ${stuck.join(", ")}`);
+    }
     if (remove.length) {
       let error: string | undefined;
       if (!deps.fork.removeTeams) error = "this server's fork client cannot remove teams";
@@ -184,18 +199,43 @@ function unmarkedFinished(store: LeagueStore): Map<string, { ref: FixtureRef; re
   return out;
 }
 
-/** The baseline refs (written on the first scan). Throws when the file exists but cannot be read: the scan then waits. */
+/** The baseline's file name under FORK_STATE_DIR. */
+export const CLEANUP_BASELINE_FILE = "league-fork-cleanup-baseline.json";
+const REF_PART = /^[^/\s]{1,200}$/;
+const isFixtureKey = (x: unknown): x is string => typeof x === "string" && x.split("/").length === 3 && x.split("/").every((p) => REF_PART.test(p));
+
+/**
+ * Reads the baseline strictly: an object with createdAt (a date) and refs, every one a well-formed fixture key
+ * (league/season/fixture). Anything else is an error, never an empty set.
+ */
+export function readCleanupBaseline(file: string): { ok: true; exists: boolean; refs: Set<string> } | { ok: false; error: string } {
+  if (!existsSync(file)) return { ok: true, exists: false, refs: new Set() };
+  let parsed: unknown;
+  try { parsed = JSON.parse(readFileSync(file, "utf8")); } catch (e) { return { ok: false, error: `the cleanup baseline is not valid JSON (${(e as Error).message})` }; }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { ok: false, error: "the cleanup baseline is not an object" };
+  const b = parsed as { createdAt?: unknown; refs?: unknown };
+  if (typeof b.createdAt !== "string" || !Number.isFinite(Date.parse(b.createdAt))) return { ok: false, error: "the cleanup baseline has no valid createdAt" };
+  if (!Array.isArray(b.refs)) return { ok: false, error: "the cleanup baseline has no refs list" };
+  const bad = b.refs.findIndex((r) => !isFixtureKey(r));
+  if (bad >= 0) return { ok: false, error: `the cleanup baseline ref #${bad + 1} is not a fixture key` };
+  return { ok: true, exists: true, refs: new Set(b.refs as string[]) };
+}
+
+/**
+ * The baseline refs (written on the first scan). Throws on a file that exists but is not a valid baseline: the scan
+ * then marks nothing (fail closed) until an operator fixes or deletes it.
+ */
 function baseline(deps: ForkCleanupDeps, current: Map<string, unknown>): Set<string> {
   if (!deps.baselineFile) return new Set();
-  if (!existsSync(deps.baselineFile)) {
+  const read = readCleanupBaseline(deps.baselineFile);
+  if (!read.ok) throw new Error(`${read.error}; no fixture is marked by the scan until it is fixed or deleted (${deps.baselineFile})`);
+  if (!read.exists) {
     const refs = [...current.keys()].sort();
     atomicWriteTextFile(deps.baselineFile, JSON.stringify({ createdAt: (deps.now?.() ?? new Date()).toISOString(), refs }, null, 2));
     if (refs.length) writeLog(deps, `[leagues] Super FUMBBL team copy cleanup baseline: ${refs.length} older fixture(s) left to the backfill`);
     return new Set(refs);
   }
-  const parsed = JSON.parse(readFileSync(deps.baselineFile, "utf8")) as { refs?: unknown };
-  if (!Array.isArray(parsed.refs)) throw new Error("the cleanup baseline file is not readable");
-  return new Set(parsed.refs.filter((x): x is string => typeof x === "string"));
+  return read.refs;
 }
 
 /**
@@ -313,8 +353,15 @@ export async function leagueForkCleanupRoute(
   try {
     const rows = await forkTeamBackfill({ ...deps, fork: deps.fork }, { apply });
     writeLog(deps, `[leagues] league fork copy backfill by a site admin: ${apply ? "apply" : "dry run"}, ${rows.length} fixture(s)`);
-    return { status: 200, body: { apply, rows } };
+    return { status: 200, body: { apply, rows, baseline: baselineStatus(deps.baselineFile) } };
   } catch (e) {
     return { status: 500, body: { error: (e as Error).message } };
   }
+}
+
+/** What the backfill and the admin route report about the scan's baseline (an invalid one stops the scan). */
+export function baselineStatus(file: string | undefined): { ok: true; exists: boolean; count: number } | { ok: false; error: string } | undefined {
+  if (!file) return undefined;
+  const read = readCleanupBaseline(file);
+  return read.ok ? { ok: true, exists: read.exists, count: read.refs.size } : { ok: false, error: `${read.error}: the automatic scan is stopped until it is fixed or deleted` };
 }
