@@ -1,5 +1,20 @@
 [
   {
+    "date": "2026-11-02",
+    "title": "Dice roller in the match recorder, and forfeits with defection rolls",
+    "body": "The recorder has a Dice button: D6, block dice (the opponent picks on -2 and -3, on their own screen), D8, the casualty die and a Kick-off panel for deviate and the kick-off event. Every roll is made on the server and both coaches see it live; a hidden dice log can be shown per match. Organisers can enter a forfeit from the fixtures editor or the recorder, with penalty points, winnings, fans, MVPs and defection rolls for veteran players after an illegal concession.",
+    "links": [
+      {
+        "label": "Tabletop",
+        "href": "/app/tabletop"
+      },
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      }
+    ]
+  },
+  {
     "date": "2026-11-03",
     "title": "League calendar: week, month and year views",
     "body": "The league Calendar tab now has Week, Month and Year views next to the list, remembered for you, with previous, next and Today buttons, all in the league's time zone. Every fixture is a link: unplayed games open the fixture summary, played ones open the match report when the site has one.",
