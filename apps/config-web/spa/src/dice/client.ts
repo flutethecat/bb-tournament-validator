@@ -154,3 +154,45 @@ export function createDiceClient(base: string, deps: { api: Fetcher; me: () => s
   };
 }
 export type DiceClient = ReturnType<typeof createDiceClient>;
+
+// ---- the D8 roller (advancement "Advance Characteristic", spec-forfeit-and-dice-2026-11-02 Q7) ----------------------
+// A big octahedral D8 in CSS 3D that tumbles, slows and settles on the face the SERVER rolled, then a short flourish (in
+// the manner of a tabletop RPG's d20 roller). The geometry is a true octahedron: eight triangular faces, four meeting at
+// the top vertex and four at the bottom, numbered so opposite faces add to 9 like a real D8.
+
+/** Tilt of each face from the vertical (the octahedron's face normals sit atan(1/sqrt 2) above / below the equator). */
+export const D8_TILT = (Math.atan(1 / Math.SQRT2) * 180) / Math.PI; // 35.26 deg
+/** The eight faces: the value, the azimuth (deg, about the vertical) and whether it meets the top vertex. */
+export const D8_FACES: ReadonlyArray<{ value: number; azimuth: number; top: boolean }> = (() => {
+  const top = [1, 2, 3, 4];
+  const out: Array<{ value: number; azimuth: number; top: boolean }> = [];
+  top.forEach((v, i) => out.push({ value: v, azimuth: 45 + i * 90, top: true }));
+  // the face opposite a top face sits 180 deg round, underneath: its value makes the pair add to 9
+  top.forEach((v, i) => out.push({ value: 9 - v, azimuth: 45 + ((i + 2) % 4) * 90, top: false }));
+  return out;
+})();
+
+/** Sizes of the octahedron's faces for a die drawn in a `size` px box (vertex radius ~0.42 of the box). */
+export function d8Geometry(size: number): { radius: number; edge: number; height: number; inset: number } {
+  const radius = size * 0.42;
+  const edge = radius * Math.SQRT2;
+  return { radius, edge, height: (edge * Math.sqrt(3)) / 2, inset: radius / Math.sqrt(3) };
+}
+
+/** The die's rotation that shows `value` square to the viewer (deg), with a small forward tilt so the top edges read. */
+export function d8Final(value: number): { x: number; y: number; z: number } {
+  const f = D8_FACES.find((x) => x.value === value) ?? D8_FACES[0]!;
+  return { x: (f.top ? -D8_TILT : D8_TILT) - 8, y: -f.azimuth, z: 0 };
+}
+
+/** How long the roll plays (ms): about 2.2 s, or a quick fade when the viewer prefers reduced motion. `settle` is when
+ *  the die stops and the flourish starts; `total` when the result and the choices appear. */
+export function rollTiming(reduced: boolean): { spin: number; settle: number; total: number } {
+  return reduced ? { spin: 0, settle: 0, total: 250 } : { spin: 1700, settle: 1700, total: 2250 };
+}
+
+/** prefers-reduced-motion, guarded (no window in tests, old browsers). */
+export function prefersReducedMotion(): boolean {
+  try { return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches; }
+  catch { return false; }
+}

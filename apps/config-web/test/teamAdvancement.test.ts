@@ -202,6 +202,21 @@ describe("team progression mutation", () => {
     expect(reissued.body.pending).toMatchObject({ roll: rolled.body.pending.roll, choices: rolled.body.pending.choices });
   });
 
+  it("writes each roll to the team's dice log before storing it; a log failure refuses the roll (spec-forfeit-and-dice Q7)", async () => {
+    const deps = setup();
+    const logged: Array<{ kind: string; dice: number[]; logId: string; result: Record<string, unknown> }> = [];
+    const rolled = await teamAdvancementEndpoint(auth, "42", { action: "rollCharacteristic", playerId: "p1", revision: deps.revision }, { ...deps, logRoll: (r) => { logged.push(r); } });
+    if (rolled.status !== 200 || !("pending" in rolled.body)) throw new Error("expected pending");
+    expect(logged).toHaveLength(1);
+    expect(logged[0]).toMatchObject({ kind: "advance-stat", dice: [rolled.body.pending.roll], result: { roll: rolled.body.pending.roll, teamId: "42", playerId: "p1" } });
+    expect(logged[0]!.logId).toMatch(/^tm-[0-9a-f]{32}$/);
+    const fresh = setup();
+    const before = readFileSync(fresh.file, "utf8");
+    const refused = await teamAdvancementEndpoint(auth, "42", { action: "rollRandomPrimary", playerId: "p1", revision: fresh.revision, category: "General" }, { ...fresh, logRoll: () => { throw new Error("disk full"); } });
+    expect(refused.status).toBe(500);
+    expect(readFileSync(fresh.file, "utf8")).toBe(before);
+  });
+
   it("allows only one outstanding roll across a team", async () => {
     const deps = setup();
     const rolled = await teamAdvancementEndpoint(auth, "42", { action: "rollRandomPrimary", playerId: "p1", revision: deps.revision, category: "General" }, deps);

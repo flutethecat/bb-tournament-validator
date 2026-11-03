@@ -6,6 +6,8 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { FOCUSABLE } from "../home/shell";
 import { dialogKey, type TeamManage } from "../teams/manage";
 import "../leagues/leagues.css";
+import D8Roll from "../dice/D8Roll.vue";
+import "../dice/dice.css";
 
 const props = defineProps<{ manage: TeamManage }>();
 const state = props.manage.state;
@@ -20,6 +22,16 @@ const title = computed(() => (flow.value.kind === "characteristic" ? "Add Charac
 const chosen = ref("");
 const fallback = ref("");
 const unique = (list: string[]) => [...new Set(list)];
+// The big D8 (spec-forfeit-and-dice Q7): it plays for the roll just made here; a roll reopened later shows settled.
+const freshRoll = ref(false);
+const d8Settled = ref(true);
+async function rollD8(): Promise<void> {
+  // armed before the request: the pick step mounts the die with the answer, and it must mount playing
+  freshRoll.value = true; d8Settled.value = false;
+  await props.manage.rollCharacteristic();
+  if (!(state.flow?.step === "pick" && state.flow.pending?.roll)) { freshRoll.value = false; d8Settled.value = true; }
+}
+const narrow = typeof window !== "undefined" && window.innerWidth < 600;
 
 // Focus (aria-modal): on open focus moves into the dialog; Tab / Shift+Tab wrap inside it (the page behind is inert, see
 // TeamManageView); Escape closes unless a request is in flight. The view puts focus back on the opener after closing.
@@ -97,7 +109,7 @@ function keepFocus(): void {
         <template v-else-if="flow.step === 'choose'">
           <p>Roll a D8 for a characteristic improvement ({{ progress.costs?.characteristic }} SPP). The SPP is spent when you roll; then you pick one of the results the roll allows, or a Primary skill instead.</p>
           <div class="ls-actions">
-            <button type="button" class="sf-btn primary" :disabled="flow.busy" @click="manage.rollCharacteristic()">{{ flow.busy ? "Rolling..." : "Roll" }}</button>
+            <button type="button" class="sf-btn primary" :disabled="flow.busy" @click="rollD8()">{{ flow.busy ? "Rolling..." : "Roll" }}</button>
           </div>
         </template>
 
@@ -109,6 +121,8 @@ function keepFocus(): void {
             </div>
           </template>
           <template v-else>
+            <D8Roll :face="flow.pending.roll ?? 1" :play="freshRoll" :size="narrow ? 150 : 200" @settled="d8Settled = true" />
+            <template v-if="d8Settled">
             <p>You rolled <strong>{{ flow.pending.roll }}</strong>.</p>
             <div v-if="flow.pending.choices.length" class="tm-choices" aria-label="Characteristics">
               <button v-for="c in flow.pending.choices" :key="c" type="button" class="sf-btn small" :disabled="flow.busy" @click="manage.commit({ type: 'characteristic', characteristic: c })">+{{ c }}</button>
@@ -122,6 +136,7 @@ function keepFocus(): void {
               </select>
               <button type="submit" class="sf-btn" :disabled="flow.busy || !fallback">Take skill</button>
             </form>
+            </template>
           </template>
           <p class="muted">This roll is saved on the team: closing keeps it for later.</p>
         </template>

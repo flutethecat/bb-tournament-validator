@@ -279,6 +279,24 @@ export interface LeaguePlayer extends PlayerIdentity {
   seasonsPlayed?: number;
   /** Injuries recorded on the team page (server teamOps.ts INJURIES keys); `by` only in the coach / organiser view. */
   injuries?: Array<{ type: string; at: string; by?: string }>;
+  /** An advancement roll waiting for the coach's pick (server types.ts PendingAdvance); coach / organiser view only. */
+  pendingAdvance?: PendingAdvance;
+}
+
+/** A rolled advancement awaiting the pick (server src/leagues/teamAdvance.ts): the SPP is already spent. */
+export interface PendingAdvance {
+  id: string;
+  kind: "randomPrimary" | "characteristic";
+  at: string;
+  by: string;
+  admin?: true;
+  cost: number;
+  count: number;
+  category?: string;
+  rolls?: Array<{ dice: [number, number]; skill: string; rerolled?: true }>;
+  roll?: number;
+  choices: string[];
+  skills?: { primary: string[]; secondary: string[] };
 }
 
 export interface FormerPlayer extends PlayerIdentity {

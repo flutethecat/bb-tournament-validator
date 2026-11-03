@@ -183,7 +183,7 @@ export function summaryFromBuilder(model: PrintSheetModel, extras: BuilderSummar
 
 export type StaffKey = "rerolls" | "assistantCoaches" | "cheerleaders" | "apothecary" | "fans";
 export interface InjuryType { key: string; label: string; text: string; stat?: string; niggling?: true; mng?: "always" | "optional"; dead?: true; recordOnly?: true }
-export interface TeamHistoryEntry { at: string; by: string; kind: "coach-edit" | "organiser-edit" | "status" | "fixture-decision" | "forfeit"; changes: Array<{ what: string; from?: string; to?: string }> }
+export interface TeamHistoryEntry { at: string; by: string; kind: "coach-edit" | "organiser-edit" | "status" | "fixture-decision" | "forfeit" | "advancement"; changes: Array<{ what: string; from?: string; to?: string }> }
 export type FixtureDecision = "cancel" | "forfeit" | "leave";
 export interface TeamPageView {
   leagueId: string;
@@ -203,12 +203,24 @@ export interface TeamPageView {
   };
   limits: { errors: string[]; warnings: string[] };
   injuries: InjuryType[];
-  advancement: Record<string, { count: number; spp: number; costs: { chosenPrimary: number | null; chosenSecondary: number | null }; primary: string[]; secondary: string[] }>;
+  advancement: Record<string, {
+    count: number; spp: number; primary: string[]; secondary: string[];
+    costs: { randomPrimary: number | null; chosenPrimary: number | null; chosenSecondary: number | null; characteristic: number | null };
+    /** Primary categories a Random Primary roll may use. */
+    randomCategories: string[];
+  }>;
+  /** The team's advancement dice log, newest first (coach and organisers). */
+  diceLog: AdvanceLogEntry[];
   skills?: string[];
   fixtures?: Array<{ id: string; round: number; phase: string; opponent: string; date?: string; decision?: FixtureDecision; pending: boolean }>;
   needDecision: number;
   history: TeamHistoryEntry[];
 }
+
+/** One advancement roll in the team's dice log (server src/dice/log.ts DiceRoll, kinds advance-skill / advance-stat). */
+export interface AdvanceLogEntry { id: string; at: string; by: string; kind: string; purpose: string; dice: number[]; result: Record<string, unknown>; admin?: boolean }
+
+export type AdvanceChoice = { type: "skill"; skill: string; access?: "primary" | "secondary" } | { type: "stat"; stat: string };
 
 export type TeamOp =
   | { op: "player"; playerId: string; field: string; value: string | number | boolean }
@@ -218,7 +230,10 @@ export type TeamOp =
   | { op: "staff"; key: StaffKey; delta: 1 | -1 }
   | { op: "advance"; playerId: string; skill: string; method: "chosenPrimary" | "chosenSecondary" }
   | { op: "addSkill" | "removeSkill"; playerId: string; skill: string }
-  | { op: "injury"; playerId: string; injury: string; mng?: boolean };
+  | { op: "injury"; playerId: string; injury: string; mng?: boolean }
+  | { op: "rollAdvance"; playerId: string; kind: "randomPrimary"; category: string }
+  | { op: "rollAdvance"; playerId: string; kind: "characteristic" }
+  | { op: "resolveAdvance"; playerId: string; rollId: string; choice: AdvanceChoice };
 
 /** What the coach may do on the page now (the server decides again on every write). */
 export function coachCan(v: TeamPageView | null): { edit: boolean; hire: boolean; fire: boolean; staff: boolean; advance: boolean; why: string } {

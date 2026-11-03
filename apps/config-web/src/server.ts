@@ -3503,6 +3503,7 @@ async function handleApi(
       teamsDir: cfg?.teamsDir,
       tokenSecret: TEAM_ADVANCEMENT_TOKEN_SECRET,
       reload: cfg ? () => reloadFork(cfg, FORK_STATE_DIR) : undefined,
+      logRoll: (roll) => diceLog.appendRoll(roll),
       isTeamActive: forkAdminCfg ? async (teamId) => {
         const live = await adminListLive(forkAdminCfg);
         return live.some((game) => game.homeTeamId === teamId || game.awayTeamId === teamId);

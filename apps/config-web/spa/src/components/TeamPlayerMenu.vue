@@ -7,17 +7,21 @@
 //    table with a short description each; lasting injuries apply their reduction and may also set MNG (unticked by
 //    default); Seriously Hurt always sets MNG; Badly Hurt is recorded only; Dead takes the player off the roster.
 import { computed, ref } from "vue";
-import type { InjuryType, TeamPageView } from "../teams/summary";
+import type { AdvanceChoice, InjuryType, TeamPageView } from "../teams/summary";
+import TeamAdvanceRoll from "./TeamAdvanceRoll.vue";
 import LeagueDialog from "./LeagueDialog.vue";
 import TeamInjuryIcon from "./TeamInjuryIcon.vue";
 
-const props = defineProps<{ view: TeamPageView; playerId: string; mode: "coach" | "organiser"; busy?: boolean; initial?: "skill" | "injury" }>();
+const props = defineProps<{ view: TeamPageView; playerId: string; mode: "coach" | "organiser"; busy?: boolean; initial?: "skill" | "injury" | "roll"; fresh?: string }>();
 const emit = defineEmits<{
   close: []; advance: [skill: string, method: "chosenPrimary" | "chosenSecondary"]; addSkill: [skill: string]; injury: [key: string, mng: boolean];
+  roll: [kind: "randomPrimary" | "characteristic", category?: string]; resolve: [rollId: string, choice: AdvanceChoice];
 }>();
 const player = computed(() => props.view.team.players.find((p) => p.playerId === props.playerId));
 const adv = computed(() => props.view.advancement[props.playerId]);
-const tab = ref<"skill" | "injury">(props.mode === "organiser" && props.initial === "injury" ? "injury" : "skill");
+const tab = ref<"skill" | "injury" | "roll">(props.mode === "organiser" && (props.initial === "injury" || props.initial === "roll") ? props.initial : "skill");
+/** A roll waiting for its pick takes over the coach's advancement tab (other advancements wait for it). */
+const pending = computed(() => Boolean(player.value?.pendingAdvance));
 const q = ref("");
 const owned = computed(() => new Set((player.value?.skills ?? []).map((s) => s.toLowerCase())));
 const catalogue = computed(() => {
@@ -36,12 +40,16 @@ const affordable = (m: "chosenPrimary" | "chosenSecondary"): boolean => { const 
   <LeagueDialog id="ts-menu" wide :title="title" :cap="mode === 'coach' ? `${adv?.spp ?? 0} SPP to spend` : 'Edit mode'" :busy="busy" @close="emit('close')">
     <div v-if="mode === 'organiser'" class="sf-tabs ts-menu-tabs" role="tablist" aria-label="Add to player">
       <button type="button" role="tab" class="sf-tab" :aria-selected="tab === 'skill' ? 'true' : 'false'" @click="tab = 'skill'">Add skill</button>
+      <button type="button" role="tab" class="sf-tab" :aria-selected="tab === 'roll' ? 'true' : 'false'" data-roll-tab @click="tab = 'roll'">Roll for the coach</button>
       <button type="button" role="tab" class="sf-tab ts-bandage-tab" :aria-selected="tab === 'injury' ? 'true' : 'false'" title="Injuries" @click="tab = 'injury'"><TeamInjuryIcon kind="bandage" /> Injury</button>
     </div>
 
     <template v-if="tab === 'skill' && mode === 'coach'">
       <p v-if="!adv" class="hm-empty">This player can't take advancements here.</p>
       <template v-else>
+        <TeamAdvanceRoll :view="view" :player-id="playerId" mode="coach" :busy="busy" :fresh="fresh" @roll="(k, c) => emit('roll', k, c)" @resolve="(id, c) => emit('resolve', id, c)" />
+      </template>
+      <template v-if="adv && !pending">
         <section v-for="m in (['chosenPrimary', 'chosenSecondary'] as const)" :key="m" class="ts-adv" :aria-label="m === 'chosenPrimary' ? 'Primary skills' : 'Secondary skills'">
           <h3 class="tb-k">{{ m === "chosenPrimary" ? "Primary" : "Secondary" }} · {{ price(m) === null ? "no more advancements" : `${price(m)} SPP` }}</h3>
           <p v-if="!(m === 'chosenPrimary' ? adv.primary : adv.secondary).length" class="hm-empty hm-small">None to take.</p>
@@ -51,6 +59,8 @@ const affordable = (m: "chosenPrimary" | "chosenSecondary"): boolean => { const 
         </section>
       </template>
     </template>
+
+    <TeamAdvanceRoll v-else-if="tab === 'roll'" :view="view" :player-id="playerId" mode="organiser" :busy="busy" :fresh="fresh" @roll="(k, c) => emit('roll', k, c)" @resolve="(id, c) => emit('resolve', id, c)" />
 
     <template v-else-if="tab === 'skill'">
       <label class="sf-field"><span class="sf-k">Skill</span><input v-model="q" class="sf-input" type="search" maxlength="48" placeholder="Search or type a skill" data-autofocus /></label>

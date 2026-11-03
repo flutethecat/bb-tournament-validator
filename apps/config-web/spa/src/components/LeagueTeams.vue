@@ -14,7 +14,7 @@ import { API_KEY } from "../app";
 import { crestFor, initials, kValue, LEAGUE_DETAIL_KEY, playerByRef, sharedTotalsFor, teamByRef, teamUnattributed, teamValueFigures } from "../leagues/league";
 import { SESSION_KEY, writesAllowed } from "../session";
 import { canAppointCaptain, leagueCaptainRows, leagueCaptainVacant } from "../shared/captain";
-import { coachCan, createTeamPage, summaryFromLeague, type RosterCan, type StaffKey, type SummaryMode, type TeamOp } from "../teams/summary";
+import { coachCan, createTeamPage, summaryFromLeague, type AdvanceChoice, type RosterCan, type StaffKey, type SummaryMode, type TeamOp } from "../teams/summary";
 import CaptainVacantChip from "./CaptainVacantChip.vue";
 import CaptainVacantDialog from "./CaptainVacantDialog.vue";
 import type { LeaguePlayer, SeasonRecord } from "../leagues/types";
@@ -107,7 +107,24 @@ function onFire(id: string): void {
   if (typeof window !== "undefined" && !window.confirm(text)) return;
   void send([{ op: "fire", playerId: id }], pregame ? "Player removed." : "Player fired.");
 }
-const menu = ref<{ id: string; initial: "skill" | "injury" } | null>(null);
+const menu = ref<{ id: string; initial: "skill" | "injury" | "roll" } | null>(null);
+// Advancement by roll (server teamAdvance.ts): the roll the page just made animates; one reopened later shows settled.
+// "*" while the request is out: whatever roll the answer carries is the fresh one (the view lands before the promise).
+const freshRoll = ref("");
+async function onRoll(kind: "randomPrimary" | "characteristic", category?: string): Promise<void> {
+  const id = menu.value?.id;
+  if (!id) return;
+  const op: TeamOp = kind === "randomPrimary" ? { op: "rollAdvance", playerId: id, kind, category: category ?? "" } : { op: "rollAdvance", playerId: id, kind };
+  freshRoll.value = "*";
+  const err = await send([op], kind === "randomPrimary" ? "Rolled." : "Rolled the D8.");
+  freshRoll.value = err ? "" : playerOf(id)?.pendingAdvance?.id ?? "";
+}
+async function onResolve(rollId: string, choice: AdvanceChoice): Promise<void> {
+  const id = menu.value?.id;
+  if (!id) return;
+  const what = choice.type === "stat" ? `+${choice.stat}` : choice.skill;
+  if (!(await send([{ op: "resolveAdvance", playerId: id, rollId, choice }], `${what} taken.`))) { menu.value = null; freshRoll.value = ""; }
+}
 async function onInjury(key: string, mng: boolean): Promise<void> {
   const id = menu.value?.id;
   if (!id) return;
@@ -206,7 +223,7 @@ const COG_ICON = "/icons/league/league-settings.png";
           @close="menu = null"
           @advance="(s, m) => send([{ op: 'advance', playerId: menu!.id, skill: s, method: m }], `${s} taken.`).then((e) => { if (!e) menu = null; })"
           @add-skill="(s) => send([{ op: 'addSkill', playerId: menu!.id, skill: s }], `${s} added.`)"
-          @injury="onInjury"
+          @injury="onInjury" :fresh="freshRoll" @roll="onRoll" @resolve="onResolve"
         />
         <TeamStatusDialog v-if="status && ctx?.role.organiser" :view="ctx" :start="status" :busy="busy" :error="page?.state.error" @close="status = null" @status="onStatus" @decide="onDecide" />
       </template>

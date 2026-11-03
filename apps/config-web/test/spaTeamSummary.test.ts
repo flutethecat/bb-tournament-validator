@@ -37,7 +37,11 @@ const view = (over: Partial<TeamPageView> = {}): TeamPageView => ({
     { key: "neck-injury", label: "Neck Injury", text: "AG −1.", stat: "ag", mng: "optional" }, { key: "dislocated-shoulder", label: "Dislocated Shoulder", text: "ST −1.", stat: "st", mng: "optional" },
     { key: "dead", label: "Dead", text: "Leaves the roster.", dead: true },
   ],
-  advancement: { p1: { count: 1, spp: 0, costs: { chosenPrimary: 8, chosenSecondary: 12 }, primary: ["Guard"], secondary: ["Dodge"] }, p2: { count: 0, spp: 6, costs: { chosenPrimary: 6, chosenSecondary: 10 }, primary: ["Tackle"], secondary: ["Leap"] } },
+  advancement: {
+    p1: { count: 1, spp: 0, costs: { randomPrimary: 4, chosenPrimary: 8, chosenSecondary: 12, characteristic: 16 }, primary: ["Guard"], secondary: ["Dodge"], randomCategories: ["Strength"] },
+    p2: { count: 0, spp: 6, costs: { randomPrimary: 3, chosenPrimary: 6, chosenSecondary: 10, characteristic: 14 }, primary: ["Tackle"], secondary: ["Leap"], randomCategories: ["General"] },
+  },
+  diceLog: [],
   skills: ["Block", "Dodge", "Guard", "Tackle"], fixtures: [{ id: "f2", round: 2, phase: "Regular", opponent: "Elves", pending: false }, { id: "f3", round: 3, phase: "Regular", opponent: "Orcs", decision: "leave", pending: false }],
   needDecision: 1, history: [{ at: "2026-11-02T12:00:00.000Z", by: "Jay", kind: "organiser-edit", changes: [{ what: "Treasury", from: "200k", to: "130k" }] }],
   ...over,
@@ -227,6 +231,30 @@ describe("rendered", () => {
     const rich = await render(m.Menu, { view: view({ role: { coach: true, organiser: false } }), playerId: "p2", mode: "coach" });
     expect(rich).toMatch(/<button type="button" class="sf-btn small">Tackle<\/button>/);
     expect(rich).toMatch(/disabled title="Needs 10 SPP">Leap</);
+  });
+
+  it("advancement by roll in the + menu: the two roll options with their BB2025 prices; a waiting roll replaces them and resurfaces settled", async () => {
+    const coach = { role: { coach: true, organiser: false } };
+    const open = await render(m.Menu, { view: view(coach), playerId: "p2", mode: "coach" });
+    expect(open).toContain("Random Primary skill");
+    expect(open).toMatch(/data-roll-category="General"/);
+    expect(open).toContain("Advance Characteristic");
+    expect(open).toMatch(/disabled title="Needs 14 SPP \(has 6\)\."/); // the D8 costs more than p2 has: no roll offered
+    const withPending = (pendingAdvance: Record<string, unknown>) => {
+      const v = view(coach);
+      v.team.players = v.team.players.map((p) => (p.playerId === "p2" ? { ...p, pendingAdvance } : p)) as typeof v.team.players;
+      return v;
+    };
+    const random = await render(m.Menu, { view: withPending({ id: "r1", kind: "randomPrimary", at: "2026-11-03T10:00:00.000Z", by: "Dee", cost: 3, count: 0, category: "General", rolls: [{ dice: [1, 1], skill: "Block", rerolled: true }, { dice: [1, 2], skill: "Dauntless" }, { dice: [4, 6], skill: "Wrestle" }], choices: ["Dauntless", "Wrestle"] }), playerId: "p2", mode: "coach" });
+    expect(random).toMatch(/data-pick="Dauntless"/);
+    expect(random).toMatch(/data-pick="Wrestle"/);
+    expect(random).toContain("This roll is saved");
+    expect(random).not.toContain("Primary � 6 SPP"); // other advancements wait for the pick
+    const d8 = await render(m.Menu, { view: withPending({ id: "r2", kind: "characteristic", at: "2026-11-03T10:00:00.000Z", by: "Dee", cost: 14, count: 0, roll: 7, choices: ["AG", "ST"], skills: { primary: ["Tackle"], secondary: ["Leap"] } }), playerId: "p2", mode: "coach" });
+    expect(d8).toMatch(/class="d8-stage" data-phase="settled" data-play="false"/); // no replay, no new roll
+    expect(d8).toMatch(/data-stat="AG"/);
+    expect(d8).toMatch(/data-stat="ST"/);
+    expect(d8).toContain("Choose Skill");
   });
 
   it("the status cog: Active / Inactive, never auto-cancel, per-fixture choices and the bulk actions; decide mode shows only the fixtures", async () => {

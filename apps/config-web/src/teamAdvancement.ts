@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { bb2025 } from "@bb/validator/dataset";
@@ -24,6 +24,9 @@ import type { SkillCategory } from "@bb/validator";
 import { blockCaptainGrants, withoutRecordedCaptainGrants } from "./captain.js";
 import type { SessionIdentity } from "./auth/requireSession.js";
 import { shiftStoredPlayerValue } from "./storedPlayerValue.js";
+import { CHARACTERISTIC_TABLE } from "./advancementRolls.js";
+import { cryptoRoller, pickIndex } from "./dice/roller.js";
+import { newRollId, teamLogId, type DiceRoll } from "./dice/log.js";
 
 type AdvancementIdentity = Pick<SessionIdentity, "coach" | "organizer">;
 
@@ -56,7 +59,10 @@ export interface AdvancementDeps {
   teamsDir?: string;
   tokenSecret: string;
   now?: () => number;
+  /** Uniform index source; default the site roller (src/dice/roller.ts cryptoRoller). */
   randomIndex?: (length: number) => number;
+  /** The dice log (src/dice/log.ts): a roll is written here before it is stored or shown; a write failure refuses the roll. */
+  logRoll?: (roll: DiceRoll) => void;
   isTeamActive?: (teamId: string) => Promise<boolean>;
   reload?: () => Promise<ReloadResult>;
 }
@@ -505,12 +511,9 @@ export function pendingAdvancementForPlayer(
 }
 
 function characteristicChoices(roll: number, player: string, position: string): Characteristic[] {
-  const byRoll: Record<number, Characteristic[]> = {
-    1: ["AV"], 2: ["AV", "PA"], 3: ["AV", "MA", "PA"], 4: ["AV", "MA", "PA"],
-    5: ["MA", "PA"], 6: ["AG", "MA"], 7: ["AG", "ST"], 8: ["MA", "ST", "AG", "PA", "AV"],
-  };
+  // The BB2025 table lives in advancementRolls.ts (shared with the league team page).
   const improvements = statImprovements(player, position);
-  return byRoll[roll]!.filter((stat) => {
+  return [...CHARACTERISTIC_TABLE[roll]!].filter((stat) => {
     if (stat === "MA") return false;
     if (improvements[stat] >= 2) return false;
     const base = statValue(position, stat);
@@ -747,7 +750,14 @@ export async function teamAdvancementEndpoint(auth: AdvancementIdentity | undefi
     if (!progression.costs) return endpointError(422, "This player already has the maximum six advancements.");
     const spp = currentSpp(originalPlayer);
     if (!Number.isSafeInteger(spp) || spp < 0) return endpointError(422, "This player's stored SPP balance is invalid.");
-    const randomIndex = deps.randomIndex ?? ((length: number) => randomInt(length));
+    const randomIndex = deps.randomIndex ?? ((length: number) => pickIndex(cryptoRoller, length));
+    const logRoll = (kind: "advance-skill" | "advance-stat", purpose: string, dice: number[], result: Record<string, unknown>): string | undefined => {
+      if (!deps.logRoll) return undefined;
+      try {
+        deps.logRoll({ id: newRollId(), logId: teamLogId(`fork:${teamId}`), at: new Date(now).toISOString(), by: auth.coach, kind, purpose, dice, result: { teamId, playerId: action.playerId, ...result } });
+        return undefined;
+      } catch { return "The roll could not be logged, so it was not made. Try again."; }
+    };
     const pendingCount = [...found.xml.matchAll(/<pendingAdvancement\b/gi)].length;
     const teamPending = findTeamPending(found.xml);
     if (pendingCount > 1) return endpointError(409, "This team contains multiple pending advancements and must be repaired before progression can continue.");
@@ -789,6 +799,8 @@ export async function teamAdvancementEndpoint(auth: AdvancementIdentity | undefi
       };
       let choices: string[];
       try { choices = [pick(), pick()]; } catch { return endpointError(500, "The advancement roll could not be generated safely."); }
+      const logError = logRoll("advance-skill", `Random Primary skill (${action.category})`, [], { category: action.category, picks: choices, cost });
+      if (logError) return endpointError(500, logError);
       const pending: StoredPending = { nonce: randomBytes(18).toString("base64url"), method: "randomPrimary", cost, choices, primaryFallbacks: [], secondaryFallbacks: [], category: action.category, expiresAt: now + TOKEN_TTL_MS };
       const updatedPlayer = setPending(setCurrentSpp(originalPlayer, spp - cost), pending);
       const updatedXml = found.xml.replace(originalPlayer, updatedPlayer);
@@ -810,6 +822,8 @@ export async function teamAdvancementEndpoint(auth: AdvancementIdentity | undefi
         roll, expiresAt: now + TOKEN_TTL_MS,
       };
       if (!pending.choices.length && !pending.primaryFallbacks.length) return endpointError(422, "This roll has no runtime-safe legal result for this player.");
+      const logError = logRoll("advance-stat", "Characteristic Improvement (D8)", [roll], { roll, choices, cost });
+      if (logError) return endpointError(500, logError);
       const updatedPlayer = setPending(setCurrentSpp(originalPlayer, spp - cost), pending);
       const updatedXml = found.xml.replace(originalPlayer, updatedPlayer);
       const saveError = await persistMutation(found.path, found.xml, updatedXml, deps, undefined, true, teamId);

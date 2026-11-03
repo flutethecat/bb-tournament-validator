@@ -30,6 +30,7 @@
 import { randomBytes } from "node:crypto";
 import { canonSkill, findPosition, splitCaptainGrants, type DatasetPosition, type DatasetRoster } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
+import { CHARACTERISTIC_BEST, CHARACTERISTIC_MAX_STEPS } from "../advancementRolls.js";
 import { ADVANCEMENT_ROWS } from "../teamAdvancement.js";
 import { markCaptainVacancy } from "./captain.js";
 import { STAT_LIMIT } from "./forkResult.js";
@@ -355,6 +356,33 @@ export function recordStatAdvances(p: LeaguePlayer, pos: DatasetPosition | undef
   return added;
 }
 
+/** Characteristic improvements the player already has, per characteristic ("+X" entries or steps above the printed line,
+ *  whichever is larger: the same count advancementCount uses). */
+export function statAdvances(p: Pick<LeaguePlayer, "skills" | "ma" | "st" | "ag" | "pa" | "av" | "injuries">, pos: DatasetPosition | undefined): Record<Stat, number> {
+  const entries = statEntries(p.skills);
+  const steps = inferredSteps(p, pos);
+  const out: Record<Stat, number> = { MA: 0, ST: 0, AG: 0, PA: 0, AV: 0 };
+  for (const stat of STATS) out[stat] = Math.max(entries[stat], steps[stat]);
+  return out;
+}
+
+/** May this characteristic improve once more (BB2025: at most twice, never past its best value; no PA line, no PA)? */
+export function canImprove(p: Pick<LeaguePlayer, "skills" | "ma" | "st" | "ag" | "pa" | "av" | "injuries">, pos: DatasetPosition | undefined, stat: Stat): boolean {
+  if (statAdvances(p, pos)[stat] >= CHARACTERISTIC_MAX_STEPS) return false;
+  const v = p[stat.toLowerCase() as "ma"];
+  if (v === null || v === undefined) return false;
+  const best = CHARACTERISTIC_BEST[stat];
+  return stat === "AG" || stat === "PA" ? v > best : v < best;
+}
+
+/** SPP price of the next advancement by method (null past Legend). Random and characteristic prices come from the same
+ *  BB2025 table (teamAdvancement.ts ADVANCEMENT_ROWS). */
+export function advanceCostOf(count: number, method: AdvancementPriceMethod): number | null {
+  const row = ADVANCEMENT_ROWS[count];
+  return row ? row.costs[method] : null;
+}
+export type AdvancementPriceMethod = "randomPrimary" | "chosenPrimary" | "chosenSecondary" | "characteristic";
+
 /** SPP price of the next chosen skill (null past Legend). */
 export function advanceCost(count: number, method: AdvanceMethod): number | null {
   const row = ADVANCEMENT_ROWS[count];
@@ -424,6 +452,12 @@ export function changeLine(c: TeamHistoryEntry["changes"][number]): string {
 export function publicTeam(team: LeagueTeam): LeagueTeam {
   // League registration (lane L6): the entry and library links stay with the coach and the organisers.
   const { history: _h, registrationId: _r, libraryTeamId: _l, ...rest } = team;
-  if (!rest.players.some((p) => p.injuries?.some((i) => i.by !== undefined))) return rest;
-  return { ...rest, players: rest.players.map((p) => (p.injuries ? { ...p, injuries: p.injuries.map(({ by: _b, ...i }) => i) } : p)) };
+  if (!rest.players.some((p) => p.pendingAdvance || p.injuries?.some((i) => i.by !== undefined))) return rest;
+  return {
+    ...rest,
+    players: rest.players.map((x) => {
+      const { pendingAdvance: _pa, ...p } = x; // an advancement roll waiting for its pick stays with the coach and organisers
+      return p.injuries ? { ...p, injuries: p.injuries.map(({ by: _b, ...i }) => i) } : p;
+    }),
+  };
 }

@@ -3,7 +3,8 @@
  * BEFORE anyone is shown the result. One append-only NDJSON file per log under `<TABLETOP_DIR>/dice/`:
  *   {"t":"roll", ...DiceRoll}            a roll (its result is fixed at write time)
  *   {"t":"choice", rollId, index, ...}  a block-die choice (the first valid one for a roll wins; later ones are refused)
- * A log id is a recorder match id, or `fx-<hash>` for a league fixture with no recorder match (forfeit defections).
+ * A log id is a recorder match id, `fx-<hash>` for a league fixture with no recorder match (forfeit defections), or
+ * `tm-<hash>` for a team's advancement rolls (random skills, characteristic improvements: advance-skill / advance-stat).
  *
  * Privacy: `by` / `choice.by` are coach names. The privacy export lists the rolls a coach made; account deletion
  * anonymises those names in place (src/privacy/collectors.ts), never deleting the rolls.
@@ -13,7 +14,7 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { atomicWriteTextFile } from "@bb/fork-ops";
 
-export const DICE_KINDS = ["d6", "block", "d8", "d16", "deviate", "kickoff", "defection"] as const;
+export const DICE_KINDS = ["d6", "block", "d8", "d16", "deviate", "kickoff", "defection", "advance-skill", "advance-stat"] as const;
 export type DiceKind = (typeof DICE_KINDS)[number];
 export type DiceSide = "home" | "away";
 
@@ -55,6 +56,8 @@ export interface DiceLogStore {
 const SAFE_ID = /^[\w-]{1,64}$/;
 /** The log id for a league fixture (no recorder match): a stable, path-safe hash of its ref. */
 export const fixtureLogId = (ref: string): string => `fx-${createHash("sha256").update(ref, "utf8").digest("hex").slice(0, 32)}`;
+/** The log id for a team's advancement rolls (league team page, fork team advancement): a stable hash of its ref. */
+export const teamLogId = (ref: string): string => `tm-${createHash("sha256").update(ref, "utf8").digest("hex").slice(0, 32)}`;
 export const newRollId = (): string => `r${randomBytes(9).toString("base64url")}`;
 
 export class FileDiceLog implements DiceLogStore {

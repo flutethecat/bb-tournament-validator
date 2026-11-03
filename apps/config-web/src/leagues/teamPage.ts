@@ -11,7 +11,9 @@
  *    league (judged from the team record itself: its own results, imported games, SPP counters): hire, fire (refunded), rename and renumber players, staff up and
  *    down (rerolls at the roster price, dedicated fans 1-3) within the treasury. After it: names and numbers, hiring
  *    players and staff from the treasury (never rerolls, which are locked on an active team, nor fans), and chosen
- *    Primary / Secondary skills their unspent SPP pays for. Validation: the redraft validator's roster limits
+ *    Primary / Secondary skills their unspent SPP pays for, and advancement by roll (Random Primary skill, Advance
+ *    Characteristic: teamAdvance.ts, ops rollAdvance / resolveAdvance, alone in their request; organisers may roll on the
+ *    coach's behalf in edit mode). Validation: the redraft validator's roster limits
  *    (teamOps.ts rosterLimitErrors) and the treasury.
  *  - mode "organiser": an organiser of THIS league or a site admin. Every field: team numbers, player fields, stats,
  *    skills, SPP, value, Seasons Played, injuries (teamOps.ts INJURIES), MNG, hire and fire. Status and fixture decisions
@@ -39,9 +41,12 @@ import { isLeagueOrganiser } from "./store.js";
 import {
   addHistory, advanceCost, advancementCount, allSkills, changeLine, ensureTeamIdentity, FANS_MAX_AT_CREATION, fixturesNeedingDecision, injuryTable, injuryType,
   playerLeaves, positionOf, rankAfter, recordStatAdvances, reduceStat, rosterLimitErrors, rosterLimitMetrics, setMng, settleServedMng, skillChoices, skillValue, staffPrice, teamGamesPlayed, teamHasPlayed, worsenedLimits,
-  type AdvanceMethod, type InjuryType, type StaffKey,
+  advanceCostOf, type AdvancementPriceMethod, type InjuryType, type StaffKey,
 } from "./teamOps.js";
 import { refreshTeamValue } from "./teamValue.js";
+import { AdvanceError, randomCategories, resolveAdvance, rollAdvance } from "./teamAdvance.js";
+import { cryptoRoller } from "../dice/roller.js";
+import { teamLogId, type DiceRoll } from "../dice/log.js";
 import { EMPTY_PLAYER_STATS, type LeagueFixture, type LeaguePlayer, type LeagueRecord, type LeagueTeam, type SeasonRecord, type TeamHistoryEntry } from "./types.js";
 
 /** A Super FUMBBL game is scheduled, running or awaiting its result (deadlines.ts forkGamePending; copied: that module
@@ -114,14 +119,23 @@ export interface TeamPageView {
   };
   limits: { errors: string[]; warnings: string[] };
   injuries: readonly InjuryType[];
-  advancement: Record<string, { count: number; spp: number; costs: Record<AdvanceMethod, number | null>; primary: string[]; secondary: string[] }>;
+  advancement: Record<string, {
+    count: number; spp: number; costs: Record<AdvancementPriceMethod, number | null>; primary: string[]; secondary: string[];
+    /** Primary categories a Random Primary roll may use (a legal skill left on the table). */
+    randomCategories: string[];
+  }>;
+  /** The team's advancement dice log (random skills, characteristic rolls), newest first, coach and organisers only. */
+  diceLog: DiceRoll[];
   skills?: string[];
   fixtures?: Array<{ id: string; round: number; phase: string; opponent: string; date?: string; decision?: "cancel" | "forfeit" | "leave"; pending: boolean }>;
   needDecision: number;
   history: TeamHistoryEntry[];
 }
 
-export function teamPageView(league: LeagueRecord, stored: SeasonRecord, teamId: string, auth: LeagueApiIdentity | undefined): TeamPageView | undefined {
+/** The dice log of a league team's advancement rolls (src/dice/log.ts): by the team's own uid, so it follows the team. */
+export const teamAdvanceLogId = (leagueId: string, team: Pick<LeagueTeam, "id" | "teamUid">): string => teamLogId(`league:${leagueId}:${team.teamUid ?? `id:${team.id}`}`);
+
+export function teamPageView(league: LeagueRecord, stored: SeasonRecord, teamId: string, auth: LeagueApiIdentity | undefined, diceLog?: Pick<NonNullable<LeagueApiDeps["diceLog"]>, "read">): TeamPageView | undefined {
   const season = structuredClone(stored);
   settleServedMng(season);
   const team = season.teams.find((t) => t.id === teamId);
@@ -142,7 +156,11 @@ export function teamPageView(league: LeagueRecord, stored: SeasonRecord, teamId:
   for (const p of team.players) {
     const pos = positionOf(roster, p.position);
     const count = advancementCount(p, pos);
-    advancement[p.playerId] = { count, spp: p.availableSpp, costs: { chosenPrimary: advanceCost(count, "chosenPrimary"), chosenSecondary: advanceCost(count, "chosenSecondary") }, ...skillChoices(p, pos) };
+    advancement[p.playerId] = {
+      count, spp: p.availableSpp,
+      costs: { randomPrimary: advanceCostOf(count, "randomPrimary"), chosenPrimary: advanceCost(count, "chosenPrimary"), chosenSecondary: advanceCost(count, "chosenSecondary"), characteristic: advanceCostOf(count, "characteristic") },
+      ...skillChoices(p, pos), randomCategories: randomCategories(p, pos),
+    };
   }
   const decidable = organiser ? decidableFixtures(season, team) : [];
   return {
@@ -154,6 +172,7 @@ export function teamPageView(league: LeagueRecord, stored: SeasonRecord, teamId:
     limits: rosterLimitErrors(team, roster),
     injuries: injuryTable(season.ruleset),
     advancement,
+    diceLog: (team.teamUid ? diceLog?.read(teamAdvanceLogId(league.id, team)) ?? [] : []).slice(-50).reverse(),
     ...(organiser ? { skills: allSkills(), fixtures: decidable.map((f) => fixtureRow(f, team)) } : {}),
     needDecision: organiser ? fixturesNeedingDecision(season, team).length : 0,
     history: team.history ?? [],
@@ -190,7 +209,11 @@ function decidableFixtures(season: SeasonRecord, team: LeagueTeam): LeagueFixtur
 export class OpError extends Error { constructor(readonly status: number, message: string) { super(message); } }
 
 type Change = TeamHistoryEntry["changes"][number];
-interface OpCtx { season: SeasonRecord; team: LeagueTeam; roster: DatasetRoster | undefined; mode: "coach" | "organiser"; pregame: boolean; actor: string; at: string; games: number; usedIds: Set<string> }
+interface OpCtx {
+  season: SeasonRecord; team: LeagueTeam; roster: DatasetRoster | undefined; mode: "coach" | "organiser"; pregame: boolean; actor: string; at: string; games: number; usedIds: Set<string>;
+  /** Advancement rolls (teamAdvance.ts): the site roller and the team's dice log. Absent = rolls are unavailable (503). */
+  dice?: { roller: import("../dice/roller.js").Roller; logId: string; logRoll: (roll: DiceRoll) => void };
+}
 
 const TEAM_NUMBER_FIELDS = ["treasury", "rerolls", "fans", "assistantCoaches", "cheerleaders"] as const;
 const PLAYER_NUMBER_FIELDS = ["number", "ma", "st", "ag", "pa", "av", "availableSpp", "spp", "value", "seasonsPlayed", "niggling", "td", "cas", "mvp"] as const;
@@ -297,6 +320,7 @@ function staffStep(ctx: OpCtx, keyRaw: unknown, deltaRaw: unknown): Change {
 function advance(ctx: OpCtx, id: unknown, skillRaw: unknown, methodRaw: unknown): Change {
   const p = playerOf(ctx, id);
   const method = methodRaw === "chosenPrimary" || methodRaw === "chosenSecondary" ? methodRaw : (() => { throw new OpError(400, "method must be chosenPrimary or chosenSecondary."); })();
+  if (p.pendingAdvance) throw new OpError(409, `${who(p)} has a roll waiting for a choice. Pick from it first.`);
   const skill = text(skillRaw, SKILL_MAX, "skill");
   const pos = positionOf(ctx.roster, p.position);
   if (!pos) throw new OpError(400, `${p.position} is not a ${ctx.team.race} position: it can't take advancements here.`);
@@ -446,6 +470,18 @@ export function applyOp(ctx: OpCtx, raw: unknown): Change[] {
       if (!coach) throw new OpError(400, "Organisers add skills directly (op addSkill).");
       if (ctx.pregame) throw new OpError(403, "Advancements come from SPP earned in games.");
       return [advance(ctx, o.playerId, o.skill, o.method)];
+    case "rollAdvance":
+    case "resolveAdvance": {
+      if (coach && ctx.pregame) throw new OpError(403, "Advancements come from SPP earned in games.");
+      if (!ctx.dice) throw new OpError(503, "Advancement rolls are unavailable on this server right now.");
+      try {
+        const actx = { team: ctx.team, roster: ctx.roster, mode: ctx.mode, actor: ctx.actor, at: ctx.at, ...ctx.dice };
+        return o.op === "rollAdvance" ? rollAdvance(actx, o) : resolveAdvance(actx, o);
+      } catch (e) {
+        if (e instanceof AdvanceError) throw new OpError(e.status, e.message);
+        throw e;
+      }
+    }
     case "team":
       if (coach) throw new OpError(403, "Only organisers change team numbers directly.");
       return [teamField(ctx, o.field, o.value)];
@@ -568,7 +604,7 @@ export async function teamPageRoutes(
     const team = season?.teams.find((t) => t.id === teamId);
     if (!season || !team) return fail(404, "Team not found.");
     if (!isManager(league, auth) && !isTeamCoach(team, auth)) return fail(403, "Only this team's coach and the league's organisers can manage it.");
-    return ok({ view: teamPageView(league, season, teamId, auth) });
+    return ok({ view: teamPageView(league, season, teamId, auth, deps.diceLog) });
   }
 
   const body = await readJsonObject(deps, BODY_MAX);
@@ -606,7 +642,14 @@ export async function teamPageRoutes(
       if (!Array.isArray(input.ops) || !input.ops.length || input.ops.length > MAX_OPS) return fail(400, `ops must be a list of 1 to ${MAX_OPS} changes.`, { field: "ops" });
       const pregame = teamPhase(season, team) === "pregame";
       const usedIds = new Set(deps.store.seasons(lg.id).flatMap((s) => s.teams.flatMap((t) => [...t.players, ...t.formerPlayers].map((p) => p.playerId))));
-      const ctx: OpCtx = { season, team, roster: datasetRoster(team.race), mode, pregame, actor: auth.coach, at, games: teamGamesPlayed(season, team.id), usedIds };
+      // An advancement roll is a request of its own: its dice are logged before the season is saved, so nothing else may
+      // ride along and fail after it.
+      const rolls = input.ops.filter((o: unknown) => o && typeof o === "object" && ["rollAdvance", "resolveAdvance"].includes(String((o as Record<string, unknown>).op)));
+      if (rolls.length && input.ops.length !== 1) return fail(400, "An advancement roll or pick goes in a request of its own.", { field: "ops" });
+      if (rolls.length) kind = "advancement";
+      const diceLog = deps.diceLog;
+      const dice = diceLog ? { roller: deps.roller ?? cryptoRoller, logId: teamAdvanceLogId(lg.id, team), logRoll: (r: DiceRoll) => { try { diceLog.appendRoll(r); } catch { throw new OpError(500, "The roll could not be logged, so it was not made. Try again."); } } } : undefined;
+      const ctx: OpCtx = { season, team, roster: datasetRoster(team.race), mode, pregame, actor: auth.coach, at, games: teamGamesPlayed(season, team.id), usedIds, ...(dice ? { dice } : {}) };
       const limitsBefore = rosterLimitMetrics(before, ctx.roster);
       for (const op of input.ops) changes.push(...applyOp(ctx, op));
       if (mode === "coach") {
@@ -649,7 +692,7 @@ export async function teamPageRoutes(
   } catch {
     return fail(500, "Could not save the team right now.");
   }
-  if (kind !== "coach-edit") sendTeamNotices(lg, season, team, auth.coach, changes.map(changeLine), deps);
+  if (kind !== "coach-edit" && !(kind === "advancement" && mode === "coach")) sendTeamNotices(lg, season, team, auth.coach, changes.map(changeLine), deps);
   const saved = deps.store.season(lg.id, season.id) ?? season;
-  return ok({ ok: true, revision: saved.revision ?? 0, view: teamPageView(lg, saved, team.id, auth) });
+  return ok({ ok: true, revision: saved.revision ?? 0, view: teamPageView(lg, saved, team.id, auth, deps.diceLog) });
 }

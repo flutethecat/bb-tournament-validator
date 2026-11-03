@@ -657,6 +657,34 @@ export interface LeaguePlayer extends PlayerIdentity {
   mngGames?: number;
   /** What a coach paid for this player on the team page (a pre-game firing refunds exactly this, never the valuation). */
   purchasePrice?: number;
+  /** An advancement roll waiting for the coach's pick (teamAdvance.ts): its SPP is already spent, and the same choices come
+   *  back until one is taken. Coach and organisers only: never in a public read (teamOps.ts publicTeam). */
+  pendingAdvance?: PendingAdvance;
+}
+
+/**
+ * A rolled advancement awaiting the coach's choice (spec-forfeit-and-dice-2026-11-02, Q7). One per player at a time.
+ *  - randomPrimary: the two skills the category table gave (`choices`), the 2D6 rolls behind them (rerolls included);
+ *  - characteristic: the D8 (`roll`), the characteristics it lets this player improve (`choices`), and the skills the
+ *    coach may take instead ("Choose Skill": `skills.primary` / `skills.secondary`).
+ */
+export interface PendingAdvance {
+  /** The dice log roll id (src/dice/log.ts, the team's `tm-` log). */
+  id: string;
+  kind: "randomPrimary" | "characteristic";
+  at: string;
+  by: string;
+  /** An organiser rolled on the coach's behalf. */
+  admin?: true;
+  /** SPP spent on the roll (charged when it was rolled; never again). */
+  cost: number;
+  /** The player's advancement count when rolled (the rank the pick reaches is count + 1). */
+  count: number;
+  category?: string;
+  rolls?: Array<{ dice: [number, number]; skill: string; rerolled?: true }>;
+  roll?: number;
+  choices: string[];
+  skills?: { primary: string[]; secondary: string[] };
 }
 
 /** One recorded injury (team page v2). */
@@ -745,7 +773,7 @@ export interface LeagueTeam {
 export interface TeamHistoryEntry {
   at: string;
   by: string;
-  kind: "coach-edit" | "organiser-edit" | "status" | "fixture-decision" | "forfeit";
+  kind: "coach-edit" | "organiser-edit" | "status" | "fixture-decision" | "forfeit" | "advancement";
   changes: Array<{ what: string; from?: string; to?: string }>;
 }
 

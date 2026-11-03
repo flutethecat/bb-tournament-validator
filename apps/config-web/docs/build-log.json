@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-03",
+    "title": "Random skills and characteristic rolls on the team page",
+    "body": "In season, a player's + menu now offers a Random Primary skill (pick a category, the table is rolled twice and you keep one) and Advance Characteristic, where a big D8 rolls and settles before the characteristics it allows appear, with Choose Skill as the alternative. The server rolls, the dice log and the team history record every roll, and a roll waiting for its pick comes back unchanged when you reopen the menu. Organisers can roll on a coach's behalf in Edit mode.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-03",
     "title": "League registration: join a league season, organiser approvals and payment references",
     "body": "Register a team for a league season from the league page: build it in the Roster Builder under the season's rules (or pick one of your teams when the organisers allow it), choose your region and what the organisers see, then confirm. Organisers accept, waitlist or decline each team in League management, Registrations; accepting adds the team to the season, also mid-season, and each entry gets a payment reference with an \"I have paid\" button.",
     "links": [
