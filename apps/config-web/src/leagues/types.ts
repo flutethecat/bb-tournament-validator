@@ -191,6 +191,8 @@ export interface LeagueCalendarEvent {
   announce: boolean;
   createdAt: string;
   updatedAt: string;
+  /** Coaches were told about this event (a create / change note, or the publish note): its cancellation is always sent. */
+  announced?: boolean;
   /** Occurrence keys (local start) already reminded or covered by the create / change notice: once each. */
   reminded?: string[];
   /** The Discord Guild Scheduled Event mirroring the next occurrence (server side; never on a public read). `start` / `end`
@@ -213,7 +215,7 @@ export interface DiscordMirror { guildId: string; eventId: string; occurrence: s
 export interface PendingDiscordDelete { guildId: string; eventId: string; attempts: number; nextAt: string; title?: string; error?: string }
 
 /** A cleanup that ran out of retries: kept (never dropped) and shown in Connections with "Retry cleanup". */
-export interface DiscordDeadLetter { guildId: string; eventId: string; title?: string; at: string; error: string }
+export interface DiscordDeadLetter { guildId: string; eventId: string; title?: string; at: string; error: string; checkedAt?: string }
 
 export interface LeagueEventsFile {
   events: LeagueCalendarEvent[];

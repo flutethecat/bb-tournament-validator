@@ -7,7 +7,7 @@
  */
 
 import "dotenv/config";
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
@@ -1019,7 +1019,10 @@ const linkedDiscordId = (coach: string): string | undefined => {
   const id = record && !record.banned ? record.identities?.discordUserId : undefined;
   return typeof id === "string" ? id : undefined;
 };
-const leagueEventsSync = createDiscordSyncRunner({ store: leagueStore, guild: leagueEventsGuild, discordUserId: linkedDiscordId, log: (line) => console.error(line) });
+// Signs the marker a Discord event carries (LEAGUE_EVENTS_MARKER_KEY; else derived from the bot token, never the token itself).
+const leagueEventsMarkerKey = process.env.LEAGUE_EVENTS_MARKER_KEY?.trim()
+  || (process.env.DISCORD_BOT_TOKEN?.trim() ? createHmac("sha256", process.env.DISCORD_BOT_TOKEN.trim()).update("league-events-marker").digest("hex") : undefined);
+const leagueEventsSync = createDiscordSyncRunner({ store: leagueStore, guild: leagueEventsGuild, discordUserId: linkedDiscordId, markerKey: leagueEventsMarkerKey, log: (line) => console.error(line) });
 const leagueEventsDeps: LeagueEventsDeps = { guild: leagueEventsGuild, clientId: process.env.DISCORD_CLIENT_ID, kick: leagueEventsSync.kick, discordUserId: linkedDiscordId };
 const leagueEventsTick = (): void => {
   try {

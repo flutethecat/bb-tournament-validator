@@ -447,6 +447,9 @@ export class LeagueEventNoticeCoalescer {
 
   drop(key: string): void { this.open.delete(key); }
 
+  /** A change note is held for this event (coaches have not been told the latest yet). */
+  holds(key: string): boolean { return (this.open.get(key)?.changes.length ?? 0) > 0; }
+
   flush(key: string, reopen = true): void {
     const w = this.open.get(key);
     this.open.delete(key);
@@ -595,6 +598,7 @@ export async function leagueCalendarEventRoutes(
       const parsed = parseLeagueEvent(input, { zone, seasons });
       const ev: LeagueCalendarEvent = { id: newId(), revision: 1, ...parsed, createdAt: iso, updatedAt: iso };
       if (!draft) coverWindow(ev, zone, nowMs);
+      if (!draft && upcoming(ev, zone, nowMs).length) ev.announced = true; // the create note below goes out
       markSync(ev, lg, iso);
       file.events = [...file.events, ev];
       deps.store.putLeagueEvents(lg.id, file);
@@ -618,7 +622,8 @@ export async function leagueCalendarEventRoutes(
     if (rev !== ev.revision) return fail(409, "Someone changed this event since you opened it. Reload to see the latest.", { revision: ev.revision });
 
     if (method === "DELETE") {
-      const hadUpcoming = upcoming(ev, zone, nowMs).length > 0;
+      // Told whenever coaches were ever told about it (or a change note is still held), even if it now lies in the past.
+      const tellCancel = !draft && (ev.announced === true || notices.holds(noticeKey(ev.id)));
       file.events = file.events.filter((e) => e.id !== ev.id);
       // Its Discord scheduled events go too, an occurrence under way included (queued: never holds up the delete).
       const tracked = [...(ev.discord ? [ev.discord] : []), ...(ev.discordLive ?? [])];
@@ -626,7 +631,7 @@ export async function leagueCalendarEventRoutes(
       notices.drop(noticeKey(ev.id));
       deps.store.putLeagueEvents(lg.id, file);
       kick(deps);
-      if (hadUpcoming) tell(deps.notify, recipients(), { type: "league-broadcast", title: clip(`League event cancelled: ${ev.title}`, 120), body: noticeBody(lg, ev, zone, nowMs, "cancelled. "), link: `/app/leagues/${encodeURIComponent(lg.id)}?tab=calendar`, from: who.coach });
+      if (tellCancel) tell(deps.notify, recipients(), { type: "league-broadcast", title: clip(`League event cancelled: ${ev.title}`, 120), body: noticeBody(lg, ev, zone, nowMs, "cancelled. "), link: `/app/leagues/${encodeURIComponent(lg.id)}?tab=calendar`, from: who.coach });
       return res(200, { deleted: ev.id });
     }
 
@@ -640,10 +645,12 @@ export async function leagueCalendarEventRoutes(
     ev.revision += 1;
     ev.updatedAt = iso;
     if (!draft && (changes.includes("time") || changes.includes("repeat"))) coverWindow(ev, zone, nowMs);
+    const noteChange = changes.length > 0 && (wasUpcoming || upcoming(ev, zone, nowMs).length > 0);
+    if (!draft && noteChange) ev.announced = true;
     markSync(ev, lg, iso);
     deps.store.putLeagueEvents(lg.id, file);
     kick(deps);
-    if (changes.length && (wasUpcoming || upcoming(ev, zone, nowMs).length)) {
+    if (noteChange) {
       // Coalesced per event: the first change goes now, a burst within the window becomes one combined "updated" note.
       const snapshot = structuredClone(ev);
       const coaches = recipients();
@@ -732,14 +739,16 @@ export function announceUpcomingOnPublish(store: LeagueStore, league: LeagueReco
   const t = now.getTime();
   const soon = file.events.flatMap((ev) => occurrences(ev, zone).filter((o) => o.start > t && o.start - t <= 7 * REMINDER_MS).map((o) => ({ ev, o })))
     .sort((a, b) => a.o.start - b.o.start);
-  if (!soon.length) return 0;
-  let covered = false;
+  // Every event still to come is public now: its cancellation will be told. Inside 24 hours the note below covers it.
+  let changed = false;
   for (const ev of file.events) {
-    const before = (ev.reminded ?? []).length;
-    coverWindow(ev, zone, t);
-    if ((ev.reminded ?? []).length !== before) covered = true;
+    if (!upcoming(ev, zone, t).length) continue;
+    if (soon.length) coverWindow(ev, zone, t);
+    ev.announced = true;
+    changed = true;
   }
-  if (covered) { try { store.putLeagueEvents(league.id, file); } catch { /* a reminder may repeat it; never block publish */ } }
+  if (changed) { try { store.putLeagueEvents(league.id, file); } catch { /* a reminder may repeat it; never block publish */ } }
+  if (!soon.length) return 0;
   const lines = soon.slice(0, 6).map(({ ev, o }) => `${ev.title}: ${whenText(o, zone)}`);
   const more = soon.length > 6 ? ` And ${soon.length - 6} more.` : "";
   const coaches = leagueCoaches(store.seasons(league.id));

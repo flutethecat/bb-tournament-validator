@@ -29,6 +29,8 @@ Environment keys (`apps/config-web/.env`):
       sign-in already uses.)
 - [ ] League Events in Discord (optional): `DISCORD_BOT_TOKEN` + `DISCORD_CLIENT_ID` above, and the bot invited to each
       league's server with **Manage Events** ([League Events](#league-events)).
+- [ ] `LEAGUE_EVENTS_MARKER_KEY`: optional; 32+ random characters. Signs the hidden marker on Discord events (unset = a key
+      derived from `DISCORD_BOT_TOKEN`; changing it only means a lost create may be posted twice) ([League Events](#league-events)).
 - [ ] `FORK_ROUTES_REQUIRE_AUTH`: leave unset (off) until the client changes in [Fork route lockdown](#fork-route-lockdown)
       have shipped; then set `1`.
 - [ ] `CONFIG_WEB_SERVICE_KEY`: optional; only if a server-to-server caller needs the fork reads
@@ -195,7 +197,14 @@ retries are kept and listed in Connections with "Retry cleanup".
 **Who can pick a server.** The bot is shared by every league, so an organiser sees and can pick only servers where their
 LINKED Discord account (Account page) has Manage Events or Administrator; config-web reads the member and roles with the
 bot token. Every sync re-checks that at least one current organiser of the league still has it; if none has (permission
-removed, Discord unlinked), the sync stops and Connections says why, and it resumes once a manager has it again.
+removed, Discord unlinked), the sync stops and Connections says why, and it resumes once a manager has it again. When a
+voice or stage channel is picked, the check uses the EFFECTIVE channel permissions (role and member overwrites count),
+for the organiser and for the bot (View Channel, Connect, Manage Events).
+
+**Only the bot's own events.** Each Discord event carries a marker signed with `LEAGUE_EVENTS_MARKER_KEY`. The sync adopts
+(after a lost create) or removes an event only when Discord says the bot created it; events made by anyone else are never
+changed or deleted. Cleanups that ran out of retries are re-checked hourly, also with the option off, and retried once
+the bot can manage events in that server again.
 
 1. **Token.** `DISCORD_BOT_TOKEN` (see [Discord DMs](#discord-dms)). Unset = the option shows "Add the Super FUMBBL bot to
    your server to create Discord events" and nothing is sent to Discord.

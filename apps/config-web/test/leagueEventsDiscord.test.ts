@@ -4,12 +4,13 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WORDS_ROT13 } from "../src/discord/profanityList";
 import {
-  createGuildEventsClient, DISCORD_SYNC_MAX_ATTEMPTS, discordRetryDelayMs, DiscordEventsError, permitsEvents, type GuildEventsClient, type ScheduledEventBody,
+  computePermissions, createGuildEventsClient, DISCORD_SYNC_MAX_ATTEMPTS, discordRetryDelayMs, DiscordEventsError, permitsChannelEvents, permitsEvents,
+  type GuildEventsClient, type ScheduledEventBody,
 } from "../src/discord/scheduledEvents";
 import { leagueApi, type LeagueApiDeps, type LeagueApiResult } from "../src/leagues/api";
 import type { LeagueEventsDeps } from "../src/leagues/leagueEvents";
 import {
-  ADD_BOT_TEXT, createDiscordSyncRunner, eventsBotInviteUrl, GRACE_MS, LINK_DISCORD_TEXT, runLeagueEventDiscordSync, syncMarker,
+  ADD_BOT_TEXT, createDiscordSyncRunner, DEAD_LETTER_CHECK_MS, eventsBotInviteUrl, GRACE_MS, LINK_DISCORD_TEXT, runLeagueEventDiscordSync, syncMarker,
 } from "../src/leagues/leagueEventsDiscord";
 import { LeagueStore } from "../src/leagues/store";
 
@@ -27,6 +28,8 @@ const VOICE = "333333333333333333";
 const STAGE = "444444444444444444";
 const JAY_DISCORD = "700000000000000001";
 const OLGA_DISCORD = "700000000000000002";
+const BOT = "800000000000000000";
+const MALLORY = "700000000000000099"; // a member of the league's server, not the bot
 const NOW = new Date("2026-10-26T12:00:00.000Z");
 const MANAGE = 1n << 33n;
 
@@ -36,11 +39,15 @@ type Call = { op: "create" | "update" | "remove" | "list"; guildId: string; even
 function fakeGuild() {
   const calls: Call[] = [];
   const fail: Partial<Record<Call["op"], Array<DiscordEventsError | "lost">>> = {};
-  const held = new Map<string, { guildId: string; description: string }>();
+  const held = new Map<string, { guildId: string; description: string; creatorId: string }>();
+  const BOT_PERMS = MANAGE | (1n << 10n) | (1n << 20n);
   /** guild -> discord user -> permission bits (absent = not a member) */
   const perms: Record<string, Record<string, bigint>> = {
-    [GUILD]: { [JAY_DISCORD]: MANAGE }, [OTHER_GUILD]: { [JAY_DISCORD]: 1n << 3n }, [FOREIGN_GUILD]: { [JAY_DISCORD]: 0n, [OLGA_DISCORD]: MANAGE },
+    [GUILD]: { [JAY_DISCORD]: MANAGE | (1n << 10n), [BOT]: BOT_PERMS }, [OTHER_GUILD]: { [JAY_DISCORD]: 1n << 3n, [BOT]: BOT_PERMS },
+    [FOREIGN_GUILD]: { [JAY_DISCORD]: 0n, [OLGA_DISCORD]: MANAGE, [BOT]: BOT_PERMS },
   };
+  /** channel -> user -> EFFECTIVE permission bits (absent = the user's server permissions) */
+  const channelPerms: Record<string, Record<string, bigint>> = {};
   let n = 0;
   let hang = false;
   const next = (op: Call["op"]) => { const e = fail[op]?.shift(); return e; };
@@ -54,22 +61,26 @@ function fakeGuild() {
       if (e && e !== "lost") throw e;
       n += 1;
       const id = `90000000000000000${n}`;
-      held.set(id, { guildId, description: body.description });
+      held.set(id, { guildId, description: body.description, creatorId: BOT });
       if (e === "lost") throw new DiscordEventsError("network", 0, true); // Discord made it, the answer never came back
       return { id };
     },
     update: async (guildId, eventId, body) => {
       calls.push({ op: "update", guildId, eventId, body });
       const e = next("update"); if (e && e !== "lost") throw e;
-      if (!held.has(eventId)) throw new DiscordEventsError("gone", 404, false);
-      held.set(eventId, { guildId, description: body.description });
+      const was = held.get(eventId);
+      if (!was) throw new DiscordEventsError("gone", 404, false);
+      held.set(eventId, { ...was, guildId, description: body.description });
       return { id: eventId };
     },
     remove: async (guildId, eventId) => { calls.push({ op: "remove", guildId, eventId }); const e = next("remove"); if (e && e !== "lost") throw e; held.delete(eventId); },
-    listEvents: async (guildId) => { calls.push({ op: "list", guildId }); return [...held].filter(([, v]) => v.guildId === guildId).map(([id, v]) => ({ id, description: v.description })); },
+    listEvents: async (guildId) => { calls.push({ op: "list", guildId }); return [...held].filter(([, v]) => v.guildId === guildId).map(([id, v]) => ({ id, description: v.description, creatorId: v.creatorId })); },
+    getEvent: async (_g, eventId) => { const e = held.get(eventId); return e ? { id: eventId, creatorId: e.creatorId } : null; },
+    botUserId: async () => BOT,
     memberPermissions: async (guildId, userId) => perms[guildId]?.[userId] ?? null,
+    channelPermissions: async (guildId, channelId, userId) => (perms[guildId]?.[userId] === undefined ? null : channelPerms[channelId]?.[userId] ?? perms[guildId]![userId]!),
   };
-  return { client, calls, fail, held, perms, setHang: (v: boolean) => { hang = v; } };
+  return { client, calls, fail, held, perms, channelPerms, setHang: (v: boolean) => { hang = v; } };
 }
 
 const NIGHT = {
@@ -132,6 +143,34 @@ describe("Discord REST client (stubbed fetch)", () => {
     routes[`/guilds/${GUILD}`] = { status: 200, body: { owner_id: JAY_DISCORD } };
     routes[`/guilds/${GUILD}/roles`] = { status: 200, body: [] };
     expect(permitsEvents((await c.memberPermissions(GUILD, JAY_DISCORD))!)).toBe(true);
+  });
+
+  it("REST: effective channel permissions from the channel's overwrites; creator ids; the bot's own id (cached)", async () => {
+    let meCalls = 0;
+    const routes: Record<string, unknown> = {
+      [`/guilds/${GUILD}/members/${JAY_DISCORD}`]: { roles: ["r1"] },
+      [`/guilds/${GUILD}`]: { owner_id: "799999999999999999" },
+      [`/guilds/${GUILD}/roles`]: [{ id: GUILD, permissions: "1024" }, { id: "r1", permissions: String(MANAGE) }],
+      [`/channels/${VOICE}`]: { guild_id: GUILD, permission_overwrites: [{ id: JAY_DISCORD, type: 1, allow: "0", deny: String(MANAGE) }] },
+      [`/channels/${STAGE}`]: { guild_id: OTHER_GUILD, permission_overwrites: [] },
+      [`/guilds/${GUILD}/scheduled-events/910000000000000001`]: { id: "910000000000000001", creator_id: MALLORY },
+      [`/guilds/${GUILD}/scheduled-events`]: [{ id: "910000000000000001", description: "d", creator_id: MALLORY }],
+    };
+    const fetchStub = (async (url: string) => {
+      const path = url.replace("https://discord.com/api/v10", "");
+      if (path === "/users/@me") { meCalls += 1; return new Response(JSON.stringify({ id: BOT }), { status: 200 }); }
+      return path in routes ? new Response(JSON.stringify(routes[path]), { status: 200 }) : new Response("{}", { status: 404 });
+    }) as unknown as typeof fetch;
+    const c = createGuildEventsClient({ token: "t", fetch: fetchStub });
+    expect(permitsEvents((await c.memberPermissions(GUILD, JAY_DISCORD))!)).toBe(true);
+    expect(permitsChannelEvents((await c.channelPermissions(GUILD, VOICE, JAY_DISCORD))!)).toBe(false); // member overwrite denies
+    expect(await c.channelPermissions(GUILD, STAGE, JAY_DISCORD)).toBeNull(); // a channel of another server
+    expect(await c.getEvent(GUILD, "910000000000000001")).toEqual({ id: "910000000000000001", creatorId: MALLORY });
+    expect(await c.getEvent(GUILD, "910000000000000002")).toBeNull();
+    expect(await c.listEvents(GUILD)).toEqual([{ id: "910000000000000001", description: "d", creatorId: MALLORY }]);
+    expect(await c.botUserId()).toBe(BOT);
+    expect(await c.botUserId()).toBe(BOT);
+    expect(meCalls).toBe(1);
   });
 
   it("backoff: 30 s, 2 min, 10 min, 30 min, 2 h, then 6 h; the events invite adds Manage Events", () => {
@@ -257,7 +296,8 @@ describe("League Events -> Discord scheduled events", () => {
     expect(out.created).toEqual([`tabbl:${id}`]);
     const c = fake.calls.find((x) => x.op === "create")!;
     expect(c.body).toMatchObject({ scheduled_start_time: "2026-10-29T23:00:00.000Z", scheduled_end_time: "2026-10-30T02:00:00.000Z", entity_type: 3, privacy_level: 2 });
-    expect(c.body!.description.endsWith(syncMarker(id, "2026-10-29T19:00"))).toBe(true);
+    expect(c.body!.description.endsWith(syncMarker(undefined, "tabbl", id, "2026-10-29T19:00"))).toBe(true);
+    expect(c.body!.description).not.toContain(id); // the marker gives nothing away
     expect(JSON.stringify(c.body)).not.toContain(LISTED);
     expect(stored(id).discord).toMatchObject({ guildId: GUILD, eventId: "900000000000000001", occurrence: "2026-10-29T19:00", start: "2026-10-29T23:00:00.000Z", end: "2026-10-30T02:00:00.000Z" });
     fake.calls.length = 0;
@@ -441,6 +481,102 @@ describe("League Events -> Discord scheduled events", () => {
     store.updateLeague("tabbl", (l) => { l.visibility = "published"; });
     await sync();
     expect(fake.calls.filter((c) => c.op === "create")).toHaveLength(1);
+  });
+
+  it("P1 spoofed marker: an event a member made with a copied marker is never adopted, changed or deleted (Retry cleanup included)", async () => {
+    await enable();
+    const id = await create();
+    // Mallory pre-creates an event carrying exactly our marker
+    const marker = syncMarker(undefined, "tabbl", id, "2026-10-29T19:00");
+    fake.held.set("910000000000000001", { guildId: GUILD, description: `party ${marker}`, creatorId: MALLORY });
+    const out = await sync();
+    expect(out.adopted).toEqual([]);
+    expect(out.created).toEqual([`tabbl:${id}`]);
+    expect(fake.calls.some((c) => c.eventId === "910000000000000001")).toBe(false);
+    // a removal (queued or dead-lettered) that points at someone else's event is dropped, never sent
+    store.putLeagueEvents("tabbl", { ...store.leagueEvents("tabbl"), discordDeadLetters: [{ guildId: GUILD, eventId: "910000000000000001", at: NOW.toISOString(), error: "x" }] });
+    await call("POST", "/api/leagues/tabbl/events/discord/cleanup", {});
+    const r = await sync();
+    expect(r.skipped).toEqual(["tabbl:910000000000000001"]);
+    expect(fake.held.has("910000000000000001")).toBe(true);
+    expect(fake.calls.filter((c) => c.op === "remove")).toEqual([]);
+    // signed: another key gives another marker; the same inputs the same one
+    expect(syncMarker("key-a", "tabbl", id, "k")).not.toBe(syncMarker("key-b", "tabbl", id, "k"));
+    expect(syncMarker("key-a", "tabbl", id, "k")).toBe(syncMarker("key-a", "tabbl", id, "k"));
+  });
+
+  it("#2 effective channel permissions: Discord's algorithm (everyone / roles / member overwrites; Administrator wins)", () => {
+    const G = "100000000000000000";
+    const roles = [{ id: G, permissions: 1024n }, { id: "r1", permissions: MANAGE }, { id: "admin", permissions: 8n }];
+    const ow = (id: string, type: 0 | 1, allow: bigint, deny: bigint) => ({ id, type, allow, deny });
+    expect(computePermissions({ guildId: G, userId: "u", roles, memberRoles: ["r1"] })).toBe(1024n | MANAGE);
+    // @everyone denies View; the role gives it back; the member's own overwrite takes Manage Events away
+    const p = computePermissions({ guildId: G, userId: "u", roles, memberRoles: ["r1"], overwrites: [ow(G, 0, 0n, 1024n), ow("r1", 0, 1024n, 0n), ow("u", 1, 0n, MANAGE)] });
+    expect(p & 1024n).toBe(1024n);
+    expect(permitsChannelEvents(p)).toBe(false);
+    // Administrator in the base ignores overwrites; so does the owner
+    expect(permitsChannelEvents(computePermissions({ guildId: G, userId: "u", roles, memberRoles: ["admin"], overwrites: [ow("u", 1, 0n, MANAGE | 1024n)] }))).toBe(true);
+    expect(permitsChannelEvents(computePermissions({ guildId: G, userId: "u", ownerId: "u", roles: [], memberRoles: [], overwrites: [ow(G, 0, 0n, 1024n)] }))).toBe(true);
+  });
+
+  it("#2 a channel overwrite denying the organiser refuses the save and stops the background sync; the bot needs Connect there too", async () => {
+    fake.channelPerms[VOICE] = { [JAY_DISCORD]: 1024n }; // can see the channel, Manage Events denied there
+    const denied = await call("PATCH", "/api/leagues/tabbl/events/discord", { enabled: true, guildId: GUILD, channelId: VOICE });
+    expect(denied.status).toBe(403);
+    expect((denied.body as { error: string }).error).toBe("Your Discord account can't manage events in that channel.");
+    delete fake.channelPerms[VOICE];
+    fake.channelPerms[VOICE] = { [BOT]: MANAGE | (1n << 10n) }; // the bot cannot Connect
+    expect((await call("PATCH", "/api/leagues/tabbl/events/discord", { enabled: true, guildId: GUILD, channelId: VOICE })).status).toBe(400);
+    delete fake.channelPerms[VOICE];
+    await enable({ channelId: VOICE });
+    await create({ location: { kind: "online", text: "Voice night" } });
+    await sync();
+    fake.calls.length = 0;
+    fake.channelPerms[VOICE] = { [JAY_DISCORD]: 1024n }; // an overwrite added later
+    const out = await sync();
+    expect(out.blocked).toEqual(["tabbl"]);
+    expect(store.league("tabbl")!.scheduledEvents!.blocked?.reason).toContain("picked voice channel");
+    delete fake.channelPerms[VOICE];
+    fake.channelPerms[VOICE] = { [BOT]: MANAGE | (1n << 10n) };
+    await sync();
+    expect(store.league("tabbl")!.scheduledEvents!.blocked?.reason).toContain("the Super FUMBBL bot can't manage events in the picked channel");
+  });
+
+  it("#3 a one-off event (and a series' last date) is NOT deleted when it starts: tracked until it ends plus the grace period", async () => {
+    await enable();
+    const id = await create(); // one-off, 29 Oct 19:00-22:00 New York
+    await sync();
+    fake.calls.length = 0;
+    now = new Date("2026-10-29T23:30:00.000Z"); // under way
+    await sync();
+    expect(fake.calls.filter((c) => c.op === "remove")).toEqual([]);
+    expect(stored(id).discordLive?.map((m) => m.eventId)).toEqual(["900000000000000001"]);
+    now = new Date(Date.parse("2026-10-30T02:00:00.000Z") + GRACE_MS + 60_000);
+    await sync();
+    expect(fake.calls.filter((c) => c.op === "remove")).toEqual([]);
+    expect(stored(id).discordLive).toBeUndefined();
+    expect(fake.held.has("900000000000000001")).toBe(true); // Discord keeps its own finished event
+  });
+
+  it("P3 dead letters are re-checked hourly even with Discord events turned off, and requeued once the bot can manage events again", async () => {
+    await enable();
+    const id = await create();
+    await sync();
+    await call("PATCH", "/api/leagues/tabbl/events/discord", { enabled: false });
+    await call("DELETE", `/api/leagues/tabbl/events/${id}`, { revision: 1 });
+    const f = store.leagueEvents("tabbl");
+    store.putLeagueEvents("tabbl", { events: f.events, discordDeadLetters: [{ guildId: GUILD, eventId: "900000000000000001", title: "Thursday league night", at: NOW.toISOString(), error: "x" }] });
+    fake.perms[GUILD]![BOT] = 0n; // the bot lost Manage Events
+    await sync();
+    expect(store.leagueEvents("tabbl").discordDeadLetters?.[0]?.checkedAt).toBe(NOW.toISOString());
+    fake.perms[GUILD]![BOT] = MANAGE | (1n << 10n) | (1n << 20n);
+    await sync(); // within the hour: not checked again
+    expect(store.leagueEvents("tabbl").discordDeadLetters).toHaveLength(1);
+    now = new Date(NOW.getTime() + DEAD_LETTER_CHECK_MS + 1);
+    await sync(); // requeued ...
+    await sync(); // ... and removed
+    expect(store.leagueEvents("tabbl").discordDeadLetters).toBeUndefined();
+    expect(fake.held.has("900000000000000001")).toBe(false);
   });
 
   it("never blocks the save: Discord hanging forever, the route still answers at once", async () => {

@@ -293,6 +293,20 @@ describe("League Events: routes", () => {
     expect(notes.map((n) => n.title)).toEqual(["League event changed: Night C", "League event changed: Night C", "League event cancelled: Night D", "League event cancelled: Night D"]);
   });
 
+  it("#4 moved into the past inside the window, then deleted: the cancellation still goes (it was announced)", async () => {
+    const ev = await create();
+    notes = [];
+    await call("PATCH", `/api/leagues/tabbl/events/${ev.id}`, JAY, { revision: 1, start: "2026-10-01T19:00", end: "2026-10-01T22:00" }); // held
+    await call("DELETE", `/api/leagues/tabbl/events/${ev.id}`, JAY, { revision: 2 });
+    for (const fn of held.splice(0)) fn();
+    expect(notes.map((n) => n.title)).toEqual(["League event cancelled: Thursday league night", "League event cancelled: Thursday league night"]);
+    // never announced (a past event): nothing to cancel
+    notes = [];
+    const past = await create({ title: "Old", start: "2026-10-01T19:00", end: "2026-10-01T22:00" });
+    await call("DELETE", `/api/leagues/tabbl/events/${past.id}`, JAY, { revision: 1 });
+    expect(notes).toEqual([]);
+  });
+
   it("#8 a draft never marks a reminder delivered; Publish sends one 'upcoming events' note for the next 7 days", async () => {
     store.updateLeague("tabbl", (l) => { l.visibility = "draft"; l.wizard = { step: 5, createdBy: "Jay" }; });
     now = new Date("2026-10-29T12:00:00.000Z"); // 11 hours before the night

@@ -21,8 +21,9 @@
  * is wanted (a time zone change or a channel change re-syncs), retries with backoff, and keeps removals that ran out of
  * retries in a dead-letter list instead of dropping them. Nothing here runs in a GET that changes anything.
  */
+import { createHmac, randomBytes } from "node:crypto";
 import {
-  describeDiscordError, DISCORD_SYNC_MAX_ATTEMPTS, discordRetryDelayMs, DiscordEventsError, isSnowflake, MANAGE_EVENTS_PERMISSION, permitsEvents,
+  botPermitsChannel, describeDiscordError, DISCORD_SYNC_MAX_ATTEMPTS, discordRetryDelayMs, DiscordEventsError, isSnowflake, MANAGE_EVENTS_PERMISSION, permitsChannelEvents, permitsEvents,
   type ChannelSummary, type GuildEventsClient, type GuildSummary, type ScheduledEventBody,
 } from "../discord/scheduledEvents.js";
 import { starProfanity } from "../discord/profanity.js";
@@ -70,35 +71,83 @@ const leagueManagers = (league: Pick<LeagueRecord, "owner" | "organisers">): str
   return [league.owner ?? "", ...league.organisers].map((c) => c.trim()).filter((c) => c && !seen.has(c.toLowerCase()) && seen.add(c.toLowerCase()));
 };
 
+/** Can this user hold events in this channel: EFFECTIVE channel permissions (overwrites included) allow managing events
+ *  and seeing it? */
+export async function userCanUseChannel(guild: GuildEventsClient, guildId: string, channelId: string, userId: string): Promise<boolean> {
+  const perms = await guild.channelPermissions(guildId, channelId, userId);
+  return perms !== null && permitsChannelEvents(perms);
+}
+
+/** Can the bot itself manage events in the server and, when a channel is picked, see, connect to and manage events there? */
+export async function botCanUse(guild: GuildEventsClient, guildId: string, channelId?: string): Promise<boolean> {
+  const bot = await guild.botUserId();
+  const base = await guild.memberPermissions(guildId, bot);
+  if (base === null || !permitsEvents(base)) return false;
+  if (!channelId) return true;
+  const ch = await guild.channelPermissions(guildId, channelId, bot);
+  return ch !== null && botPermitsChannel(ch);
+}
+
 /**
  * Does any current organiser of the league (owner or organiser) have a linked Discord account that can manage events in
- * the server? `reason` says why not. Throws when Discord does not answer (a transient outage never blocks a league).
+ * the server (and, when a voice / stage channel is picked, in that channel by its EFFECTIVE permissions)? And can the bot?
+ * `reason` says why not. Throws when Discord does not answer (a transient outage never blocks a league).
  */
-export async function leagueAuthority(league: LeagueRecord, guildId: string, guild: GuildEventsClient, discordUserId: ((coach: string) => string | undefined) | undefined): Promise<{ ok: true } | { ok: false; reason: string }> {
+export async function leagueAuthority(
+  league: LeagueRecord, guildId: string, guild: GuildEventsClient, discordUserId: ((coach: string) => string | undefined) | undefined, channelId?: string,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
   let linked = 0;
+  let inServer = 0;
   for (const coach of leagueManagers(league)) {
     const uid = discordUserId?.(coach);
     if (!uid || !isSnowflake(uid)) continue;
     linked += 1;
-    if (await userCanManageEvents(guild, guildId, uid)) return { ok: true };
+    if (!(await userCanManageEvents(guild, guildId, uid))) continue;
+    inServer += 1;
+    if (channelId && !(await userCanUseChannel(guild, guildId, channelId, uid))) continue;
+    if (!(await botCanUse(guild, guildId, channelId))) {
+      return { ok: false, reason: `Discord events stopped: the Super FUMBBL bot can't manage events ${channelId ? "in the picked channel (it needs View Channel, Connect and Manage Events)" : "in that server (Manage Events)"}.` };
+    }
+    return { ok: true };
   }
   return {
     ok: false,
-    reason: linked
-      ? "Discord events stopped: no organiser of this league can manage events in that Discord server any more (Manage Events or Administrator)."
-      : "Discord events stopped: no organiser of this league has a linked Discord account.",
+    reason: !linked
+      ? "Discord events stopped: no organiser of this league has a linked Discord account."
+      : inServer && channelId
+        ? "Discord events stopped: no organiser of this league can manage events in the picked voice channel any more."
+        : "Discord events stopped: no organiser of this league can manage events in that Discord server any more (Manage Events or Administrator).",
   };
+}
+
+/** Removes a Discord event only when Discord says the BOT created it ("foreign" = someone else's: never touched). */
+export async function removeOurs(guild: GuildEventsClient, guildId: string, eventId: string): Promise<"removed" | "gone" | "foreign"> {
+  const bot = await guild.botUserId();
+  const e = await guild.getEvent(guildId, eventId);
+  if (!e) return "gone";
+  if (e.creatorId !== bot) return "foreign";
+  try { await guild.remove(guildId, eventId); } catch (err) { if (err instanceof DiscordEventsError && err.gone) return "gone"; throw err; }
+  return "removed";
 }
 
 // ---- the payload ----------------------------------------------------------------------------------------------------------
 
-/** The marker a Discord event carries in its description, so a create whose answer was lost is found, not posted twice. */
-export const syncMarker = (eventId: string, occurrence: string): string => `[sf:${eventId}:${occurrence}]`;
+/** The marker key when none is configured (tests; the server passes LEAGUE_EVENTS_MARKER_KEY or one derived from the bot token). */
+const PROCESS_MARKER_KEY = randomBytes(32).toString("hex");
+
+/**
+ * The marker a Discord event carries in its description, so a create whose answer was lost is found, not posted twice. It is
+ * an HMAC of the league, League Event and occurrence under a server secret, so nobody can forge one; and an event is only
+ * adopted when Discord also says the bot created it.
+ */
+export function syncMarker(key: string | undefined, leagueId: string, eventId: string, occurrence: string): string {
+  const mac = createHmac("sha256", key || PROCESS_MARKER_KEY).update(`${leagueId}\0${eventId}\0${occurrence}`).digest("base64url").slice(0, 22);
+  return `[sf:${mac}]`;
+}
 
 /** The Discord scheduled event for one occurrence (names and descriptions starred; Discord's own length limits). */
-export function scheduledEventBody(ev: LeagueCalendarEvent, o: Occurrence, league: Pick<LeagueRecord, "name">, cfg: LeagueRecord["scheduledEvents"]): ScheduledEventBody {
+export function scheduledEventBody(ev: LeagueCalendarEvent, o: Occurrence, league: Pick<LeagueRecord, "name">, cfg: LeagueRecord["scheduledEvents"], marker: string): ScheduledEventBody {
   const star = (s: string): string => starProfanity(s);
-  const marker = syncMarker(ev.id, o.key);
   const desc = [`${LEAGUE_EVENT_TYPE_LABEL[ev.type]} · ${league.name}`, ev.recurrence ? repeatText(ev.recurrence) : "", ev.description].filter(Boolean).join("\n\n");
   const channelId = cfg?.channelId;
   const inChannel = ev.location.kind === "online" && isSnowflake(channelId);
@@ -229,7 +278,12 @@ export async function leagueEventsDiscordRoutes(
       if (next.channelId) {
         const ch = (await guild.channels(next.guildId)).find((c) => c.id === next.channelId);
         if (!ch) return fail(400, "That voice channel is not in the server.", { field: "channelId" });
+        // effective channel permissions (role and member overwrites count), for the organiser and for the bot
+        if (!(await userCanUseChannel(guild, next.guildId, next.channelId, uid))) return fail(403, "Your Discord account can't manage events in that channel.", { field: "channelId" });
+        if (!(await botCanUse(guild, next.guildId, next.channelId))) return fail(400, "The Super FUMBBL bot can't use that channel: it needs View Channel, Connect and Manage Events there.", { field: "channelId" });
         next.channelType = ch.type;
+      } else if (!(await botCanUse(guild, next.guildId))) {
+        return fail(400, "The Super FUMBBL bot can't manage events in that server: give it the Manage Events permission.", { field: "guildId" });
       }
     } catch (e) {
       return fail(502, describeDiscordError(e));
@@ -288,10 +342,15 @@ export interface DiscordSyncDeps {
   guild?: GuildEventsClient;
   /** A coach's linked Discord id (the league's organisers are re-checked every pass). */
   discordUserId?: (coach: string) => string | undefined;
+  /** LEAGUE_EVENTS_MARKER_KEY (or a key derived from the bot token): signs the sync marker. Absent = a per-process key. */
+  markerKey?: string;
   now?: () => Date;
 }
 
-export interface DiscordSyncOutcome { created: string[]; updated: string[]; deleted: string[]; failed: string[]; adopted: string[]; blocked: string[] }
+/** How often a dead-lettered cleanup is re-checked against the bot's permission (requeued once the bot can manage events). */
+export const DEAD_LETTER_CHECK_MS = 60 * 60_000;
+
+export interface DiscordSyncOutcome { created: string[]; updated: string[]; deleted: string[]; failed: string[]; adopted: string[]; blocked: string[]; skipped: string[] }
 
 const due = (nextAt: string | undefined, now: number): boolean => !nextAt || Date.parse(nextAt) <= now;
 const sameMirror = (a: DiscordMirror, b: Omit<DiscordMirror, "eventId">): boolean =>
@@ -324,7 +383,7 @@ function setBlocked(store: LeagueStore, leagueId: string, reason: string | undef
  * outside the file write; every result is committed onto a fresh read and applied only for the generation it was made for.
  */
 export async function runLeagueEventDiscordSync(deps: DiscordSyncDeps): Promise<DiscordSyncOutcome> {
-  const out: DiscordSyncOutcome = { created: [], updated: [], deleted: [], failed: [], adopted: [], blocked: [] };
+  const out: DiscordSyncOutcome = { created: [], updated: [], deleted: [], failed: [], adopted: [], blocked: [], skipped: [] };
   const guild = deps.guild;
   if (!guild) return out;
   const nowAt = () => deps.now?.() ?? new Date();
@@ -334,7 +393,7 @@ export async function runLeagueEventDiscordSync(deps: DiscordSyncDeps): Promise<
     let file: LeagueEventsFile;
     try { file = deps.store.leagueEvents(league.id); } catch { continue; }
     const tracked = file.events.some((e) => e.discord || e.discordLive?.length || e.discordSync);
-    if (!league.scheduledEvents?.enabled && !tracked && !file.discordDeletes?.length) continue;
+    if (!league.scheduledEvents?.enabled && !tracked && !file.discordDeletes?.length && !file.discordDeadLetters?.length) continue;
     const zone = leagueTimeZone(league);
     const cfg = league.scheduledEvents;
     const active = Boolean(cfg?.enabled && isSnowflake(cfg.guildId));
@@ -343,15 +402,35 @@ export async function runLeagueEventDiscordSync(deps: DiscordSyncDeps): Promise<
     const authority = new Map<string, { ok: true } | { ok: false; reason: string } | "unknown">();
     const authorityFor = async (guildId: string) => {
       if (!authority.has(guildId)) {
-        try { authority.set(guildId, await leagueAuthority(league, guildId, guild, deps.discordUserId)); } catch { authority.set(guildId, "unknown"); }
+        const channel = guildId === cfg?.guildId && cfg?.channelId ? cfg.channelId : undefined;
+        try { authority.set(guildId, await leagueAuthority(league, guildId, guild, deps.discordUserId, channel)); } catch { authority.set(guildId, "unknown"); }
       }
       return authority.get(guildId)!;
     };
+    // 0. dead-lettered cleanups: re-checked (hourly, even with the connection off) and requeued once the bot can manage
+    //    events in that server again. Removing only ever touches events the bot created (removeOurs).
+    const deadChecks = new Map<string, boolean>();
+    for (const d of file.discordDeadLetters ?? []) {
+      if (d.checkedAt && nowAt().getTime() - Date.parse(d.checkedAt) < DEAD_LETTER_CHECK_MS) continue;
+      if (!deadChecks.has(d.guildId)) { try { deadChecks.set(d.guildId, await botCanUse(guild, d.guildId)); } catch { /* unknown: next pass */ } }
+    }
+    if (deadChecks.size) commit(deps.store, league.id, (f) => {
+      const iso = nowAt().toISOString();
+      const keep: DiscordDeadLetter[] = [];
+      for (const d of f.discordDeadLetters ?? []) {
+        const ok = deadChecks.get(d.guildId);
+        if (ok === true) f.discordDeletes = [...(f.discordDeletes ?? []), { guildId: d.guildId, eventId: d.eventId, attempts: 0, nextAt: iso, ...(d.title ? { title: d.title } : {}) }];
+        else keep.push(ok === false ? { ...d, checkedAt: iso } : d);
+      }
+      if (keep.length) f.discordDeadLetters = keep; else delete f.discordDeadLetters;
+    });
+    if (deadChecks.size) { try { file = deps.store.leagueEvents(league.id); } catch { continue; } }
+
     let leagueOk = true;
     if (active) {
       const a = await authorityFor(cfg!.guildId!);
-      if (a === "unknown") continue; // try again next pass
-      if (!a.ok) {
+      if (a === "unknown") leagueOk = false; // try again next pass (never mark blocked on an outage)
+      else if (!a.ok) {
         setBlocked(deps.store, league.id, a.reason, nowAt().toISOString());
         out.blocked.push(league.id);
         leagueOk = false;
@@ -361,25 +440,24 @@ export async function runLeagueEventDiscordSync(deps: DiscordSyncDeps): Promise<
         try { file = deps.store.leagueEvents(league.id); } catch { continue; }
       }
     }
-    if (!leagueOk) continue; // stopped: nothing is created, changed or removed until a manager has authority again
 
-    // 1. removals
+    // 1. removals: always (even when stopped or turned off), and only of events the bot created
     const results = new Map<string, PendingDiscordDelete | DiscordDeadLetter | null>();
     for (const d of file.discordDeletes ?? []) {
       const now = nowAt().getTime();
       if (!due(d.nextAt, now)) continue;
       const key = `${d.guildId}:${d.eventId}`;
-      const a = await authorityFor(d.guildId);
       let err: unknown;
-      if (a === "unknown") continue;
-      if (!a.ok) err = new DiscordEventsError(a.reason, 403, true);
-      else {
-        try { await guild.remove(d.guildId, d.eventId); results.set(key, null); out.deleted.push(`${league.id}:${d.eventId}`); continue; }
-        catch (e) { if (e instanceof DiscordEventsError && e.gone) { results.set(key, null); continue; } err = e; }
-      }
+      try {
+        const r = await removeOurs(guild, d.guildId, d.eventId);
+        results.set(key, null);
+        if (r === "removed") out.deleted.push(`${league.id}:${d.eventId}`);
+        if (r === "foreign") out.skipped.push(`${league.id}:${d.eventId}`);
+        continue;
+      } catch (e) { err = e; }
       const attempts = d.attempts + 1;
       const retry = !(err instanceof DiscordEventsError) || err.retryable;
-      const error = err instanceof DiscordEventsError && err.status === 403 && !a.ok ? (a as { reason: string }).reason : describeDiscordError(err);
+      const error = describeDiscordError(err);
       results.set(key, retry && attempts < DISCORD_SYNC_MAX_ATTEMPTS
         ? { ...d, attempts, error, nextAt: new Date(now + discordRetryDelayMs(attempts)).toISOString() }
         : { guildId: d.guildId, eventId: d.eventId, ...(d.title ? { title: d.title } : {}), at: new Date(now).toISOString(), error });
@@ -398,7 +476,8 @@ export async function runLeagueEventDiscordSync(deps: DiscordSyncDeps): Promise<
       if (dead.length) f.discordDeadLetters = [...(f.discordDeadLetters ?? []), ...dead];
     });
 
-    // 2. events
+    // 2. events: created / changed only while a manager has authority (a stopped league waits)
+    if (!leagueOk) continue;
     for (const ev of file.events) {
       const now = nowAt().getTime();
       if (ev.discordSync?.failed) continue;
@@ -423,9 +502,12 @@ export async function runLeagueEventDiscordSync(deps: DiscordSyncDeps): Promise<
       let current = have;
       if (current) {
         const started = Date.parse(current.start) <= now;
-        if (now > Date.parse(current.end) + GRACE_MS) current = undefined;
-        else if (!want || current.guildId !== want.guildId) { removals.push(current); current = undefined; }
-        else if (started) { if (scheduled(current)) keepLive.push(current); else removals.push(current); current = undefined; }
+        if (now > Date.parse(current.end) + GRACE_MS) current = undefined; // over (plus grace): forget it
+        else if (started) {
+          // under way: kept (tracked until it ends) while it is still on the schedule in this server, whatever comes next
+          if (active && current.guildId === cfg?.guildId && scheduled(current)) keepLive.push(current); else removals.push(current);
+          current = undefined;
+        } else if (!want || current.guildId !== want.guildId) { removals.push(current); current = undefined; }
       }
       const needsUpdate = Boolean(want && current && !sameMirror(current, want));
       const drift = Boolean(want && !current) || needsUpdate || removals.length > 0 || keepLive.length !== live.length || (!want && Boolean(have));
@@ -436,19 +518,20 @@ export async function runLeagueEventDiscordSync(deps: DiscordSyncDeps): Promise<
       let permanent = false;
       try {
         for (const m of removals) {
-          const a = await authorityFor(m.guildId);
-          if (a !== "unknown" && a.ok) {
-            try { await guild.remove(m.guildId, m.eventId); out.deleted.push(`${league.id}:${m.eventId}`); continue; }
-            catch (e) { if (e instanceof DiscordEventsError && e.gone) continue; }
-          }
+          try {
+            const r = await removeOurs(guild, m.guildId, m.eventId);
+            if (r === "removed") out.deleted.push(`${league.id}:${m.eventId}`);
+            continue;
+          } catch { /* retried from the queue */ }
           queued.push({ guildId: m.guildId, eventId: m.eventId, attempts: 1, nextAt: iso(now + discordRetryDelayMs(1)), title: ev.title });
         }
         if (want && next) {
-          const body = scheduledEventBody(ev, next, league, cfg);
+          const marker = syncMarker(deps.markerKey, league.id, ev.id, next.key);
+          const body = scheduledEventBody(ev, next, league, cfg, marker);
           const createOrAdopt = async (): Promise<string> => {
-            // a create whose answer was lost: find it by its marker and adopt it instead of posting twice
-            const marker = syncMarker(ev.id, next.key);
-            const found = (await guild.listEvents(want.guildId)).find((x) => x.description.includes(marker));
+            // a create whose answer was lost: find it by its (signed) marker AND Discord saying the bot created it
+            const bot = await guild.botUserId();
+            const found = (await guild.listEvents(want.guildId)).find((x) => x.creatorId === bot && x.description.includes(marker));
             if (found) { await guild.update(want.guildId, found.id, body); out.adopted.push(`${league.id}:${ev.id}`); return found.id; }
             const r = await guild.create(want.guildId, body);
             out.created.push(`${league.id}:${ev.id}`);
