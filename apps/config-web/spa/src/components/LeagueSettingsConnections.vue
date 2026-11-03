@@ -1,12 +1,14 @@
 <script setup lang="ts">
 // League settings, External connections: NAF results report (tournaments only for now), Results export (CSV zip), the
 // league's Discord (webhook stored server-side and only ever shown masked; every event toggle; test post and samples;
-// CompetitionDiscordPanel), the Weekly Digest, each season's own webhook (blank = the league's) and the optional bot invite.
+// CompetitionDiscordPanel), the Weekly Digest, each season's own webhook (blank = the league's), the optional bot invite and
+// "Create Discord events" (League Events as Discord scheduled events; LeagueSettingsDiscordEvents).
 import { computed, inject, onServerPrefetch, ref, watch } from "vue";
 import { API_KEY } from "../app";
 import { api as defaultApi } from "../shared/api";
 import CompetitionDiscordPanel from "./CompetitionDiscordPanel.vue";
 import LeagueWeeklyDigest from "./LeagueWeeklyDigest.vue";
+import LeagueSettingsDiscordEvents from "./LeagueSettingsDiscordEvents.vue";
 import { LEAGUE_SETTINGS_KEY } from "../leagues/settings";
 import type { CompetitionDiscordView } from "../shared/discord";
 
@@ -52,6 +54,8 @@ const seasonBase = computed(() => (seasonId.value ? `${leagueBase.value}/seasons
         <p class="hm-small">Add the bot to your Discord server. Coaches who share a server with it can get their messages there.</p>
         <div class="ls-actions"><a class="sf-btn ls-bot-btn" :href="leagueView.botInviteUrl" target="_blank" rel="noopener">Add the Super FUMBBL bot to your server</a></div>
       </section>
+
+      <LeagueSettingsDiscordEvents :league-id="state.id" />
 
       <section class="hm-panel" aria-labelledby="ls-export-h">
         <header class="hm-band"><h2 id="ls-export-h">Results export</h2><span class="hm-cap">CSV zip</span></header>

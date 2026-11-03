@@ -26,6 +26,9 @@
  *                                                                 { date?, round?, result? } fixtures editor (events.ts)
  * News and the fixtures editor (create / delete): see events.ts.
  *
+ * League Events (league nights, drafts, socials; calendar + Schedule page + Discord scheduled events): see leagueEvents.ts.
+ *   GET|POST /api/leagues/:id/events, PATCH|DELETE .../events/:eventId, GET|PATCH .../events/discord, GET .../schedule
+ *
  * League registration (lane L6; join, the Registrations tab, accept -> team, "I've paid"): see registrationApi.ts.
  *   GET .../seasons/:seasonId/join, GET|POST .../seasons/:seasonId/registrations, POST .../registrations/:rid/<verb>
  *   POST   /api/leagues/:id/discord/test                          send a small test embed to the webhook
@@ -93,6 +96,7 @@ import { draftAwareNotify, isDraftLeague, leagueVisibleTo, seasonStage, storeWit
 import { defaultSeasonRegistration, seasonRegistrationOf } from "./seasonRegistration.js";
 import { paymentLinksView } from "../payments/links.js";
 import { createLeagueRoute, leagueLifecycleRoutes } from "./wizard.js";
+import { leagueCalendarEventRoutes, type LeagueEventsDeps } from "./leagueEvents.js";
 import { TEST_SESSION_REFUSAL, testSessionMayWrite } from "../registration/testSession.js";
 import { leagueTimeZone } from "./timeZone.js";
 import { isLeagueOrganiser, LEAGUE_ART_DIR, LEAGUE_ART_PATH, leagueOwner, LeagueStore, LeagueStoreError, SEASON_ID } from "./store.js";
@@ -202,6 +206,8 @@ export interface LeagueApiDeps extends LeagueRegistrationApiDeps {
   tabletop?: import("./inducementUsage.js").InducementUsageSource;
   /** A saved ruleset package exists (the ruleset card the wizard / settings pick); unset = names are only syntax-checked. */
   packageExists?: (name: string) => boolean;
+  /** League Events (leagueEvents.ts): the Discord bot client for scheduled events (unset = no bot) and the sync kick. */
+  leagueEvents?: LeagueEventsDeps;
 }
 
 /** Refuses a ruleset card that is not a saved package (null = the plain base ruleset). */
@@ -418,6 +424,9 @@ export async function leagueApi(
   const [first, second, ...extra] = route.rest;
   const lifecycle = await leagueLifecycleRoutes(method, route.rest, league, auth, deps);
   if (lifecycle) return lifecycle;
+  // League Events (leagueEvents.ts): GET|POST .../events, PATCH|DELETE .../events/:eventId, .../events/discord, GET .../schedule.
+  const calendarEvents = await leagueCalendarEventRoutes(method, route.rest, league, auth, deps);
+  if (calendarEvents) return calendarEvents;
 
   if (first === "logo" || first === "banner") {
     if (second !== undefined) return { status: 404, body: { error: "Not found." } };

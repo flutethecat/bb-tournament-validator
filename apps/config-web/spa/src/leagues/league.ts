@@ -5,6 +5,7 @@ import { reactive, type InjectionKey } from "vue";
 import { ApiError } from "../shared/api";
 import { resolveCrest } from "../tabletop/art";
 import type { Fetcher } from "../session";
+import { leagueEventsApi, type LeagueEventView } from "./leagueEvents";
 import type {
   FormerPlayer, HonourTable, HonourValue, LeagueFixture, LeagueNewsPost, LeaguePhase, LeaguePlayer, LeagueStats, LeagueSummary, LeagueTeam, SeasonRecord, SeasonSummary, StatsCard,
   StandingRow, StandingsStat, StatsScope,
@@ -62,6 +63,8 @@ export interface LeagueDetailState {
   editBusy: string;
   editError: string;
   editNotice: string;
+  /** League Events (leagueEvents.ts): league-wide, on every season's Calendar; empty until read (or when the read fails). */
+  events: LeagueEventView[];
 }
 
 /** News as the panel lists it: pinned first, then newest first. */
@@ -124,8 +127,17 @@ export const fetchUpload: RawUploader = async (path, body) => {
 export function createLeagueDetail(deps: { api: Fetcher; upload?: RawUploader }) {
   const state = reactive<LeagueDetailState>({
     id: "", league: null, seasons: [], loaded: false, error: "", season: {}, seasonLoading: "", seasonError: "", crests: {},
-    artBusy: "", artError: "", artNotice: "", forkBusy: "", forkError: "", editBusy: "", editError: "", editNotice: "",
+    artBusy: "", artError: "", artNotice: "", forkBusy: "", forkError: "", editBusy: "", editError: "", editNotice: "", events: [],
   });
+  /** League Events: best effort (no events on failure). */
+  async function loadEvents(): Promise<void> {
+    if (!state.id || !state.league) { state.events = []; return; }
+    const id = state.id;
+    try {
+      const res = await leagueEventsApi.list(deps.api, id);
+      if (state.id === id) state.events = Array.isArray(res?.events) ? res.events : [];
+    } catch { if (state.id === id) state.events = []; }
+  }
   async function load(id: string): Promise<void> {
     state.id = id;
     try {
@@ -144,6 +156,7 @@ export function createLeagueDetail(deps: { api: Fetcher; upload?: RawUploader })
       const m = await deps.api<{ crests?: Record<string, string> }>("/crests/manifest.json");
       state.crests = m?.crests ?? {};
     } catch { /* no crests: initials badges */ }
+    await loadEvents();
   }
   async function ensureSeason(seasonId: string): Promise<void> {
     if (!seasonId || state.season[seasonId]) return;
@@ -208,7 +221,7 @@ export function createLeagueDetail(deps: { api: Fetcher; upload?: RawUploader })
     try { state.season[seasonId] = (await deps.api<{ season: SeasonRecord }>(seasonPath(seasonId))).season; } catch { /* keep */ }
   }
   return {
-    state, load, ensureSeason, reloadSeason,
+    state, load, ensureSeason, reloadSeason, loadEvents,
     postNews: (seasonId: string, input: { title: string; body: string; pinned: boolean }) =>
       edit("news", () => deps.api<{ news: LeagueNewsPost[] }>(`${seasonPath(seasonId)}/news`, { method: "POST", body: input }), putNews(seasonId), "News posted."),
     editNews: (seasonId: string, id: string, patch: { title?: string; body?: string; pinned?: boolean }) =>

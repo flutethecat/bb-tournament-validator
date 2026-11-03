@@ -10,7 +10,7 @@ import { atomicWriteTextFile } from "@bb/fork-ops";
 import { linkPlayerCareers, needsPlayerIds } from "./playerIds.js";
 import { markSeasonCaptainVacancies } from "./captain.js";
 import { recordLeagueExits } from "../auth/leagueSharing.js";
-import type { LeagueFixture, LeagueRecord, LeagueSecrets, LeagueTeam, SeasonRecord } from "./types.js";
+import type { LeagueEventsFile, LeagueFixture, LeagueRecord, LeagueSecrets, LeagueTeam, SeasonRecord } from "./types.js";
 
 /** One player of a league fork game, public subset: the roster position, and from a full result the SPP the league banked and the server's injury names. */
 export interface LeagueGamePlayer { position?: string; spp?: number; injuries?: string[] }
@@ -297,6 +297,24 @@ export class LeagueStore {
   setSecrets(id: string, secrets: LeagueSecrets): void {
     if (!this.league(id)) throw new LeagueStoreError(404, "League not found.");
     this.write(join(this.leagueDir(id), "secrets.json"), secrets);
+  }
+
+  /**
+   * League Events (leagueEvents.ts): <leagueDir>/events.json. A missing file is an empty list; a file that exists but
+   * cannot be read throws (fail closed: a write must never replace events it could not read).
+   */
+  leagueEvents(id: string): LeagueEventsFile {
+    if (!LEAGUE_ID.test(id)) return { events: [] };
+    const path = join(this.root, id, "events.json");
+    if (!existsSync(path)) return { events: [] };
+    const raw = this.readJson<LeagueEventsFile>(path);
+    if (!raw || typeof raw !== "object" || !Array.isArray(raw.events)) throw new LeagueStoreError(500, "The league's events could not be read.");
+    return { events: raw.events, ...(Array.isArray(raw.discordDeletes) && raw.discordDeletes.length ? { discordDeletes: raw.discordDeletes } : {}) };
+  }
+
+  putLeagueEvents(id: string, file: LeagueEventsFile): void {
+    if (!this.league(id)) throw new LeagueStoreError(404, "League not found.");
+    this.write(join(this.leagueDir(id), "events.json"), { events: file.events, ...(file.discordDeletes?.length ? { discordDeletes: file.discordDeletes } : {}) });
   }
 
   /** Every season of the league, newest first. A season stored before player ids existed is given the ids (and career links) the importer would assign. */

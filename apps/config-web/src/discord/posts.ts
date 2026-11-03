@@ -234,6 +234,7 @@ const SAMPLE_TEXT: Partial<Record<DiscordEventKey, string>> = {
   awards: "Sample Orcs: Best painted.",
   seasonStarted: "A new season is under way.",
   seasonFinished: "The season is closed.",
+  leagueEvent: "League night · Thu 5 Nov, 19:00 to 22:00 · Sample Games Club",
 };
 
 /** The colour used for skipped / muted notes (exported for the preview). */

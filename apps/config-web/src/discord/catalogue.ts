@@ -56,6 +56,8 @@ const META: Partial<Record<DiscordEventKey, EventMeta>> = {
   redraftRolls: { scope: "league", league: false, tournament: false },
   seasonStarted: { scope: "league", league: true, tournament: false },
   seasonFinished: { scope: "league", league: true, tournament: false },
+  // League Events: a new league night / draft / social... (each event's own "Post to Discord" starts ticked for league nights).
+  leagueEvent: { scope: "league", league: true, tournament: false },
   touchdown: { scope: "inGame", league: true, tournament: false },
   casualty: { scope: "inGame", league: true, tournament: false },
   injury: { scope: "inGame", league: true, tournament: false },

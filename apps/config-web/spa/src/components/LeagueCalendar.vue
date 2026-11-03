@@ -4,9 +4,13 @@
 // the day) / Year (12 mini months, a heat dot per day; a day opens its week). The view is remembered per viewer; prev /
 // next / Today step through it; every day and time is the league's time zone, named in the band. Each item is a real
 // link to its related page (leagues/seasonCalendar.ts fixtureLink). Phones get the Month and Week as a day agenda.
+// League Events (league-wide; leagues/leagueEvents.ts) show in every view with their own chip style and open the event
+// dialog (a button, not a link); ?event=<id> opens it directly. Gates have a typed source that is empty until they exist.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { RouterLink } from "vue-router";
+import { RouterLink, useRouter } from "vue-router";
 import LeagueDialog from "./LeagueDialog.vue";
+import LeagueEventDialog from "./LeagueEventDialog.vue";
+import { gateItems, leagueEventItems, occurrenceFor, type LeagueEventView } from "../leagues/leagueEvents";
 import {
   agendaDays, CALENDAR_VIEWS, calendarItems, dayBlocks, dayParts, fixtureItems, heatLevel, hourRange, initialAnchor, itemsByDay, listMonths,
   loadCalendarView, monthWeeks, rangeLabel, saveCalendarView, shiftAnchor, splitOverflow, todayIn, WEEKDAYS_SHORT, yearMonths,
@@ -17,12 +21,14 @@ import { fitMode } from "../shell/fit";
 import type { SeasonRecord } from "../leagues/types";
 import "../leagues/calendar.css";
 
-const props = defineProps<{ season: SeasonRecord; leagueId: string; zone?: string; now?: number }>();
+const props = defineProps<{ season: SeasonRecord; leagueId: string; zone?: string; now?: number; events?: LeagueEventView[]; manage?: boolean; openEvent?: string }>();
+const router = useRouter();
 
 const zone = computed(() => (validZone(props.zone) ? props.zone : "UTC"));
 const ctx = computed<CalendarContext>(() => ({ leagueId: props.leagueId, seasonId: props.season.id, zone: zone.value }));
-// The calendar's sources: fixtures today. League Events, deadlines and gates add their own source here (type field).
-const sources = computed<CalendarSource[]>(() => [(c) => fixtureItems(props.season.fixtures, c)]);
+// The calendar's sources (type field): the season's fixtures, the league's events, and gates (an empty typed source until
+// gates exist: give gateItems the gates read). Deadlines can join the same way.
+const sources = computed<CalendarSource[]>(() => [(c) => fixtureItems(props.season.fixtures, c), (c) => leagueEventItems(props.events ?? [], c), gateItems()]);
 const items = computed(() => calendarItems(sources.value, ctx.value));
 const byDay = computed(() => itemsByDay(items.value));
 const undated = computed(() => props.season.fixtures.length - items.value.filter((i) => i.type === "fixture").length);
@@ -75,7 +81,8 @@ watch(grid, (el) => {
 }, { flush: "post" });
 onBeforeUnmount(() => observer?.disconnect());
 watch(() => weeks.value.length, () => void nextTick(measure));
-const cellItems = (key: string) => splitOverflow(byDay.value.get(key) ?? [], capacity.value);
+// League Events lead a cell (a league night stays visible when fixtures overflow into "+N more")
+const cellItems = (key: string) => splitOverflow([...(byDay.value.get(key) ?? [])].sort((a, b) => Number(b.type === "league-event") - Number(a.type === "league-event")), capacity.value);
 const dayOpen = ref("");
 const openItems = computed(() => byDay.value.get(dayOpen.value) ?? []);
 
@@ -106,9 +113,39 @@ const year = computed(() => yearMonths(anchor.value).map((m) => ({
 const countOf = (d: string): number => byDay.value.get(d)?.length ?? 0;
 const jumpToWeek = (d: string): void => { anchor.value = d; setView("week"); };
 
-const chipText = (i: CalendarItem): string => (i.state === "agreed" && i.time ? `${i.time} ${i.short}` : i.short);
+const chipText = (i: CalendarItem): string => ((i.state === "agreed" || i.type === "league-event") && i.time ? `${i.time} ${i.short}` : i.short);
 const STATE_TEXT: Record<CalendarItem["state"], string> = { played: "Played", agreed: "Agreed", scheduled: "Scheduled" };
-const countText = (n: number): string => `${n} ${n === 1 ? "fixture" : "fixtures"}`;
+const hasEvents = computed(() => (props.events?.length ?? 0) > 0);
+const countText = (n: number): string => (hasEvents.value ? `${n} ${n === 1 ? "item" : "items"}` : `${n} ${n === 1 ? "fixture" : "fixtures"}`);
+/** The status chip of a List / agenda / day row: a League Event names its type and time. */
+const rowChip = (i: CalendarItem): { tone: string; text: string } => (i.type === "league-event"
+  ? { tone: "info", text: `${i.detail.split(" · ")[0]} ${i.time}` }
+  : { tone: i.state === "agreed" ? "ok" : "muted", text: i.state === "agreed" ? `Agreed ${i.time}` : STATE_TEXT.scheduled });
+
+// ---- items as links (fixtures) or buttons (League Events open the dialog)
+const itemTag = (i: CalendarItem) => (i.target === "dialog" ? "button" : RouterLink);
+const itemProps = (i: CalendarItem): Record<string, unknown> => (i.target === "dialog" ? { type: "button", onClick: () => openItem(i) } : { to: i.to });
+const viewing = ref<{ event: LeagueEventView; occurrence?: string } | null>(null);
+function openItem(i: CalendarItem): void {
+  const ev = props.events?.find((e) => e.id === i.eventId);
+  if (!ev) return;
+  dayOpen.value = "";
+  viewing.value = { event: ev, ...(i.occurrence ? { occurrence: i.occurrence } : {}) };
+}
+// ?event=<id> (a coach's notification link): open that event on its next date, with the calendar on that day.
+watch(() => [props.openEvent, props.events?.length] as const, ([id]) => {
+  if (!id || viewing.value?.event.id === id) return;
+  const ev = props.events?.find((e) => e.id === id);
+  if (!ev) return;
+  const o = occurrenceFor(ev, undefined, props.now ?? clock.value);
+  if (o) anchor.value = todayIn(Date.parse(o.start), zone.value);
+  viewing.value = { event: ev, ...(o ? { occurrence: o.key } : {}) };
+}, { immediate: true });
+const editEvent = (): void => {
+  const id = viewing.value?.event.id;
+  viewing.value = null;
+  if (id) void router.push({ name: "league-settings", params: { id: props.leagueId }, query: { tab: "schedule", event: id } });
+};
 </script>
 
 <template>
@@ -142,11 +179,11 @@ const countText = (n: number): string => `${n} ${n === 1 ? "fixture" : "fixtures
                 <span class="lg-cal-date"><b>{{ d.dayNo }}</b><small>{{ d.weekday }}</small></span>
                 <ul class="lg-cal-games">
                   <li v-for="i in d.items" :key="i.key">
-                    <RouterLink class="lg-cal-game" :to="i.to" :aria-label="i.label" :data-target="i.target" :data-state="i.state">
+                    <component :is="itemTag(i)" v-bind="itemProps(i)" class="lg-cal-game" :aria-label="i.label" :data-target="i.target" :data-state="i.state" :data-type="i.type">
                       <span>{{ i.title }}</span>
                       <span v-if="i.result" class="lg-cal-score">{{ i.result }}</span>
-                      <span v-else class="sf-chip" :data-tone="i.state === 'agreed' ? 'ok' : 'muted'">{{ i.state === "agreed" ? `Agreed ${i.time}` : "Scheduled" }}</span>
-                    </RouterLink>
+                      <span v-else class="sf-chip" :data-tone="rowChip(i).tone">{{ rowChip(i).text }}</span>
+                    </component>
                     <small class="muted">{{ i.detail }}</small>
                   </li>
                 </ul>
@@ -171,10 +208,10 @@ const countText = (n: number): string => `${n} ${n === 1 ? "fixture" : "fixtures
                     :aria-label="`${cellItems(c.key).more} more on ${dayParts(c.key).long}`" @click="dayOpen = c.key"
                   >+{{ cellItems(c.key).more }} more</button>
                 </span>
-                <RouterLink
-                  v-for="i in cellItems(c.key).shown" :key="i.key" class="lgc-chip" :to="i.to" :aria-label="i.label"
+                <component
+                  :is="itemTag(i)" v-for="i in cellItems(c.key).shown" :key="i.key" v-bind="itemProps(i)" class="lgc-chip" :aria-label="i.label"
                   :data-state="i.state" :data-type="i.type" :data-target="i.target" :title="`${i.title}${i.result ? ` ${i.result}` : ''}`"
-                ><span class="lgc-chip-t">{{ chipText(i) }}</span><b v-if="i.result" class="lgc-chip-r">{{ i.result }}</b></RouterLink>
+                ><span class="lgc-chip-t">{{ chipText(i) }}</span><b v-if="i.result" class="lgc-chip-r">{{ i.result }}</b></component>
               </div>
             </div>
           </div>
@@ -191,24 +228,24 @@ const countText = (n: number): string => `${n} ${n === 1 ? "fixture" : "fixtures
           <div class="lgc-allday">
             <span class="lgc-gutter">All day</span>
             <div v-for="d in weekDays" :key="d" class="lgc-ad-cell" :data-day="d">
-              <RouterLink
-                v-for="i in allDay(d)" :key="i.key" class="lgc-chip" :to="i.to" :aria-label="i.label"
+              <component
+                :is="itemTag(i)" v-for="i in allDay(d)" :key="i.key" v-bind="itemProps(i)" class="lgc-chip" :aria-label="i.label"
                 :data-state="i.state" :data-type="i.type" :data-target="i.target" :title="i.title"
-              ><span class="lgc-chip-t">{{ i.short }}</span><b v-if="i.result" class="lgc-chip-r">{{ i.result }}</b></RouterLink>
+              ><span class="lgc-chip-t">{{ i.short }}</span><b v-if="i.result" class="lgc-chip-r">{{ i.result }}</b></component>
             </div>
           </div>
           <div class="lgc-week-grid">
             <div class="lgc-hours" aria-hidden="true"><span v-for="h in hourList" :key="h">{{ String(h).padStart(2, "0") }}:00</span></div>
             <div v-for="d in weekDays" :key="d" class="lgc-col" :data-day="d" :data-today="d === today ? 'true' : undefined">
-              <RouterLink
-                v-for="b in blocks(d)" :key="b.item.key" class="lgc-block" :to="b.item.to" :aria-label="b.item.label"
+              <component
+                :is="itemTag(b.item)" v-for="b in blocks(d)" :key="b.item.key" v-bind="itemProps(b.item)" class="lgc-block" :aria-label="b.item.label"
                 :data-state="b.item.state" :data-type="b.item.type" :data-target="b.item.target" :title="b.item.title"
                 :style="{ top: pct(b.top), height: pct(b.height), left: pct(b.lane / b.lanes), width: pct(1 / b.lanes) }"
               >
                 <small>{{ b.item.time }}</small>
-                <span class="lgc-chip-t">{{ b.item.short }}</span>
+                <span class="lgc-chip-t">{{ b.item.type === "league-event" ? b.item.title : b.item.short }}</span>
                 <b v-if="b.item.result" class="lgc-chip-r">{{ b.item.result }}</b>
-              </RouterLink>
+              </component>
             </div>
           </div>
         </div>
@@ -239,19 +276,19 @@ const countText = (n: number): string => `${n} ${n === 1 ? "fixture" : "fixtures
           <li v-for="d in agenda" :key="d.key" class="lg-cal-day" :data-day="d.key" :data-today="d.key === today ? 'true' : undefined">
             <span class="lg-cal-date"><b>{{ d.dayNo }}</b><small>{{ d.weekday }}</small></span>
             <ul class="lg-cal-games">
-              <li v-if="!d.items.length" class="muted">No fixtures.</li>
+              <li v-if="!d.items.length" class="muted">{{ hasEvents ? "Nothing on." : "No fixtures." }}</li>
               <li v-for="i in d.items" :key="i.key">
-                <RouterLink class="lg-cal-game" :to="i.to" :aria-label="i.label" :data-target="i.target" :data-state="i.state">
+                <component :is="itemTag(i)" v-bind="itemProps(i)" class="lg-cal-game" :aria-label="i.label" :data-target="i.target" :data-state="i.state" :data-type="i.type">
                   <span>{{ i.title }}</span>
                   <span v-if="i.result" class="lg-cal-score">{{ i.result }}</span>
-                  <span v-else class="sf-chip" :data-tone="i.state === 'agreed' ? 'ok' : 'muted'">{{ i.state === "agreed" ? `Agreed ${i.time}` : "Scheduled" }}</span>
-                </RouterLink>
+                  <span v-else class="sf-chip" :data-tone="rowChip(i).tone">{{ rowChip(i).text }}</span>
+                </component>
                 <small class="muted">{{ i.detail }}</small>
               </li>
             </ul>
           </li>
         </ol>
-        <p v-else-if="items.length && (view === 'month' || view === 'week')" class="hm-empty lgc-agenda">No fixtures this {{ UNIT[view] }}.</p>
+        <p v-else-if="items.length && (view === 'month' || view === 'week')" class="hm-empty lgc-agenda">{{ hasEvents ? "Nothing on" : "No fixtures" }} this {{ UNIT[view] }}.</p>
       </div>
     </section>
     <p v-if="undated > 0" class="hm-small hm-empty lgc-undated">{{ undated }} {{ undated === 1 ? "fixture has" : "fixtures have" }} no date yet.</p>
@@ -259,14 +296,18 @@ const countText = (n: number): string => `${n} ${n === 1 ? "fixture" : "fixtures
     <LeagueDialog v-if="dayOpen" id="lgc-day-h" :title="dayParts(dayOpen).long" :cap="countText(openItems.length)" @close="dayOpen = ''">
       <ul class="lgc-day-list">
         <li v-for="i in openItems" :key="i.key">
-          <RouterLink class="lg-cal-game" :to="i.to" :aria-label="i.label" :data-target="i.target" :data-state="i.state">
+          <component :is="itemTag(i)" v-bind="itemProps(i)" class="lg-cal-game" :aria-label="i.label" :data-target="i.target" :data-state="i.state" :data-type="i.type">
             <span>{{ i.time && !i.result ? `${i.time} ` : "" }}{{ i.title }}</span>
             <span v-if="i.result" class="lg-cal-score">{{ i.result }}</span>
-            <span v-else class="sf-chip" :data-tone="i.state === 'agreed' ? 'ok' : 'muted'">{{ STATE_TEXT[i.state] }}</span>
-          </RouterLink>
+            <span v-else class="sf-chip" :data-tone="i.type === 'league-event' ? 'info' : i.state === 'agreed' ? 'ok' : 'muted'">{{ i.type === "league-event" ? i.detail.split(" · ")[0] : STATE_TEXT[i.state] }}</span>
+          </component>
           <small class="muted">{{ i.detail }}</small>
         </li>
       </ul>
     </LeagueDialog>
+    <LeagueEventDialog
+      v-if="viewing" :event="viewing.event" :occurrence="viewing.occurrence" :zone="zone" :league-id="leagueId" :manage="manage" :now="now"
+      @close="viewing = null" @edit="editEvent"
+    />
   </div>
 </template>

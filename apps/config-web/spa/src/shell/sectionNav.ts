@@ -145,6 +145,8 @@ export function leagueFacts(s: {
   seasons: ReadonlyArray<{ playedCount: number }>;
   current?: { teamCount: number; fixtureCount: number } | null;
   season?: { teams: readonly unknown[]; phases?: ReadonlyArray<{ standings: readonly unknown[] }>; fixtures: ReadonlyArray<{ date?: string; finishedAt?: string; scheduledTime?: { start: string } }> } | null;
+  /** League Events (league-wide): any one puts the Calendar tab up. */
+  events?: number;
 }): SectionFacts {
   const teams = s.season ? s.season.teams.length : s.current?.teamCount ?? 0;
   const tables = s.season ? (s.season.phases ?? []).some((p) => p.standings.length > 0) : false;
@@ -153,7 +155,7 @@ export function leagueFacts(s: {
   return {
     fixtures: fixtures > 0,
     standings: teams > 0 || tables || fixtures > 0,
-    calendar: dated,
+    calendar: dated || (s.events ?? 0) > 0,
     honours: s.seasons.length > 0,
     statistics: s.seasons.some((x) => x.playedCount > 0),
     participants: teams > 0,

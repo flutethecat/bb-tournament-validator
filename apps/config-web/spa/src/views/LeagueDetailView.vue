@@ -60,7 +60,7 @@ const manage = computed(() => writesAllowed(session) && canManageLeague(state.le
 const tab = computed<SectionTabId>(() => {
   const asked = tabFromQuery("league", route.query.tab);
   if (asked === "overview" || !state.loaded) return asked;
-  const facts = leagueFacts({ seasons: state.seasons, current: current.value ?? null, season: season.value ?? null });
+  const facts = leagueFacts({ seasons: state.seasons, current: current.value ?? null, season: season.value ?? null, events: state.events.length });
   return facts[asked] ? asked : "overview";
 });
 /** Unfinished seasons other than the newest: a coach's live registration there still shows on the Overview. */
@@ -68,6 +68,8 @@ const olderOpenSeasons = computed(() => state.seasons.filter((s) => s.id !== sta
 const teamName = computed(() => (typeof route.query.team === "string" ? route.query.team : ""));
 const playerRef = computed(() => (typeof route.query.player === "string" ? route.query.player : ""));
 const fixtureRef = computed(() => (typeof route.query.fixture === "string" ? route.query.fixture : ""));
+/** ?event=<id> (League Events: a coach's notification link) opens that event on the Calendar. */
+const eventRef = computed(() => (typeof route.query.event === "string" ? route.query.event : ""));
 
 /** The breadcrumb page under the header: a team's roster (Participants) or a fixture's summary (Fixtures). */
 const crumb = computed(() => {
@@ -191,7 +193,7 @@ usePageTitle(() => state.league?.name);
         <LeagueStandings v-else-if="tab === 'standings'" :season="season" :me="session.coach()" :league-id="id" />
         <LeagueFixtureSummary v-else-if="tab === 'fixtures' && fixtureRef" :league-id="id" :season-id="season.id" :fixture-id="fixtureRef" :back="fixturesQuery" />
         <LeagueFixtures v-else-if="tab === 'fixtures'" :league="state.league" :season="season" :crests="state.crests" :manage="manage" />
-        <LeagueCalendar v-else-if="tab === 'calendar'" :season="season" :league-id="id" :zone="state.league.timeZone" />
+        <LeagueCalendar v-else-if="tab === 'calendar'" :season="season" :league-id="id" :zone="state.league.timeZone" :events="state.events" :manage="manage" :open-event="eventRef" />
         <LeagueTeams v-else-if="tab === 'participants' && (teamName || playerRef)" :season="season" :team="teamName" :player="playerRef" :league-id="id" :crests="state.crests" :manage="manage" />
         <LeagueParticipantsList v-else-if="tab === 'participants'" :season="season" :league-id="id" :crests="state.crests" :organiser="manage" />
         <LeagueDraws v-else-if="tab === 'draws'" :season="season" />

@@ -41,6 +41,7 @@ export const DISCORD_EVENT_LABEL: Record<DiscordEventKey, string> = {
   sentOff: "Sent off",
   mvp: "MVP",
   hireFire: "Hire / fire",
+  leagueEvent: "New league event",
 };
 
 export function isDiscordWebhookUrl(url: unknown): url is string {

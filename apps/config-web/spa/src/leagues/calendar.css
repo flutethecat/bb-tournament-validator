@@ -28,6 +28,17 @@
 .lgc-chip[data-state="agreed"], .lgc-block[data-state="agreed"] { border-left-color: var(--ui-success); }
 .lgc-chip:hover, .lgc-block:hover { border-color: var(--ui-heading); color: var(--ui-text); }
 .lgc-chip:focus-visible, .lgc-block:focus-visible, .lgc-more:focus-visible, .lgc-mini-day:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; z-index: 2; }
+/* League Events (type "league-event"): a blue (--ui-info) edge on a tinted fill, bold title; they are buttons (the event
+   dialog), so the button look is reset to the chip's */
+.lgc-chip[data-type="league-event"], .lgc-block[data-type="league-event"] {
+  font-weight: 700; background: color-mix(in srgb, var(--ui-info) 22%, var(--ui-surface-2)); border-color: color-mix(in srgb, var(--ui-info) 55%, var(--sf-panel-line));
+  border-left: 3px solid var(--ui-info);
+}
+button.lgc-chip, button.lgc-block, button.lg-cal-game { box-sizing: border-box; width: 100%; margin: 0; text-align: left; cursor: pointer; }
+button.lgc-block { width: auto; }
+button.lg-cal-game { padding: 0; font: inherit; background: none; border: 0; }
+.lg-cal-game[data-type="league-event"] > span:first-child { font-weight: 700; }
+.lg-cal-game[data-type="league-event"] > span:first-child::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 6px; vertical-align: middle; background: var(--ui-info); border-radius: 1px; }
 .lgc-chip-t { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lgc-chip-r { flex: none; font: 700 12px/18px var(--font-heading); color: var(--sf-gold); }
 

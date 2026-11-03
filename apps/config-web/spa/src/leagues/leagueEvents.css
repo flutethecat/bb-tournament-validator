@@ -1,0 +1,91 @@
+/* League Events: the event dialog (LeagueEventDialog), the editor (LeagueEventEditor), the organiser Schedule page
+   (LeagueSchedule) and the "Discord events" connections panel (LeagueSettingsDiscordEvents). Tokens only; the calendar
+   chips' League Event style lives in calendar.css. */
+
+/* ---- dialog */
+.lev-detail { display: grid; gap: 12px; min-width: 0; }
+.lev-kv { display: grid; gap: 8px; margin: 0; }
+.lev-kv > div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 4px 12px; align-items: baseline; }
+.lev-kv dt { font: 11px/1.6 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
+.lev-kv dd { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; font: 15px/1.4 var(--font-body); color: var(--ui-text); overflow-wrap: anywhere; }
+.lev-kv dd a { color: var(--ui-accent); }
+.lev-desc { padding: 10px 12px; background: var(--ui-surface-2); border: 1px solid var(--sf-panel-line); border-left: 3px solid var(--ui-info); border-radius: 2px; }
+.lev-desc .tn-md > :first-child { margin-top: 0; }
+.lev-desc .tn-md > :last-child { margin-bottom: 0; }
+.lev-next ul { margin: 4px 0 0; padding-left: 18px; color: var(--ui-text); font-size: 14px; }
+.lev-next .tb-k { margin: 0; font: 10px/1.6 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
+
+/* ---- editor: four groups, two columns on a desktop */
+.lev-form { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+.lev-group {
+  display: grid; gap: 8px 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; min-width: 0; padding: 10px 12px;
+  background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface); border: 2px solid var(--sf-panel-line);
+  border-left: 4px solid var(--ui-heading); border-radius: 2px; box-shadow: inset 0 1px 0 var(--sf-panel-hi), 0 2px 0 var(--sf-panel-drop);
+}
+.lev-group-h { grid-column: 1 / -1; margin: 0; font: 16px/1.2 var(--sf-band-title-font); text-transform: uppercase; letter-spacing: .06em; color: var(--ui-heading); }
+.lev-group .sf-field { display: grid; gap: 4px; min-width: 0; }
+.lev-group .sf-field :is(input, select, textarea) { width: 100%; }
+.lev-group textarea { resize: vertical; min-height: 72px; }
+.lev-group .sf-field small { font-size: 13px; }
+.lev-wide { grid-column: 1 / -1; }
+.lev-group .sf-check, .lev-discord .sf-check { display: flex; align-items: center; gap: 8px; font: 15px/1.35 var(--font-body); color: var(--ui-text); }
+.lev-help { margin: 0; font-size: 13px; }
+.lev-group [aria-invalid="true"] { border-color: var(--ui-danger); }
+
+/* ---- Schedule page: the timeline (2/3) and the events list (1/3) */
+.lev-schedule { display: grid; gap: 16px; grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr); align-items: start; min-width: 0; }
+.lev-timeline, .lev-list { min-width: 0; }
+.lev-days { list-style: none; margin: 0; padding: 4px 12px 8px; display: grid; gap: 12px; }
+.lev-day-h {
+  margin: 0 0 6px; padding: 4px 0; font: 16px/1.2 var(--sf-band-title-font); text-transform: uppercase; letter-spacing: .06em; color: var(--ui-heading);
+  border-bottom: 2px solid var(--sf-panel-line);
+}
+.lev-entries { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.lev-entry {
+  display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; align-items: center; gap: 2px 12px; width: 100%; box-sizing: border-box; padding: 6px 10px;
+  font: 15px/1.35 var(--font-body); color: var(--ui-text); text-align: left; cursor: pointer;
+  background: color-mix(in srgb, var(--ui-info) 14%, var(--ui-surface-2)); border: 1px solid var(--sf-panel-line); border-left: 4px solid var(--ui-info); border-radius: 2px;
+}
+.lev-entry[data-kind="gate"] { cursor: default; background: var(--ui-surface-2); border-left-color: var(--sf-gold); }
+.lev-entry:hover { border-color: var(--ui-heading); border-left-color: var(--ui-info); }
+.lev-entry[data-kind="gate"]:hover { border-color: var(--sf-panel-line); border-left-color: var(--sf-gold); }
+.lev-entry:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.lev-entry small { grid-column: 2 / -1; font-size: 13px; }
+.lev-time { grid-row: span 2; font: 700 15px/1 var(--font-heading); color: var(--ui-text); font-variant-numeric: tabular-nums; }
+.lev-entry-t { font: 700 15px/1.3 var(--font-heading); overflow-wrap: anywhere; }
+.lev-gates-note { margin: 0; padding: 4px 12px 10px; }
+.lev-list-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 12px 4px; }
+.lev-cards { list-style: none; margin: 0; padding: 6px 12px 12px; display: grid; gap: 8px; }
+.lev-card {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--ui-surface-2); border: 1px solid var(--sf-panel-line);
+  border-left: 4px solid var(--ui-info); border-radius: 2px;
+}
+.lev-card-main { flex: 1 1 auto; display: grid; gap: 3px; min-width: 0; }
+.lev-card-t { margin: 0; font: 700 16px/1.25 var(--font-heading); color: var(--ui-text); overflow-wrap: anywhere; }
+.lev-card-chips { margin: 0; display: flex; flex-wrap: wrap; gap: 4px; }
+.lev-card small { font-size: 13px; overflow-wrap: anywhere; }
+.lev-card-err { font-size: 13px; }
+
+/* ---- Discord events panel */
+.lev-discord-form { display: grid; gap: 10px; max-width: 520px; }
+.lev-discord-form .sf-field { display: grid; gap: 4px; }
+.lev-discord-form .sf-field small { font-size: 13px; }
+.lev-bot-note { margin: 0 12px; padding: 8px 10px; font: 15px/1.4 var(--font-body); color: var(--ui-text); background: var(--ui-surface-2); border: 1px solid var(--sf-panel-line); border-left: 3px solid var(--sf-discord); border-radius: 2px; }
+.lev-disabled { opacity: .7; }
+.lev-discord .ls-actions { margin: 4px 12px; }
+.lev-discord .ls-bot-btn { max-width: 100%; height: auto; min-height: 40px; white-space: normal; text-align: center; }
+.lev-invite-link { color: var(--ui-accent); font-size: 14px; }
+
+@media screen and (min-width: 1367px) and (min-height: 700px) {
+  /* fit to 1920x1080: each Schedule pane scrolls inside the management body */
+  .lev-schedule { max-height: calc(100dvh / var(--sf-zoom, 1) - 220px); }
+  .lev-schedule > .hm-panel { display: flex; flex-direction: column; max-height: calc(100dvh / var(--sf-zoom, 1) - 220px); }
+  .lev-schedule .lev-days, .lev-schedule .lev-cards { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+}
+@media (max-width: 1100px) {
+  .lev-schedule { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 800px) {
+  .lev-form, .lev-group { grid-template-columns: minmax(0, 1fr); }
+  .lev-kv > div { grid-template-columns: minmax(0, 1fr); }
+}

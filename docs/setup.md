@@ -27,6 +27,8 @@ Environment keys (`apps/config-web/.env`):
 - [ ] `DISCORD_CLIENT_ID`: optional; the bot application's id, for the "Add the Super FUMBBL bot to your server" button in
       league settings ([Competition Discord](#competition-discord)). Unset = the button is hidden. (The same key Discord
       sign-in already uses.)
+- [ ] League Events in Discord (optional): `DISCORD_BOT_TOKEN` + `DISCORD_CLIENT_ID` above, and the bot invited to each
+      league's server with **Manage Events** ([League Events](#league-events)).
 - [ ] `FORK_ROUTES_REQUIRE_AUTH`: leave unset (off) until the client changes in [Fork route lockdown](#fork-route-lockdown)
       have shipped; then set `1`.
 - [ ] `CONFIG_WEB_SERVICE_KEY`: optional; only if a server-to-server caller needs the fork reads
@@ -175,6 +177,33 @@ and `DISCORD_INVITE_URL` is set, the form adds "Join the Super FUMBBL Discord to
 "<coach> proposed times for <fixture>. Accept or decline: <link>". Turn the setting off on the Account page and propose
 again: no DM.
 
+## League Events
+
+Organisers add league nights, drafts, tournament days, socials and other events in League management, Schedule. They show
+on the league Calendar, coaches get an inbox note (and, when the organiser leaves it on, a reminder 24 hours before each
+occurrence), and the league webhook gets "New league event" (an event toggle in Competition Discord, on by default; each
+event's own "Post to Discord" starts ticked for league nights). Events live in `<FORK_STATE_DIR>/leagues/<id>/events.json`
+(no coach data). Drafts never notify or post.
+
+**Discord scheduled events (optional, needs the bot).** With the bot in the league's Discord server, an organiser can turn
+on "Create Discord events" in League settings, External connections, and pick the server (and optionally a voice channel
+for online events). Each League Event then keeps one Discord scheduled event for its next occurrence: created, updated,
+moved and deleted with it, and rolled on to the next week for a repeating event. Calls run in the background, retried with
+backoff (30 s, 2 min, 10 min, 30 min, 2 h, then 6 h; 8 attempts), and never hold up a save.
+
+1. **Token.** `DISCORD_BOT_TOKEN` (see [Discord DMs](#discord-dms)). Unset = the option shows "Add the Super FUMBBL bot to
+   your server to create Discord events" and nothing is sent to Discord.
+2. **Invite button.** `DISCORD_CLIENT_ID` (see [Competition Discord](#competition-discord)). The League Events invite asks
+   for View Channels, Send Messages, Embed Links **and Manage Events** (permissions `8589954048`).
+3. **Bot permission in each server.** The bot needs **Manage Events** in the league's server (granted by that invite, or
+   added to the bot's role by a server admin). For online events held in a voice channel it also needs View Channel and
+   Connect on that channel. Without Manage Events Discord answers 403: the organiser sees "The bot can't manage events in
+   that server" and the sync keeps retrying with backoff.
+4. **Restart** config-web (the scheduled task). Nothing is set live by a build.
+
+**Test.** In a test league: invite the bot to a test server, turn on "Create Discord events", pick the server, add a League
+Event an hour ahead; the server's Events list shows it within a minute. Edit the time (it moves), then delete it (it goes).
+
 ## Dev and demo data
 
 ### Demo leagues (Browse leagues)
@@ -270,7 +299,8 @@ environment key: organisers paste webhook URLs in the app, where they are stored
 - **State.** `<FORK_STATE_DIR>/discord/` holds tournament options (`competitions.json`), tournament / series webhooks
   (`secrets.json`, keep it out of shared backups like the league `secrets.json` files) and the posted-events ledger.
 - **Optional bot invite.** With `DISCORD_CLIENT_ID` set, league settings show "Add the Super FUMBBL bot to your server"
-  (OAuth invite with View Channels, Send Messages and Embed Links). Posting through the bot instead of the webhook is a later
+  (OAuth invite with View Channels, Send Messages and Embed Links; the League Events invite adds Manage Events, see
+  [League Events](#league-events)). Posting through the bot instead of the webhook is a later
   step; today every competition post goes through its webhook.
 - **Test.** In a test league with a webhook to a test channel: "Send test post", then "Send samples of every event"
   (one "[TEST]" sample per ticked event, at most once every 10 minutes per competition), then Weekly Digest "Preview".

@@ -112,6 +112,7 @@ export function storeWithoutLeague<S extends object>(store: S, leagueId: string)
       if (prop === "season") return (id: string, seasonId: string) => (id === leagueId ? undefined : fn.call(target, id, seasonId));
       if (prop === "seasons") return (id: string) => (id === leagueId ? [] : fn.call(target, id));
       if (prop === "secrets") return (id: string) => (id === leagueId ? {} : fn.call(target, id));
+      if (prop === "leagueEvents") return (id: string) => (id === leagueId ? { events: [] } : fn.call(target, id));
       if (prop === "list") return () => (fn.call(target) as Array<{ id: string }>).filter((l) => l.id !== leagueId);
       return fn.bind(target);
     },

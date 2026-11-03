@@ -45,6 +45,9 @@ export interface LeagueRecord {
   weeklyDigest?: import("../discord/weekly.js").WeeklyDigestSettings;
   /** IANA time zone the league's schedules use (Weekly Digest). Absent = UTC. */
   timeZone?: string;
+  /** League Events: Discord scheduled events in the organiser's server (src/discord/scheduledEvents.ts; needs the bot there).
+   *  Organiser read model only; never on a public read. Absent = off. */
+  scheduledEvents?: { enabled: boolean; guildId?: string; channelId?: string };
   /** Play on Super FUMBBL (default off): fixtures an admin allows can then be generated on the fork (later lane). */
   playOnFork?: boolean;
   /** A test competition (registration spec Q13): the only kind a test sign-in may write in (src/registration/testSession.ts). */
@@ -147,9 +150,58 @@ export const DISCORD_EVENT_KEYS = [
   "published", "registrationOpened", "newRegistration", "registrationClosing", "checkInOpen", "roundPosted", "fixtureStart",
   "roundStandings", "finalStandings", "awards", "seasonStarted", "seasonFinished",
   "touchdown", "casualty", "injury", "death", "foul", "sentOff", "mvp", "hireFire",
+  // League Events (src/leagues/leagueEvents.ts): "New league event" on the league (or linked season) webhook.
+  "leagueEvent",
 ] as const;
 export type DiscordEventKey = (typeof DISCORD_EVENT_KEYS)[number];
 export type DiscordEvents = Record<DiscordEventKey, boolean>;
+
+// ---- League Events (src/leagues/leagueEvents.ts): <leagueDir>/events.json --------------------------------------------
+
+export const LEAGUE_EVENT_TYPES = ["league-night", "draft", "tournament-day", "social", "other"] as const;
+export type LeagueEventType = (typeof LEAGUE_EVENT_TYPES)[number];
+
+/**
+ * One League Event (a league night, draft, tournament day, social...). Times are WALL-CLOCK times in the league's time zone
+ * ("2026-11-05T19:00"), so a weekly league night stays at 19:00 across daylight saving; instants are derived on read.
+ * No coach data is stored here (no author field), so account export / deletion has nothing to do in this file.
+ */
+export interface LeagueCalendarEvent {
+  id: string;
+  /** Bumped on every organiser write; PATCH / DELETE name it (409 when stale). */
+  revision: number;
+  title: string;
+  type: LeagueEventType;
+  /** "YYYY-MM-DDTHH:MM" in the league zone. */
+  start: string;
+  end: string;
+  location: { kind: "venue" | "online"; text: string };
+  description: string;
+  /** Optional link to a season (or, once ladders exist, a ladder) of this league. */
+  link?: { kind: "season" | "ladder"; id: string };
+  /** Repeats every N weeks (1 = weekly) up to and including `until` (YYYY-MM-DD, league zone). */
+  recurrence?: { everyWeeks: number; until: string };
+  /** Coaches get an inbox reminder 24 hours before each occurrence. */
+  remind: boolean;
+  /** Post "New league event" to the league's Discord webhook when it is created (default on for league nights). */
+  announce: boolean;
+  createdAt: string;
+  updatedAt: string;
+  /** Occurrence keys (local start) already reminded or covered by the create / change notice: once each. */
+  reminded?: string[];
+  /** The Discord Guild Scheduled Event mirroring the next occurrence (server side; never on a public read). */
+  discord?: { guildId: string; eventId: string; occurrence: string };
+  /** A Discord sync waiting to run (retried with backoff; `failed` after the last attempt, until the next edit). */
+  discordSync?: { attempts: number; nextAt: string; error?: string; failed?: boolean };
+}
+
+/** A Discord scheduled event still to remove (its League Event was deleted, or the server changed). */
+export interface PendingDiscordDelete { guildId: string; eventId: string; attempts: number; nextAt: string }
+
+export interface LeagueEventsFile {
+  events: LeagueCalendarEvent[];
+  discordDeletes?: PendingDiscordDelete[];
+}
 
 /** <leagueDir>/secrets.json: server-side only, masked in every read model, never logged. */
 export interface LeagueSecrets {

@@ -2,9 +2,10 @@
 // and populate their related event"): the pure model behind LeagueCalendar.vue. Every day and clock time is read in the
 // league's time zone (src/leagues/timeZone.ts leagueTimeZone, sent on the public league summary), never the viewer's.
 //
-// Events come from SOURCES: a source turns what a season read already carries into CalendarItems. Fixtures are the only
-// source today. League Events, deadlines and gates (not built yet) plug in as further sources with their own `type`;
-// the views draw every type the same way and read only the fields below, so a new source needs no view change.
+// Events come from SOURCES: a source turns what a read already carries into CalendarItems. Fixtures (the season read) and
+// League Events (leagues/leagueEvents.ts leagueEventItems, league-wide) are sources today; gates have a typed source that
+// returns nothing yet (leagueEvents.ts gateItems), and deadlines can follow. The views read only the fields below; an item
+// whose target is "dialog" opens the event dialog instead of a page.
 
 import { fixturePlayed } from "./league";
 import { leagueLobbyPath } from "./lobby";
@@ -39,7 +40,7 @@ export function saveCalendarView(storage: () => Pick<Storage, "setItem"> | undef
 
 // ---- items ----------------------------------------------------------------------------------------------------------
 
-/** What an item is. Only "fixture" has a source today; the rest are the extension point (see calendarItems). */
+/** What an item is: fixtures and League Events have sources; "gate" has an empty typed source; "deadline" is still open. */
 export type CalendarEventType = "fixture" | "league-event" | "deadline" | "gate";
 export type CalendarItemState = "played" | "agreed" | "scheduled";
 
@@ -64,9 +65,12 @@ export interface CalendarItem {
   state: CalendarItemState;
   /** The line under the title ("Round 3", "Playoffs · Round 1"). */
   detail: string;
-  /** SPA path of the related item (router-relative) and what it is. */
+  /** SPA path of the related item (router-relative) and what it is; "dialog" (League Events) opens the event dialog, `to` "". */
   to: string;
-  target: "game" | "summary";
+  target: "game" | "summary" | "dialog";
+  /** League Events: the event and the occurrence (its local start key) the item stands for. */
+  eventId?: string;
+  occurrence?: string;
   /** Accessible name of the link. */
   label: string;
 }
@@ -157,7 +161,7 @@ export function undatedFixtures(fixtures: readonly LeagueFixture[], ctx: Calenda
   return fixtures.length - fixtureItems(fixtures, ctx).length;
 }
 
-/** Every source's items, sorted by day, then all-day first, then start time. Add League Events, deadlines and gates here. */
+/** Every source's items, sorted by day, then all-day first, then start time (fixtures, League Events, gates, ...). */
 export function calendarItems(sources: readonly CalendarSource[], ctx: CalendarContext): CalendarItem[] {
   return sources.flatMap((s) => s(ctx)).sort(byWhen);
 }

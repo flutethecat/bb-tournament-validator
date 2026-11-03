@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-03",
+    "title": "League Events: league nights and other events on the calendar",
+    "body": "Organisers add league nights, drafts, tournament days and socials in League management, Schedule, with weekly or every-few-weeks repeats in the league's time zone. They show on the league Calendar, coaches get a note (and a reminder the day before), the league's Discord gets a \"New league event\" post, and with the Super FUMBBL bot in your server each event can also be a Discord event.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-03",
     "title": "Random skills and characteristic rolls on the team page",
     "body": "In season, a player's + menu now offers a Random Primary skill (pick a category, two big D6 roll the table twice, rerolls shown, and you keep one) and Advance Characteristic, where a big D8 rolls and settles before the characteristics it allows appear, with Choose Skill as the alternative. The server rolls, the dice log and the team history record every roll, and a roll waiting for its pick comes back unchanged when you reopen the menu. Organisers can roll on a coach's behalf in Edit mode.",
     "links": [

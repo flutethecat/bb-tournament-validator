@@ -364,6 +364,8 @@ import { canSeeTournament, hiddenTournamentPath, testSessionTournamentRefusal } 
 import { isLeagueOrganiser, LeagueStore } from "./leagues/store.js";
 import { myLeagueDeadlines, myLeagues } from "./leagues/myLeagues.js";
 import { runDeadlineJob } from "./leagues/deadlines.js";
+import { createDiscordSyncRunner, runLeagueEventReminders, type LeagueEventsDeps } from "./leagues/leagueEvents.js";
+import { createGuildEventsClient } from "./discord/scheduledEvents.js";
 import { runRedraftWindowJob } from "./leagues/redraftWindow.js";
 import { createLeagueForkClient } from "./leagues/forkClient.js";
 import { syncLeagueForkResults } from "./leagues/forkPlay.js";
@@ -1006,6 +1008,21 @@ const discordReach = createDiscordReach({
   dmOn: (coach) => mail.prefs.get(coach).discordDm?.on ?? true,
   dmAvailable: () => mail.discordEnabled(),
 });
+// League Events (src/leagues/leagueEvents.ts): inbox reminders 24 h before (once per occurrence, written before anyone is
+// told) and, with DISCORD_BOT_TOKEN set, the Discord scheduled events (src/discord/scheduledEvents.ts; retried with backoff,
+// never in a request). The token is read here only; nothing logs it.
+const leagueEventsGuild = process.env.DISCORD_BOT_TOKEN?.trim() ? createGuildEventsClient({ token: process.env.DISCORD_BOT_TOKEN.trim() }) : undefined;
+const leagueEventsSync = createDiscordSyncRunner({ store: leagueStore, guild: leagueEventsGuild, log: (line) => console.error(line) });
+const leagueEventsDeps: LeagueEventsDeps = { guild: leagueEventsGuild, clientId: process.env.DISCORD_CLIENT_ID, kick: leagueEventsSync.kick };
+const leagueEventsTick = (): void => {
+  try {
+    const out = runLeagueEventReminders({ store: leagueStore, notify: leagueNotify });
+    if (out.reminded.length) console.log(`[league-events] reminders sent: ${out.reminded.length}`);
+  } catch (e) { console.error(`[league-events] reminder job failed: ${(e as Error).message}`); }
+  leagueEventsSync.kick();
+};
+setTimeout(leagueEventsTick, 11_000).unref();
+setInterval(leagueEventsTick, 60_000).unref();
 function discordApiDeps() {
   return { leagues: leagueStore, tournaments: tournamentStore, state: discordState, observer: discordObserver, clientId: process.env.DISCORD_CLIENT_ID };
 }
@@ -2549,6 +2566,7 @@ async function handleApi(
       // a finished league game links its game page only once the results store can serve it (Calendar, Sol 11-03)
       gamePage: (gameId) => { try { return onlineGamePageServes(gameId, tournamentResults.get(gameId)); } catch { return false; } },
       diceLog,
+      leagueEvents: leagueEventsDeps,
     });
     if (league) {
       for (const [name, value] of Object.entries(league.headers ?? {})) res.setHeader(name, value);

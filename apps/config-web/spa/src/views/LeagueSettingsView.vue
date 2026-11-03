@@ -4,7 +4,7 @@
 // of yours" note (the server answers 403 and decides). The groups are a left sub-nav: Administration, Information,
 // Registrations, Team building, Inducements, Redraft (the budget formula and the organiser Redraft board, owner 11-02),
 // External connections (panels with their own Save, PATCH
-// /api/leagues/:id/settings sections), Participants (the season's participant flags, moved from the league page) and
+// /api/leagues/:id/settings sections), Schedule (League Events and, later, gates on one timeline), Participants (the season's participant flags, moved from the league page) and
 // Artwork (the league logo and header bar, moved from the league Overview).
 import { computed, inject, onMounted, provide } from "vue";
 import { usePageTitle } from "../shell/pageTitle";
@@ -24,6 +24,7 @@ import LeagueSettingsRegistrations from "../components/LeagueSettingsRegistratio
 import LeagueSettingsTeamBuilding from "../components/LeagueSettingsTeamBuilding.vue";
 import LeagueSettingsRedraft from "../components/LeagueSettingsRedraft.vue";
 import LeagueRedraftMine from "../components/LeagueRedraftMine.vue";
+import LeagueSchedule from "../components/LeagueSchedule.vue";
 import { followSeasons } from "../leagues/followSeasons";
 import { createLeagueDetail, LEAGUE_DETAIL_KEY, pickSeason } from "../leagues/league";
 import { createLeagueSettings, isSettingsTab, LEAGUE_SETTINGS_KEY, SETTINGS_TABS, type SettingsTab } from "../leagues/settings";
@@ -41,13 +42,14 @@ provide(LEAGUE_DETAIL_KEY, detail);
 
 /** The management groups: the settings tabs, then the season's Registrations (lane L6: entries to decide), and the two
  *  that moved here from the league page. */
-type ManageGroup = SettingsTab | "entries" | "participants" | "artwork";
+type ManageGroup = SettingsTab | "schedule" | "entries" | "participants" | "artwork";
+const EXTRA = ["schedule", "entries", "participants", "artwork"] as const;
 const GROUPS: ReadonlyArray<{ id: ManageGroup; label: string }> = [
-  ...SETTINGS_TABS, { id: "entries", label: "Registrations" }, { id: "participants", label: "Participants" }, { id: "artwork", label: "Artwork" },
+  ...SETTINGS_TABS, { id: "schedule", label: "Schedule" }, { id: "entries", label: "Registrations" }, { id: "participants", label: "Participants" }, { id: "artwork", label: "Artwork" },
 ];
 const tab = computed<ManageGroup>(() => {
   const q = route.query.tab;
-  return isSettingsTab(q) ? q : q === "entries" || q === "participants" || q === "artwork" ? q : "administration";
+  return isSettingsTab(q) ? q : (EXTRA as readonly unknown[]).includes(q) ? (q as ManageGroup) : "administration";
 });
 const tabQuery = (t: ManageGroup): Record<string, string> => {
   const q: Record<string, string> = typeof route.query.season === "string" ? { season: route.query.season } : {};
@@ -97,6 +99,7 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} settings` : ""));
       <LeagueSettingsTeamBuilding v-else-if="tab === 'team-building'" />
       <LeagueSettingsInducements v-else-if="tab === 'inducements'" />
       <LeagueSettingsRedraft v-else-if="tab === 'redraft'" :league-id="id" />
+      <LeagueSchedule v-else-if="tab === 'schedule'" :league-id="id" :seasons="state.seasons" />
       <template v-else-if="tab === 'entries'">
         <LeagueRegistrations v-if="season" :league-id="id" :season-id="season.id" :season-name="season.name" />
         <p v-else class="hm-empty" role="status">Loading the seasons...</p>

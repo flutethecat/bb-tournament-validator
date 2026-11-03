@@ -66,7 +66,7 @@ const active = computed<SectionActive>(() => props.active ?? activeTab("league",
 const model = computed<SectionHeaderModel | null>(() => {
   const league = state.league;
   if (!ready.value || !league) return null;
-  const facts = leagueFacts({ seasons: state.seasons, current: current.value ?? null, season: record.value ?? null });
+  const facts = leagueFacts({ seasons: state.seasons, current: current.value ?? null, season: record.value ?? null, events: state.events?.length ?? 0 });
   const owner = props.crumbOwner ?? (active.value === "manage" ? undefined : active.value);
   return {
     kind: "league",
