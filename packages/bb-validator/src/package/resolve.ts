@@ -324,6 +324,9 @@ export function loadPackage(
   if (chainFormat(raw, opts?.resolveExtends) === "sevens") pkg = mergePackages(pkg, JSON.parse(JSON.stringify(SEVENS_PROFILE)) as DeepPartial<TournamentPackage>);
   if (base) pkg = mergePackages(pkg, base);
   pkg = mergePackages(pkg, raw);
+  // Visibility is the package's OWN field, never inherited: a published child of a draft base is published (its resolved
+  // rules include the base's, which the organiser chose to publish through it); the draft base itself stays hidden.
+  if (raw.visibility === undefined) { const { visibility: _v, ...rest } = pkg; pkg = rest as TournamentPackage; }
   const knobs = checkExtraKnobs(pkg);
   pkg = knobs.pkg;
   problems.push(...knobs.problems);

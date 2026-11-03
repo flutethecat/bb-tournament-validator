@@ -64,61 +64,86 @@ export function rulesChangeNews(message: string, diff: readonly string[], afterS
   return { title: afterStart ? "Rules changed during play" : "Rules changed", body: rulesChangeBody(message, diff) };
 }
 
-/** One organiser's change as the coaches hear about it. */
+/** One organiser's change as the coaches hear about it. `from` / `to` are the settings before and after it, so a combined
+ *  notice can describe the net change of a whole window. */
 export interface RulesNotice {
   message: string;
   diff: string[];
   afterStart: boolean;
   actor: string;
+  from?: RulesState;
+  to?: RulesState;
 }
 
-/** What goes out: the change(s) combined; `count` = how many changes it covers. */
-export type RulesNoticeSender = (notice: RulesNotice & { count: number }) => void;
+/** What goes out: the change(s) combined; `count` = how many changes it covers; `messages` = every organiser message. */
+export type RulesNoticeSender = (notice: RulesNotice & { count: number; messages: string[] }) => void;
 
 export const RULES_NOTICE_WINDOW_MS = 10 * 60 * 1000;
+export const NO_NET_CHANGE = "No setting differs overall: the later changes undid the earlier ones.";
+
+interface NoticeWindow {
+  until: number;
+  pending: RulesNotice[];
+  send: RulesNoticeSender;
+  diffOf?: (from: RulesState, to: RulesState) => string[];
+}
 
 /**
  * Coalesces rules-change notices per competition (Sol P2): the first change in a quiet competition goes out at once; every
- * later change within the window is held and goes out as ONE combined notice (all the organisers' messages, every changed
- * setting) when the window closes. So a burst of edits sends each coach at most one inbox note, one Discord DM and one news
- * post per window. Held notices live in memory: a restart inside a window drops them (re-validation already happened).
+ * later change within the window is held and goes out as ONE combined notice when the window closes: every organiser
+ * message, and the NET change from the first held change's starting settings to the latest settings (so A->B, B->A, A->B
+ * reads A->B). A change arriving after a window expired first flushes anything still held, then starts a new window, so
+ * nothing is dropped. A burst of edits sends each coach at most one note, one DM and one news post per window. Held notices
+ * live in memory: a restart inside a window drops them (re-validation already happened).
  */
 export class RulesChangeCoalescer {
-  private readonly open = new Map<string, { until: number; pending: RulesNotice[]; send: RulesNoticeSender }>();
+  private readonly open = new Map<string, NoticeWindow>();
   constructor(
     private readonly windowMs = RULES_NOTICE_WINDOW_MS,
     private readonly schedule: (fn: () => void, ms: number) => void = (fn, ms) => { const t = setTimeout(fn, ms); (t as { unref?: () => void }).unref?.(); },
     private readonly clock: () => number = () => Date.now(),
   ) {}
 
-  /** "sent" = went out now; "held" = joins the combined notice at the end of the window. */
-  submit(key: string, notice: RulesNotice, send: RulesNoticeSender): "sent" | "held" {
+  /** "sent" = went out now; "held" = joins the combined notice at the end of the window. `diffOf` builds a net change. */
+  submit(key: string, notice: RulesNotice, send: RulesNoticeSender, diffOf?: (from: RulesState, to: RulesState) => string[]): "sent" | "held" {
     const w = this.open.get(key);
     if (w && this.clock() < w.until) {
       w.pending.push(notice);
       w.send = send;
+      if (diffOf) w.diffOf = diffOf;
       return "held";
     }
-    this.start(key, send);
-    send({ ...notice, count: 1 });
+    // An expired window (its timer not run yet) sends what it holds first.
+    if (w) this.flush(key, false);
+    this.start(key, send, diffOf);
+    send({ ...notice, count: 1, messages: notice.message ? [notice.message] : [] });
     return "sent";
   }
 
   /** Close the window: send the held changes as one notice (and keep throttling for another window if it sent). */
-  flush(key: string): void {
+  flush(key: string, reopen = true): void {
     const w = this.open.get(key);
     this.open.delete(key);
     if (!w || !w.pending.length) return;
-    const diff: string[] = [];
-    for (const n of w.pending) for (const line of n.diff) if (!diff.includes(line)) diff.push(line);
-    const message = w.pending.map((n) => n.message).filter(Boolean).join("\n\n");
-    this.start(key, w.send);
-    w.send({ message, diff, afterStart: w.pending.some((n) => n.afterStart), actor: w.pending[w.pending.length - 1]!.actor, count: w.pending.length });
+    const first = w.pending[0]!;
+    const last = w.pending[w.pending.length - 1]!;
+    let diff: string[];
+    if (w.diffOf && first.from && last.to) {
+      diff = w.diffOf(first.from, last.to);
+      if (!diff.length) diff = [NO_NET_CHANGE];
+    } else {
+      diff = [];
+      for (const n of w.pending) for (const line of n.diff) if (!diff.includes(line)) diff.push(line);
+    }
+    const messages = w.pending.map((n) => n.message).filter(Boolean);
+    if (reopen) this.start(key, w.send, w.diffOf);
+    w.send({ message: messages.join("\n\n"), messages, diff, afterStart: w.pending.some((n) => n.afterStart), actor: last.actor, count: w.pending.length, ...(first.from ? { from: first.from } : {}), ...(last.to ? { to: last.to } : {}) });
   }
 
-  private start(key: string, send: RulesNoticeSender): void {
-    this.open.set(key, { until: this.clock() + this.windowMs, pending: [], send });
-    this.schedule(() => this.flush(key), this.windowMs);
+  private start(key: string, send: RulesNoticeSender, diffOf?: NoticeWindow["diffOf"]): void {
+    const at = this.clock();
+    this.open.set(key, { until: at + this.windowMs, pending: [], send, ...(diffOf ? { diffOf } : {}) });
+    this.schedule(() => { const w = this.open.get(key); if (w && w.until === at + this.windowMs) this.flush(key); }, this.windowMs);
   }
 }
 

@@ -28,6 +28,8 @@ import { ChangeMessageError, CONFIRM_AFTER_START_TOURNAMENT, parseChangeMessage,
 
 /** A package name as the change list prints it. */
 const rulesetLabel = (name: string): string => name || "no ruleset";
+/** The net change of a window of rules changes (first starting settings -> latest settings). */
+const tournamentNetDiff = (from: RulesState, to: RulesState): string[] => rulesChangeDiff("tournament", from, to, rulesetLabel);
 import { myTournamentAwards, tournamentHonoursRoutes } from "./honours.js";
 import type { StoredTournamentResult } from "../tournamentResults.js";
 import { canonicalNafId } from "../auth/identitiesStore.js";
@@ -556,7 +558,7 @@ function logRulesChange(deps: TournamentApiDeps, tournament: TournamentRecord, m
  * changed), and tell each coach whose roster is now invalid that it needs changes (inbox + DM). A draft (unpublished)
  * tournament notifies nobody.
  */
-function applyRulesChange(deps: TournamentApiDeps, tournament: TournamentRecord, message: string, diff: readonly string[], afterStart: boolean, actor: string, now: Date, enforced: boolean): TournamentRecord {
+function applyRulesChange(deps: TournamentApiDeps, tournament: TournamentRecord, message: string, diff: readonly string[], afterStart: boolean, actor: string, now: Date, enforced: boolean, from: RulesState, to: RulesState): TournamentRecord {
   let updated = tournament;
   // Only a change to what the validator enforces (the package, the PtN ban, the stat caps) re-checks rosters, and only the
   // SUBMITTED snapshots: a display-only change never touches a submission. The re-check is immediate.
@@ -573,7 +575,7 @@ function applyRulesChange(deps: TournamentApiDeps, tournament: TournamentRecord,
   }
   // The news post, the notes and the DMs are coalesced per tournament (a burst of edits = one combined notice per window).
   const coalescer = deps.rulesNotices ?? rulesNotices;
-  coalescer.submit(`tournament:${updated.id}`, { message, diff: [...diff], afterStart, actor }, (n) => announceRulesChange(deps, updated.id, n, deps.now?.() ?? new Date()));
+  coalescer.submit(`tournament:${updated.id}`, { message, diff: [...diff], afterStart, actor, from, to }, (n) => announceRulesChange(deps, updated.id, n, deps.now?.() ?? new Date()), tournamentNetDiff);
   return deps.store.tournament(updated.id) ?? updated;
 }
 
@@ -1512,11 +1514,11 @@ export async function tournamentApi(
       let recheck: ReturnType<typeof validationTable> | undefined;
       if (rulesDiff.length && registered.length) {
         const enforced = rulesBefore.packageName !== rulesAfter.packageName || houseRulesStamp(rulesBefore.houseRules) !== houseRulesStamp(rulesAfter.houseRules);
-        tournament = applyRulesChange(deps, tournament, changeMessage, rulesDiff, afterStart, identity.coach, now, enforced);
+        tournament = applyRulesChange(deps, tournament, changeMessage, rulesDiff, afterStart, identity.coach, now, enforced, rulesBefore, rulesAfter);
         recheck = validationTable(deps.store.entrants(tournamentId), deps);
       } else if (rulesDiff.length && afterStart) {
         // No registered coach to tell, but a change during play is still logged in the news.
-        (deps.rulesNotices ?? rulesNotices).submit(`tournament:${tournament.id}`, { message: "", diff: rulesDiff, afterStart: true, actor: identity.coach }, (n) => announceRulesChange(deps, tournament.id, n, deps.now?.() ?? new Date()));
+        (deps.rulesNotices ?? rulesNotices).submit(`tournament:${tournament.id}`, { message: "", diff: rulesDiff, afterStart: true, actor: identity.coach, from: rulesBefore, to: rulesAfter }, (n) => announceRulesChange(deps, tournament.id, n, deps.now?.() ?? new Date()), tournamentNetDiff);
         tournament = deps.store.tournament(tournament.id) ?? tournament;
       }
       return {

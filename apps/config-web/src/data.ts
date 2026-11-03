@@ -184,7 +184,9 @@ interface PackageEntry {
   text: string;
 }
 
-const canonical = (name: unknown): string => String(name ?? "").trim().toLowerCase();
+const canonical = (name: unknown): string => String(name ?? "").normalize("NFC").trim().toLowerCase();
+/** The key a package name is matched by (save, replace, extends): trimmed, NFC, case-folded. */
+export const packageNameKey = canonical;
 
 /** The file operations a package write uses — injectable so tests can fail a write midway. */
 export interface PackageWriteIo {
@@ -324,6 +326,12 @@ export class PackageFiles {
   getRaw(name: string): { raw: Partial<TournamentPackage>; revision: string } | undefined {
     const found = this.find(name);
     return found ? { raw: JSON.parse(found.text) as Partial<TournamentPackage>, revision: found.revision } : undefined;
+  }
+
+  /** The stored name of the package `name` matches the way save / replace match it (trim, NFC, case), or undefined. */
+  storedName(name: string): string | undefined {
+    const hit = this.byName(name);
+    return hit ? String(hit.raw.name ?? basename(hit.path, ".json")) : undefined;
   }
 
   /** Whether a package with this `extends` name exists. */

@@ -43,11 +43,17 @@ beforeAll(async () => {
   writeFileSync(join(root, "packages", "open-cup.json"), pkg("Open Cup"), "utf8");
   writeFileSync(join(root, "packages", "secret-cup.json"), pkg("Secret Cup", { visibility: "draft" }), "utf8");
   writeFileSync(join(root, "packages", "used-cup.json"), pkg("Used Cup"), "utf8");
+  // a base package used only through a child that extends it, and a published child of the draft "Secret Cup"
+  writeFileSync(join(root, "packages", "base-cup.json"), pkg("Base Cup"), "utf8");
+  writeFileSync(join(root, "packages", "child-cup.json"), JSON.stringify({ name: "Child Cup", extends: "Base Cup", skillAllotment: { skillPointBudget: 0 } }), "utf8");
+  writeFileSync(join(root, "packages", "open-child.json"), JSON.stringify({ name: "Open Child", extends: "Secret Cup", skillAllotment: { skillPointBudget: 0 } }), "utf8");
   // a tournament with a registered coach on "Used Cup" (fake data)
   const store = new TournamentStore(join(root, "tournaments"));
   const at = new Date("2026-11-02T12:00:00Z");
   const t = store.createTournament({ name: "Used Open", packageName: "Used Cup", maxPlayers: 8, format: "swiss", organizerCoachId: "Org", roundCount: 3 }, at);
   store.registerEntrant(t.id, { coachId: "Ann", ffbCoachId: "Ann", verifiedAt: at.toISOString() }, "team-ann", at);
+  const c = store.createTournament({ name: "Child Open", packageName: "Child Cup", maxPlayers: 8, format: "swiss", organizerCoachId: "Org", roundCount: 3 }, at);
+  store.registerEntrant(c.id, { coachId: "Bea", ffbCoachId: "Bea", verifiedAt: at.toISOString() }, "team-bea", at);
   ({ server } = await import("../src/server.js"));
   if (!server.listening) await once(server, "listening");
   origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -106,6 +112,14 @@ describe("GET /api/ruleset-summary", () => {
     expect(withTraits.traits.some((t) => t.name === "Loner")).toBe(true);
   });
 
+  it("visibility is the package's own: a published child of a draft base is served and listed; the base stays hidden", async () => {
+    expect((await get("/api/fork/team-builder/tiers?packageName=Open%20Child")).status).toBe(200);
+    expect((await get("/api/packages/Open%20Child")).status).toBe(200);
+    const list = (await (await get("/api/packages")).json()) as Array<{ name: string }>;
+    expect(list.map((p) => p.name)).toContain("Open Child");
+    expect((await get("/api/packages/Secret%20Cup")).status).toBe(404);
+    expect((await get("/api/ruleset-summary?package=Open%20Child")).status).toBe(200);
+  });
   it("every package resolver hides a draft: team-builder tiers, limits and inducements answer as unknown for the public", async () => {
     for (const route of ["tiers", "limits", "inducements"]) {
       expect((await get(`/api/fork/team-builder/${route}?packageName=Secret%20Cup`)).status, route).toBe(400);
@@ -127,6 +141,19 @@ describe("Creator saves of a ruleset in use", () => {
     const body = (await res.json()) as { error: string; inUse: string[] };
     expect(body.inUse).toEqual(["Used Open"]);
     expect(body.error).toContain("switch the competition");
+  });
+  it("normalises the replace name before the check (a trailing space is the same package)", async () => {
+    const { revision } = (await (await get("/api/packages/Used%20Cup", basic)).json()) as { revision: string };
+    const res = await fetch(`${origin}/api/packages?replace=Used%20Cup%20`, { method: "POST", headers: { ...basic, "content-type": "application/json", "x-cw-auth": "1", "if-match": revision }, body: JSON.stringify({ ...current, goldBudget: 900_000 }) });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { inUse: string[] }).inUse).toEqual(["Used Open"]);
+  });
+  it("refuses a rules edit to a BASE package that an in-use package extends", async () => {
+    const { revision } = (await (await get("/api/packages/Base%20Cup", basic)).json()) as { revision: string };
+    const base = JSON.parse(pkg("Base Cup")) as Record<string, unknown>;
+    const res = await fetch(`${origin}/api/packages?replace=Base%20Cup`, { method: "POST", headers: { ...basic, "content-type": "application/json", "x-cw-auth": "1", "if-match": revision }, body: JSON.stringify({ ...base, goldBudget: 900_000 }) });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { inUse: string[] }).inUse).toEqual(["Child Open"]);
   });
   it("lets a notes-only edit (description, rules note, visibility) through", async () => {
     const res = await post({ ...current, description: "Clarified wording.", dataNote: "Hand-check nothing." });

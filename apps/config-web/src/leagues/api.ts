@@ -843,12 +843,12 @@ function patchSettings(league: LeagueRecord, who: LeagueApiIdentity, input: Reco
   }, now);
   if (rulesDiff.length && current && (coaches.length || started)) {
     // Coalesced per league: a burst of edits = one combined news post, note and DM per window.
-    (deps.rulesNotices ?? rulesNotices).submit(`league:${updated.id}`, { message: changeMessage, diff: rulesDiff, afterStart: started, actor: who.coach }, (n) => {
+    (deps.rulesNotices ?? rulesNotices).submit(`league:${updated.id}`, { message: changeMessage, diff: rulesDiff, afterStart: started, actor: who.coach, from: rulesBefore, to: rulesAfter }, (n) => {
       const lg = deps.store.league(updated.id);
       const season = lg ? deps.store.seasons(lg.id)[0] : undefined;
       if (!lg || !season) return;
       announceRulesChange(lg, season, n.message, n.diff, n.afterStart, seasonStage(season) !== "completed" ? seasonCoaches(season) : [], n.actor, n.count, deps, deps.now?.() ?? new Date());
-    });
+    }, (a, b) => rulesChangeDiff("league", a, b, (x) => x || "BB2025"));
   }
   return { status: 200, body: { ok: true, settings: view(updated, who, deps, team?.seasonId), ...(rulesDiff.length ? { changes: rulesDiff } : {}) } };
 }

@@ -101,6 +101,7 @@ import {
 } from "@bb/fork-ops";
 import {
   PackageFiles,
+  packageNameKey,
   readCoachRegistry,
   readCoaches,
   searchStoredAdminTeams,
@@ -1666,14 +1667,26 @@ function composeFromBody(teamsDir: string, body: TeamBuilderBody, rosterXml?: st
  *  already under way, and leagues on it whose current season has coaches. */
 function packageUsers(name: string): string[] {
   const out: string[] = [];
+  const want = packageNameKey(name);
+  // A competition's package uses `name` when it IS it or extends it, directly or through other packages.
+  const uses = (pkgName: string | undefined): boolean => {
+    const seen = new Set<string>();
+    let at = pkgName;
+    while (at && !seen.has(packageNameKey(at))) {
+      if (packageNameKey(at) === want) return true;
+      seen.add(packageNameKey(at));
+      try { at = packages.getRaw(at)?.raw.extends; } catch { return false; }
+    }
+    return false;
+  };
   try {
     for (const t of tournamentStore.tournaments(["draft", "active"])) {
-      if (t.packageName !== name) continue;
+      if (!uses(t.packageName)) continue;
       const entrants = tournamentStore.entrants(t.id).filter((e) => e.droppedAt === undefined).length;
       if (entrants > 0 || t.status !== "draft") out.push(t.name);
     }
     for (const l of leagueStore.list()) {
-      if (l.rulesetPackage !== name) continue;
+      if (!uses(l.rulesetPackage)) continue;
       const season = leagueStore.seasons(l.id)[0];
       if (season && season.status !== "completed" && (season.teams?.length ?? 0) > 0) out.push(l.name);
     }
@@ -3420,7 +3433,9 @@ async function handleApi(
     // change has to go through the competition's own settings, which ask for the coaches' message, notify them, log the
     // news and re-check rosters (creation wizards v2 Q2). Notes-only edits (description, rules note, date, visibility) pass.
     if (path === "/api/packages" && method === "POST" && body && typeof body === "object") {
-      const target = query.get("replace") ?? (typeof (body as { name?: unknown }).name === "string" ? (body as { name: string }).name.trim() : "");
+      // The target as save() will match it (trim, NFC, case): "Used Cup " is "Used Cup".
+      const asked = query.get("replace") ?? (typeof (body as { name?: unknown }).name === "string" ? (body as { name: string }).name : "");
+      const target = asked.trim() ? packages.storedName(asked) ?? "" : "";
       const users = target ? packageUsers(target) : [];
       if (users.length && !notesOnlyPackageEdit(target, body as Record<string, unknown>))
         return sendJson(res, 409, {

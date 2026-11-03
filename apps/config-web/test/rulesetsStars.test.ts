@@ -15,7 +15,7 @@ import { PackageFiles } from "../src/data.js";
 import { packagesApi } from "../src/packagesApi.js";
 import { rulesetSummary } from "../src/rulesetSummary.js";
 import { parseHouseRules } from "../src/competition/houseRules.js";
-import { CHANGE_MESSAGE_MAX, parseChangeMessage, RULES_NOTICE_WINDOW_MS, RulesChangeCoalescer, rulesChangeDiff } from "../src/competition/rulesChange.js";
+import { CHANGE_MESSAGE_MAX, NO_NET_CHANGE, parseChangeMessage, RULES_NOTICE_WINDOW_MS, RulesChangeCoalescer, rulesChangeDiff } from "../src/competition/rulesChange.js";
 import { tournamentApi, type TournamentApiDeps, type TournamentApiIdentity } from "../src/tournaments/api.js";
 import { TournamentStore } from "../src/tournaments/store.js";
 import type { TournamentSubmission } from "../src/tournaments/types.js";
@@ -479,5 +479,52 @@ describe("review fixes: BB2025 matched play enforcement", () => {
     expect(validate(withStars([star.name]), pkg, bb2025).errors.map((e) => e.ruleId)).not.toContain("skill-packages");
     expect(errs.map((e) => e.ruleId)).toContain("skill-packages");
     expect(JSON.stringify(errs)).toContain("≤1 star");
+  });
+});
+
+describe("review round 2: notice coalescing and inherited visibility", () => {
+  const hr = (rules: Record<string, unknown>) => parseHouseRules(rules, "tournament");
+  const state = (brutes: "on" | "off" | "ruleset") => ({ packageName: "Rules", houseRules: hr({ brawlingBrutes: brutes }) });
+  const net = (a: ReturnType<typeof state>, b: ReturnType<typeof state>) => rulesChangeDiff("tournament", a, b);
+  it("a change after an expired window first sends what was held (A sent, B held, C late: B is never lost)", () => {
+    let t = 0;
+    const timers: Array<() => void> = [];
+    const c = new RulesChangeCoalescer(1000, (fn) => void timers.push(fn), () => t);
+    const out: Array<{ messages: string[]; diff: string[] }> = [];
+    const send = (n: { messages: string[]; diff: string[] }) => void out.push({ messages: n.messages, diff: n.diff });
+    expect(c.submit("k", { message: "A", diff: ["a"], afterStart: false, actor: "o", from: state("ruleset"), to: state("on") }, send, net)).toBe("sent");
+    t = 500;
+    expect(c.submit("k", { message: "B", diff: ["b"], afterStart: false, actor: "o", from: state("on"), to: state("off") }, send, net)).toBe("held");
+    t = 1500; // the window expired but its timer has not run
+    expect(c.submit("k", { message: "C", diff: ["c"], afterStart: false, actor: "o", from: state("off"), to: state("on") }, send, net)).toBe("sent");
+    expect(out.map((o) => o.messages)).toEqual([["A"], ["B"], ["C"]]);
+    // the stale timer of the first window finds a newer window and does nothing
+    timers[0]!();
+    expect(out).toHaveLength(3);
+  });
+  it("the combined notice reports the NET change of the window and lists every message", () => {
+    let t = 0;
+    const timers: Array<() => void> = [];
+    const c = new RulesChangeCoalescer(1000, (fn) => void timers.push(fn), () => t);
+    const out: Array<{ messages: string[]; diff: string[]; count: number }> = [];
+    const send = (n: { messages: string[]; diff: string[]; count: number }) => void out.push({ messages: n.messages, diff: n.diff, count: n.count });
+    c.submit("k", { message: "start", diff: [], afterStart: false, actor: "o", from: state("ruleset"), to: state("off") }, send, net);
+    t = 100; c.submit("k", { message: "to on", diff: [], afterStart: false, actor: "o", from: state("off"), to: state("on") }, send, net);
+    t = 200; c.submit("k", { message: "back off", diff: [], afterStart: false, actor: "o", from: state("on"), to: state("off") }, send, net);
+    t = 300; c.submit("k", { message: "on again", diff: [], afterStart: false, actor: "o", from: state("off"), to: state("on") }, send, net);
+    t = 1000; timers[0]!();
+    expect(out[1]).toEqual({ messages: ["to on", "back off", "on again"], diff: ["Brawling Brutes: Off → On"], count: 3 });
+    // changes undone inside the window: says so instead of an empty list
+    t = 1100; c.submit("k", { message: "off", diff: [], afterStart: false, actor: "o", from: state("on"), to: state("off") }, send, net);
+    t = 1200; c.submit("k", { message: "on", diff: [], afterStart: false, actor: "o", from: state("off"), to: state("on") }, send, net);
+    t = 2000; timers[1]!();
+    expect(out[2]!.diff).toEqual([NO_NET_CHANGE]);
+  });
+  it("visibility is never inherited: a child without its own field over a draft base is published", () => {
+    const base = { name: "Draft Base", visibility: "draft", skillAllotment: { skillPointBudget: 0 } };
+    const child = loadPackage({ name: "Child", extends: "Draft Base", skillAllotment: { skillPointBudget: 0 } } as never, { resolveExtends: () => base as never }).pkg;
+    expect(child.visibility).toBeUndefined();
+    const draftChild = loadPackage({ name: "Child", extends: "Draft Base", visibility: "draft" } as never, { resolveExtends: () => base as never }).pkg;
+    expect(draftChild.visibility).toBe("draft");
   });
 });
