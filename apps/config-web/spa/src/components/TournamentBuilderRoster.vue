@@ -15,9 +15,27 @@ import { ELITE_ICON, PLAYER_NAME_MAX } from "../teams/builder";
 import TournamentBuilderStats from "./TournamentBuilderStats.vue";
 import TournamentBuilderSkillPicker from "./TournamentBuilderSkillPicker.vue";
 import CustomStarSpecialRules from "./CustomStarSpecialRules.vue";
+import TeamRosterTable from "./TeamRosterTable.vue";
+import { summaryFromBuilder, type RosterCan } from "../teams/summary";
+import { sheetModel } from "../teams/sheetRuleset";
+import "../teams/summary.css";
 
 const builder = inject(TOURNAMENT_BUILDER_KEY)!;
 const { state } = builder;
+
+// ── Cards or Table (team page v2: the table-style roster of the shared team summary); the viewer's pick is remembered ──
+const VIEW_KEY = "sf.builder.rosterView";
+const readView = (): "cards" | "table" => { try { return globalThis.localStorage?.getItem(VIEW_KEY) === "table" ? "table" : "cards"; } catch { return "cards"; } };
+const view = ref<"cards" | "table">("cards");
+onMounted(() => { view.value = readView(); });
+function setView(v: "cards" | "table"): void {
+  view.value = v;
+  try { globalThis.localStorage?.setItem(VIEW_KEY, v); } catch { /* storage blocked: this page only */ }
+}
+const tableRows = computed(() => (view.value === "table" && state.roster ? summaryFromBuilder(sheetModel(builder), {
+  coach: "", teamValue: null, treasury: null, staff: state.staff, tier: "", eliteMark: (k) => builder.eliteMark(k),
+}).rows : []));
+const tableCan = computed<RosterCan>(() => ({ rename: true, fire: true, plus: true, plusFor: (id) => builder.advanceLock(Number(id)).offered, removeSkill: "added" }));
 
 const totals = computed(() => builder.totals());
 /** The Roster header's meta (owner 10-31): "Primary a/N · Secondary b/N", the count alone where no allowance is fixed. */
@@ -215,8 +233,20 @@ function onGripKey(e: KeyboardEvent, index: number): void {
 
 <template>
   <section class="hm-panel tb-panel tb-roster-panel" aria-labelledby="tb-roster-h">
-    <header class="hm-band"><h2 id="tb-roster-h">Roster</h2><span class="hm-cap tb-skill-meta">{{ skillMeta }}</span></header>
+    <header class="hm-band"><h2 id="tb-roster-h">Roster</h2><span class="hm-cap tb-skill-meta">{{ skillMeta }}</span>
+      <span class="sf-tabs tb-view-toggle" role="group" aria-label="Roster view">
+        <button type="button" class="sf-tab" :aria-pressed="view === 'cards' ? 'true' : 'false'" data-roster-view="cards" @click="setView('cards')">Cards</button>
+        <button type="button" class="sf-tab" :aria-pressed="view === 'table' ? 'true' : 'false'" data-roster-view="table" @click="setView('table')">Table</button>
+      </span>
+    </header>
     <p v-if="!state.slots.length" class="hm-empty">Add a player from the hireable players.</p>
+    <!-- Table view (team page v2): the shared team summary's roster table for this team; rename, fire, the "+" and removing
+         added skills work here too. Reordering stays on the cards. -->
+    <div v-else-if="view === 'table'" class="tb-table-view" data-roster-table :style="listMax ? { '--tb-list-max': listMax } : undefined">
+      <TeamRosterTable :rows="tableRows" mode="builder" :season-stats="false" :can="tableCan" label="Roster table"
+        @rename="(id, v) => { if (v) builder.renameSlot(Number(id), v); }" @fire="(id) => builder.removeSlot(Number(id))"
+        @remove-skill="(id, k) => builder.removeSkill(Number(id), k)" @plus="(id, el) => void picker?.openSkill(Number(id), el)" />
+    </div>
     <ol v-else ref="rowsEl" class="tb-rows tb-roster-scroll" :style="listMax ? { maxHeight: listMax } : undefined">
       <li v-for="(s, i) in state.slots" :key="i" :ref="(el) => setRowEl(i, el)" class="tb-row" :data-row="i"
         :class="{ dragging: drag?.from === i, 'drop-mark': drag && drag.to === i && drag.from !== i, captain: captainOn(s), 'tb-row-new': flash === i }">

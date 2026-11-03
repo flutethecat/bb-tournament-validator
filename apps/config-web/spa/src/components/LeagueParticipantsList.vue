@@ -8,6 +8,7 @@
 import { computed, ref } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import CoachProfileDialog from "./CoachProfileDialog.vue";
+import "../teams/summary.css";
 import { crestFor, initials, kValue, teamValueFigures } from "../leagues/league";
 import type { LeagueTeam, SeasonRecord } from "../leagues/types";
 
@@ -18,7 +19,11 @@ const link = (teamId: string) => ({
   params: { id: props.leagueId },
   query: { ...(route.query.season ? { season: String(route.query.season) } : {}), tab: "teams", team: teamId },
 });
-const rows = computed(() => props.season.teams.map((t) => ({ t, crest: crestFor(props.crests, t.race), tv: teamValueFigures(t) })));
+const row = (t: LeagueTeam) => ({ t, crest: crestFor(props.crests, t.race), tv: teamValueFigures(t) });
+// Team page v2: an inactive team (organiser's status cog) is listed apart, under a collapsed "Inactive" group.
+const rows = computed(() => props.season.teams.filter((t) => t.status !== "inactive").map(row));
+const inactiveRows = computed(() => props.season.teams.filter((t) => t.status === "inactive").map(row));
+const showInactive = ref(false);
 const profile = ref<LeagueTeam | null>(null);
 const manageTo = computed(() => ({ name: "league-settings", params: { id: props.leagueId }, query: { tab: "participants", ...(route.query.season ? { season: String(route.query.season) } : {}) } }));
 </script>
@@ -54,6 +59,20 @@ const manageTo = computed(() => ({ name: "league-settings", params: { id: props.
           </tbody>
         </table>
       </div>
+      <template v-if="inactiveRows.length">
+        <h3 class="ts-inactive-h"><button type="button" class="lg-fx-fold" :aria-expanded="showInactive ? 'true' : 'false'" aria-controls="lg-plist-inactive" @click="showInactive = !showInactive">Inactive ({{ inactiveRows.length }}) <i class="tb-acc-chev" aria-hidden="true"></i></button></h3>
+        <div v-if="showInactive" id="lg-plist-inactive" class="lg-scroll" data-inactive-teams>
+          <table class="lg-table lg-plist-table">
+            <thead><tr><th scope="col">Team</th><th scope="col">Race</th><th scope="col">Coach</th></tr></thead>
+            <tbody>
+              <tr v-for="r in inactiveRows" :key="r.t.id" :data-team="r.t.id">
+                <th scope="row" class="lg-team-cell"><RouterLink class="lg-team-name lg-plist-link" :to="link(r.t.id)">{{ r.t.name }}</RouterLink></th>
+                <td>{{ r.t.race }}</td><td>{{ r.t.coach }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
     </section>
     <CoachProfileDialog
       v-if="organiser && profile" :coach="profile.coach" :team="profile.name" :race="profile.race" :league-id="leagueId" :coach-id="profile.coachId"

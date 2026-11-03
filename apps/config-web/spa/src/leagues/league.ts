@@ -203,8 +203,12 @@ export function createLeagueDetail(deps: { api: Fetcher; upload?: RawUploader })
     const i = s.fixtures.findIndex((f) => f.id === res.fixture.id);
     if (i >= 0) s.fixtures[i] = res.fixture; else s.fixtures.push(res.fixture);
   };
+  /** Re-reads one season (team page v2: after a team edit, status change or fixture decision). Keeps the old copy on failure. */
+  async function reloadSeason(seasonId: string): Promise<void> {
+    try { state.season[seasonId] = (await deps.api<{ season: SeasonRecord }>(seasonPath(seasonId))).season; } catch { /* keep */ }
+  }
   return {
-    state, load, ensureSeason,
+    state, load, ensureSeason, reloadSeason,
     postNews: (seasonId: string, input: { title: string; body: string; pinned: boolean }) =>
       edit("news", () => deps.api<{ news: LeagueNewsPost[] }>(`${seasonPath(seasonId)}/news`, { method: "POST", body: input }), putNews(seasonId), "News posted."),
     editNews: (seasonId: string, id: string, patch: { title?: string; body?: string; pinned?: boolean }) =>

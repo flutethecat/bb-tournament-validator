@@ -269,6 +269,10 @@ export interface LeaguePlayer extends PlayerIdentity {
   niggling: number;
   missNextGame: boolean;
   stats: PlayerSeasonStats;
+  /** Seasons the player took part in before this one (server LeaguePlayer.seasonsPlayed; organisers edit it). */
+  seasonsPlayed?: number;
+  /** Injuries recorded on the team page (server teamOps.ts INJURIES keys); `by` only in the coach / organiser view. */
+  injuries?: Array<{ type: string; at: string; by?: string }>;
 }
 
 export interface FormerPlayer extends PlayerIdentity {
@@ -306,6 +310,12 @@ export interface LeagueTeam {
   captainVacant?: true;
   /** Read model, only while vacant: the roster players who may be appointed (server captainApi.ts withCaptainCandidates). */
   captainEligible?: string[];
+  /** Team page v2: absent = active. An inactive team has no standings row and is listed under "Inactive". */
+  status?: "inactive";
+  statusChanged?: { by: string; at: string };
+  /** Team library lane identity (server teamOps.ts): the team, and this season's entry. */
+  teamUid?: string;
+  entryId?: string;
 }
 
 export type HonourValue = number | string | Record<string, number | string>;

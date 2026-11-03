@@ -122,10 +122,12 @@ export interface BuilderBody {
   ignoreLimits?: boolean;
 }
 
-export type BuilderTab = "ruleset" | "roster" | "sheet";
+export type BuilderTab = "ruleset" | "roster" | "summary" | "sheet";
 export const BUILDER_TABS: ReadonlyArray<{ id: BuilderTab; label: string }> = [
   { id: "ruleset", label: "Ruleset" },
   { id: "roster", label: "Roster" },
+  // Team page v2 (league UX pass Q4): the shared team summary, the same component as the league team page.
+  { id: "summary", label: "Summary" },
   { id: "sheet", label: "Sheet" },
 ];
 export const isBuilderTab = (v: unknown): v is BuilderTab => BUILDER_TABS.some((t) => t.id === v);

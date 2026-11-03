@@ -44,6 +44,7 @@ import TournamentBuilderRoster from "../components/TournamentBuilderRoster.vue";
 import TournamentBuilderTeam from "../components/TournamentBuilderTeam.vue";
 import TournamentBuilderValidator from "../components/TournamentBuilderValidator.vue";
 import TournamentBuilderSheet from "../components/TournamentBuilderSheet.vue";
+import TournamentBuilderSummary from "../components/TournamentBuilderSummary.vue";
 import TournamentBuilderLeague from "../components/TournamentBuilderLeague.vue";
 import LeagueSectionHeader from "../components/LeagueSectionHeader.vue";
 import { leaguePackageName, parseLeaguePackageName } from "../../../src/leagueBuilderMarker";
@@ -192,7 +193,7 @@ async function pickPackage(name: string): Promise<void> {
 </script>
 
 <template>
-  <div class="hm-page tm-page tb-page sf-fit" :class="{ 'tb-wide': tab === 'roster' || tab === 'ruleset' }">
+  <div class="hm-page tm-page tb-page sf-fit" :class="{ 'tb-wide': tab === 'roster' || tab === 'ruleset' || tab === 'summary' }">
     <!-- The step tabs live in the shell header (owner 10-31) once mounted on a screen 640 px and wider; until then (and in
          server rendering) they render here. Phones get no tabs at all: the summary bar below returns to Ruleset. -->
     <Teleport to="#sf-header-slot" :disabled="!inHeader">
@@ -241,6 +242,8 @@ async function pickPackage(name: string): Promise<void> {
           <TournamentBuilderValidator />
         </div>
       </div>
+      <!-- Summary (team page v2): the shared team summary, with the hire / staff accordion on its left as on the league team page -->
+      <TournamentBuilderSummary v-else-if="tab === 'summary'" />
       <TournamentBuilderSheet v-else />
     </div>
 

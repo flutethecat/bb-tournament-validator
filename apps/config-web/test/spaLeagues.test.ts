@@ -616,6 +616,9 @@ describe("league routes (server-rendered against a mocked API)", () => {
     const roster = await render("/leagues/tabbl?tab=teams&team=grudge-rollers", loadedDetail());
     expect(roster.html).toContain("Dethirord Slenderstrength");
     expect(roster.html).toContain("Block, Hatred (102)");
+    // team page v2: the shared team summary (the Roster Builder's Summary renders the same component)
+    expect(roster.html).toContain("data-team-summary");
+    expect(roster.html).toContain('class="lg-table lg-players ts-table"');
     expect(roster.html).toContain("885k");
     expect(roster.html).toContain("Left the roster");
     expect(roster.html).toContain("Gone Guy");

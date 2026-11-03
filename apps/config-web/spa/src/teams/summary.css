@@ -1,0 +1,124 @@
+/* The shared team summary (team page v2): TeamSummary.vue + TeamRosterTable.vue, the league team page and the Roster
+   Builder's Summary step. Tokens only (design.md §3); panels and bands are the shared hm-* ones, the table is lg-table. */
+
+.ts-summary { min-width: 0; }
+.ts-band { flex-wrap: wrap; row-gap: 6px; justify-content: flex-start; column-gap: 10px; }
+.ts-band > .hm-cap { margin-left: auto; }
+.ts-band-actions { display: inline-flex; align-items: center; gap: 8px; margin-left: 8px; }
+.ts-cog { display: inline-grid; place-items: center; width: 34px; height: 34px; padding: 0; cursor: pointer;
+  background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface); border: 2px solid var(--sf-panel-line); border-radius: 2px;
+  box-shadow: var(--sf-bevel), 0 2px 0 var(--sf-panel-drop); }
+.ts-cog:hover { border-color: var(--ui-heading); }
+.ts-cog:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.ts-cog img { image-rendering: pixelated; }
+.ts-summary[data-inactive="true"] .ts-facts, .ts-summary[data-inactive="true"] .ts-table { opacity: .85; }
+
+.ts-body { display: grid; gap: 16px; min-width: 0; }
+.ts-left, .ts-main { min-width: 0; }
+.ts-left { display: grid; gap: 8px; align-content: start; }
+@media (min-width: 1100px) {
+  .ts-wide .ts-body { grid-template-columns: minmax(260px, 1fr) minmax(0, 3.2fr); align-items: start; }
+}
+
+/* inputs inside the strip and the table (edit modes) */
+.ts-in { font: inherit; font-size: 14px; color: var(--ui-text); background: var(--ui-surface-2); border: 1px solid var(--sf-panel-line); border-radius: 2px; padding: 2px 6px; min-width: 0; }
+.ts-in:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.ts-in-num { width: 3em; text-align: right; }
+.ts-in-name { display: block; width: 100%; min-width: 150px; max-width: 220px; font-weight: 600; }
+.ts-in-n { width: 3.2em; text-align: right; }
+.ts-in-k { width: 4.4em; text-align: right; }
+.ts-table input[type="number"] { appearance: textfield; -moz-appearance: textfield; }
+.ts-table input[type="number"]::-webkit-inner-spin-button, .ts-table input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.ts-editing td, .ts-editing th { padding-left: 4px; padding-right: 4px; }
+.ts-editing .lg-skills { min-width: 240px; }
+.ts-fact-in { display: inline-flex; align-items: center; gap: 2px; }
+.ts-fact-in .ts-in { width: 6em; }
+.ts-fact-check { display: inline-flex; align-items: center; gap: 6px; }
+.ts-fact-check input, .ts-mng-toggle input { accent-color: var(--ui-primary); }
+
+.ts-table .ts-num { white-space: nowrap; }
+.ts-stepper { display: inline-grid; grid-template-rows: auto auto auto; justify-items: center; gap: 1px; }
+.ts-step { width: 22px; height: 18px; padding: 0; line-height: 1; font: 700 13px/1 var(--sf-band-font); color: var(--ui-text); cursor: pointer;
+  background: var(--ui-surface-2); border: 1px solid var(--sf-panel-line); border-radius: 2px; }
+.ts-step:hover:not(:disabled) { border-color: var(--ui-heading); }
+.ts-step:disabled { opacity: .45; cursor: default; }
+.ts-step:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 1px; }
+.ts-mng-toggle { display: inline-flex; align-items: center; gap: 4px; margin-top: 2px; font: 11px/1.4 var(--sf-band-font); text-transform: uppercase; letter-spacing: .06em; color: var(--ui-muted); }
+.ts-table tr.ts-mng > th small { color: var(--ui-muted); }
+
+.ts-skills .ts-skill { white-space: normal; }
+.ts-editing .ts-skills .ts-skill:has(.ts-chip-x) { display: inline-flex; font-size: 13px; align-items: center; gap: 2px; margin: 0 4px 3px 0; padding: 1px 2px 1px 6px;
+  background: var(--ui-surface-2); border: 1px solid var(--sf-panel-line); border-radius: 2px; }
+.ts-skill.ts-added { color: var(--sf-gold); }
+.ts-chip-x { position: static; }
+.ts-rules { margin: 4px 0 0; padding: 0; list-style: none; font-size: 12px; color: var(--ui-muted); }
+.ts-rules b { color: var(--ui-text); font-weight: 600; }
+
+.ts-act-h, .ts-act { width: 1%; white-space: nowrap; }
+.ts-act { text-align: right; }
+.ts-act > button { display: inline-grid; place-items: center; vertical-align: middle; }
+.ts-act > button + button { margin-left: 6px; }
+.ts-plus { position: static; }
+.ts-fire { position: static; }
+
+.ts-decide { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.ts-rules-line { margin: 0 0 8px; color: var(--ui-muted); }
+.ts-warn { color: var(--ui-muted); margin: 0 0 8px; }
+
+/* left accordion: positions */
+.ts-hire { display: grid; gap: 8px; }
+@media (min-width: 1100px) { .ts-hire.ts-hire-wide { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; } }
+.ts-hire-wide .ts-positions { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+.ts-treasury { margin: 0 0 8px; }
+.ts-treasury b { color: var(--sf-gold); font: 700 15px/1.2 var(--font-heading); }
+.ts-positions { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; max-height: calc(60vh / var(--sf-zoom, 1)); overflow: auto; }
+.ts-position { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; align-items: center; padding: 6px 8px;
+  background: var(--ui-surface-2); border: 1px solid var(--sf-panel-line); border-radius: 2px; }
+.ts-position[data-off="true"] { opacity: .75; }
+.ts-pos-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; }
+.ts-pos-head strong { font: 600 15px/1.3 var(--font-heading); }
+.ts-pos-stats, .ts-pos-skills, .ts-pos-why { grid-column: 1; font-size: 12px; color: var(--ui-muted); }
+.ts-pos-stats { font-variant-numeric: tabular-nums; color: var(--ui-text); }
+.ts-position > .sf-btn { grid-column: 2; grid-row: 1 / span 3; align-self: center; }
+.ts-step-row .tb-step-icon { width: 0; }
+
+/* the + menu */
+.ts-menu-tabs { margin-bottom: 12px; }
+.ts-bandage-tab { display: inline-flex; align-items: center; gap: 6px; }
+.ts-menu-tabs .sf-tab[aria-selected="true"] { color: var(--ui-text-on-primary); background: var(--ui-primary); }
+.ts-ico { flex: none; vertical-align: middle; }
+.ts-adv + .ts-adv { margin-top: 12px; }
+.ts-adv h3 { margin: 0 0 6px; }
+.ts-skill-grid { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; max-height: calc(40vh / var(--sf-zoom, 1)); overflow: auto; }
+.ts-injuries { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.ts-injury { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto auto; gap: 4px 10px; align-items: center; padding: 6px 8px;
+  background: var(--ui-surface-2); border: 1px solid var(--sf-panel-line); border-radius: 2px; }
+.ts-injury-ico { display: grid; place-items: center; color: var(--ui-heading); }
+.ts-injury-ico[data-kind="record"] { color: var(--ui-muted); }
+.ts-injury-who { display: grid; gap: 1px; min-width: 0; }
+.ts-injury-who small { color: var(--ui-muted); font-size: 13px; }
+.ts-injury-mng { font-size: 13px; }
+@media (max-width: 640px) {
+  .ts-injury { grid-template-columns: 28px minmax(0, 1fr); }
+  .ts-injury-mng, .ts-injury > .sf-btn { grid-column: 2; justify-self: start; }
+}
+
+/* status dialog */
+.ts-status-pick { border: 0; margin: 0 0 12px; padding: 0; display: grid; gap: 6px; }
+.ts-bulk { align-items: center; margin: 8px 0; }
+.ts-fixtures select { min-width: 12em; }
+
+/* history */
+.ts-history-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; max-height: calc(40vh / var(--sf-zoom, 1)); overflow: auto; }
+.ts-history-list > li > ul { margin: 2px 0 0; padding-left: 18px; font-size: 14px; }
+.ts-history-head { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ts-history .lg-fx-fold, .ts-inactive-h .lg-fx-fold { display: inline-flex; align-items: center; gap: 8px; }
+.ts-history .tb-acc-chev, .ts-inactive-h .tb-acc-chev { display: inline-block; width: 8px; height: 8px; border-right: 2px solid var(--ui-muted); border-bottom: 2px solid var(--ui-muted); transform: rotate(45deg); }
+.ts-history .lg-fx-fold[aria-expanded="true"] .tb-acc-chev, .ts-inactive-h .lg-fx-fold[aria-expanded="true"] .tb-acc-chev { transform: rotate(-135deg); }
+.ts-inactive-h { margin: 14px 0 6px; font: 13px/1.4 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
+.ts-inactive-h .lg-fx-fold { background: none; border: 0; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; padding: 2px 0; }
+.ts-inactive-h .lg-fx-fold:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+
+/* the Roster Builder's roster step: the table view of the same roster */
+.tb-view-toggle { display: inline-flex; margin-left: 8px; }
+.tb-table-view .ts-table-wrap { max-height: var(--tb-list-max, none); overflow: auto; }

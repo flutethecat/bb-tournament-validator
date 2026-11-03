@@ -579,7 +579,7 @@ describe("tournament builder page (server-rendered)", () => {
     expect(html).not.toContain("tournament-team-builder.html\" class=\"lobby-btn");
     expect(html).not.toContain('<h1 class="hm-title">'); // the page title lives in the shell's header bar
     const tabs = [...html.matchAll(/role="tab" class="tl-seg-btn" data-tab="(\w+)" aria-selected="(\w+)"[^>]*>([^<]+)</g)].map((m) => [m[1], m[2], m[3]]);
-    expect(tabs).toEqual([["ruleset", "false", "Ruleset"], ["roster", "true", "Roster"], ["sheet", "false", "Sheet"]]);
+    expect(tabs).toEqual([["ruleset", "false", "Ruleset"], ["roster", "true", "Roster"], ["summary", "false", "Summary"], ["sheet", "false", "Sheet"]]);
     expect(html).toContain("Test Cup · Human · Tier 1 · TV cap 1,150k");
     expect(between(html, "tb-validator-h")).toContain('class="tv-totals tb-value"');
     expect(between(html, "tb-validator-h")).not.toMatch(/Server preview|Estimate<\/span><\/header>/i); // no meta label on the Validator header
@@ -587,6 +587,29 @@ describe("tournament builder page (server-rendered)", () => {
     expect(html).not.toContain(">Add players</h2>");
     expect(html).toContain('aria-label="Add Human Blitzer, ');
     expect(html).toMatch(/<strong>Blitzer<\/strong>/); // short position name (src/positionNames.ts)
+  });
+
+  it("Summary step (team page v2): the shared team summary (the league team page's component) with the builder's accordion on its left", async () => {
+    const html = await render("/tournament-team-builder?tab=summary", mockFetcher(routes()), (b) => { b.setTeamName("Reavers"); b.addPosition("hlin"); b.addPosition("hlin"); });
+    expect(html).toContain('id="tb-pane-summary"');
+    expect(html).toContain("data-builder-summary");
+    expect(html).toContain("data-team-summary");
+    expect(html).toContain('class="ts-editing lg-table lg-players ts-table"'); // the same table as the league page, coach-editable
+    expect(html).toContain('<h2 id="tb-summary-h">Reavers</h2>');
+    expect(html).toContain('<span class="tb-acc-title">Hireable players</span>'); // the left accordion
+    expect(html.indexOf("tb-acc-title")).toBeLessThan(html.indexOf("ts-table"));
+    expect(html).toContain(">Rerolls</dt>");
+    expect(html).toMatch(/aria-label="Fire [^"]+ #1"/);
+    expect(html).toContain('id="tb-validator-h"');
+    expect(html).not.toContain(">Avail.</th>"); // no season columns on a team being built
+  });
+
+  it("Roster step: Cards (default) or Table: the table is the shared summary's roster table", async () => {
+    const html = await render("/tournament-team-builder?tab=roster", mockFetcher(routes()), (b) => { b.setTeamName("Reavers"); b.addPosition("hlin"); });
+    expect(html).toContain('data-roster-view="cards"');
+    expect(html).toContain('data-roster-view="table"');
+    expect(html).toMatch(/aria-pressed="true" data-roster-view="cards"/);
+    expect(html).toContain('class="tb-rows tb-roster-scroll"'); // the cards stay the default (drag to reorder lives there)
   });
 
   it("the Roster pane: left = the accordion (hireable players, sideline staff, inducements, star players); centre = roster; right = team (save line in its footer), validator (phone order = source order)", async () => {
