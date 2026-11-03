@@ -111,6 +111,8 @@ const menu = ref<{ id: string; initial: "skill" | "injury" | "roll" } | null>(nu
 // Advancement by roll (server teamAdvance.ts): the roll the page just made animates; one reopened later shows settled.
 // "*" while the request is out: whatever roll the answer carries is the fresh one (the view lands before the promise).
 const freshRoll = ref("");
+/** A Random Primary double the server took at once: its logged rolls, played back in the dialog (from the team's dice log). */
+const takenRoll = ref<{ rolls: Array<{ dice: [number, number]; skill: string; rerolled?: true }>; skill: string } | null>(null);
 async function onRoll(kind: "randomPrimary" | "characteristic", category?: string): Promise<void> {
   const id = menu.value?.id;
   if (!id) return;
@@ -118,9 +120,14 @@ async function onRoll(kind: "randomPrimary" | "characteristic", category?: strin
   freshRoll.value = "*";
   const err = await send([op], kind === "randomPrimary" ? "Rolled." : "Rolled the D8.");
   freshRoll.value = err || menu.value?.id !== id ? "" : playerOf(id)?.pendingAdvance?.id ?? ""; // closed meanwhile: settled next time
+  // no pending pick after a random roll = a double, taken at once: play back the roll the server logged
+  const last = ctx.value?.diceLog?.[0];
+  const res = (last?.result ?? {}) as { playerId?: string; forced?: boolean; rolls?: Array<{ dice: [number, number]; skill: string; rerolled?: true }>; picks?: string[] };
+  takenRoll.value = !err && menu.value?.id === id && kind === "randomPrimary" && !playerOf(id)?.pendingAdvance && last?.kind === "advance-skill" && res.playerId === id && res.forced
+    ? { rolls: res.rolls ?? [], skill: res.picks?.[0] ?? "" } : null;
 }
 /** Closing the dialog ends the "just rolled" state: a pending roll seen again later is shown settled, never replayed. */
-function closeMenu(): void { menu.value = null; freshRoll.value = ""; }
+function closeMenu(): void { menu.value = null; freshRoll.value = ""; takenRoll.value = null; }
 async function onResolve(rollId: string, choice: AdvanceChoice): Promise<void> {
   const id = menu.value?.id;
   if (!id) return;
@@ -225,7 +232,7 @@ const COG_ICON = "/icons/league/league-settings.png";
           @close="closeMenu"
           @advance="(s, m) => send([{ op: 'advance', playerId: menu!.id, skill: s, method: m }], `${s} taken.`).then((e) => { if (!e) menu = null; })"
           @add-skill="(s) => send([{ op: 'addSkill', playerId: menu!.id, skill: s }], `${s} added.`)"
-          @injury="onInjury" :fresh="freshRoll" @roll="onRoll" @resolve="onResolve"
+          @injury="onInjury" :fresh="freshRoll" :taken="takenRoll" @roll="onRoll" @resolve="onResolve"
         />
         <TeamStatusDialog v-if="status && ctx?.role.organiser" :view="ctx" :start="status" :busy="busy" :error="page?.state.error" @close="status = null" @status="onStatus" @decide="onDecide" />
       </template>

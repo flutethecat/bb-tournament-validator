@@ -2,7 +2,7 @@
   {
     "date": "2026-11-03",
     "title": "Random skills and characteristic rolls on the team page",
-    "body": "In season, a player's + menu now offers a Random Primary skill (pick a category, the table is rolled twice and you keep one) and Advance Characteristic, where a big D8 rolls and settles before the characteristics it allows appear, with Choose Skill as the alternative. The server rolls, the dice log and the team history record every roll, and a roll waiting for its pick comes back unchanged when you reopen the menu. Organisers can roll on a coach's behalf in Edit mode.",
+    "body": "In season, a player's + menu now offers a Random Primary skill (pick a category, two big D6 roll the table twice, rerolls shown, and you keep one) and Advance Characteristic, where a big D8 rolls and settles before the characteristics it allows appear, with Choose Skill as the alternative. The server rolls, the dice log and the team history record every roll, and a roll waiting for its pick comes back unchanged when you reopen the menu. Organisers can roll on a coach's behalf in Edit mode.",
     "links": [
       {
         "label": "Leagues",

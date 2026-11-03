@@ -187,8 +187,39 @@ export function d8Final(value: number): { x: number; y: number; z: number } {
 
 /** How long the roll plays (ms): about 2.2 s, or a quick fade when the viewer prefers reduced motion. `settle` is when
  *  the die stops and the flourish starts; `total` when the result and the choices appear. */
-export function rollTiming(reduced: boolean): { spin: number; settle: number; total: number } {
-  return reduced ? { spin: 0, settle: 0, total: 250 } : { spin: 1700, settle: 1700, total: 2250 };
+export function rollTiming(reduced: boolean, spin?: number): { spin: number; settle: number; total: number } {
+  if (reduced) return { spin: 0, settle: 0, total: 250 };
+  if (spin) return { spin, settle: spin, total: spin + 350 };
+  return { spin: 1700, settle: 1700, total: 2250 };
+}
+
+// ---- 2D6 (Random Primary skill: the category table rolled with two D6, owner 11-03) ----------------------------------
+
+/** A settled D6 shows the rolled face to the front, turned a little so the top and a side read as a cube. */
+export const D6_FINAL = { x: -16, y: 18, z: 0 } as const;
+/** The six sides of a D6 showing `face` in front: the opposite face behind (opposite faces add to 7), the rest around. */
+export function d6Sides(face: number): number[] {
+  const f = Math.min(6, Math.max(1, Math.round(face)));
+  const others = [1, 2, 3, 4, 5, 6].filter((v) => v !== f && v !== 7 - f);
+  return [f, 7 - f, others[0]!, others[1]!, others[2]!, others[3]!];
+}
+
+/** One step of a Random Primary roll as the server logged it: the two dice, the table entry, and whether it was rolled again. */
+export interface SkillRollStep { dice: [number, number]; skill: string; rerolled?: boolean }
+/**
+ * The play-back plan of a Random Primary roll (the SERVER's logged 2D6 rolls, in order, rerolls included): the tumble of
+ * each pair, kept under ~4 s in all (rerolled pairs play shorter), or nothing to play under reduced motion.
+ */
+export function skillRollPlan(rolls: readonly SkillRollStep[], reduced: boolean): { steps: Array<SkillRollStep & { spin: number; total: number }>; total: number } {
+  if (reduced || !rolls.length) return { steps: rolls.map((r) => ({ ...r, spin: 0, total: 0 })), total: reduced ? 250 : 0 };
+  const budget = 3600;
+  const weight = (r: SkillRollStep): number => (r.rerolled ? 0.6 : 1);
+  const unit = budget / rolls.reduce((sum, r) => sum + weight(r), 0);
+  const steps = rolls.map((r) => {
+    const total = Math.round(Math.min(1500, Math.max(450, unit * weight(r))));
+    return { ...r, spin: Math.max(250, total - 350), total };
+  });
+  return { steps, total: steps.reduce((sum, x) => sum + x.total, 0) };
 }
 
 /** prefers-reduced-motion, guarded (no window in tests, old browsers). */

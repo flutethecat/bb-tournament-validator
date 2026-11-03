@@ -106,10 +106,13 @@
   .ff-grid > .ff-label { grid-column: 1 / -1; margin-top: 6px; }
   .ff-grid > .ff-corner { display: none; }
 }
-/* ---- the big D8 roll (D8Roll.vue: "Advance Characteristic") ---- */
+/* ---- the big dice roll (DieRoll.vue: the D8 of "Advance Characteristic", the 2D6 of a Random Primary skill) ---- */
 .d8-stage { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; width: 100%; min-height: calc(var(--d8-size, 220px) + 64px); overflow: hidden; isolation: isolate; }
 .d8-glow { position: absolute; left: 50%; top: calc(var(--d8-size, 220px) / 2 + 4px); width: calc(var(--d8-size, 220px) * 1.7); height: calc(var(--d8-size, 220px) * 1.7); transform: translate(-50%, -50%); border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--sf-gold) 26%, transparent) 0%, color-mix(in srgb, var(--ui-primary) 18%, transparent) 38%, transparent 66%); z-index: -1; opacity: .75; }
 .d8-throw { position: relative; width: var(--d8-size, 220px); height: var(--d8-size, 220px); perspective: calc(var(--d8-size, 220px) * 5); }
+.d8-dice { display: flex; justify-content: center; gap: 4px; }
+.d8-stage[data-die="d6"] .d8-face { border-radius: 12%; image-rendering: auto; }
+.d8-stage[data-die="d6"] .d8-throw { width: calc(var(--d8-size, 220px) * .82); }
 .d8-die { position: absolute; inset: 0; transform-style: preserve-3d; transform: rotateX(var(--d8-fx)) rotateY(var(--d8-fy)) rotateZ(var(--d8-fz)); }
 .d8-face { position: absolute; display: block; background-color: var(--ui-surface-2); background-repeat: no-repeat; backface-visibility: hidden; }
 .d8-face[data-top="true"] { clip-path: polygon(50% 0, 100% 100%, 0 100%); }
@@ -122,8 +125,8 @@
 .d8-burst { position: absolute; left: 50%; top: calc(var(--d8-size, 220px) / 2 + 4px); width: var(--d8-size, 220px); height: var(--d8-size, 220px); border: 3px solid var(--sf-gold); border-radius: 50%; box-shadow: 0 0 18px color-mix(in srgb, var(--sf-gold) 60%, transparent), inset 0 0 14px color-mix(in srgb, var(--sf-gold) 45%, transparent); transform: translate(-50%, -50%) scale(.5); opacity: 0; pointer-events: none; animation: d8-burst 620ms cubic-bezier(.2, .7, .3, 1) var(--d8-settle, 1700ms) forwards; }
 .d8-number { margin: 0; min-height: 52px; font-family: var(--font-heading); font-size: 44px; line-height: 1.15; color: var(--sf-gold); text-shadow: 0 2px 0 var(--sf-panel-drop); }
 .d8-stage[data-play="true"] .d8-number[data-shown="true"] > span { display: inline-block; animation: d8-pop 380ms cubic-bezier(.2, .9, .3, 1.3) both; }
-.d8-stage[data-play="true"][data-reduced="false"] .d8-die { animation: d8-spin var(--d8-spin, 1700ms) linear both; }
-.d8-stage[data-play="true"][data-reduced="false"] .d8-throw { animation: d8-throw var(--d8-spin, 1700ms) linear both; }
+.d8-stage[data-play="true"][data-reduced="false"] .d8-die { animation: d8-spin var(--d8-spin, 1700ms) linear var(--d8-delay, 0ms) both; }
+.d8-stage[data-play="true"][data-reduced="false"] .d8-throw { animation: d8-throw var(--d8-spin, 1700ms) linear var(--d8-delay, 0ms) both; }
 .d8-stage[data-play="true"][data-reduced="false"] .d8-shadow { animation: d8-shadow var(--d8-spin, 1700ms) ease-out both; }
 .d8-stage[data-play="true"][data-reduced="false"] .d8-glow { animation: d8-glow var(--d8-total, 2250ms) ease-out both; }
 .d8-stage[data-play="true"][data-reduced="true"] { animation: d8-fade var(--d8-total, 250ms) ease-out both; }
@@ -176,3 +179,11 @@
 .adv-skills { width: 100%; display: flex; flex-direction: column; gap: 8px; text-align: left; }
 .adv-skills .tb-k { margin: 0; }
 @media (max-width: 480px) { .adv-pick { min-width: 0; flex: 1 1 40%; } .d8-number { font-size: 36px; min-height: 44px; } }
+/* the 2D6 play-back of a Random Primary roll (TeamAdvanceRoll.vue) */
+.adv-seq { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 6px; cursor: pointer; border: 0; background: none; color: inherit; font: inherit; padding: 0; }
+.adv-seq:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.adv-seq-lines { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 15px; color: var(--ui-text); }
+.adv-seq-lines li[data-rerolled="true"] { color: var(--ui-muted); }
+.adv-seq-lines li { animation: d8-fade 240ms ease-out both; }
+.adv-seq-skip { font-size: 12px; color: var(--ui-muted); }
+@media (prefers-reduced-motion: reduce) { .adv-seq-lines li { animation: none; } }

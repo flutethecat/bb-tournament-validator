@@ -12,7 +12,7 @@ import TeamAdvanceRoll from "./TeamAdvanceRoll.vue";
 import LeagueDialog from "./LeagueDialog.vue";
 import TeamInjuryIcon from "./TeamInjuryIcon.vue";
 
-const props = defineProps<{ view: TeamPageView; playerId: string; mode: "coach" | "organiser"; busy?: boolean; initial?: "skill" | "injury" | "roll"; fresh?: string }>();
+const props = defineProps<{ view: TeamPageView; playerId: string; mode: "coach" | "organiser"; busy?: boolean; initial?: "skill" | "injury" | "roll"; fresh?: string; taken?: { rolls: Array<{ dice: [number, number]; skill: string; rerolled?: true }>; skill: string } | null }>();
 const emit = defineEmits<{
   close: []; advance: [skill: string, method: "chosenPrimary" | "chosenSecondary"]; addSkill: [skill: string]; injury: [key: string, mng: boolean];
   roll: [kind: "randomPrimary" | "characteristic", category?: string]; resolve: [rollId: string, choice: AdvanceChoice];
@@ -47,7 +47,7 @@ const affordable = (m: "chosenPrimary" | "chosenSecondary"): boolean => { const 
     <template v-if="tab === 'skill' && mode === 'coach'">
       <p v-if="!adv" class="hm-empty">This player can't take advancements here.</p>
       <template v-else>
-        <TeamAdvanceRoll :view="view" :player-id="playerId" mode="coach" :busy="busy" :fresh="fresh" @roll="(k, c) => emit('roll', k, c)" @resolve="(id, c) => emit('resolve', id, c)" />
+        <TeamAdvanceRoll :view="view" :player-id="playerId" mode="coach" :busy="busy" :fresh="fresh" :taken="taken" @roll="(k, c) => emit('roll', k, c)" @resolve="(id, c) => emit('resolve', id, c)" />
       </template>
       <template v-if="adv && !pending">
         <section v-for="m in (['chosenPrimary', 'chosenSecondary'] as const)" :key="m" class="ts-adv" :aria-label="m === 'chosenPrimary' ? 'Primary skills' : 'Secondary skills'">
@@ -60,7 +60,7 @@ const affordable = (m: "chosenPrimary" | "chosenSecondary"): boolean => { const 
       </template>
     </template>
 
-    <TeamAdvanceRoll v-else-if="tab === 'roll'" :view="view" :player-id="playerId" mode="organiser" :busy="busy" :fresh="fresh" @roll="(k, c) => emit('roll', k, c)" @resolve="(id, c) => emit('resolve', id, c)" />
+    <TeamAdvanceRoll v-else-if="tab === 'roll'" :view="view" :player-id="playerId" mode="organiser" :busy="busy" :fresh="fresh" :taken="taken" @roll="(k, c) => emit('roll', k, c)" @resolve="(id, c) => emit('resolve', id, c)" />
 
     <template v-else-if="tab === 'skill'">
       <label class="sf-field"><span class="sf-k">Skill</span><input v-model="q" class="sf-input" type="search" maxlength="48" placeholder="Search or type a skill" data-autofocus /></label>

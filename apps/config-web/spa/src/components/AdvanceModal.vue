@@ -6,7 +6,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { FOCUSABLE } from "../home/shell";
 import { dialogKey, type TeamManage } from "../teams/manage";
 import "../leagues/leagues.css";
-import D8Roll from "../dice/D8Roll.vue";
+import DieRoll from "../dice/DieRoll.vue";
 import "../dice/dice.css";
 
 const props = defineProps<{ manage: TeamManage }>();
@@ -121,7 +121,7 @@ function keepFocus(): void {
             </div>
           </template>
           <template v-else>
-            <D8Roll :face="flow.pending.roll ?? 1" :play="freshRoll" :size="narrow ? 150 : 200" @settled="d8Settled = true" />
+            <DieRoll die="d8" :faces="[flow.pending.roll ?? 1]" :play="freshRoll" :size="narrow ? 150 : 200" @settled="d8Settled = true" />
             <template v-if="d8Settled">
             <p>You rolled <strong>{{ flow.pending.roll }}</strong>.</p>
             <div v-if="flow.pending.choices.length" class="tm-choices" aria-label="Characteristics">

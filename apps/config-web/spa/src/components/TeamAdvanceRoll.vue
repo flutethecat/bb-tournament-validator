@@ -1,17 +1,23 @@
 <script setup lang="ts">
 // Advancement by roll on the league team page (spec-forfeit-and-dice-2026-11-02 Q7; server src/leagues/teamAdvance.ts),
 // inside the row "+" dialog (TeamPlayerMenu). Random Primary skill: pick a category, the server rolls the table twice and
-// the coach keeps one (a double is taken at once). Advance Characteristic: the server rolls a D8; the big die plays
-// (D8Roll) and settles on that number, then the characteristics the result allows and "Choose Skill". The roll lives on
+// the coach keeps one (a double is taken at once); the logged 2D6 pairs play back on the big dice stage (SkillRollSequence,
+// owner 11-03), rerolls included, then the two skills. Advance Characteristic: the server rolls a D8; the big die plays
+// (DieRoll) and settles on that number, then the characteristics the result allows and "Choose Skill". The roll lives on
 // the server: closing the dialog keeps it, and opening it again shows the SAME roll and choices, settled (no replay, no
 // new roll). Everything shown here is what the server sent.
 import { computed, ref, watch } from "vue";
-import D8Roll from "../dice/D8Roll.vue";
+import DieRoll from "../dice/DieRoll.vue";
+import SkillRollSequence from "../dice/SkillRollSequence.vue";
 import { faceArt } from "../dice/client";
 import type { AdvanceChoice, TeamPageView } from "../teams/summary";
 import "../dice/dice.css";
 
-const props = defineProps<{ view: TeamPageView; playerId: string; busy?: boolean; mode: "coach" | "organiser"; fresh?: string }>();
+const props = defineProps<{
+  view: TeamPageView; playerId: string; busy?: boolean; mode: "coach" | "organiser"; fresh?: string;
+  /** A Random Primary double the server took at once (no pick): its logged rolls play back, then the skill it gave. */
+  taken?: { rolls: Array<{ dice: [number, number]; skill: string; rerolled?: true }>; skill: string } | null;
+}>();
 const emit = defineEmits<{ roll: [kind: "randomPrimary" | "characteristic", category?: string]; resolve: [rollId: string, choice: AdvanceChoice] }>();
 
 const player = computed(() => props.view.team.players.find((p) => p.playerId === props.playerId));
@@ -36,6 +42,8 @@ function statLine(stat: string): string {
   const plus = target || stat === "AV" ? "+" : "";
   return `${v}${plus} → ${target ? v - 1 : v + 1}${plus}`;
 }
+const takenSettled = ref(false);
+watch(() => props.taken, () => { takenSettled.value = false; });
 const chooseSkill = ref(false);
 watch(() => pending.value?.id, () => { chooseSkill.value = false; });
 const who = computed(() => (pending.value?.admin ? `Rolled by ${pending.value.by} (organiser)` : `Rolled by ${pending.value?.by ?? ""}`));
@@ -51,9 +59,8 @@ const narrow = typeof window !== "undefined" && window.innerWidth < 600;
     <template v-else-if="pending">
       <section v-if="pending.kind === 'randomPrimary'" class="adv-result" aria-labelledby="adv-rand-h" data-adv-pending="randomPrimary">
         <h3 id="adv-rand-h" class="adv-result-h">Random Primary skill · {{ pending.category }}</h3>
-        <ul class="adv-rolls" aria-label="Table rolls">
-          <li v-for="(r, i) in pending.rolls ?? []" :key="i" :data-rerolled="r.rerolled ? 'true' : 'false'">{{ r.dice[0] }}+{{ r.dice[1] }} {{ r.skill }}<span v-if="r.rerolled" class="tn-sr"> (owned, rolled again)</span></li>
-        </ul>
+        <SkillRollSequence :key="pending.id" :rolls="pending.rolls ?? []" :play="animate" :owned="player?.skills ?? []" :size="narrow ? 110 : 140" @settled="settled = true" />
+        <template v-if="settled">
         <p>Keep one of the two skills the table gave.</p>
         <div class="adv-picks">
           <button v-for="(s, i) in pending.choices" :key="`${s}-${i}`" type="button" class="adv-pick" :disabled="busy" :data-pick="s" @click="emit('resolve', pending.id, { type: 'skill', skill: s })">
@@ -63,11 +70,12 @@ const narrow = typeof window !== "undefined" && window.innerWidth < 600;
           </button>
         </div>
         <p class="adv-saved">{{ pending.cost }} SPP spent · {{ who }}, {{ when(pending.at) }} · This roll is saved: closing keeps it for later.</p>
+        </template>
       </section>
 
       <section v-else class="adv-result" aria-labelledby="adv-char-h" data-adv-pending="characteristic" :data-settled="settled ? 'true' : 'false'">
         <h3 id="adv-char-h" class="adv-result-h">Advance Characteristic</h3>
-        <D8Roll :key="pending.id" :face="pending.roll ?? 1" :play="animate" :size="narrow ? 150 : 200" @settled="settled = true" />
+        <DieRoll :key="pending.id" die="d8" :faces="[pending.roll ?? 1]" :play="animate" :size="narrow ? 150 : 200" @settled="settled = true" />
         <template v-if="settled">
           <p v-if="pending.choices.length">You rolled <strong>{{ pending.roll }}</strong>. Improve one of these, or choose a skill instead.</p>
           <p v-else>You rolled <strong>{{ pending.roll }}</strong>. No characteristic this result allows can improve for this player: choose a skill instead.</p>
@@ -92,6 +100,13 @@ const narrow = typeof window !== "undefined" && window.innerWidth < 600;
         </template>
       </section>
     </template>
+
+    <!-- a double the server took at once: the roll plays back, then the skill it gave -->
+    <section v-else-if="taken" class="adv-result" aria-labelledby="adv-taken-h" data-adv-taken>
+      <h3 id="adv-taken-h" class="adv-result-h">Random Primary skill</h3>
+      <SkillRollSequence :rolls="taken.rolls" :play="true" :owned="(player?.skills ?? []).filter((x) => x !== taken!.skill)" :size="narrow ? 110 : 140" @settled="takenSettled = true" />
+      <p v-if="takenSettled" class="adv-result-h" role="status">Both rolls gave {{ taken.skill }}: it is taken.</p>
+    </section>
 
     <!-- nothing pending: the two roll options -->
     <div v-else class="adv-options">
