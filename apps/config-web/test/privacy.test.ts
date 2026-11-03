@@ -26,6 +26,7 @@ import { avatarStoreFor } from "../src/teamAvatars.js";
 import { coachAvatarKey } from "../src/coachAvatars.js";
 import { setResultCoachFilter, TournamentResultStore } from "../src/tournamentResults.js";
 import { honoursView } from "../src/leagues/awards.js";
+import { applyDraftTeam } from "../src/leagues/redraft.js";
 import { discordAvatarUrl, PendingSsoStore } from "../src/auth/discordSso.js";
 import {
   ALICE_DISCORD, ALICE_EMAIL, BOB_DISCORD, BOB_EMAIL, depsFor, filesContaining, JOSE_NFC, JOSE_NFD, png, seed, SHARE, TEST_MAP_KEY, walkFiles,
@@ -553,6 +554,21 @@ describe("delete", () => {
     expect(season.fixtures[0].fork.log[0]).toMatchObject({ by: P, text: `${P} generated the game for Bob` });
     expect(season.redraft.teams[0]).toMatchObject({ coach: P, coachId: P, submittedBy: P, rest: { by: P }, override: { by: "Bob" } });
     expect(season.redraft.teams[0].draft.team.coach).toBe(P);
+    // Team page v2: status author, history (author and text) and injury authors, on the team and in every draft snapshot;
+    // a draft applied after the deletion carries none of her name into the next season.
+    expect(season.teams[0].statusChanged.by).toBe(P);
+    expect(season.teams[0].history[0]).toMatchObject({ by: P, changes: [{ from: P, to: "Bob" }] });
+    expect(season.teams[0].history[0].changes[0].what).not.toContain("Alice");
+    expect(season.teams[0].players[0].injuries[0].by).toBe(P);
+    for (const t of season.redraft.teams) {
+      expect(t.draft.team.statusChanged.by).toBe(P);
+      expect(t.draft.team.history[0].by).toBe(P);
+      expect(JSON.stringify(t.draft.team)).not.toContain("Alice");
+    }
+    const next = { teams: [], participants: [] } as unknown as import("../src/leagues/types").SeasonRecord;
+    for (const t of season.redraft.teams) applyDraftTeam(next, t.draft.team);
+    expect(next.teams).toHaveLength(2);
+    expect(JSON.stringify(next)).not.toContain("Alice");
     expect(season.redraft.log[0].text).toBe(`${P} submitted a draft`);
     expect(readFileSync(join(deps.tabletopDir, "events", "tm1.ndjson"), "utf8").split("\n")[0]).toContain(`"home":{"coach":"${P}"}`);
     expect(readJ(join(deps.tabletopDir, "journals", "tm1.json")).homeChain.target.coach).toBe(P);

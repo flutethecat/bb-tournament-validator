@@ -15,23 +15,27 @@
  *  A team belongs to a COACH, not to a league. A league tracks ENTRIES: one slot per team per season, holding that
  *  season's standings and fixtures (spec round answers: "a league tracks entries (slots) holding standings and fixtures;
  *  a swap changes the entry's team; entry history lists the teams").
- *    LeagueTeam.teamUid  "tm-<12 hex>"  the team itself. Derived once from (league, lineage team id) so every season copy
- *                                       of a lineage (redraft and season start keep the team id) carries the same uid;
- *                                       stored on first write and never re-derived. The library lane moves teams between
- *                                       leagues by this uid; ownership is the team's seated account (identity.ts teamSeat).
- *    LeagueTeam.entryId  "en-<12 hex>"  this league season's slot. Derived once from (league, season, team id), then
- *                                       stored. A swap keeps the entryId and replaces the team behind it; fixtures and
- *                                       standings keep pointing at the entry's team id until that lane re-points them.
+ *    LeagueTeam.teamUid  "tm-<12 hex>"  the team itself. Minted fresh (random) on the team's first write; it travels ONLY
+ *                                       by an explicit link: the stored field, copied by the redraft (source team ->
+ *                                       draft team, redraft.ts buildDraftTeam). Season-local team ids and names never
+ *                                       link two records (a renamed import or two unrelated same-named teams stay apart).
+ *                                       The library lane moves teams between leagues by this uid; ownership is the team's
+ *                                       seated account (identity.ts teamSeat).
+ *    LeagueTeam.entryId  "en-<12 hex>"  this league season's slot, minted fresh per season (a redraft drops it so the new
+ *                                       season mints its own). A swap keeps the entryId and replaces the team behind it;
+ *                                       fixtures and standings keep pointing at the entry's team id until that lane
+ *                                       re-points them.
  *  Both are opaque, public-safe ids (no coach names in them).
  */
-import { createHash } from "node:crypto";
-import { addedSkills, findPosition, type DatasetPosition, type DatasetRoster } from "@bb/validator";
+import { randomBytes } from "node:crypto";
+import { findPosition, type DatasetPosition, type DatasetRoster } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 import { ADVANCEMENT_ROWS } from "../teamAdvancement.js";
 import { markCaptainVacancy } from "./captain.js";
 import { STAT_LIMIT } from "./forkResult.js";
 import { fixtureOutcome } from "./identity.js";
 import { LIMITS, rerollCost, STAFF_COST } from "./redraft.js";
+import { refreshTeamValue } from "./teamValue.js";
 import type { FormerPlayer, LeagueFixture, LeaguePlayer, LeagueTeam, SeasonRecord, TeamHistoryEntry } from "./types.js";
 
 // ---- injuries ---------------------------------------------------------------------------------------------------------
@@ -96,9 +100,16 @@ export function teamGamesPlayed(season: Pick<SeasonRecord, "fixtures">, teamId: 
   return season.fixtures.filter((f) => playedFor(f, teamId)).length;
 }
 
-/** True when the team (its lineage id) has a result in ANY season of the league: it is past its first game. */
-export function teamHasPlayed(seasons: ReadonlyArray<Pick<SeasonRecord, "fixtures" | "phases">>, teamId: string): boolean {
-  return seasons.some((s) => s.fixtures.some((f) => playedFor(f, teamId)) || s.phases.some((p) => p.standings.some((r) => r.teamId === teamId && r.played > 0)));
+/**
+ * True when THIS team record is past its first game, judged from the record itself (never by matching ids or names in
+ * other seasons): a result on one of its own fixtures, an imported standings row with games, or any player (rostered or
+ * former) carrying game counters, SPP or earlier seasons (an imported or redrafted veteran roster).
+ */
+export function teamHasPlayed(season: Pick<SeasonRecord, "fixtures" | "phases">, team: Pick<LeagueTeam, "id" | "players" | "formerPlayers">): boolean {
+  if (season.fixtures.some((f) => playedFor(f, team.id))) return true;
+  if (season.phases.some((p) => p.standings.some((r) => r.teamId === team.id && r.played > 0))) return true;
+  const used = (s: { td: number; cas: number; mvp: number; spp: number; completions: number; int: number }): boolean => s.td + s.cas + s.mvp + s.spp + s.completions + s.int > 0;
+  return team.players.some((p) => used(p.stats) || p.availableSpp > 0 || (p.seasonsPlayed ?? 0) > 0) || (team.formerPlayers ?? []).some((p) => used(p.stats));
 }
 
 /** Unplayed fixtures of the team in the season (no result yet, not decided as cancelled). */
@@ -124,11 +135,14 @@ export function settleServedMng(season: SeasonRecord): boolean {
   for (const team of season.teams) {
     if (!team.players.some((p) => p.mngGames !== undefined)) continue;
     const games = teamGamesPlayed(season, team.id);
+    let recovered = false;
     for (const p of team.players) {
       if (p.mngGames === undefined) continue;
       if (!p.missNextGame) { delete p.mngGames; changed = true; continue; }
-      if (games > p.mngGames) { p.missNextGame = false; delete p.mngGames; changed = true; }
+      if (games > p.mngGames) { p.missNextGame = false; delete p.mngGames; changed = true; recovered = true; }
     }
+    // The current team value counts a player again once they no longer miss the next game.
+    if (recovered) refreshTeamValue(team, season.ruleset);
   }
   return changed;
 }
@@ -172,6 +186,42 @@ const isBigGuy = (p: DatasetPosition | undefined): boolean => Boolean(p && /big\
 
 /** The dataset position of a league player (forgiving names). */
 export const positionOf = (roster: DatasetRoster | undefined, position: string): DatasetPosition | undefined => (roster ? findPosition(roster, position) : undefined);
+
+export interface LimitMetric { key: string; label: string; value: number; max: number }
+
+/**
+ * The roster's limited quantities as numbers (the redraft validator's limits: positions, big guys, players, staff, the
+ * apothecary rule; the treasury as the gold missing below zero). A coach's change is refused when it raises any metric
+ * that is over its limit afterwards: an already-broken roster may shrink toward legality, never grow.
+ */
+export function rosterLimitMetrics(team: LeagueTeam, roster: DatasetRoster | undefined): LimitMetric[] {
+  const out: LimitMetric[] = [];
+  if (roster) {
+    const per = new Map<string, number>();
+    let big = 0;
+    for (const p of team.players) {
+      const pos = positionOf(roster, p.position);
+      if (!pos) continue;
+      per.set(pos.name, (per.get(pos.name) ?? 0) + 1);
+      if (isBigGuy(pos)) big += 1;
+    }
+    for (const pos of roster.positions) out.push({ key: `pos:${pos.name}`, label: `At most ${pos.max} ${pos.name}${pos.max === 1 ? "" : "s"}.`, value: per.get(pos.name) ?? 0, max: pos.max });
+    out.push({ key: "bigGuys", label: `At most ${roster.maxBigGuys} big guy${roster.maxBigGuys === 1 ? "" : "s"}.`, value: big, max: roster.maxBigGuys });
+    out.push({ key: "rerolls", label: `At most ${roster.maxReRolls} rerolls.`, value: team.rerolls ?? 0, max: roster.maxReRolls });
+    out.push({ key: "apothecary", label: `${roster.name} teams cannot hire an Apothecary.`, value: team.apothecary ? 1 : 0, max: roster.apothecaryAllowed ? 1 : 0 });
+  }
+  out.push({ key: "players", label: `A team has at most ${LIMITS.maxPlayers} players.`, value: team.players.length, max: LIMITS.maxPlayers });
+  out.push({ key: "assistantCoaches", label: `At most ${LIMITS.assistantCoaches} assistant coaches.`, value: team.assistantCoaches ?? 0, max: LIMITS.assistantCoaches });
+  out.push({ key: "cheerleaders", label: `At most ${LIMITS.cheerleaders} cheerleaders.`, value: team.cheerleaders ?? 0, max: LIMITS.cheerleaders });
+  out.push({ key: "overdraft", label: "Not enough gold in the treasury.", value: Math.max(0, -(team.treasury ?? 0)), max: 0 });
+  return out;
+}
+
+/** The limits a change made worse: over the limit afterwards AND higher than before. */
+export function worsenedLimits(before: LimitMetric[], after: LimitMetric[]): string[] {
+  const was = new Map(before.map((m) => [m.key, m.value]));
+  return after.filter((m) => m.value > m.max && m.value > (was.get(m.key) ?? 0)).map((m) => m.label);
+}
 
 /**
  * What breaks the roster rules (the redraft validator's limits: position maxima, big guys, at most 16 players, staff
@@ -224,10 +274,40 @@ export const FANS_MAX_AT_CREATION = 3;
 
 export type AdvanceMethod = "chosenPrimary" | "chosenSecondary";
 
-/** Advancements the player already took: added skills (captain grants excluded) and "+X" characteristic entries. */
-export function advancementCount(p: Pick<LeaguePlayer, "skills">, pos: DatasetPosition | undefined): number {
-  if (!pos) return p.skills.filter((s) => /^\+\s*(MA|ST|AG|PA|AV)$/i.test(s.trim())).length;
-  return addedSkills(pos, p.skills).length;
+const STAT_ENTRY = /^\+\s*(MA|ST|AG|PA|AV)$/i;
+const bareSkill = (s: string): string => s.replace(/\s*\([^)]*\)\s*$/, "").trim().toLowerCase();
+const targetOf = (v: unknown): number | null => { const n = Number.parseInt(String(v ?? ""), 10); return Number.isFinite(n) ? n : null; };
+
+/**
+ * Advancements the player already took (the price of the next one depends on it), counted per skill and per
+ * characteristic:
+ *  - a skill counts when it is not printed on the position, is a selectable skill in the BB2025 catalogue (traits that
+ *    results hand out, like Hatred, never count) and is not a Team Captain grant;
+ *  - a characteristic counts once per step above the position's printed value (MA / ST / AV up, AG / PA targets down),
+ *    or once per "+X" entry, whichever is larger (an injury may have taken back a bought step).
+ * Without a dataset position only the "+X" entries and catalogue skills can be counted.
+ */
+export function advancementCount(p: Pick<LeaguePlayer, "skills" | "ma" | "st" | "ag" | "pa" | "av"> & { captainGrants?: string[] }, pos: DatasetPosition | undefined): number {
+  const printed = new Set((pos?.skills ?? []).map(bareSkill));
+  const grants = new Set((p.captainGrants ?? []).map(bareSkill));
+  let n = 0;
+  const entries: Record<string, number> = {};
+  for (const s of p.skills) {
+    const m = STAT_ENTRY.exec(s.trim());
+    if (m) { const k = m[1]!.toUpperCase(); entries[k] = (entries[k] ?? 0) + 1; continue; }
+    const key = bareSkill(s);
+    if (printed.has(key) || grants.has(key)) continue;
+    const meta = Object.entries(bb2025.skills).find(([name]) => name.toLowerCase() === key)?.[1];
+    if (meta?.category && !meta.trait) n += 1;
+  }
+  const steps = (stat: "MA" | "ST" | "AG" | "PA" | "AV"): number => {
+    const have = p[stat.toLowerCase() as "ma" | "st" | "ag" | "pa" | "av"];
+    const base = pos ? targetOf(pos[stat]) : null;
+    if (have === null || base === null) return 0;
+    return Math.max(0, stat === "AG" || stat === "PA" ? base - have : have - base);
+  };
+  for (const stat of ["MA", "ST", "AG", "PA", "AV"] as const) n += Math.max(entries[stat] ?? 0, steps(stat));
+  return n;
 }
 
 /** SPP price of the next chosen skill (null past Legend). */
@@ -265,15 +345,16 @@ export function skillValue(skill: string, method: AdvanceMethod): number {
 
 // ---- identity ---------------------------------------------------------------------------------------------------------
 
-const hash = (prefix: string, parts: string[]): string => `${prefix}-${createHash("sha256").update(parts.join("\0")).digest("hex").slice(0, 12)}`;
+const mint = (prefix: string): string => `${prefix}-${randomBytes(6).toString("hex")}`;
 
-/** Gives the team its teamUid / entryId when it has none (see the module comment). In place; true when it set one. */
-export function ensureTeamIdentity(leagueId: string, seasonId: string, team: LeagueTeam): boolean {
+/** Mints the team's teamUid / entryId when it has none (see the module comment). In place; true when it set one. */
+export function ensureTeamIdentity(team: LeagueTeam): boolean {
   let changed = false;
-  if (!team.teamUid) { team.teamUid = hash("tm", [leagueId, team.id]); changed = true; }
-  if (!team.entryId) { team.entryId = hash("en", [leagueId, seasonId, team.id]); changed = true; }
+  if (!team.teamUid) { team.teamUid = mint("tm"); changed = true; }
+  if (!team.entryId) { team.entryId = mint("en"); changed = true; }
   return changed;
 }
+
 
 // ---- history ----------------------------------------------------------------------------------------------------------
 

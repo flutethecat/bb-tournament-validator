@@ -573,6 +573,8 @@ export interface LeaguePlayer extends PlayerIdentity {
    * played more games than this, the player has served it and the flag clears (teamOps.ts settleServedMng).
    */
   mngGames?: number;
+  /** What a coach paid for this player on the team page (a pre-game firing refunds exactly this, never the valuation). */
+  purchasePrice?: number;
 }
 
 /** One recorded injury (team page v2). */

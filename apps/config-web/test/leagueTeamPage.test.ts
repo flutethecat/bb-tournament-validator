@@ -7,7 +7,10 @@ import { isStateChangingApiRequest } from "../src/auth/csrf";
 import { leagueApi, type LeagueApiDeps, type LeagueApiIdentity, type LeagueApiResult } from "../src/leagues/api";
 import { recordLeagueFixtureEvent } from "../src/leagues/events";
 import { LeagueStore } from "../src/leagues/store";
-import { ensureTeamIdentity, INJURIES, playerLeaves, settleServedMng } from "../src/leagues/teamOps";
+import { advancementCount, ensureTeamIdentity, INJURIES, playerLeaves, rosterLimitMetrics, settleServedMng, worsenedLimits } from "../src/leagues/teamOps";
+import { buildDraftTeam } from "../src/leagues/redraft";
+import { teamValueRoster } from "../src/leagues/teamValue";
+import { findPosition } from "@bb/validator";
 import type { TeamPageView } from "../src/leagues/teamPage";
 import { EMPTY_PLAYER_STATS, type LeagueFixture, type LeaguePlayer, type LeagueTeam, type SeasonRecord } from "../src/leagues/types";
 
@@ -16,7 +19,7 @@ import { EMPTY_PLAYER_STATS, type LeagueFixture, type LeaguePlayer, type LeagueT
 // cog with its fixture decisions, history and notes and their privacy.
 
 const player = (id: string, number: number, position: string, over: Partial<LeaguePlayer> = {}): LeaguePlayer => ({
-  playerId: id, number, name: `P${number}`, position, ma: 5, st: 3, ag: 3, pa: 4, av: 10, skills: [], value: 85_000, level: "Rookie",
+  playerId: id, careerKey: `c-${id}`, number, name: `P${number}`, position, ma: 5, st: 3, ag: 3, pa: 4, av: 10, skills: [], value: 85_000, level: "Rookie",
   availableSpp: 0, niggling: 0, missNextGame: false, stats: { ...EMPTY_PLAYER_STATS }, seasonsPlayed: 0, ...over,
 });
 const dwarves = (over: Partial<LeagueTeam> = {}): LeagueTeam => ({
@@ -146,7 +149,7 @@ describe("team page v2", () => {
       const r0 = rev();
       const v = await view(ORG);
       expect(v.team.players[0]!.missNextGame).toBe(false);
-      expect(v.team.teamUid).toMatch(/^tm-[a-f0-9]{12}$/);
+      expect(v.team.teamUid).toBeUndefined(); // identity is minted by a write, never by a read
       expect(rev()).toBe(r0);
       expect(team().players[0]!.missNextGame).toBe(true);
       expect(team().teamUid).toBeUndefined();
@@ -207,6 +210,9 @@ describe("team page v2", () => {
 
     it("in-season: rerolls locked, no firing, staff only up, hiring and advancements paid from treasury and SPP", async () => {
       playGame("f1", [2, 1]);
+      const base0 = store.season("lg", "season-1")!;
+      Object.assign(base0.teams[0]!.players[0]!, { ma: 4, st: 3, ag: 4, pa: 5, av: 10, skills: ["Block", "Defensive", "Thick Skull"] }); // the position's printed line: no advancement yet
+      store.putSeason(base0);
       const v = await view(COACH);
       expect(v.phase).toBe("inseason");
       expect(v.coach).toMatchObject({ rerolls: false, fire: false, advance: true });
@@ -229,12 +235,51 @@ describe("team page v2", () => {
       expect((await edit(COACH, "coach", [{ op: "advance", playerId: "p1", skill, method: "chosenPrimary" }])).status).toBe(200);
       expect(team().players[0]).toMatchObject({ availableSpp: 1, level: "Experienced", value: 85_000 + 20_000 + (skill === "Block" || skill === "Guard" || skill === "Mighty Blow" || skill === "Dodge" ? 10_000 : 0) });
       expect(team().players[0]!.skills).toContain(skill);
-      // the phase is the lineage's: a redrafted team (same id) that played last season is past its first game
     });
 
-    it("a team past its first game in an EARLIER season is in-season in a new one", async () => {
+    it("the phase comes from the team record itself: an unrelated same-id team in another season changes nothing; imported games or SPP do", async () => {
       store.putSeason({ ...season([fx("g1", R, O, [1, 1])]), id: "season-0", number: 0, sourceSlug: "s0", status: "completed" });
+      expect((await view(COACH)).phase).toBe("pregame"); // no link by id or name
+      const s = store.season("lg", "season-1")!;
+      s.phases[0]!.standings = [{ group: "", rank: 1, team: "Grudge Rollers", teamId: "rollers", race: "Dwarf", coach: "Dee", points: 3, played: 1, wins: 1, draws: 0, losses: 0, tdFor: 1, tdAgainst: 0, casFor: 0, casAgainst: 0, injuriesFor: 0, injuriesAgainst: 0, completions: 0, interceptions: 0, deathsFor: 0, deathsAgainst: 0, foulsFor: 0, foulsAgainst: 0, sentOffsFor: 0, sentOffsAgainst: 0, secretObjectives: 0, buchholz: 0 }];
+      store.putSeason(s);
+      expect((await view(COACH)).phase).toBe("inseason"); // imported games played
+      const t = store.season("lg", "season-1")!;
+      t.phases[0]!.standings = [];
+      t.teams[0]!.players[1]!.seasonsPlayed = 2; // a redrafted veteran
+      store.putSeason(t);
       expect((await view(COACH)).phase).toBe("inseason");
+    });
+
+    it("a pre-game firing refunds the purchase price (or at most the position's price), never the valuation: no fire / rehire profit", async () => {
+      const s = store.season("lg", "season-1")!;
+      s.teams[0]!.players[0]!.value = 300_000; // a valuation far above the position's price
+      store.putSeason(s);
+      const cost = (await view(COACH)).hire.positions.find((p) => p.name === "Dwarf Blocker Lineman")!.cost;
+      await edit(COACH, "coach", [{ op: "fire", playerId: "p1" }]);
+      expect(team().treasury).toBe(200_000 + cost);
+      await edit(COACH, "coach", [{ op: "hire", position: "Dwarf Blocker Lineman" }]);
+      const hired = team().players.find((p) => !["p2", "p3"].includes(p.playerId))!;
+      expect(hired.purchasePrice).toBe(cost);
+      const s2 = store.season("lg", "season-1")!;
+      s2.teams[0]!.players.find((p) => p.playerId === hired.playerId)!.value = 500_000;
+      store.putSeason(s2);
+      await edit(COACH, "coach", [{ op: "fire", playerId: hired.playerId }]);
+      expect(team().treasury).toBe(200_000 + cost);
+    });
+
+    it("an already-invalid roster may shrink but never grow past a limit (counts, not messages)", async () => {
+      const s = store.season("lg", "season-1")!;
+      const t = s.teams[0]!;
+      for (let i = 4; i <= 17; i += 1) t.players.push(player(`x${i}`, i + 10, "Dwarf Blocker Lineman"));
+      t.treasury = 2_000_000;
+      store.putSeason(s);
+      expect(team().players).toHaveLength(17);
+      expect((await edit(COACH, "coach", [{ op: "hire", position: "Dwarf Blocker Lineman" }])).body).toMatchObject({ error: expect.stringMatching(/at most 16 players/) });
+      expect((await edit(COACH, "coach", [{ op: "player", playerId: "p1", field: "name", value: "Still fine" }])).status).toBe(200);
+      expect((await edit(COACH, "coach", [{ op: "fire", playerId: "x17" }])).status).toBe(200);
+      const before = rosterLimitMetrics(team(), teamValueRoster("Dwarf"));
+      expect(worsenedLimits(before, before)).toEqual([]);
     });
 
     it("an inactive team or a finished season is read-only for its coach", async () => {
@@ -323,6 +368,24 @@ describe("team page v2", () => {
     });
   });
 
+    it("an MNG recovery refreshes the current team value, from the result hook and from a forfeit decision (stored, not just read)", async () => {
+      await edit(ORG, "organiser", [{ op: "player", playerId: "p1", field: "missNextGame", value: true }]);
+      const tv = team().teamValue!;
+      expect(team().currentTeamValue).toBe(tv - 85_000);
+      playGame("f1", [1, 0]);
+      await recordLeagueFixtureEvent("lg", "f1", "result", { handEntered: true }, { store, now: () => new Date("2026-11-02T13:00:00Z") });
+      expect(team().players[0]!.missNextGame).toBe(false);
+      expect(team().currentTeamValue).toBe(tv);
+      // a forfeit decided for an inactive opponent is a game for the Rollers too: their MNG is served and stored
+      await edit(ORG, "organiser", [{ op: "player", playerId: "p2", field: "missNextGame", value: true }]);
+      expect(team().currentTeamValue).toBe(tv - 85_000);
+      const elvesPath = "/api/leagues/lg/seasons/season-1/teams/elves";
+      await call("POST", `${elvesPath}/status`, ORG, { revision: rev(), status: "inactive", decisions: [{ fixtureId: "f2", decision: "forfeit" }] });
+      expect(team().players[1]!.missNextGame).toBe(false); // stored, not only in the answer
+      expect(team().players[1]!.mngGames).toBeUndefined();
+      expect(team().currentTeamValue).toBe(tv);
+    });
+
   describe("team status", () => {
     it("inactive: standings row gone, opponents keep earned points; no fixture is cancelled until the organiser decides", async () => {
       playGame("f1", [0, 2]); // Orcs beat the Rollers
@@ -344,6 +407,18 @@ describe("team page v2", () => {
       // back to active: the row returns
       expect((await call("POST", `${base}/status`, ORG, { revision: rev(), status: "active" })).status).toBe(200);
       expect((await publicSeason()).phases[0]!.standings.some((x) => x.teamId === "rollers")).toBe(true);
+    });
+
+    it("an inactive team takes no part in tiebreaks: head-to-head among the remaining tied teams decides", async () => {
+      // A beat X, X beat B, B beat A, all 1-0: with X in the tie everyone is level (name order puts Elves first);
+      // without X, Orcs (B) beat Elves (A) head to head.
+      const s = season([fx("g1", E, R, [1, 0]), fx("g2", R, O, [1, 0]), fx("g3", O, E, [1, 0])]);
+      s.resultsChangedAt = "2026-11-02T00:00:00.000Z";
+      store.putSeason(s);
+      expect((await publicSeason()).phases[0]!.standings.map((r) => r.teamId)).toEqual(["elves", "rollers", "orcs"]);
+      await call("POST", `${base}/status`, ORG, { revision: rev(), status: "inactive" });
+      const rows = (await publicSeason()).phases[0]!.standings;
+      expect(rows.map((r) => [r.teamId, r.rank, r.points])).toEqual([["orcs", 1, 3], ["elves", 2, 3]]);
     });
 
     it("the decision flow: per fixture at the cog, later in bulk; forfeit gives the opponent the win, cancel counts nowhere, leave stays", async () => {
@@ -369,6 +444,13 @@ describe("team page v2", () => {
       const f2 = store.season("lg", "season-1")!.fixtures.find((x) => x.id === "f2")!;
       expect(f2.home.score).toBeNull();
       expect(f2.away.conceded).toBe(false);
+      // a fixture played after an earlier "leave" has a real result: it is no longer decidable (409), never overwritten
+      const s3 = store.season("lg", "season-1")!;
+      const f1 = s3.fixtures.find((x) => x.id === "f1")!;
+      f1.home.score = 3; f1.away.score = 1; f1.home.cas = 0; f1.away.cas = 0;
+      store.putSeason(s3);
+      expect((await call("POST", `${base}/fixtures`, ORG, { revision: rev(), decisions: [{ fixtureId: "f1", decision: "forfeit" }] })).status).toBe(409);
+      expect(store.season("lg", "season-1")!.fixtures.find((x) => x.id === "f1")!.home).toMatchObject({ score: 3, conceded: false });
       // fixture decisions belong to an inactive team
       await call("POST", `${base}/status`, ORG, { revision: rev(), status: "active" });
       expect((await call("POST", `${base}/fixtures`, ORG, { revision: rev(), all: "cancel" })).status).toBe(409);
@@ -413,16 +495,50 @@ describe("team page v2", () => {
   });
 
   describe("library-lane shape and the stable leave API", () => {
-    it("teamUid follows the lineage across seasons; entryId is per season; both stored on the first write", async () => {
+    it("teamUid travels only by explicit links: same-named or same-id teams never share one; minted and stored on the first write", async () => {
       const a = dwarves();
       const b = dwarves();
-      ensureTeamIdentity("lg", "season-1", a);
-      ensureTeamIdentity("lg", "season-2", b);
-      expect(a.teamUid).toBe(b.teamUid);
+      ensureTeamIdentity(a);
+      ensureTeamIdentity(b);
+      expect(a.teamUid).toMatch(/^tm-[a-f0-9]{12}$/);
+      expect(a.teamUid).not.toBe(b.teamUid); // same id and name, no proven link
       expect(a.entryId).not.toBe(b.entryId);
       await edit(ORG, "organiser", [{ op: "team", field: "fans", value: 2 }]);
-      expect(team().teamUid).toBe(a.teamUid);
-      expect(team().entryId).toBe(a.entryId);
+      const uid = team().teamUid;
+      expect(uid).toMatch(/^tm-/);
+      await edit(ORG, "organiser", [{ op: "team", field: "fans", value: 3 }]);
+      expect(team().teamUid).toBe(uid); // stored, never re-minted
+    });
+
+    it("a redraft copies the lineage (teamUid, history) into the next season but not the entry, the status or MNG bookkeeping", () => {
+      const src = dwarves({ teamUid: "tm-aaaaaaaaaaaa", entryId: "en-bbbbbbbbbbbb", status: "inactive", statusChanged: { by: "Jay", at: "x" }, history: [{ at: "x", by: "Jay", kind: "status", changes: [{ what: "Status" }] }] });
+      src.players[0]!.mngGames = 0;
+      const ctx = { task: { budget: { capped: 1_000_000 } }, source: season([]), team: src, roster: teamValueRoster("Dwarf"), teamPlayed: true } as never;
+      const price = { keep: [{ quote: { playerId: "p1", value: 85_000, seasons: 1 } }], hires: [], staffCost: 0, spent: 0, remaining: 0, players: 1 } as never;
+      const input = { keep: ["p1"], hires: [], staff: { rerolls: 0, assistantCoaches: 0, cheerleaders: 0, apothecary: false } } as never;
+      const next = buildDraftTeam(ctx, price, input, { leagueId: "lg", slug: "s2" }, new Set());
+      expect(next.teamUid).toBe("tm-aaaaaaaaaaaa");
+      expect(next.history).toHaveLength(1);
+      expect(next.entryId).toBeUndefined();
+      expect(next.status).toBeUndefined();
+      expect(next.statusChanged).toBeUndefined();
+      expect(next.players[0]!.mngGames).toBeUndefined();
+      ensureTeamIdentity(next);
+      expect(next.entryId).not.toBe("en-bbbbbbbbbbbb");
+      expect(next.teamUid).toBe("tm-aaaaaaaaaaaa");
+    });
+
+    it("advancements are counted per skill and characteristic: stat gains without a +X entry count; traits from results do not", () => {
+      const pos = findPosition(teamValueRoster("Dwarf")!, "Dwarf Blocker Lineman")!;
+      const n = (v: unknown): number => Number.parseInt(String(v), 10);
+      const base = { skills: [...pos.skills], ma: pos.MA, st: pos.ST, ag: n(pos.AG), pa: n(pos.PA), av: n(pos.AV) };
+      expect(advancementCount(base, pos)).toBe(0);
+      expect(advancementCount({ ...base, skills: [...pos.skills, "Hatred (Elf)"] }, pos)).toBe(0); // a trait from a result
+      expect(advancementCount({ ...base, st: base.st + 1 }, pos)).toBe(1); // a gain without its +ST entry
+      expect(advancementCount({ ...base, st: base.st + 1, skills: [...pos.skills, "+ST"] }, pos)).toBe(1); // not twice
+      expect(advancementCount({ ...base, ag: base.ag - 1 }, pos)).toBe(1); // AG target down = better
+      expect(advancementCount({ ...base, skills: [...pos.skills, "+MA"] }, pos)).toBe(1); // bought, then lost to an injury
+      expect(advancementCount({ ...base, skills: [...pos.skills, "Guard", "Team Captain", "Pro"], captainGrants: ["Team Captain", "Pro"] }, pos)).toBe(1);
     });
 
     it("playerLeaves moves a player to the former players with stats and skills and returns the row", () => {

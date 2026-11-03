@@ -611,6 +611,12 @@ export function buildDraftTeam(ctx: DraftContext, price: DraftPrice, input: Draf
     players,
     formerPlayers: [],
   };
+  // Team page v2 (teamOps.ts identity note): the lineage (teamUid, history) goes to the next season; the season entry,
+  // the status and the old season's MNG bookkeeping do not (the new season mints its own entryId).
+  delete drafted.entryId;
+  delete drafted.status;
+  delete drafted.statusChanged;
+  for (const p of drafted.players) delete p.mngGames;
   // A Team Captain who is not re-hired leaves the captaincy vacant (leagues/captain.ts); a kept captain keeps the trait.
   markCaptainVacancy(team, drafted);
   // The league recomputes the value (teamValue.ts); without a dataset roster the price paid stands in for it.

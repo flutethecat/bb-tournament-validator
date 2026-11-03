@@ -197,10 +197,13 @@ export function computePhaseStandings(season: Pick<SeasonRecord, "fixtures" | "t
     }
   }
   const keys = phaseTiebreaks(phase);
-  const groups = [...new Set([...rows.values()].map((r) => r.group))].sort((a, b) => a.localeCompare(b));
+  // Team page v2: an inactive team has no row, removed BEFORE ranking so it never takes part in a tiebreak (head-to-head
+  // among tied teams included); the others keep everything they earned, games against it too.
+  const kept = withoutInactive(season, [...rows.values()]);
+  const groups = [...new Set(kept.map((r) => r.group))].sort((a, b) => a.localeCompare(b));
   const out: StandingRow[] = [];
   for (const g of groups) {
-    orderRows([...rows.values()].filter((r) => r.group === g), keys, fixtures, pts).forEach((r, i) => { r.rank = i + 1; out.push(r); });
+    orderRows(kept.filter((r) => r.group === g), keys, fixtures, pts).forEach((r, i) => { r.rank = i + 1; out.push(r); });
   }
   return { rows: out, stats: [...stats] };
 }
@@ -219,7 +222,8 @@ function importedStats(rows: StandingRow[]): StandingsStat[] {
 
 /**
  * Team page v2: an inactive team (LeagueTeam.status) has no standings row. Its opponents keep what they earned against it
- * (their rows are computed from the same fixtures); the rest of each division is ranked again without it.
+ * (their rows are computed from the same fixtures). Ranks are numbered again per division in the given order (computed
+ * tables are ranked again by orderRows afterwards).
  */
 function withoutInactive(season: Pick<SeasonRecord, "teams">, rows: StandingRow[]): StandingRow[] {
   const off = season.teams.filter((t) => t.status === "inactive");
@@ -249,7 +253,8 @@ export function deriveStandings(season: SeasonRecord): LeaguePhase[] {
       ({ rows, stats } = computePhaseStandings(season, phase));
       source = "computed";
     } else return { ...phase };
-    rows = withoutInactive(season, rows);
+    // An imported table carries its own ranks: an inactive team's row goes and the rest close up in order.
+    if (source === "imported") rows = withoutInactive(season, rows);
     const form = latestForm(fixtures);
     for (const r of rows) { const f = form.get(teamKey(r)); if (f?.length) r.latest = f; }
     // Divisions the phase names show even before anyone in them is scheduled.

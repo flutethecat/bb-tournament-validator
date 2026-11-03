@@ -872,6 +872,20 @@ function anonymiseLeagueFile(an: Anonymiser, tx: TextReplacer, l: Obj): boolean 
   return changed;
 }
 
+/** Team page v2 (teamPage.ts) on a team record or a redraft snapshot of one: who changed the status, the team history
+ *  (author and change text) and injury authors. */
+function anonymiseTeamRecords(an: Anonymiser, tx: TextReplacer, t: Obj): boolean {
+  let changed = false;
+  const mark = (v: boolean) => { if (v) changed = true; };
+  if (isObj(t.statusChanged)) mark(an.fields(t.statusChanged, ["by"], []));
+  for (const h of objs(t.history)) {
+    mark(an.fields(h, ["by"], []));
+    for (const c of objs(h.changes)) mark(tx.texts(c, ["what", "from", "to"]));
+  }
+  for (const p of objs(t.players)) for (const i of objs(p.injuries)) mark(an.fields(i, ["by"], []));
+  return changed;
+}
+
 function anonymiseSeason(an: Anonymiser, tx: TextReplacer, displays: ReadonlySet<string>, s: Obj): boolean {
   let changed = false;
   const mark = (v: boolean) => { if (v) changed = true; };
@@ -879,13 +893,7 @@ function anonymiseSeason(an: Anonymiser, tx: TextReplacer, displays: ReadonlySet
   for (const t of objs(s.teams)) {
     if (linked(t)) mark(LINKED_ROW(an, t));
     if (isObj(t.coachAssigned)) mark(an.fields(t.coachAssigned, ["by"], []));
-    // Team page v2 (teamPage.ts): who changed the status, the team history (author and change text), injury authors.
-    if (isObj(t.statusChanged)) mark(an.fields(t.statusChanged, ["by"], []));
-    for (const h of objs(t.history)) {
-      mark(an.fields(h, ["by"], []));
-      for (const c of objs(h.changes)) mark(tx.texts(c, ["what", "from", "to"]));
-    }
-    for (const p of objs(t.players)) for (const i of objs(p.injuries)) mark(an.fields(i, ["by"], []));
+    mark(anonymiseTeamRecords(an, tx, t));
   }
   for (const f of objs(s.fixtures)) {
     for (const side of [f.home, f.away]) if (linked(side)) mark(LINKED_ROW(an, side as Obj));
@@ -933,6 +941,12 @@ function anonymiseSeason(an: Anonymiser, tx: TextReplacer, displays: ReadonlySet
       if (isObj(t.rest)) mark(an.fields(t.rest, ["by"], []));
       if (isObj(t.override)) mark(an.fields(t.override, ["by"], []));
       if (mine && isObj(t.draft) && isObj(t.draft.team)) mark(LINKED_ROW(an, t.draft.team));
+      // The draft roster carries the team's records into the next season (applyPendingDrafts): sanitised here too, for
+      // every team, since an organiser's name can sit in any team's history.
+      if (isObj(t.draft) && isObj(t.draft.team)) {
+        if (isObj(t.draft.team.coachAssigned)) mark(an.fields(t.draft.team.coachAssigned, ["by"], []));
+        mark(anonymiseTeamRecords(an, tx, t.draft.team));
+      }
     }
     for (const l of objs(s.redraft.log)) { mark(an.fields(l, ["by"], [])); mark(tx.texts(l, ["text"])); }
   }

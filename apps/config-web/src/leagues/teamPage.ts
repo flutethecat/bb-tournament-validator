@@ -8,7 +8,7 @@
  *
  * Who:
  *  - mode "coach": the team's seated account (identity.ts teamSeat), within the rules. Before the team's first game in the
- *    league (no result in any season of its lineage): hire, fire (refunded), rename and renumber players, staff up and
+ *    league (judged from the team record itself: its own results, imported games, SPP counters): hire, fire (refunded), rename and renumber players, staff up and
  *    down (rerolls at the roster price, dedicated fans 1-3) within the treasury. After it: names and numbers, hiring
  *    players and staff from the treasury (never rerolls, which are locked on an active team, nor fans), and chosen
  *    Primary / Secondary skills their unspent SPP pays for. Validation: the redraft validator's roster limits
@@ -38,7 +38,7 @@ import { datasetRoster, LIMITS } from "./redraft.js";
 import { isLeagueOrganiser } from "./store.js";
 import {
   addHistory, advanceCost, advancementCount, allSkills, changeLine, ensureTeamIdentity, FANS_MAX_AT_CREATION, fixturesNeedingDecision, injuryTable, injuryType,
-  playerLeaves, positionOf, rankAfter, reduceStat, rosterLimitErrors, setMng, settleServedMng, skillChoices, skillValue, staffPrice, teamGamesPlayed, teamHasPlayed,
+  playerLeaves, positionOf, rankAfter, reduceStat, rosterLimitErrors, rosterLimitMetrics, setMng, settleServedMng, skillChoices, skillValue, staffPrice, teamGamesPlayed, teamHasPlayed, worsenedLimits,
   type AdvanceMethod, type InjuryType, type StaffKey,
 } from "./teamOps.js";
 import { refreshTeamValue } from "./teamValue.js";
@@ -71,7 +71,8 @@ export const isManager = (league: LeagueRecord, auth: LeagueApiIdentity | undefi
 export const isTeamCoach = (team: LeagueTeam, auth: LeagueApiIdentity | undefined): boolean => Boolean(auth && same(teamSeat(team).coachId, auth.coach));
 
 export type TeamPhase = "pregame" | "inseason";
-export function teamPhase(seasons: SeasonRecord[], teamId: string): TeamPhase { return teamHasPlayed(seasons, teamId) ? "inseason" : "pregame"; }
+/** Judged from this team record alone (teamOps.ts teamHasPlayed): its own results, imported games and SPP counters. */
+export function teamPhase(season: SeasonRecord, team: LeagueTeam): TeamPhase { return teamHasPlayed(season, team) ? "inseason" : "pregame"; }
 
 /** Why a coach may not edit right now ("" = may). */
 export function coachBlock(season: SeasonRecord, team: LeagueTeam): string {
@@ -120,15 +121,14 @@ export interface TeamPageView {
   history: TeamHistoryEntry[];
 }
 
-export function teamPageView(league: LeagueRecord, seasons: SeasonRecord[], stored: SeasonRecord, teamId: string, auth: LeagueApiIdentity | undefined): TeamPageView | undefined {
+export function teamPageView(league: LeagueRecord, stored: SeasonRecord, teamId: string, auth: LeagueApiIdentity | undefined): TeamPageView | undefined {
   const season = structuredClone(stored);
   settleServedMng(season);
   const team = season.teams.find((t) => t.id === teamId);
   if (!team) return undefined;
-  ensureTeamIdentity(league.id, season.id, team);
   const organiser = isManager(league, auth);
   const coach = isTeamCoach(team, auth);
-  const phase = teamPhase(seasons, teamId);
+  const phase = teamPhase(season, team);
   const roster = datasetRoster(team.race);
   const pregame = phase === "pregame";
   const positions = (roster?.positions ?? []).map((p) => ({
@@ -166,11 +166,21 @@ function fixtureRow(f: LeagueFixture, team: LeagueTeam): NonNullable<TeamPageVie
   return { id: f.id, round: f.round, phase: f.phase, opponent: opp.team, ...(f.date ? { date: f.date } : {}), ...(mine ? { decision: mine } : {}), pending: forkGamePending(f) };
 }
 
-/** Fixtures the organiser may decide for the team: unplayed ones, and the ones our own cancel / forfeit decided. */
+/** Our own decision's effect is still what the fixture shows (a real result or someone else's outcome replaced it). */
+function decisionStands(f: LeagueFixture, team: LeagueTeam): boolean {
+  const d = f.inactiveDecision;
+  if (!d || d.teamId !== team.id) return false;
+  if (d.decision === "forfeit") return f.resultEdit?.at === d.at && fixtureOutcome(f) !== undefined;
+  if (d.decision === "cancel") return fixtureOutcome(f) === undefined && f.deadlineOutcome?.outcome === "no-result" && f.deadlineOutcome.at === d.at;
+  return fixtureOutcome(f) === undefined && f.deadlineOutcome?.outcome !== "no-result";
+}
+
+/** Fixtures the organiser may decide for the team: unplayed ones, and the ones whose cancel / forfeit / leave is still
+ *  ours. A fixture with a real result (played after an earlier decision) is never decidable again. */
 function decidableFixtures(season: SeasonRecord, team: LeagueTeam): LeagueFixture[] {
   return season.fixtures.filter((f) => {
     if (f.home.teamId !== team.id && f.away.teamId !== team.id) return false;
-    if (f.inactiveDecision?.teamId === team.id) return true;
+    if (decisionStands(f, team)) return true;
     return fixtureOutcome(f) === undefined && f.deadlineOutcome?.outcome !== "no-result";
   });
 }
@@ -242,6 +252,7 @@ function hire(ctx: OpCtx, position: unknown, pay: boolean): Change {
   ctx.team.players.push({
     playerId: id, number, name: "", position: pos.name, ma: pos.MA, st: pos.ST, ag: targetNum(pos.AG), pa: targetNum(pos.PA), av: targetNum(pos.AV),
     skills: [...pos.skills], value: pos.cost, level: "Rookie", availableSpp: 0, niggling: 0, missNextGame: false, stats: { ...EMPTY_PLAYER_STATS }, seasonsPlayed: 0,
+    ...(pay ? { purchasePrice: pos.cost } : {}),
   });
   return { what: `Hired ${pos.name} #${number}${pay ? ` for ${k(pos.cost)}` : ""}` };
 }
@@ -249,8 +260,10 @@ function hire(ctx: OpCtx, position: unknown, pay: boolean): Change {
 function fire(ctx: OpCtx, id: unknown): Change {
   const p = playerOf(ctx, id);
   if (ctx.pregame) {
-    // Before the first game the roster is still being built: the player never played and the price comes back (coach).
-    const refund = ctx.mode === "coach" ? (p.value ?? positionOf(ctx.roster, p.position)?.cost ?? 0) : 0;
+    // Before the first game the roster is still being built: the player never played and what was paid comes back
+    // (coach): the recorded purchase price, else at most the position's hire price, never the current valuation.
+    const base = positionOf(ctx.roster, p.position)?.cost;
+    const refund = ctx.mode !== "coach" ? 0 : p.purchasePrice !== undefined ? p.purchasePrice : base === undefined ? 0 : Math.min(base, p.value ?? base);
     playerLeaves(ctx.team, p.playerId, "fired", { keepRecord: false });
     if (refund) ctx.team.treasury = (ctx.team.treasury ?? 0) + refund;
     return { what: `Removed ${who(p)}${refund ? ` (refund ${k(refund)})` : ""}` };
@@ -499,6 +512,8 @@ export function applyDecisions(season: SeasonRecord, team: LeagueTeam, decisions
   let standings = false;
   for (const { fixtureId, decision } of decisions) {
     const f = allowed.get(fixtureId);
+    const own = season.fixtures.find((x) => x.id === fixtureId && (x.home.teamId === team.id || x.away.teamId === team.id));
+    if (!f && own && fixtureOutcome(own) !== undefined) throw new OpError(409, "That fixture already has a result: it can't be cancelled or forfeited.");
     if (!f) throw new OpError(400, "That fixture is not an unplayed fixture of this team.");
     if (forkGamePending(f)) throw new OpError(409, "A Super FUMBBL game is under way for one of these fixtures.");
     if (f.inactiveDecision?.teamId === team.id && f.inactiveDecision.decision === decision) continue;
@@ -551,7 +566,7 @@ export async function teamPageRoutes(
     const team = season?.teams.find((t) => t.id === teamId);
     if (!season || !team) return fail(404, "Team not found.");
     if (!isManager(league, auth) && !isTeamCoach(team, auth)) return fail(403, "Only this team's coach and the league's organisers can manage it.");
-    return ok({ view: teamPageView(league, deps.store.seasons(league.id), season, teamId, auth) });
+    return ok({ view: teamPageView(league, season, teamId, auth) });
   }
 
   const body = await readJsonObject(deps, BODY_MAX);
@@ -578,24 +593,24 @@ export async function teamPageRoutes(
   if (locked) return fail(409, locked);
 
   const at = (deps.now?.() ?? new Date()).toISOString();
-  const seasons = deps.store.seasons(lg.id);
   const before = structuredClone(team);
   settleServedMng(season);
-  ensureTeamIdentity(lg.id, season.id, team);
+  ensureTeamIdentity(team);
   let changes: Change[] = [];
   let kind: TeamHistoryEntry["kind"] = mode === "coach" ? "coach-edit" : "organiser-edit";
   try {
     if (action === "edit") {
       if (mode === "coach") { const why = coachBlock(season, team); if (why) return fail(409, why); }
       if (!Array.isArray(input.ops) || !input.ops.length || input.ops.length > MAX_OPS) return fail(400, `ops must be a list of 1 to ${MAX_OPS} changes.`, { field: "ops" });
-      const pregame = teamPhase(seasons, team.id) === "pregame";
-      const usedIds = new Set(seasons.flatMap((s) => s.teams.flatMap((t) => [...t.players, ...t.formerPlayers].map((p) => p.playerId))));
+      const pregame = teamPhase(season, team) === "pregame";
+      const usedIds = new Set(deps.store.seasons(lg.id).flatMap((s) => s.teams.flatMap((t) => [...t.players, ...t.formerPlayers].map((p) => p.playerId))));
       const ctx: OpCtx = { season, team, roster: datasetRoster(team.race), mode, pregame, actor: auth.coach, at, games: teamGamesPlayed(season, team.id), usedIds };
-      const limitsBefore = rosterLimitErrors(before, ctx.roster).errors;
+      const limitsBefore = rosterLimitMetrics(before, ctx.roster);
       for (const op of input.ops) changes.push(...applyOp(ctx, op));
       if (mode === "coach") {
-        const fresh = rosterLimitErrors(team, ctx.roster).errors.filter((e) => !limitsBefore.includes(e));
-        if (fresh.length) return fail(400, fresh.join(" "), { revision: current });
+        // Counts, not messages: a roster already over a limit may move toward it, never further past it.
+        const worse = worsenedLimits(limitsBefore, rosterLimitMetrics(team, ctx.roster));
+        if (worse.length) return fail(400, worse.join(" "), { revision: current });
       }
     } else if (action === "status") {
       if (input.status !== "active" && input.status !== "inactive") return fail(400, 'status must be "active" or "inactive".', { field: "status" });
@@ -623,6 +638,8 @@ export async function teamPageRoutes(
     if (e instanceof OpError) return fail(e.status, e.message, { revision: current });
     throw e;
   }
+  // A forfeit is a game for both sides: the MNG it serves is cleared in the stored season too (values refreshed).
+  settleServedMng(season);
   refreshTeamValue(team, season.ruleset);
   addHistory(team, { at, by: auth.coach, kind, changes });
   try {
@@ -632,5 +649,5 @@ export async function teamPageRoutes(
   }
   if (kind !== "coach-edit") sendTeamNotices(lg, season, team, auth.coach, changes.map(changeLine), deps);
   const saved = deps.store.season(lg.id, season.id) ?? season;
-  return ok({ ok: true, revision: saved.revision ?? 0, view: teamPageView(lg, deps.store.seasons(lg.id), saved, team.id, auth) });
+  return ok({ ok: true, revision: saved.revision ?? 0, view: teamPageView(lg, saved, team.id, auth) });
 }

@@ -179,7 +179,7 @@ export async function seed(root: string, opts: SeedOptions = {}): Promise<void> 
   w(join(lg, "seasons", "s1.json"), {
     id: "s1", leagueId: "l1", number: 1, name: "Season 1",
     teams: [
-      { id: "green-orcs", name: "Green Orcs", race: "Orc", coach: "Alice Smith", coachId: "Alice", nafUser: "AliceNaf", players: [] },
+      { id: "green-orcs", name: "Green Orcs", race: "Orc", coach: "Alice Smith", coachId: "Alice", nafUser: "AliceNaf", players: [{ name: "Grub", injuries: [{ type: "dead", at: "", by: "Alice" }] }], statusChanged: { by: "Alice", at: "" }, history: [{ at: "", by: "Alice", kind: "organiser-edit", changes: [{ what: "Alice Smith fixed Grub", from: "Alice", to: "Bob" }] }] },
       { id: "blue-elves", name: "Blue Elves", race: "Elf", coach: "BobNaf", coachId: "Bob", nafUser: "BobNaf", players: [] },
     ],
     fixtures: [{
@@ -189,7 +189,9 @@ export async function seed(root: string, opts: SeedOptions = {}): Promise<void> 
     }],
     redraft: {
       startedAt: "", byCoach: "Bob", capEnabled: false, cap: 0, revision: 1, log: [{ at: "", by: "Alice", text: "Alice submitted a draft" }],
-      teams: [{ coach: "Alice Smith", coachId: "Alice", submittedBy: "Alice", rest: { at: "", by: "Alice", rolls: [] }, override: { budget: 1, reason: "r", by: "Bob", at: "" }, draft: { team: { id: "green-orcs-2", name: "Green Orcs", coach: "Alice Smith", coachId: "Alice" } } }],
+      teams: [{ coach: "Alice Smith", coachId: "Alice", submittedBy: "Alice", rest: { at: "", by: "Alice", rolls: [] }, override: { budget: 1, reason: "r", by: "Bob", at: "" }, draft: { team: { id: "green-orcs-2", name: "Green Orcs", coach: "Alice Smith", coachId: "Alice", statusChanged: { by: "Alice", at: "" }, history: [{ at: "", by: "Alice", kind: "organiser-edit", changes: [{ what: "Alice Smith fixed Grub", from: "Alice", to: "Bob" }] }], players: [{ name: "Grub", injuries: [{ type: "niggling", at: "", by: "Alice" }] }] } } },
+        // Bob's draft: Alice (an organiser) edited his team; her name must leave this snapshot too
+        { coach: "BobNaf", coachId: "Bob", draft: { team: { id: "blue-elves-2", name: "Blue Elves", coach: "BobNaf", coachId: "Bob", statusChanged: { by: "Alice", at: "" }, history: [{ at: "", by: "Alice", kind: "organiser-edit", changes: [{ what: "Alice Smith fixed Grub", from: "Alice", to: "Bob" }] }], players: [] } } }],
     },
     participants: [{ coach: "AliceNaf", nafUser: "AliceNaf", team: "Green Orcs" }, { coach: "BobNaf", nafUser: "BobNaf", team: "Blue Elves", paid: true, flagsUpdated: { by: "Alice", at: "" } }],
     phases: [{ name: "Regular", standings: [{ rank: 1, team: "Green Orcs", coach: "Alice Smith" }, { rank: 2, team: "Blue Elves", coach: "BobNaf" }] }],
