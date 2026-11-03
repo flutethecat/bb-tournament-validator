@@ -70,6 +70,8 @@ import { readJsonObject, requestRevision } from "./http.js";
 import { applyForkSettings, leagueForkRoutes, publicForkState, updateForkSettings, type LeagueForkClient } from "./forkPlay.js";
 import { applyPendingDrafts } from "./redraft.js";
 import { assignTeamCoach } from "./teamCoach.js";
+import { publicTeam, settleServedMng } from "./teamOps.js";
+import { teamPageRoutes } from "./teamPage.js";
 import { myRedraftTasks, redraftRoutes, teamRedraftBudgetRoute } from "./redraftApi.js";
 import { RedraftRulesError, parseRedraftRules } from "./redraftRules.js";
 import { leagueParticipantRoutes, myPaymentStatus, participantsForPublic } from "./participants.js";
@@ -161,6 +163,9 @@ export interface LeagueApiDeps {
   notify?: (coach: string, input: NotificationInput) => void;
   /** Rules-change notice coalescing (creation wizards v2). Absent = the process-wide one. */
   rulesNotices?: RulesChangeCoalescer;
+  /** Team page v2: coalescing of the coach's "An organiser updated your team" note and the record-change note (teamPage.ts).
+   *  Absent = the process-wide one. */
+  teamNotices?: RulesChangeCoalescer;
   /** Rest & Relaxation die for "Roll for me" (tests stub it; default crypto d6). */
   rollD6?: () => number;
   /** Discord webhook poster (tests stub it; default POSTs with fetch). */
@@ -402,6 +407,9 @@ export async function leagueApi(
   if (first === "members") return memberContactRoute(method, league, second, extra, auth, deps);
   const captain = await leagueCaptainRoutes(method, route.rest, league, auth, deps);
   if (captain) return captain;
+  // Team page v2 (teamPage.ts): GET .../teams/:teamId/manage, POST .../edit, .../status, .../fixtures.
+  const teamPage = await teamPageRoutes(method, route.rest, league, auth, deps);
+  if (teamPage) return teamPage;
   const lobby = await leagueLobbyRoutes(method, route.rest, league, auth, deps);
   if (lobby) return lobby;
   const inducements = await leagueInducementRoutes(method, route.rest, league, auth, deps, query);
@@ -1096,7 +1104,12 @@ async function patchFixture(league: LeagueRecord, seasonId: string, fixtureId: s
  */
 export function seasonForViewer(league: LeagueRecord, full: SeasonRecord, auth: LeagueApiIdentity | undefined): SeasonRecord {
   // Redraft state (budgets, R&R, draft rosters) is served only by the authorised redraft routes, never in a season read.
-  const { redraft: _r, ...season } = withCaptainCandidates(withStandings(full));
+  const { redraft: _r, ...derived } = withCaptainCandidates(withStandings(full));
+  // Team page v2: a team-page MNG the team has served reads as cleared (computed on a copy; the next write stores it), and
+  // team histories and injury authors stay with the team's coach and the organisers (GET .../teams/:teamId/manage).
+  const teamsCopy = derived.teams.some((t) => t.players.some((p) => p.mngGames !== undefined)) ? structuredClone(derived.teams) : derived.teams;
+  if (teamsCopy !== derived.teams) settleServedMng({ ...derived, teams: teamsCopy } as SeasonRecord);
+  const season = { ...derived, teams: teamsCopy.map(publicTeam) };
   const fixtures = season.fixtures.map((f) => (f.forkNotice || f.fork || f.resultEdit ? publicForkState(f) : f));
   // Organiser-only log entries (team value diff / not recomputed) stay with organisers and admins.
   const manager = Boolean(auth && (auth.admin || isLeagueOrganiser(league, auth.coach)));

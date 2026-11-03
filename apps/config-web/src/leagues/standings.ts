@@ -217,6 +217,21 @@ function importedStats(rows: StandingRow[]): StandingsStat[] {
   return out;
 }
 
+/**
+ * Team page v2: an inactive team (LeagueTeam.status) has no standings row. Its opponents keep what they earned against it
+ * (their rows are computed from the same fixtures); the rest of each division is ranked again without it.
+ */
+function withoutInactive(season: Pick<SeasonRecord, "teams">, rows: StandingRow[]): StandingRow[] {
+  const off = season.teams.filter((t) => t.status === "inactive");
+  if (!off.length) return rows;
+  const ids = new Set(off.map((t) => t.id));
+  const names = new Set(off.map((t) => t.name.trim().toLowerCase()));
+  const kept = rows.filter((r) => !(r.teamId ? ids.has(r.teamId) : names.has(r.team.trim().toLowerCase())));
+  const rank = new Map<string, number>();
+  for (const r of kept) { const n = (rank.get(r.group) ?? 0) + 1; rank.set(r.group, n); r.rank = n; }
+  return kept;
+}
+
 /** The season's phases with the standings a viewer sees (see the module comment), LATEST form on every row. Pure. */
 export function deriveStandings(season: SeasonRecord): LeaguePhase[] {
   const live = resultsChangedSinceImport(season);
@@ -234,6 +249,7 @@ export function deriveStandings(season: SeasonRecord): LeaguePhase[] {
       ({ rows, stats } = computePhaseStandings(season, phase));
       source = "computed";
     } else return { ...phase };
+    rows = withoutInactive(season, rows);
     const form = latestForm(fixtures);
     for (const r of rows) { const f = form.get(teamKey(r)); if (f?.length) r.latest = f; }
     // Divisions the phase names show even before anyone in them is scheduled.

@@ -879,6 +879,13 @@ function anonymiseSeason(an: Anonymiser, tx: TextReplacer, displays: ReadonlySet
   for (const t of objs(s.teams)) {
     if (linked(t)) mark(LINKED_ROW(an, t));
     if (isObj(t.coachAssigned)) mark(an.fields(t.coachAssigned, ["by"], []));
+    // Team page v2 (teamPage.ts): who changed the status, the team history (author and change text), injury authors.
+    if (isObj(t.statusChanged)) mark(an.fields(t.statusChanged, ["by"], []));
+    for (const h of objs(t.history)) {
+      mark(an.fields(h, ["by"], []));
+      for (const c of objs(h.changes)) mark(tx.texts(c, ["what", "from", "to"]));
+    }
+    for (const p of objs(t.players)) for (const i of objs(p.injuries)) mark(an.fields(i, ["by"], []));
   }
   for (const f of objs(s.fixtures)) {
     for (const side of [f.home, f.away]) if (linked(side)) mark(LINKED_ROW(an, side as Obj));
@@ -891,6 +898,8 @@ function anonymiseSeason(an: Anonymiser, tx: TextReplacer, displays: ReadonlySet
     if (isObj(f.deadlineOutcome)) mark(an.fields(f.deadlineOutcome, ["by"], []));
     // The organiser who overrode the fixture's result (resultEdit).
     if (isObj(f.resultEdit)) mark(an.fields(f.resultEdit, ["by"], []));
+    // Team page v2: the organiser who decided the fixture of an inactive team.
+    if (isObj(f.inactiveDecision)) mark(an.fields(f.inactiveDecision, ["by"], []));
   }
   if (isObj(s.deadlinePolicy)) mark(an.fields(s.deadlinePolicy, ["updatedBy"], []));
   for (const p of objs(s.participants)) {

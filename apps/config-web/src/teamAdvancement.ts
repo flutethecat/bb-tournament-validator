@@ -72,7 +72,7 @@ export type AdvancementEndpointResult =
   | { status: 200; body: { ok: true; revision: string; playerId: string; spentSpp: number; valueIncrease: number } }
   | { status: 400 | 401 | 404 | 409 | 422 | 500 | 503; body: { error: string } };
 
-const ADVANCEMENT_ROWS: ReadonlyArray<{ rank: string; costs: AdvancementCosts }> = [
+export const ADVANCEMENT_ROWS: ReadonlyArray<{ rank: string; costs: AdvancementCosts }> = [
   { rank: "Experienced", costs: { randomPrimary: 3, chosenPrimary: 6, chosenSecondary: 10, characteristic: 14 } },
   { rank: "Veteran", costs: { randomPrimary: 4, chosenPrimary: 8, chosenSecondary: 12, characteristic: 16 } },
   { rank: "Emerging Star", costs: { randomPrimary: 6, chosenPrimary: 12, chosenSecondary: 16, characteristic: 20 } },

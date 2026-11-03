@@ -13,6 +13,7 @@
  * News is read with the season (season.news, pinned first then newest first). Other paths that start a match or write
  * a result (the Super FUMBBL fork lane, tabletop) call recordLeagueFixtureEvent.
  */
+import { settleServedMng } from "./teamOps.js";
 import { randomBytes } from "node:crypto";
 import type { NotificationInput } from "../notifications.js";
 import { NEWS_MAX_POSTS, orderedNews, parseNewsInput } from "../tournaments/page.js";
@@ -184,6 +185,8 @@ async function fixtureEvent(
   if (marked) return { ok: true, posted: false, reason: "Already announced." };
   fixture.finishedAt ??= at;
   fixture.announced = { ...(fixture.announced ?? {}), result: sig };
+  // Team page v2: a missed-next-game an organiser set is served by this game (teamOps.ts settleServedMng).
+  settleServedMng(season);
   addLog(season, { at, by, kind: "match-result", fixtureId: fixture.id, sig, text: `${fixture.home.team} ${fixture.home.score ?? 0} - ${fixture.away.score ?? 0} ${fixture.away.team}` });
   deps.store.putSeason(season);
   // A recorded Super FUMBBL game gets the end-of-game digest (when on) and its live events; a result with no game record

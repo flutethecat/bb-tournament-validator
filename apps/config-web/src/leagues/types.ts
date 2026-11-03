@@ -253,6 +253,12 @@ export interface LeagueFixture {
    * op id / time of the recorded one (the recorder's publish journal checks them, like a tournament fixture's revision).
    */
   tabletop?: { revision: number; opId?: string; reportedAt?: string };
+  /**
+   * Team page v2: the organiser's decision for this unplayed fixture when one side's team went inactive. cancel = no
+   * result (deadlineOutcome "no-result"), forfeit = the inactive side concedes, leave = stays scheduled. Never applied
+   * automatically.
+   */
+  inactiveDecision?: { teamId: string; decision: "cancel" | "forfeit" | "leave"; by: string; at: string };
 }
 
 // ---- Fixture deadlines (spec-main-landing-nav §2.2, ruling §6(d); deadlines.ts) ----
@@ -559,7 +565,18 @@ export interface LeaguePlayer extends PlayerIdentity {
   seasonsPlayed?: number;
   /** A league-play Team Captain appointment: the skills the captaincy granted free ("Team Captain", plus "Pro" unless already owned). */
   captainGrants?: string[];
+  /** Injuries an organiser recorded on the team page (teamOps.ts INJURIES): what and when. `by` never leaves the server in a
+   *  public read. A lasting injury's stat change is already applied to the stats above. */
+  injuries?: PlayerInjuryRecord[];
+  /**
+   * The team's played-game count when an organiser (or an injury) set missNextGame on the team page: once the team has
+   * played more games than this, the player has served it and the flag clears (teamOps.ts settleServedMng).
+   */
+  mngGames?: number;
 }
+
+/** One recorded injury (team page v2). */
+export interface PlayerInjuryRecord { type: string; at: string; by?: string }
 
 /** A player who appears in the season honours but not on the final roster (dead, fired, retired). */
 export interface FormerPlayer extends PlayerIdentity {
@@ -613,6 +630,32 @@ export interface LeagueTeam {
   captainVacant?: true;
   /** The Team Captain's playerId while one is known (leagues/captain.ts): survives a re-import that omits skills. */
   captainPlayerId?: string;
+  /**
+   * Team status in the league (team page v2, organisers' cog): absent = active. An inactive team leaves the standings
+   * (opponents keep their earned results) and is listed under "Inactive"; its unplayed fixtures are never cancelled by
+   * this flag alone (the organiser decides each one: LeagueFixture.inactiveDecision).
+   */
+  status?: "inactive";
+  /** Who last changed the status, and when. */
+  statusChanged?: { by: string; at: string };
+  /** Edit history (team page v2): coach and organiser edits, status changes, fixture decisions. Coach and organisers only:
+   *  never in a public read (teamOps.ts publicTeam). Newest first, capped. */
+  history?: TeamHistoryEntry[];
+  /**
+   * Identity for the team library lane (spec-team-management 11-02; teamOps.ts ensureTeamIdentity has the full note):
+   * teamUid = the team itself (owned by its coach, the same across seasons and, later, leagues); entryId = this league
+   * season's slot the team fills (standings and fixtures belong to the entry; a later swap changes the entry's team).
+   */
+  teamUid?: string;
+  entryId?: string;
+}
+
+/** One team history line: what changed (old -> new), who, when. */
+export interface TeamHistoryEntry {
+  at: string;
+  by: string;
+  kind: "coach-edit" | "organiser-edit" | "status" | "fixture-decision";
+  changes: Array<{ what: string; from?: string; to?: string }>;
 }
 
 export type HonourKind = "player" | "team" | "coach";
