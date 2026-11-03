@@ -5,17 +5,27 @@
  *
  *   marker   forkPlay.ts writes fork.cleanup "pending" in the same store write that banks the result (or cancels play).
  *            Nothing touches the fork in that write, so a failed removal can never hold up banking.
+ *   scan     results from every other writer (hand entry, forfeit, deadline outcome, recorder publish) set no marker,
+ *            so the tick also marks any fixture whose copies are no longer needed and that has no marker yet. The first
+ *            scan on a server records the fixtures that were already in that state (the baseline file): those predate
+ *            this and are left to the backfill, so deploying never sweeps old fixtures by itself.
  *   runner   runForkTeamCleanup, on the server's sync tick (after the result sync) and once shortly after start-up:
  *            every pending marker, and every failed one whose backoff has passed (2 min doubling to 6 h), is tried under
  *            the fixture's fork lock and its teams' locks. A restart resumes from the marker; every step is idempotent.
  *   shared   a fork team id another fixture still needs (any fixture whose copies are not finished with) is never
- *            removed: it is recorded as kept, and the tick removes it once no fixture needs it any more.
- *   backfill forkTeamBackfill (scripts/fork-team-cleanup.ts): fixtures that finished before this existed have no marker;
- *            it lists the ones whose copies are still installed and removes them only with apply.
+ *            removed: it is recorded as kept, and the tick removes it once no fixture needs it any more. When an id is
+ *            removed, every fixture of the season that recorded it loses its build fingerprint, so a later generate
+ *            rebuilds the team instead of trusting a copy that is gone.
+ *   backfill forkTeamBackfill: the baseline fixtures (and anything stuck) whose copies are still installed. Listed by
+ *            scripts/fork-team-cleanup.ts (read-only) and by POST /api/admin/league-fork-cleanup; removed only through
+ *            that admin route with { apply: true }, inside the running server (its store and fork locks), or by the
+ *            script's --apply while the server is stopped.
  *
  * Logs: the server log gets one line per removal or failure (league / season / fixture ids and fork team ids only), the
  * fixture's fork history gets the removal, the first failure and what was kept.
  */
+import { existsSync, readFileSync } from "node:fs";
+import { atomicWriteTextFile } from "@bb/fork-ops";
 import { fixtureLockKey, withForkLocks, type LeagueForkClient } from "./forkPlay.js";
 import { cleanupBackoffMs, cleanupDue, fixtureForkCopies, forkCleanupReason, markForkCleanup } from "./forkCleanupRules.js";
 import type { LeagueStore } from "./store.js";
@@ -27,6 +37,11 @@ export interface ForkCleanupDeps {
   now?: () => Date;
   /** Server log line (default console.log / console.error). */
   log?: (line: string, error?: boolean) => void;
+  /**
+   * The scan's baseline (<FORK_STATE_DIR>/league-fork-cleanup-baseline.json on the server): fixtures already finished
+   * with their copies, unmarked, at the first scan. Absent = every unmarked fixture is scanned (tests).
+   */
+  baselineFile?: string;
 }
 
 export interface FixtureRef { leagueId: string; seasonId: string; fixtureId: string }
@@ -39,7 +54,7 @@ export type CleanupOutcome =
 const BY = "Super FUMBBL";
 const refText = (r: FixtureRef): string => `${r.leagueId}/${r.seasonId}/${r.fixtureId}`;
 
-function writeLog(deps: ForkCleanupDeps, line: string, error = false): void {
+function writeLog(deps: Pick<ForkCleanupDeps, "log">, line: string, error = false): void {
   try {
     if (deps.log) deps.log(line, error);
     else if (error) console.error(line);
@@ -59,6 +74,16 @@ function save(store: LeagueStore, r: FixtureRef, mutate: (f: LeagueFixture) => v
   const f = season?.fixtures.find((x) => x.id === r.fixtureId);
   if (!season || !f) return undefined;
   mutate(f);
+  store.putSeason(season);
+  return f;
+}
+
+/** Re-reads the season and changes it (this fixture and any other) in one synchronous write. */
+function saveSeason(store: LeagueStore, r: FixtureRef, mutate: (f: LeagueFixture, season: SeasonRecord) => void): LeagueFixture | undefined {
+  const season = store.season(r.leagueId, r.seasonId);
+  const f = season?.fixtures.find((x) => x.id === r.fixtureId);
+  if (!season || !f) return undefined;
+  mutate(f, season);
   store.putSeason(season);
   return f;
 }
@@ -122,7 +147,10 @@ export async function cleanupFixtureForkTeams(deps: ForkCleanupDeps, r: FixtureR
       }
     }
     const removed = [...new Set(remove.map((c) => c.forkTeamId))];
-    save(deps.store, r, (x) => {
+    saveSeason(deps.store, r, (x, s) => {
+      // Every fixture that recorded a removed copy (this one and finished ones sharing it) forgets its fingerprint, so a
+      // generate after a cancel is undone (or after an organiser reopens it) rebuilds instead of reusing a missing copy.
+      for (const o of s.fixtures) for (const c of fixtureForkCopies(o)) if (removed.includes(c.forkTeamId)) delete o.fork!.teams[c.side]!.revision;
       const c = x.fork?.cleanup;
       if (!c) return;
       c.state = "removed";
@@ -140,9 +168,55 @@ export async function cleanupFixtureForkTeams(deps: ForkCleanupDeps, r: FixtureR
   });
 }
 
-/** The tick: every fixture with a due marker (pending, or failed past its backoff). Never throws. */
+/** Unmarked fixtures whose copies are no longer needed, by ref. */
+function unmarkedFinished(store: LeagueStore): Map<string, { ref: FixtureRef; reason: string }> {
+  const out = new Map<string, { ref: FixtureRef; reason: string }>();
+  for (const league of store.list()) {
+    for (const season of store.seasons(league.id)) {
+      for (const f of season.fixtures) {
+        const reason = forkCleanupReason(f);
+        if (!reason || f.fork?.cleanup) continue;
+        const ref = { leagueId: league.id, seasonId: season.id, fixtureId: f.id };
+        out.set(refText(ref), { ref, reason });
+      }
+    }
+  }
+  return out;
+}
+
+/** The baseline refs (written on the first scan). Throws when the file exists but cannot be read: the scan then waits. */
+function baseline(deps: ForkCleanupDeps, current: Map<string, unknown>): Set<string> {
+  if (!deps.baselineFile) return new Set();
+  if (!existsSync(deps.baselineFile)) {
+    const refs = [...current.keys()].sort();
+    atomicWriteTextFile(deps.baselineFile, JSON.stringify({ createdAt: (deps.now?.() ?? new Date()).toISOString(), refs }, null, 2));
+    if (refs.length) writeLog(deps, `[leagues] Super FUMBBL team copy cleanup baseline: ${refs.length} older fixture(s) left to the backfill`);
+    return new Set(refs);
+  }
+  const parsed = JSON.parse(readFileSync(deps.baselineFile, "utf8")) as { refs?: unknown };
+  if (!Array.isArray(parsed.refs)) throw new Error("the cleanup baseline file is not readable");
+  return new Set(parsed.refs.filter((x): x is string => typeof x === "string"));
+}
+
+/**
+ * The tick: every fixture with a due marker (pending, or failed past its backoff), and every unmarked fixture whose
+ * copies are no longer needed (results from other writers), except the baseline. Never throws.
+ */
 export async function runForkTeamCleanup(deps: ForkCleanupDeps): Promise<{ removed: string[]; failed: string[] }> {
   const now = deps.now?.() ?? new Date();
+  try {
+    const unmarked = unmarkedFinished(deps.store);
+    const skip = baseline(deps, unmarked);
+    for (const [key, { ref, reason }] of unmarked) {
+      if (skip.has(key)) continue;
+      save(deps.store, ref, (x) => {
+        if (!x.fork || x.fork.cleanup || !forkCleanupReason(x)) return;
+        markForkCleanup(x, now, reason);
+      });
+    }
+  } catch (e) {
+    writeLog(deps, `[leagues] Super FUMBBL team copy scan skipped: ${(e as Error).message}`, true);
+  }
   const due: FixtureRef[] = [];
   for (const league of deps.store.list()) {
     for (const season of deps.store.seasons(league.id)) {
@@ -179,7 +253,7 @@ export async function runForkTeamCleanup(deps: ForkCleanupDeps): Promise<{ remov
 export interface BackfillRow extends FixtureRef {
   reason: string;
   marker?: string;
-  teams: Array<{ forkTeamId: string; files: number; libraries: number; neededElsewhere: boolean }>;
+  teams: Array<{ forkTeamId: string; files: number; libraries: number; pendingReload?: boolean; neededElsewhere: boolean }>;
   outcome?: CleanupOutcome;
 }
 
@@ -201,9 +275,10 @@ export async function forkTeamBackfill(deps: ForkCleanupDeps, opts: { apply?: bo
         const present = deps.fork.teamCopies(copies.map((c) => c.forkTeamId));
         const elsewhere = needed(f.id);
         const teams = [...new Set(copies.map((c) => c.forkTeamId))].map((id) => ({
-          forkTeamId: id, files: present.get(id)?.files ?? 0, libraries: present.get(id)?.libraries ?? 0, neededElsewhere: elsewhere.has(id),
+          forkTeamId: id, files: present.get(id)?.files ?? 0, libraries: present.get(id)?.libraries ?? 0,
+          ...(present.get(id)?.pendingReload ? { pendingReload: true } : {}), neededElsewhere: elsewhere.has(id),
         }));
-        if (!teams.some((t) => !t.neededElsewhere && (t.files > 0 || t.libraries > 0))) continue;
+        if (!teams.some((t) => !t.neededElsewhere && (t.files > 0 || t.libraries > 0 || t.pendingReload))) continue;
         rows.push({ leagueId: league.id, seasonId: season.id, fixtureId: f.id, reason, ...(f.fork?.cleanup ? { marker: f.fork.cleanup.state } : {}), teams });
       }
     }
@@ -220,4 +295,26 @@ export async function forkTeamBackfill(deps: ForkCleanupDeps, opts: { apply?: bo
     row.outcome = await cleanupFixtureForkTeams(deps, row, { force: true });
   }
   return rows;
+}
+
+export interface CleanupRouteResult { status: number; body: unknown }
+
+/**
+ * POST /api/admin/league-fork-cleanup { apply?: boolean } (site admins only): the backfill inside the running server, so
+ * every fixture write goes through this process's store and fork locks. Dry run unless apply is exactly true.
+ */
+export async function leagueForkCleanupRoute(
+  who: { coach: string; admin?: boolean } | undefined, input: Record<string, unknown>, deps: Omit<ForkCleanupDeps, "fork"> & { fork?: LeagueForkClient },
+): Promise<CleanupRouteResult> {
+  if (!who) return { status: 401, body: { error: "Authentication required." } };
+  if (who.admin !== true) return { status: 403, body: { error: "Site admins only." } };
+  if (!deps.fork) return { status: 503, body: { error: "Super FUMBBL is not connected on this server." } };
+  const apply = input.apply === true;
+  try {
+    const rows = await forkTeamBackfill({ ...deps, fork: deps.fork }, { apply });
+    writeLog(deps, `[leagues] league fork copy backfill by a site admin: ${apply ? "apply" : "dry run"}, ${rows.length} fixture(s)`);
+    return { status: 200, body: { apply, rows } };
+  } catch (e) {
+    return { status: 500, body: { error: (e as Error).message } };
+  }
 }

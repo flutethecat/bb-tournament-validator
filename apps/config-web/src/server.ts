@@ -368,7 +368,7 @@ import { runDeadlineJob } from "./leagues/deadlines.js";
 import { runRedraftWindowJob } from "./leagues/redraftWindow.js";
 import { createLeagueForkClient } from "./leagues/forkClient.js";
 import { syncLeagueForkResults } from "./leagues/forkPlay.js";
-import { runForkTeamCleanup } from "./leagues/forkCleanup.js";
+import { leagueForkCleanupRoute, runForkTeamCleanup } from "./leagues/forkCleanup.js";
 import { registerLeagueEvents } from "./leagues/events.js";
 import { discordApi, discordApiPath } from "./discord/api.js";
 import { DiscordHub } from "./discord/hub.js";
@@ -680,6 +680,8 @@ const leagueFork = createLeagueForkClient({
   forkConfig: forkConfigFromEnv, adminCfg: forkAdminCfg, dbCfg: challengeDbCfg, stateDir: FORK_STATE_DIR, libraryDir: LIBRARY_DIR,
   overtime: () => overtimeEnabled, results: tournamentResults,
 });
+/** First cleanup scan's record of fixtures already finished with their fork copies: left to the backfill (forkCleanup.ts). */
+const LEAGUE_FORK_CLEANUP_BASELINE = join(FORK_STATE_DIR, "league-fork-cleanup-baseline.json");
 const leagueNotify = (coach: string, input: Parameters<typeof notificationStore.add>[1]): void => { try { notificationStore.add(coach, input); } catch { /* fire-and-forget */ } };
 // Portal mail (src/mail/, docs/mail/setup.md): outbox under <FORK_STATE_DIR>/mail/, Postmark when POSTMARK_SERVER_TOKEN is
 // set, else the log transport. Organisers message league members through it and never see an address.
@@ -731,7 +733,7 @@ if (forkAdminCfg) {
         .catch(() => { /* retried on the next tick */ })
       : Promise.resolve();
     void results
-      .then(() => runForkTeamCleanup({ store: leagueStore, fork: leagueFork }))
+      .then(() => runForkTeamCleanup({ store: leagueStore, fork: leagueFork, baselineFile: LEAGUE_FORK_CLEANUP_BASELINE }))
       .catch((e) => { console.error(`[leagues] Super FUMBBL team copy cleanup failed: ${(e as Error).message}`); })
       .finally(() => { leagueSyncing = false; });
   };
@@ -3148,6 +3150,21 @@ async function handleApi(
     return sendJson(res, 200, { timezone, deadlines });
   }
 
+  // League fork team copy backfill (src/leagues/forkCleanup.ts, docs/setup.md): site admins only, dry run unless
+  // { apply: true }. Runs inside this server, so its fixture writes share the store and fork locks with the sync tick.
+  if (path === "/api/admin/league-fork-cleanup") {
+    if (method !== "POST") return sendJson(res, 405, { error: "Use POST." });
+    if (!auth) return sendJson(res, 401, { error: "Authentication required." });
+    let input: Record<string, unknown> = {};
+    try {
+      const parsed = await readBody(req, 4096);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) input = parsed as Record<string, unknown>;
+    } catch { return sendJson(res, 400, { error: "Send a JSON object." }); }
+    const out = await leagueForkCleanupRoute(auth, input, { store: leagueStore, fork: forkAdminCfg ? leagueFork : undefined, baselineFile: LEAGUE_FORK_CLEANUP_BASELINE });
+    res.setHeader("cache-control", "no-store");
+    return sendJson(res, out.status, out.body);
+  }
+
   // Sidebar Leagues section: the coach's own seats in active league seasons (team, record, next fixture). Own data only.
   if (path === "/api/me/leagues" && method === "GET") {
     if (!auth) return sendJson(res, 401, { error: "Authentication required." });
@@ -5334,6 +5351,7 @@ export const server = createServer((req, res) => {
           isOrganiserRequestAdminPath(url.pathname) ||
           ADMIN_COACH_DELETE_PATH.test(url.pathname) ||
           url.pathname === "/api/admin/privacy/jobs" ||
+          url.pathname === "/api/admin/league-fork-cleanup" ||
           /^\/api\/admin\/privacy\/jobs\/[a-f0-9]{24}\/(retry|close)$/.test(url.pathname) ||
           tournamentInstructionsGameId(url.pathname) !== undefined ||
           tournamentResultGameId(url.pathname) !== undefined ||

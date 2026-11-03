@@ -166,25 +166,39 @@ Play on Super FUMBBL installs a copy of each league team on the fork for the fix
 file in `FORK_TEAMS_DIR` plus a row in the coach's fork library). Owner 11-03: those copies are deleted at the end.
 
 - **Automatic.** When a fixture's result is banked (or Super FUMBBL play is cancelled with no game left on the fork), the
-  same store write marks the fixture's copies for removal (`fork.cleanup`, "pending"). The server's 2-minute sync tick
-  (and one run 30 s after start, so a restart resumes) removes them under the install's locks: refused while any of the
-  teams is in a live or scheduled game, then the team files, every library row of those ids, and a fork reload. A failure
-  is retried with a backoff (2 min doubling to 6 h) and never holds up banking. A copy another fixture still needs is
-  kept and removed once nothing needs it. Each removal is one `[leagues] Super FUMBBL team copies removed ...` line in
-  the server log (league / season / fixture ids and fork team ids only) and an entry in the fixture's fork history.
-- **Backfill (one-off).** Fixtures that finished before this existed have no marker, and the server never sweeps them on
-  its own. The backfill lists them and removes them only with `--apply`. It reads the server's `.env` (`FORK_STATE_DIR`,
-  `FORK_LIBRARY_DIR`, `FORK_TEAMS_DIR`, `FORK_ADMIN_PASSWORD`), with the same defaults as the server:
+  same store write marks the fixture's copies for removal (`fork.cleanup`, "pending"). Results from every other writer
+  (hand entry, forfeit, deadline outcome, recorder) are picked up by a scan on the same tick. The server's 2-minute sync
+  tick (and one run 30 s after start, so a restart resumes) removes them under the install's locks: refused while any of
+  the teams is in a live or scheduled game; then a per-team "reload required" marker
+  (`FORK_TEAMS_DIR/.league-copy-removals/<id>.json`), the library rows, the team files and a fork reload, which clears
+  the marker. While a marker is left by a failure, only games with those teams are refused (a fresh build of the team
+  replaces it); everything else keeps working. Failures retry with a backoff (2 min doubling to 6 h) and never hold up
+  banking. A copy another fixture still needs is kept and removed once nothing needs it; every fixture that recorded a
+  removed copy forgets its build fingerprint, so generating it again rebuilds the team. Each removal is one
+  `[leagues] Super FUMBBL team copies removed ...` line in the server log (league / season / fixture ids and fork team
+  ids only) and an entry in the fixture's fork history.
+- **First scan baseline.** The first scan on a server writes `<FORK_STATE_DIR>/league-fork-cleanup-baseline.json`
+  with the fixtures that were already finished with their copies before this existed. The server never touches those on
+  its own; they are the backfill's job. Deleting the file makes the next scan write a new baseline (it never cleans the
+  fixtures it lists).
+- **Backfill (one-off).** List first, from the server's folder (reads the server's `.env`: `FORK_STATE_DIR`,
+  `FORK_LIBRARY_DIR`, `FORK_TEAMS_DIR`; `--state-dir`, `--library-dir`, `--teams-dir` override them). The dry run only
+  reads:
 
 ```
-pnpm --filter config-web exec tsx scripts/fork-team-cleanup.ts            # dry run (default): lists, changes nothing
-pnpm --filter config-web exec tsx scripts/fork-team-cleanup.ts --apply    # removes what the dry run listed
+pnpm --filter config-web exec tsx scripts/fork-team-cleanup.ts
 ```
 
-  `--state-dir`, `--library-dir` and `--teams-dir` override the paths (point them at scratch copies to rehearse). Run the
-  dry run first and read the list. `--apply` needs the fork admin API (it checks live games and reloads the fork). It is
-  safe while config-web runs (each fixture write re-reads the season, and the fork locks are shared), but a quiet moment
-  is best. Only `lg_` league copies are ever touched; a coach's own teams are never listed.
+  Then remove through the running server, signed in as a site admin, so every fixture write goes through the server's
+  own store and fork locks (a cookie call also needs the `X-CW-Auth: 1` header). The body `{}` is the same dry run:
+
+```
+POST /api/admin/league-fork-cleanup   {"apply": true}
+```
+
+  `--apply` on the script is only for a stopped server: it refuses while anything listens on the server's port (`PORT`,
+  default 4310, or `--port`). Both need the fork admin API (`FORK_ADMIN_PASSWORD`: live-game check and reload). Only `lg_`
+  league copies are ever touched; a coach's own teams are never listed.
 
 ## Competition Discord
 

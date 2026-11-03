@@ -9,9 +9,10 @@
  *                 on failure) and the schedule call all run before the locks are released. No other writer can
  *                 replace either team, and no game start can slip in, between the check and the schedule.
  *   removeTeams   the reverse of an install (forkCleanup.ts): under the same cache-generation lock and team write locks,
- *                 refuse while any of the teams is in a live or scheduled game (an unconfirmed list refuses), delete the
- *                 team files, drop their rows from every coach library, then reload the fork. Idempotent: a re-run after a
- *                 crash finds the files or rows already gone and still reloads. Only league copies (lg_...) are touched.
+ *                 refuse while any of the teams is in a live or scheduled game (an unconfirmed list refuses), write a
+ *                 per-team reload-required marker, drop the rows from every coach library, delete the team files, reload
+ *                 the fork, clear the markers. A marker left by a failure blocks scheduling only those teams (prepareGame)
+ *                 until a retry reloads, or an install rewrites them. Only league copies (lg_...) are touched.
  *   teamCopies    read-only: which of these team ids still have a team file or a library row
  *   findGame      reconciles an uncertain schedule: the fork's live and finished lists, both confirmed
  *   deleteGame    removes a game that never started (confirmed by the fork's own ok status)
@@ -100,6 +101,20 @@ function teamFilesOf(teamsDir: string, teamId: string): string[] {
     } catch { /* unreadable: left alone */ }
   }
   return out;
+}
+
+/**
+ * Targeted reload-required state of a league copy removal (one file per team id under the teams folder): written before
+ * the first destructive step, cleared after the reload that drops the team. While it exists the disk, the libraries and
+ * the fork cache may disagree for that team only, so games with it are refused; other teams are not affected.
+ */
+const removalMarkerPath = (teamsDir: string, teamId: string): string => join(teamsDir, ".league-copy-removals", `${teamId}.json`);
+export const removalPending = (teamsDir: string, teamId: string): boolean => isLeagueForkTeamId(teamId) && existsSync(removalMarkerPath(teamsDir, teamId));
+function markRemovalPending(teamsDir: string, teamId: string): void {
+  atomicWriteTextFile(removalMarkerPath(teamsDir, teamId), JSON.stringify({ at: new Date().toISOString(), teamId }));
+}
+function clearRemovalPending(teamsDir: string, teamId: string): void {
+  try { unlinkSync(removalMarkerPath(teamsDir, teamId)); } catch (e) { if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e; }
 }
 
 /** Coach library keys that list this team id. */
@@ -200,6 +215,9 @@ export function createLeagueForkClient(cfg: ForkClientConfig): LeagueForkClient 
           if (!lock) throw new Error("another update is in progress for one of the teams; try again in a moment");
           locks.push(lock);
         }
+        // A team whose copy removal has not reloaded yet is not scheduled, unless this call installs it afresh.
+        const removing = [home, away].find((id) => removalPending(dir, id) && !install.some((t) => t.file.forkTeamId === id));
+        if (removing) throw new Error("one of the teams is being removed from Super FUMBBL; generate it again so it is rebuilt");
         // Under the locks: neither team may be in a live game (an unconfirmed list refuses, never reads as "none").
         let live: AdminGameEntry[];
         try { live = await (cfg.io?.liveGames?.() ?? confirmedLists(admin, LIVE_GAME_STATUSES)); } catch (e) {
@@ -228,6 +246,8 @@ export function createLeagueForkClient(cfg: ForkClientConfig): LeagueForkClient 
           // One owner per team id: a rebuild after the seat changed coach moves the row (no orphan in the old library).
           for (const t of install) replaceLibraryTeamOwnership(cfg.libraryDir, t.coach, libraryRow(t.coach, t.file, ingestedAt, true));
           for (const tx of transactions) commitTeamXmlTransaction(tx, true);
+          // The fresh install was reloaded: it supersedes any unfinished removal of these ids.
+          for (const t of install) clearRemovalPending(dir, t.file.forkTeamId);
           installed = true;
         }
         // Still under the same locks: schedule.
@@ -277,11 +297,16 @@ export function createLeagueForkClient(cfg: ForkClientConfig): LeagueForkClient 
         }
         const busy = ids.find((id) => live.some((g) => g.homeTeamId === id || g.awayTeamId === id));
         if (busy) throw new Error(`team ${busy} is in a game on Super FUMBBL`);
-        // Files first, then the library rows, then the reload: each step is idempotent, so a re-run resumes anywhere.
-        for (const id of ids) for (const path of teamFilesOf(dir, id)) unlinkSync(path);
+        // Before the first destructive step: a reload-required marker for exactly these ids. Until a successful reload
+        // clears it, no game is scheduled with them (prepareGame refuses), unless an install rewrites them first.
+        for (const id of ids) markRemovalPending(dir, id);
+        // Library rows first (nobody can pick the team any more), then the files, then the reload. Each step is
+        // idempotent, so a retry after a failure or crash at any point finishes the job and clears the markers.
         for (const id of ids) for (const key of libraryHoldersOf(cfg.libraryDir, id)) removeLibraryTeam(cfg.libraryDir, key, id);
+        for (const id of ids) for (const path of teamFilesOf(dir, id)) unlinkSync(path);
         const reload = await (cfg.io?.reload?.() ?? reloadFork(fork, cfg.stateDir));
         if (!reload.reloaded) throw new Error(reload.reason ?? "the fork did not reload its teams");
+        for (const id of ids) clearRemovalPending(dir, id);
         return { removed: ids };
       } finally {
         for (const lock of locks.reverse()) lock.release();
@@ -290,11 +315,12 @@ export function createLeagueForkClient(cfg: ForkClientConfig): LeagueForkClient 
     },
 
     teamCopies(ids) {
-      const out = new Map<string, { files: number; libraries: number }>();
+      const out = new Map<string, { files: number; libraries: number; pendingReload?: boolean }>();
       const dir = cfg.forkConfig()?.teamsDir;
       for (const id of ids) {
         if (!isLeagueForkTeamId(id)) continue;
-        out.set(id, { files: dir ? teamFilesOf(dir, id).length : 0, libraries: libraryHoldersOf(cfg.libraryDir, id).length });
+        const pending = dir ? removalPending(dir, id) : false;
+        out.set(id, { files: dir ? teamFilesOf(dir, id).length : 0, libraries: libraryHoldersOf(cfg.libraryDir, id).length, ...(pending ? { pendingReload: true } : {}) });
       }
       return out;
     },

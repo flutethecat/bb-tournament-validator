@@ -75,7 +75,7 @@ export interface LeagueForkClient {
    */
   removeTeams?(teams: Array<{ forkTeamId: string; coach: string }>): Promise<{ removed: string[] }>;
   /** Read-only: team files and library rows still present per league fork team id (the backfill's listing). */
-  teamCopies?(forkTeamIds: string[]): Map<string, { files: number; libraries: number }>;
+  teamCopies?(forkTeamIds: string[]): Map<string, { files: number; libraries: number; pendingReload?: boolean }>;
 }
 
 export interface ForkRouteDeps extends BodyDeps {

@@ -1,11 +1,11 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { acquireFileWriteLock, libraryWriteLockPath, readLibrary, upsertLibraryTeam, type AdminGameEntry } from "@bb/fork-ops";
 import { leagueApi, resetForkToggleLimit, type LeagueApiDeps, type LeagueApiResult } from "../src/leagues/api";
-import { createLeagueForkClient } from "../src/leagues/forkClient";
-import { cleanupFixtureForkTeams, forkTeamBackfill, runForkTeamCleanup } from "../src/leagues/forkCleanup";
+import { createLeagueForkClient, removalPending } from "../src/leagues/forkClient";
+import { cleanupFixtureForkTeams, forkTeamBackfill, leagueForkCleanupRoute, runForkTeamCleanup } from "../src/leagues/forkCleanup";
 import { cleanupBackoffMs, forkCleanupReason } from "../src/leagues/forkCleanupRules";
 import { syncLeagueForkResults, type ForkScheduleOutcome, type LeagueForkClient } from "../src/leagues/forkPlay";
 import type { ForkGameResult } from "../src/leagues/forkResult";
@@ -288,8 +288,8 @@ describe("fork team copies are removed when the match is over", () => {
     const s = store.season("tabbl", "season-7")!;
     delete s.fixtures[0]!.fork!.cleanup;
     store.putSeason(s);
-    await runForkTeamCleanup(cleanupDeps());
-    expect(fork.removeCalls).toBe(0); // the server never sweeps old fixtures on its own
+    await runForkTeamCleanup({ ...cleanupDeps(), baselineFile: join(dir, "baseline.json") }); // first scan: baseline
+    expect(fork.removeCalls).toBe(0); // the server never sweeps fixtures older than its first scan
     const dry = await forkTeamBackfill(cleanupDeps());
     expect(dry).toHaveLength(1);
     expect(dry[0]).toMatchObject({ fixtureId: "f1", reason: "the game is over and its result is banked" });
@@ -302,6 +302,79 @@ describe("fork team copies are removed when the match is over", () => {
     expect(fork.files.size).toBe(0);
     expect(fixture().fork!.cleanup!.state).toBe("removed");
     expect(await forkTeamBackfill(cleanupDeps())).toEqual([]);
+  });
+
+  it("the tick also cleans fixtures whose result came from another writer (hand entry), after the first-scan baseline", async () => {
+    // f1: generated, then the game failed and an organiser entered the result by hand (no marker from the fork path).
+    fork.next = { kind: "rejected", error: "refused" };
+    expect((await call("POST", `${base}/fork/generate`, ANN, {})).status).toBe(502);
+    const s = store.season("tabbl", "season-7")!;
+    s.fixtures[0]!.home.score = 2; s.fixtures[0]!.away.score = 0;
+    store.putSeason(s);
+    expect(forkCleanupReason(fixture())).toBe("the fixture has a result without a Super FUMBBL game");
+    const baselineFile = join(dir, "league-fork-cleanup-baseline.json");
+    // First scan on this server: f1 was already like this, so it is recorded and left to the backfill.
+    await runForkTeamCleanup({ ...cleanupDeps(), baselineFile });
+    expect(JSON.parse(readFileSync(baselineFile, "utf8")).refs).toEqual(["tabbl/season-7/f1"]);
+    expect(fork.removeCalls).toBe(0);
+    expect(fixture().fork!.cleanup).toBeUndefined();
+    expect((await forkTeamBackfill(cleanupDeps())).map((r) => r.fixtureId)).toEqual(["f1"]);
+    // f2: generated after, then its result entered by hand: the next scan marks and removes it (shared ids aside).
+    const s2 = store.season("tabbl", "season-7")!;
+    s2.fixtures[0]!.fork!.teams = {}; // f1's record set aside so f2's copies are not shared with it
+    store.putSeason(s2);
+    fork.next = { kind: "rejected", error: "refused" };
+    expect((await call("POST", "/api/leagues/tabbl/seasons/season-7/fixtures/f2/fork/generate", ANN, {})).status).toBe(502);
+    const s3 = store.season("tabbl", "season-7")!;
+    const f2 = s3.fixtures.find((f) => f.id === "f2")!;
+    f2.home.score = 1; f2.away.score = 1;
+    store.putSeason(s3);
+    const out = await runForkTeamCleanup({ ...cleanupDeps(), baselineFile });
+    expect(out.removed).toEqual(["tabbl/season-7/f2"]);
+    expect(fixture("f2").fork!.cleanup).toMatchObject({ state: "removed", reason: "the fixture has a result without a Super FUMBBL game" });
+    // f2 copies gone; f1 (baseline) is still the backfill's.
+    expect(fork.files.size).toBe(0);
+  });
+
+  it("removing a shared id clears the build fingerprint on every fixture that recorded it, so a regenerate rebuilds", async () => {
+    expect((await call("POST", `${base}/fork/generate`, ANN, {})).status).toBe(200);
+    await finish();
+    // f2 recorded the same copies earlier, and play on it was cancelled (no game): it does not need them either.
+    const s = store.season("tabbl", "season-7")!;
+    const f2 = s.fixtures.find((f) => f.id === "f2")!;
+    f2.fork = { status: "cancelled", statusBeforeCancel: "teams_built", teams: JSON.parse(JSON.stringify(s.fixtures[0]!.fork!.teams)), log: [] };
+    f2.forkCancelled = true;
+    store.putSeason(s);
+    expect(fixture("f2").fork!.teams.home!.revision).toBeTruthy();
+    expect(await cleanupFixtureForkTeams(cleanupDeps(), { leagueId: "tabbl", seasonId: "season-7", fixtureId: "f1" })).toMatchObject({ kind: "removed" });
+    expect(fork.files.size).toBe(0);
+    expect(fixture("f2").fork!.teams.home!.revision).toBeUndefined();
+    expect(fixture("f2").fork!.teams.away!.revision).toBeUndefined();
+    expect(fixture("f2").fork!.cleanup).toBeUndefined();
+    // Play allowed again on f2 and generated: both teams are rebuilt (installed), not trusted.
+    expect((await call("PATCH", "/api/leagues/tabbl/seasons/season-7/fixtures/f2", { coach: "Root", admin: true }, { forkCancelled: false })).status).toBe(200);
+    fork.next = { kind: "scheduled", gameId: "g77" };
+    expect((await call("POST", "/api/leagues/tabbl/seasons/season-7/fixtures/f2/fork/generate", ANN, {})).status).toBe(200);
+    expect([...fork.files].sort()).toEqual([HID, AID].sort());
+  });
+
+  it("admin route: site admins only, dry run unless apply is exactly true, then removes inside the server", async () => {
+    expect((await call("POST", `${base}/fork/generate`, ANN, {})).status).toBe(200);
+    await finish();
+    const s = store.season("tabbl", "season-7")!;
+    delete s.fixtures[0]!.fork!.cleanup;
+    store.putSeason(s);
+    const rdeps = { store, fork, now: () => clock, log: () => undefined };
+    expect((await leagueForkCleanupRoute(undefined, {}, rdeps)).status).toBe(401);
+    expect((await leagueForkCleanupRoute({ coach: "Jay", admin: false }, { apply: true }, rdeps)).status).toBe(403);
+    expect((await leagueForkCleanupRoute({ coach: "Root", admin: true }, {}, { ...rdeps, fork: undefined })).status).toBe(503);
+    const dry = await leagueForkCleanupRoute({ coach: "Root", admin: true }, { apply: "yes" }, rdeps);
+    expect(dry.status).toBe(200);
+    expect(dry.body).toMatchObject({ apply: false, rows: [{ fixtureId: "f1" }] });
+    expect(fork.files.size).toBe(2);
+    const applied = await leagueForkCleanupRoute({ coach: "Root", admin: true }, { apply: true }, rdeps);
+    expect(applied.body).toMatchObject({ apply: true, rows: [{ fixtureId: "f1", outcome: { kind: "removed" } }] });
+    expect(fork.files.size).toBe(0);
   });
 });
 
@@ -372,15 +445,24 @@ describe("fork client removeTeams / install (temp dirs)", () => {
     expect(reloads).toBe(0);
   });
 
-  it("a crash between the file delete and the library update resumes on the next run", async () => {
+  it("a failure at the library step leaves a targeted reload-required marker: only that team is refused, a retry finishes", async () => {
     install("Ann", HID);
-    // The library is locked by another writer: the file goes, the row update throws (as a crash would leave it).
+    install("Bob", AID);
+    // The library is locked by another writer: the row update throws before any file is touched.
     const held = acquireFileWriteLock(libraryWriteLockPath(libraryDir, "Ann"))!;
     await expect(client().removeTeams!([{ forkTeamId: HID, coach: "Ann" }])).rejects.toThrow(/library update is in progress/);
     held.release();
-    expect(teamFiles()).toEqual([]);
+    expect(teamFiles().sort()).toEqual([`team_Ann_${HID}.xml`, `team_Bob_${AID}.xml`].sort());
     expect(readLibrary(libraryDir, "Ann")).toHaveLength(1);
     expect(reloads).toBe(0);
+    expect(removalPending(teamsDir, HID)).toBe(true);
+    expect(removalPending(teamsDir, AID)).toBe(false);
+    // Scheduling with that team (no fresh install) is refused; the site-wide gate is untouched, so other teams still play.
+    await expect(client().prepareGame({ install: [], home: HID, away: AID })).rejects.toThrow(/being removed/);
+    expect(existsSync(join(teamsDir, ".fork-cache-reload-required.json"))).toBe(false);
+    const other = forkTeamIdFor("tabbl", "season-7", "third");
+    expect(await client().prepareGame({ install: [], home: AID, away: other })).toEqual({ kind: "scheduled", gameId: "g1" });
+    expect(client().teamCopies!([HID]).get(HID)).toEqual({ files: 1, libraries: 1, pendingReload: true });
     // The fixture flow over the real client: the marker is still pending, a fresh process resumes it.
     const dir = join(root, "leagues");
     let store = new LeagueStore(dir);
@@ -397,7 +479,21 @@ describe("fork client removeTeams / install (temp dirs)", () => {
     const out = await runForkTeamCleanup({ store, fork: client(), log: () => undefined });
     expect(out.removed).toEqual(["tabbl/season-7/f1"]);
     expect(readLibrary(libraryDir, "Ann")).toEqual([]);
+    expect(teamFiles()).toEqual([`team_Bob_${AID}.xml`]);
     expect(reloads).toBe(1);
+    expect(removalPending(teamsDir, HID)).toBe(false);
+  });
+
+  it("a fresh install of a team with an unfinished removal goes ahead and clears the marker", async () => {
+    install("Ann", HID);
+    reloadOk = false;
+    await expect(client().removeTeams!([{ forkTeamId: HID, coach: "Ann" }])).rejects.toThrow("refresh refused");
+    reloadOk = true;
+    const file = buildLeagueForkTeam({ leagueId: "tabbl", seasonId: "season-7", team: season([]).teams[0]!, coach: "Ann", rosters: ROSTERS, ruleset: "BB2025" });
+    expect(await client().prepareGame({ install: [{ coach: "Ann", file }], home: HID, away: AID })).toEqual({ kind: "scheduled", gameId: "g1" });
+    expect(removalPending(teamsDir, HID)).toBe(false);
+    expect(teamFiles()).toHaveLength(1);
+    expect(readLibrary(libraryDir, "Ann").map((t) => t.teamId)).toEqual([HID]);
   });
 
   it("a refused reload fails the removal (retried later); the re-run reloads even though the files are gone", async () => {
@@ -405,9 +501,16 @@ describe("fork client removeTeams / install (temp dirs)", () => {
     reloadOk = false;
     await expect(client().removeTeams!([{ forkTeamId: HID, coach: "Ann" }])).rejects.toThrow("refresh refused");
     expect(teamFiles()).toEqual([]);
+    expect(readLibrary(libraryDir, "Ann")).toEqual([]);
+    // Disk and cache disagree for this team only: it is refused until a reload succeeds.
+    expect(removalPending(teamsDir, HID)).toBe(true);
+    await expect(client().prepareGame({ install: [], home: HID, away: AID })).rejects.toThrow(/being removed/);
+    expect(client().teamCopies!([HID]).get(HID)).toEqual({ files: 0, libraries: 0, pendingReload: true });
     reloadOk = true;
     expect(await client().removeTeams!([{ forkTeamId: HID, coach: "Ann" }])).toEqual({ removed: [HID] });
     expect(reloads).toBe(2);
+    expect(removalPending(teamsDir, HID)).toBe(false);
+    expect(client().teamCopies!([HID]).get(HID)).toEqual({ files: 0, libraries: 0 });
   });
 
   it("a rebuild after the seat changed coach leaves the team in one library only (no orphan row)", async () => {
