@@ -121,6 +121,24 @@ export function createRegistrationService(deps: RegistrationServiceDeps) {
     if (changes.length) await adapter.commit(c.id, changes);
   }
 
+  /**
+   * A departure (withdraw / drop) with the promotions it allows. The departure ALWAYS commits: when the adapter refuses
+   * the bundle because a promotion is no longer allowed (rosters locked, play started, the cap lowered since the read),
+   * the departure commits alone, nobody is promoted, and the skip is logged. Returns the promotions that happened.
+   */
+  async function commitDeparture(c: CompetitionSnapshot, leave: RegistrationChange, promotions: RegistrationChange[]): Promise<RegistrationChange[]> {
+    if (!promotions.length) { await commit(c, [leave]); return []; }
+    try {
+      await commit(c, [leave, ...promotions]);
+      return promotions;
+    } catch (e) {
+      if (!(e instanceof RegistrationError)) throw e;
+      log(`${c.kind}:${c.id}: promotion skipped after ${leave.transition.action} of ${leave.after.id} (${e.message})`);
+      await commit(c, [leave]);
+      return [];
+    }
+  }
+
   const lockKey = (competitionId: string) => `${adapter.kind}:${competitionId}`;
 
   /** After a place freed: auto mode promotes (returns the promotions); organiser mode tells the organisers once. */
@@ -296,12 +314,14 @@ export function createRegistrationService(deps: RegistrationServiceDeps) {
         const freed = entry.state === "accepted";
         const change = transition(entry, "withdrawn", "withdraw", actor.coach, at, reason);
         put(entries, change.after);
-        const { promotions, tellOrganisers } = afterFreed(c, entries, at, freed);
-        await commit(c, [change, ...promotions]);
+        const planned = afterFreed(c, entries, at, freed);
+        const promotions = await commitDeparture(c, change, planned.promotions);
+        // A skipped promotion leaves the place open with coaches waiting: the organisers are told, as in organiser mode.
+        const tellOrganisers = planned.tellOrganisers || (planned.promotions.length > 0 && !promotions.length);
         const ctx = notifyCtx(c);
         notifyWithdrawal(ctx, change.after, actor.coach);
         notifyPromotions(ctx, promotions);
-        if (tellOrganisers) notifyPlaceFreed(ctx, SYSTEM_ACTOR, waitlistOrder(entries).length);
+        if (tellOrganisers) notifyPlaceFreed(ctx, SYSTEM_ACTOR, waitlistOrder(entries).length + planned.promotions.length - promotions.length);
         return result(change.after, true, promotions);
       });
     },
@@ -320,22 +340,23 @@ export function createRegistrationService(deps: RegistrationServiceDeps) {
         const change = transition(entry, "dropped", "drop", actor.coach, at, reason);
         put(entries, change.after);
         const freed = afterFreed(c, entries, at, true);
-        const promotions = [...freed.promotions];
+        const planned = [...freed.promotions];
         let tellOrganisers = freed.tellOrganisers;
         if (opts.promoteNext && c.window.approval === "organiser" && organiserMayAdd(c).open) {
           const next = waitlistOrder(entries).find((e) => roomFor(c.window, entries, e).ok);
           if (next) {
             const p = transition(next, "accepted", "promote", actor.coach, at);
             put(entries, p.after);
-            promotions.push(p);
+            planned.push(p);
             tellOrganisers = false;
           }
         }
-        await commit(c, [change, ...promotions]);
+        const promotions = await commitDeparture(c, change, planned);
+        if (planned.length && !promotions.length) tellOrganisers = true;
         const ctx = notifyCtx(c);
         notifyCoachOutcome(ctx, change.after, "removed", { ...(change.transition.reason ? { reason: change.transition.reason } : {}) });
         notifyPromotions(ctx, promotions);
-        if (tellOrganisers) notifyPlaceFreed(ctx, actor.coach, waitlistOrder(entries).length);
+        if (tellOrganisers) notifyPlaceFreed(ctx, actor.coach, waitlistOrder(entries).length + planned.length - promotions.length);
         return result(change.after, true, promotions);
       });
     },

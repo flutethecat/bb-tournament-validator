@@ -701,3 +701,59 @@ describe("review round 1", () => {
     expect(JSON.stringify((await h.detail(t, coach("Alice"))).entrants)).not.toContain("paidClaimNotifiedAt");
   });
 });
+
+// Sol re-review (round 2).
+describe("review round 2", () => {
+  it("every NAF notice path marks the held entry told; a fromProfile answer clears pending and shows the details", async () => {
+    const h = harness();
+    const t = await h.create({ maxPlayers: 2, nafSanctioned: true });
+    h.naf.alice = { nafName: "Alice Fake", nafId: "11" };
+    h.naf.dee = { nafName: "Dee Fake", nafId: "44" };
+    await h.register(t, "Alice");
+    await h.register(t, "Dee");
+    // full: an organiser adds Bob (profile NAF) and Carol (none) to the waitlist
+    h.naf.bob = { nafName: "Bob Fake", nafId: "42" };
+    h.sent.length = 0;
+    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, OWNER, { coach: "Bob", teamId: "team-bob", waitlistIfFull: true }))?.body).toMatchObject({ registration: { state: "waitlisted" } });
+    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, OWNER, { coach: "Carol", teamId: "team-carol", waitlistIfFull: true }))?.body).toMatchObject({ registration: { state: "waitlisted" } });
+    expect(h.sent.filter((s) => s.coach === "Bob").map((s) => s.input.type)).toEqual(["share-request"]);
+    expect(h.sent.filter((s) => s.coach === "Carol").map((s) => s.input.type)).toEqual(["naf-request"]);
+    expect(h.store.heldEntrants(t.id).every((r) => r.nafToldAt)).toBe(true);
+    const rows = async () => ((await h.panel(t)).body as { entries: Array<{ coachId: string; nafName?: string; nafPending?: boolean }> }).entries;
+    expect((await rows()).find((r) => r.coachId === "Bob")).toMatchObject({ nafName: "Bob Fake" });
+    expect((await rows()).find((r) => r.coachId === "Bob")?.nafPending).toBeFalsy();
+    expect((await rows()).find((r) => r.coachId === "Carol")).toMatchObject({ nafPending: true });
+    // Carol adds NAF details to her profile and answers from it: pending cleared, details shown
+    h.naf.carol = { nafName: "Carol Fake", nafId: "77" };
+    const carol = h.store.heldEntrants(t.id).find((r) => r.coach.ffbCoachId === "Carol")!;
+    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants/${encodeURIComponent(carol.id)}/naf`, coach("Carol"), {}))?.status).toBe(200);
+    expect(h.store.heldEntrants(t.id).find((r) => r.coach.ffbCoachId === "Carol")!.nafPending).toBeUndefined();
+    const c = (await rows()).find((r) => r.coachId === "Carol")!;
+    expect(c).toMatchObject({ nafName: "Carol Fake" });
+    expect(c.nafPending).toBeFalsy();
+  });
+
+  it("a withdrawal always commits; a promotion no longer allowed (rosters locked between read and commit) is skipped and noted", async () => {
+    const h = harness();
+    const t = await h.create({ maxPlayers: 2 });
+    for (const c of ["Alice", "Dee", "Bob"]) await h.register(t, c);
+    expect(h.stateOf(t, "Bob")).toBe("waitlisted");
+    const { TournamentRegistrationAdapter } = await import("../src/tournaments/registration.js");
+    const { createRegistrationService } = await import("../src/registration/index.js");
+    // another writer locks the rosters right after the core read the entries
+    class Racy extends TournamentRegistrationAdapter {
+      override entries(id: string) { const rows = super.entries(id); h.store.lockRosters(id, {}, h.clock.now); return rows; }
+    }
+    const logs: string[] = [];
+    const told: Array<[string, string]> = [];
+    const service = createRegistrationService({ adapter: new Racy(h.store, { now: () => h.clock.now }), now: () => h.clock.now, log: (l) => logs.push(l), notify: (c, input) => told.push([c, input.title]) });
+    const alice = h.store.entrants(t.id).find((e) => e.coach.ffbCoachId === "Alice")!;
+    const res = await service.withdraw(t.id, alice.id, { coach: "Alice" });
+    expect(res).toMatchObject({ changed: true, entry: { state: "withdrawn" }, promoted: [] });
+    expect(h.store.entrants(t.id).find((e) => e.id === alice.id)?.droppedAt).toBeDefined();
+    expect(h.stateOf(t, "Bob")).toBe("waitlisted");
+    expect(logs.join("\n")).toMatch(/promotion skipped after withdraw/);
+    expect(told).toContainEqual(["Veers", "A place opened in Spike Open"]);
+    expect(told.some(([c]) => c === "Bob")).toBe(false);
+  });
+});

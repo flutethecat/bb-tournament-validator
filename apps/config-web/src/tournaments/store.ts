@@ -904,6 +904,8 @@ export class TournamentStore {
       else if ("notNafMember" in answer) { entrant.notNafMember = true; delete entrant.nafNumber; }
       else { delete entrant.notNafMember; delete entrant.nafNumber; }
       delete entrant.nafPending;
+      // The coach answered: they know what goes to the organisers (the panel may show profile NAF details now).
+      entrant.nafToldAt ??= now.toISOString();
       tournament.updatedAt = now.toISOString();
       return entrant;
     });

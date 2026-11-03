@@ -711,27 +711,6 @@ function notifyWithdrawal(deps: TournamentApiDeps, tournament: TournamentRecord,
   });
 }
 
-/** A new entry: the managers except the actor ("{coach} registered for {tournament}", flagged when not a NAF member);
- *  an organiser-made entry also asks the coach to choose what they share. */
-function notifyRegistration(deps: TournamentApiDeps, tournament: TournamentRecord, entrant: TournamentEntrantRecord, actor: string): void {
-  if (!deps.notify) return;
-  quietly(() => {
-    const coach = entrant.coach.ffbCoachId;
-    const what = `${coach} registered for ${tournament.name}`;
-    deps.notify!.managers(tournament.id, {
-      type: "registration",
-      title: entrant.notNafMember ? `${what} — not a NAF member` : what,
-      body: entrant.notNafMember ? `${what} and is not a NAF member.` : `${what}.`,
-      link: tournamentLink(tournament.id, "manage"),
-      from: actor,
-    }, actor);
-  });
-  if (coachKey(entrant.coach.ffbCoachId) !== coachKey(actor)) {
-    if (entrant.nafPending) notifyNafRequest(deps, tournament, entrant.coach.ffbCoachId, actor, true);
-    else notifyShareRequest(deps, tournament, entrant.coach.ffbCoachId, actor, tournament.nafSanctioned === true && !entrant.nafNumber);
-  }
-}
-
 /** nafShared: the entry's NAF details come from the coach's profile (NAF sanctioned), and the coach is told so. */
 function notifyShareRequest(deps: TournamentApiDeps, tournament: TournamentRecord, coach: string, actor: string, nafShared = false): void {
   quietly(() => deps.notify?.coach(coach, {
@@ -864,11 +843,13 @@ export function settleNafOwedEntries(deps: Pick<TournamentApiDeps, "store" | "no
   let count = 0;
   for (const tournament of deps.store.tournaments(["draft", "active"])) {
     if (!tournament.nafSanctioned) continue;
-    const entrants = deps.store.entrants(tournament.id);
+    // The field and (lane L4) pending / waitlisted entries; a held entry is marked told with the request.
+    const entrants = deps.store.registrationEntries(tournament.id).filter((e) => LIVE_STATES.has(entryStateOf(e)));
     const profiles = profileNafs(deps, entrants.map((e) => e.coach.ffbCoachId));
     const unmarked = entrants.filter((e) => nafOwed(tournament, e, profiles.get(coachKey(e.coach.ffbCoachId))) && !e.nafPending);
     if (!unmarked.length) continue;
     const marked = deps.store.markNafPending(tournament.id, unmarked.map((e) => e.id));
+    deps.store.markNafTold(tournament.id, unmarked.filter((e) => marked.includes(e.id) && entryStateOf(e) !== "accepted").map((e) => e.id));
     for (const e of unmarked) if (marked.includes(e.id)) notifyNafRequest(deps as TournamentApiDeps, tournament, e.coach.ffbCoachId, "", false);
     count += marked.length;
   }
@@ -2201,8 +2182,9 @@ async function registrationRoutes(
       ...(notNafMember && self ? { notNafMember: true as const } : {}),
       ...(nafPending ? { nafPending: true as const } : {}),
       ...(region ? { region } : {}),
-      // The coach filled in the NAF block (profile details shown, or "not a NAF member") on a sanctioned tournament.
-      ...(sanctioned && self ? { nafToldAt: now.toISOString() } : {}),
+      // Told about NAF with the entry: the coach filled in the NAF block, or (organiser-made) gets the NAF request or the
+      // "your profile NAF details are shared" notice in this same request. Every NAF notice path sets this (law 23a).
+      ...(sanctioned ? { nafToldAt: now.toISOString() } : {}),
     };
     let result: Awaited<ReturnType<ReturnType<typeof registrationServiceFor>["submit"]>>;
     try {
@@ -2354,6 +2336,9 @@ async function registrationRoutes(
       }
       return {
         ...clientEntrant(record, deps, true, shared.get(record.id), tournament, profiles.get(coachKey(record.coach.ffbCoachId)), codes.get(record.id)),
+        // Profile NAF details withheld (coach not told yet): "NAF pending" is what the entry stores, not derived from the
+        // missing profile.
+        ...(tournament.nafSanctioned && !nafVisible(record) ? { nafPending: record.nafPending === true } : {}),
         state,
         submittedAt: entry.submittedAt,
         enteredAt: entry.enteredAt,
