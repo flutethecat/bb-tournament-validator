@@ -90,6 +90,12 @@ export function createFixtureSummary(deps: { api: Fetcher; download?: (href: str
     sync: () => act("sync", () => deps.api(`${base()}/fork/sync`, { method: "POST", body: {} }), "Checked for a result."),
     setAllowed: (on: boolean) => patch("allow", { forkEnabled: on }, on ? "Super FUMBBL allowed for this fixture." : "Super FUMBBL no longer allowed."),
     setLate: (on: boolean) => patch("late", { forkAllowLate: on }, on ? "Late launch allowed." : "Late launch turned off."),
+    /** The game's admin toggle: roll defections in the forfeit dialog (src/leagues/forfeit.ts). */
+    setDefections: (on: boolean) => act("defections", async () => {
+      await deps.api(`${base()}/forfeit/settings`, { method: "POST", body: { defectionRolls: on } });
+      await reload();
+      return null;
+    }, on ? "Defection rolls on for this game." : "Defection rolls off for this game."),
     setCancelled: (on: boolean) => patch("cancel", { forkCancelled: on }, on ? "Super FUMBBL play cancelled." : "Super FUMBBL play allowed again."),
   };
 }

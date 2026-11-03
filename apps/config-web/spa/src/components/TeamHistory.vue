@@ -7,7 +7,7 @@ import type { TeamHistoryEntry } from "../teams/summary";
 
 defineProps<{ entries: TeamHistoryEntry[] }>();
 const open = ref(false);
-const KIND: Record<TeamHistoryEntry["kind"], string> = { "coach-edit": "Coach", "organiser-edit": "Edit mode", status: "Status", "fixture-decision": "Fixtures" };
+const KIND: Record<TeamHistoryEntry["kind"], string> = { "coach-edit": "Coach", "organiser-edit": "Edit mode", status: "Status", "fixture-decision": "Fixtures", forfeit: "Forfeit" };
 const when = (iso: string): string => new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
 const line = (c: TeamHistoryEntry["changes"][number]): string =>
   c.from === undefined && c.to === undefined ? c.what : c.from === undefined ? `${c.what}: ${c.to}` : c.to === undefined ? `${c.what}: ${c.from} removed` : `${c.what}: ${c.from} → ${c.to}`;

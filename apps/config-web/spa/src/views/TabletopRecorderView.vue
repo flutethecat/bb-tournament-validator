@@ -27,6 +27,10 @@ import TabletopRail from "../components/TabletopRail.vue";
 import TabletopPlayerPicker from "../components/TabletopPlayerPicker.vue";
 import TabletopSheetHead from "../components/TabletopSheetHead.vue";
 import TabletopCoachComments from "../components/TabletopCoachComments.vue";
+import TabletopDice from "../components/TabletopDice.vue";
+import TabletopDiceLive from "../components/TabletopDiceLive.vue";
+import ForfeitDialog from "../components/ForfeitDialog.vue";
+import { createDiceClient } from "../dice/client";
 import { assignTitle } from "../tabletop/confirm";
 import { useNewIds } from "../tabletop/newIds";
 import { useStickToBottom } from "../tabletop/stickBottom";
@@ -327,6 +331,38 @@ function overrideEnd(): void {
 const showRemoved = computed(() => (organiser.value && mySide.value === null) || viewer.state.showRemoved);
 const shownRows = computed(() => (showRemoved.value ? rows.value : rows.value.filter((r) => r.removed === null)));
 const adminOpen = ref(false);
+// The dice roller (TabletopDice.vue): rolls on the server; the opponent's rolls play live here (TabletopDiceLive.vue), from
+// the socket's tabletop-dice push or the poll. Seats and organisers only; a spectator never loads it.
+const dice = createDiceClient(`/api/tabletop/matches/${encodeURIComponent(props.id)}`, { api: fetcher, me: () => session.coach() ?? "" });
+const diceOpen = ref(false);
+const diceOn = computed(() => state.loaded && state.role !== null && state.role !== "spectator");
+const teamName = (s: Side): string => match.value?.[s].teamName ?? s;
+let diceTimer: ReturnType<typeof setInterval> | undefined;
+let offDice: (() => void) | undefined;
+watch(diceOn, (on) => {
+  clearInterval(diceTimer);
+  offDice?.();
+  offDice = undefined;
+  if (!on) return;
+  void dice.refresh();
+  offDice = rec.onDice(() => void dice.refresh());
+  diceTimer = setInterval(() => { if (!document.hidden) void dice.refresh(); }, 5000);
+}, { immediate: true });
+onBeforeUnmount(() => { clearInterval(diceTimer); offDice?.(); });
+// Forfeit (ForfeitDialog.vue) for a league fixture: organisers of the competition; the game's defection toggle sits in Admin.
+const leagueFixture = computed(() => Boolean(match.value?.fixtureRef?.startsWith("league:")));
+const forfeitOpen = ref(false);
+const forfeitTools = ref<{ defectionRolls: boolean } | null>(null);
+const forfeitBase = `/api/tabletop/matches/${encodeURIComponent(props.id)}/forfeit`;
+watch(() => [organiser.value, leagueFixture.value] as const, async ([org, lg]) => {
+  if (!org || !lg || forfeitTools.value) return;
+  try { forfeitTools.value = { defectionRolls: (await fetcher<{ defectionRolls: boolean }>(forfeitBase)).defectionRolls !== false }; } catch { forfeitTools.value = null; }
+}, { immediate: true });
+async function setDefections(on: boolean): Promise<void> {
+  try { forfeitTools.value = { defectionRolls: (await fetcher<{ defectionRolls: boolean }>(`${forfeitBase}/settings`, { method: "POST", body: { defectionRolls: on } })).defectionRolls }; }
+  catch (e) { state.actionError = (e as Error).message; }
+}
+async function forfeitDone(): Promise<void> { forfeitOpen.value = false; await rec.refresh(); }
 /** Admin: Edit inducements after the start (an admin-stamped record; the server prices and budgets it). */
 const inducementEditOpen = ref(false);
 async function saveInducements(side: Side, picks: Array<{ id: string; qty: number }> | "skip"): Promise<boolean> {
@@ -363,6 +399,7 @@ const matchRow = computed(() => {
   if (!m) return "";
   if (m.state === "submitted") return `Match completed${m.updatedAt ? ` · ${new Date(m.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}`;
   if (m.state === "confirmed") return "Match confirmed";
+  if (m.forfeit) return "Match forfeited (administrative result)";
   if (m.state === "published") return "Match published";
   return "";
 });
@@ -406,6 +443,7 @@ usePageTitle(() => (match.value ? `${match.value.home.teamName} vs ${match.value
       <RouterLink to="/tabletop">Tabletop</RouterLink><span aria-hidden="true">/</span>
       <span class="tt-crumb-cur">{{ match.home.teamName }} vs {{ match.away.teamName }}</span>
       <span class="tt-crumb-actions">
+        <button v-if="diceOn" class="tt-crumb-btn" type="button" data-tip="Dice roller: D6, block, D8, CAS and kick-off" data-tip-pos="bottom" @click="diceOpen = true">Dice</button>
         <button class="tt-crumb-btn" type="button" data-tip="Both rosters, skills and SPP" data-tip-pos="bottom" @click="openRosters()">Rosters</button>
         <button class="tt-crumb-btn" type="button" aria-label="Open settings" data-tip="Settings" data-tip-pos="bottom" @click="settingsOpen = true">&#9881;</button>
       </span>
@@ -423,6 +461,7 @@ usePageTitle(() => (match.value ? `${match.value.home.teamName} vs ${match.value
       <span class="tt-stripbar-lead">{{ stripLead }}</span>
       <TabletopTimeline :rows="shownRows" :new-ids="newIds" />
       <span class="tt-stripbar-end">Final</span>
+      <button v-if="diceOn" class="tt-stripbar-btn" type="button" data-tip="Dice roller: D6, block, D8, CAS and kick-off" data-tip-pos="bottom" @click="diceOpen = true">Dice</button>
       <button class="tt-stripbar-btn" type="button" data-tip="Both rosters, skills and SPP" data-tip-pos="bottom" @click="openRosters()">Rosters</button>
       <button class="tt-stripbar-btn tt-stripbar-cog" type="button" aria-label="Settings" data-tip="Settings" data-tip-pos="bottom" @click="settingsOpen = true">&#9881;</button>
     </div>
@@ -496,6 +535,7 @@ usePageTitle(() => (match.value ? `${match.value.home.teamName} vs ${match.value
         v-else-if="organiser" collapsible @hide="setAdminHidden(true)" :recording="recording" :can-override="canOverrideEnd" :edit-mode="editMode" :busy="state.busy" :state="match.state" :can-confirm="canConfirm"
         @add="(k) => openPick(k)" @other="other = true" @change-turn="turnSetOpen = true" @override-end="overrideEnd"
         @reopen="rec.undoRevision()" @confirm="rec.confirm()" @edit="(on) => (editMode = on)" @inducements="inducementEditOpen = true"
+        :forfeit="match.forfeit || match.state === 'confirmed' || match.state === 'published' ? null : forfeitTools" @forfeit="forfeitOpen = true" @defections="setDefections"
       />
     </TabletopRail>
 
@@ -507,6 +547,9 @@ usePageTitle(() => (match.value ? `${match.value.home.teamName} vs ${match.value
     </nav>
 
     <TabletopPregameCine v-if="cine" :key="cine.key" :item="cine" @done="cineDone" />
+    <TabletopDice v-if="diceOpen && diceOn" :dice="dice" :my-side="mySide" :organiser="organiser" :read-only="readOnly || match.state !== 'recording'" :team-name="teamName" @close="diceOpen = false" />
+    <TabletopDiceLive v-if="diceOn" :dice="dice" :my-side="mySide" :team-name="teamName" :suppressed="diceOpen || !!cine" />
+    <ForfeitDialog v-if="forfeitOpen && organiser" :base="forfeitBase" :api="fetcher" @close="forfeitOpen = false" @done="forfeitDone" />
     <TabletopPlayerCard v-if="pcard.show && pcardView" :player="pcardView.player" :side="pcardView.side" :line="pcardView.line" :obscured="pcardView.obscured" :x="pcard.x" :y="pcard.y" />
     <div v-if="tip.show" class="tt-tip" role="tooltip" :data-below="tip.below ? 'true' : null" :style="{ left: `${tip.x}px`, top: `${tip.y}px`, '--tt-tip-arrow': `${tip.arrow}%` }">{{ tip.text }}</div>
 
@@ -526,6 +569,7 @@ usePageTitle(() => (match.value ? `${match.value.home.teamName} vs ${match.value
           :recording="recording" :can-override="canOverrideEnd" :edit-mode="editMode" :busy="state.busy" :state="match.state" :can-confirm="canConfirm"
           @add="(k) => { adminOpen = false; openPick(k); }" @other="adminOpen = false; other = true" @change-turn="adminOpen = false; turnSetOpen = true" @override-end="adminOpen = false; overrideEnd()"
           @reopen="rec.undoRevision()" @confirm="rec.confirm()" @edit="(on) => (editMode = on)" @inducements="adminOpen = false; inducementEditOpen = true"
+          :forfeit="match.forfeit || match.state === 'confirmed' || match.state === 'published' ? null : forfeitTools" @forfeit="adminOpen = false; forfeitOpen = true" @defections="setDefections"
         />
       </div>
     </div>

@@ -4,6 +4,7 @@
 import "./shared/lobby.css";
 import "./style.css";
 import "./tabletop/tabletop.css";
+import "./dice/dice.css";
 import "./tournaments/tournaments.css";
 import "./home/home.css";
 import "./account/account.css";

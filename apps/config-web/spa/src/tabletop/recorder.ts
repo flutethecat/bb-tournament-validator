@@ -56,6 +56,8 @@ export interface MatchView {
   comments?: Partial<Record<Side, { text: string; at: string; hidden?: { by: string; at: string } }>>;
   /** The competition has coach's comments on (absent = on). */
   commentsEnabled?: boolean;
+  /** An organiser entered a forfeit for this match's league fixture: the match is closed. */
+  forfeit?: { at: string; by: string };
 }
 
 export interface RosterPlayerView {
@@ -234,10 +236,13 @@ export function createRecorder(matchId: string, deps: RecorderDeps) {
     state.clockOffsetMs = serverOffset(clock, deps.now?.() ?? Date.now());
   }
 
-  /** A socket frame: the welcome's clock, or a `tabletop-clock` event (same payload as `clock`). */
+  /** Live dice (the dice roller, dice.ts on the server): pages that show dice subscribe; a `tabletop-dice` push calls them. */
+  const diceListeners = new Set<() => void>();
+  /** A socket frame: the welcome's clock, or a `tabletop-clock` event (same payload as `clock`), or a `tabletop-dice` nudge. */
   function onClockMessage(msg: unknown): void {
     const m = msg as { type?: string; feature?: string; payload?: ClockView; clock?: ClockView | null } | undefined;
     if (!m || typeof m !== "object") return;
+    if (m.feature === "tabletop-dice") { for (const fn of diceListeners) { try { fn(); } catch { /* a listener never breaks the socket */ } } return; }
     if (m.type === "tabletopWelcome" && m.clock) applyClock(m.clock);
     else if (m.feature === "tabletop-clock" && m.payload) {
       applyClock(m.payload);
@@ -366,6 +371,8 @@ export function createRecorder(matchId: string, deps: RecorderDeps) {
     startTurn: () => act("turn/start", { expectedHalf: state.clock?.half, expectedTurn: state.clock?.turn, expectedTeam: state.clock?.activeTeam }),
     applyClock,
     onClockMessage,
+    /** Subscribe to live dice pushes; returns the unsubscribe. */
+    onDice(fn: () => void): () => void { diceListeners.add(fn); return () => diceListeners.delete(fn); },
     /** Inducement icons and crests (builder-art manifests); a missing one only drops that art. */
     async loadArt(): Promise<void> {
       const get = async <T>(path: string): Promise<T | undefined> => { try { return await deps.api<T>(path); } catch { return undefined; } };

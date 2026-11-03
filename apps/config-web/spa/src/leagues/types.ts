@@ -96,6 +96,10 @@ export interface LeagueFixture {
   /** Admin per-game settings: a late launch is allowed / Super FUMBBL play is cancelled. */
   forkAllowLate?: boolean;
   forkCancelled?: boolean;
+  /** An administrative forfeit (the F markers, "No effect on standings", penalty points). */
+  forfeit?: { home: boolean; away: boolean; noStandings?: true; penalty?: { home: number; away: number }; at: string };
+  /** Admin per-game setting: false = a forfeit rolls no defections (absent = on). */
+  defectionRolls?: false;
   /** Season reads carry the Super FUMBBL status only, plus the game id once the game finished (its public game page). */
   fork?: { status: FixtureForkStatus; gameId?: string };
   /** The time both coaches agreed through a game-time proposal (Schedule): a 2-hour slot, UTC ISO. */

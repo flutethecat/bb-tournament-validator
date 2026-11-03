@@ -183,7 +183,7 @@ export function summaryFromBuilder(model: PrintSheetModel, extras: BuilderSummar
 
 export type StaffKey = "rerolls" | "assistantCoaches" | "cheerleaders" | "apothecary" | "fans";
 export interface InjuryType { key: string; label: string; text: string; stat?: string; niggling?: true; mng?: "always" | "optional"; dead?: true; recordOnly?: true }
-export interface TeamHistoryEntry { at: string; by: string; kind: "coach-edit" | "organiser-edit" | "status" | "fixture-decision"; changes: Array<{ what: string; from?: string; to?: string }> }
+export interface TeamHistoryEntry { at: string; by: string; kind: "coach-edit" | "organiser-edit" | "status" | "fixture-decision" | "forfeit"; changes: Array<{ what: string; from?: string; to?: string }> }
 export type FixtureDecision = "cancel" | "forfeit" | "leave";
 export interface TeamPageView {
   leagueId: string;

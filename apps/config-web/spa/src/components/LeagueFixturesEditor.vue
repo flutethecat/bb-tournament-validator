@@ -5,6 +5,8 @@
 // posts "Match result" to the league's Discord channel when those events are on. Phases: mark each phase Table (league
 // standings, the default) or Knockout (no table; its final decides the podium). Nothing is inferred.
 import { computed, inject, reactive, ref, watch } from "vue";
+import { API_KEY } from "../app";
+import ForfeitDialog from "./ForfeitDialog.vue";
 import { createFixtureRows, fixturePlayed, LEAGUE_DETAIL_KEY, newFixtureError, type FixtureRowEdit, type NewFixtureForm } from "../leagues/league";
 import type { LeagueFixture, SeasonRecord } from "../leagues/types";
 
@@ -65,6 +67,18 @@ async function setFormat(phaseId: string, e: Event): Promise<void> {
   if (!ok) { const p = props.season.phases.find((x) => x.id === phaseId); select.value = savedFormat(p ?? {}); }
 }
 const confirming = ref("");
+// Forfeit match (ForfeitDialog, src/leagues/forfeit.ts): the TourPlay-style dialog with defection rolls.
+const fetcher = inject(API_KEY)!;
+const forfeitFor = ref<LeagueFixture | null>(null);
+const forfeitBase = (f: LeagueFixture): string =>
+  `/api/leagues/${encodeURIComponent(props.season.leagueId)}/seasons/${encodeURIComponent(props.season.id)}/fixtures/${encodeURIComponent(f.id)}/forfeit`;
+async function forfeitDone(): Promise<void> {
+  forfeitFor.value = null;
+  mine.value = true;
+  await detail.reloadSeason(props.season.id);
+  state.editError = "";
+  state.editNotice = "Forfeit saved.";
+}
 async function remove(f: LeagueFixture): Promise<void> {
   mine.value = true;
   if (await detail.deleteFixture(props.season.id, f.id)) edits.drop(props.season.id, f.id);
@@ -122,7 +136,7 @@ async function remove(f: LeagueFixture): Promise<void> {
           <tbody>
             <tr v-for="f in listed" :key="f.id" :data-fixture="f.id">
               <td class="lg-num">{{ f.round }}</td>
-              <td>{{ f.home.team }} vs {{ f.away.team }}<span v-if="f.test" class="sf-chip" data-tone="muted"> Test</span></td>
+              <td>{{ f.home.team }}<span v-if="f.forfeit?.home" class="ff-f" aria-label="forfeited">F</span> vs {{ f.away.team }}<span v-if="f.forfeit?.away" class="ff-f" aria-label="forfeited">F</span><span v-if="f.test" class="sf-chip" data-tone="muted"> Test</span><span v-if="f.forfeit?.noStandings" class="sf-chip" data-tone="muted"> No effect on standings</span></td>
               <td>
                 <div class="lg-fx-date">
                   <input v-model="rowOf(f).date" type="date" :aria-label="`Date of ${f.home.team} vs ${f.away.team}`" />
@@ -141,6 +155,7 @@ async function remove(f: LeagueFixture): Promise<void> {
               </td>
               <td class="ls-actions">
                 <button class="sf-btn small" type="button" :disabled="busy" @click="saveResult(f)">Save result</button>
+                <button class="sf-btn small" type="button" :disabled="busy" :aria-label="`${f.forfeit ? 'Forfeit details of' : 'Forfeit'} ${f.home.team} vs ${f.away.team}`" @click="forfeitFor = f">{{ f.forfeit ? "Forfeit details" : "Forfeit" }}</button>
                 <button v-if="fixturePlayed(f)" class="sf-btn small danger" type="button" :disabled="busy" @click="clearResult(f)">Clear result</button>
                 <template v-else>
                   <button v-if="confirming !== f.id" class="sf-btn small" type="button" :disabled="busy" :aria-label="`Delete ${f.home.team} vs ${f.away.team}`" @click="confirming = f.id">Delete</button>
@@ -155,5 +170,6 @@ async function remove(f: LeagueFixture): Promise<void> {
         </table>
       </div>
     </template>
+    <ForfeitDialog v-if="forfeitFor" :base="forfeitBase(forfeitFor)" :api="fetcher" @close="forfeitFor = null" @done="forfeitDone" />
   </section>
 </template>

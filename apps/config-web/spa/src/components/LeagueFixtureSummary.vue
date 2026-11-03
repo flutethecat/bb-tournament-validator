@@ -132,6 +132,14 @@ const checked = (e: Event): boolean => (e.target as HTMLInputElement).checked;
         </div>
       </section>
 
+      <section v-if="fork?.canConfigure" class="lg-fork-admin" aria-label="Game admin">
+        <label class="lg-fork-switch">
+          <input type="checkbox" role="switch" :checked="f.defectionRolls !== false" :disabled="Boolean(state.busy)" @change="ctl.setDefections(checked($event))" />
+          <span>Defection rolls after an illegal concession (forfeit dialog)</span>
+        </label>
+        <p v-if="f.forfeit" class="hm-small">Forfeited<template v-if="f.forfeit.home"> by {{ f.home.team }}</template><template v-if="f.forfeit.away"><template v-if="f.forfeit.home"> and</template> by {{ f.away.team }}</template><template v-if="f.forfeit.noStandings">, no effect on standings</template>.</p>
+      </section>
+
       <section v-if="fork?.result" class="lg-fork-result" aria-label="Player lines">
         <p v-if="fork.result.source === 'basic'" class="hm-small">Score and player counters only: SPP and injuries were not in this result.</p>
         <p v-if="fork.result.financialPending" class="hm-small" data-financial-pending>Treasuries were not updated from this game: an organiser settles the winnings.</p>
