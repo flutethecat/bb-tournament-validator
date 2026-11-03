@@ -412,6 +412,19 @@ function logActivity(data: TournamentDataFileV4, tournamentId: string, entry: To
 }
 
 /** The settings change behind updateTournament (and a wizard create, inside the same mutation). Throws before any write. */
+/** The live entries of a tournament: the field (not dropped) and the pending / waitlisted held entries. */
+function liveEntries(data: TournamentDataFileV4, tournamentId: string): TournamentEntrantRecord[] {
+  return [
+    ...Object.values(data.entrants).filter((e) => e.tournamentId === tournamentId && e.droppedAt === undefined),
+    ...Object.values(data.heldEntrants ?? {}).filter((e) => e.tournamentId === tournamentId && (e.entryState === "pending" || e.entryState === "waitlisted")),
+  ];
+}
+
+/** One live entry by id (field or held), or undefined. */
+function liveEntryIn(data: TournamentDataFileV4, tournamentId: string, entrantId: string): TournamentEntrantRecord | undefined {
+  return liveEntries(data, tournamentId).find((e) => e.id === entrantId);
+}
+
 function applyTournamentUpdate(data: TournamentDataFileV4, tournamentId: string, patch: TournamentUpdate, now: Date): TournamentRecord {
   const tournament = data.tournaments[tournamentId];
   if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
@@ -508,14 +521,14 @@ function applyTournamentUpdate(data: TournamentDataFileV4, tournamentId: string,
   else if (patch.playOnFork === false) delete tournament.playOnFork;
   if (patch.nafSanctioned === true && tournament.nafSanctioned !== true) {
     tournament.nafSanctioned = true;
-    // Entries made before the tournament was sanctioned owe a NAF answer now.
-    for (const entrant of Object.values(data.entrants)) {
-      if (entrant.tournamentId !== tournamentId || entrant.droppedAt !== undefined) continue;
+    // Entries made before the tournament was sanctioned owe a NAF answer now: the field and (lane L4) pending or
+    // waitlisted entries alike.
+    for (const entrant of liveEntries(data, tournamentId)) {
       if (!entrant.nafNumber && !entrant.notNafMember) entrant.nafPending = true;
     }
   } else if (patch.nafSanctioned === false && tournament.nafSanctioned === true) {
     delete tournament.nafSanctioned;
-    for (const entrant of Object.values(data.entrants)) if (entrant.tournamentId === tournamentId) delete entrant.nafPending;
+    for (const entrant of [...Object.values(data.entrants), ...Object.values(data.heldEntrants ?? {})]) if (entrant.tournamentId === tournamentId) delete entrant.nafPending;
   }
   if (patch.organizerCoachId !== undefined) {
     tournament.organizerCoachId = patch.organizerCoachId.trim();
@@ -549,6 +562,9 @@ function applyPagePatch(data: TournamentDataFileV4, tournamentId: string, patch:
   tournament.updatedAt = now.toISOString();
   return tournament;
 }
+
+/** "I've paid" tells the organisers at most once per this window. */
+export const PAID_CLAIM_NOTICE_MS = 24 * 60 * 60 * 1000;
 
 /** The registration fields a registration write always sets (absent = removed). */
 const REGISTRATION_KEYS = ["entryState", "registeredAt", "firstRegisteredAt", "waitlistAt", "waitlistSeq", "decided", "registrationLog"] as const;
@@ -859,7 +875,7 @@ export class TournamentStore {
     return this.mutate((data) => {
       const marked: string[] = [];
       for (const id of entrantIds) {
-        const entrant = data.entrants[id];
+        const entrant = liveEntryIn(data, tournamentId, id);
         if (!entrant || entrant.tournamentId !== tournamentId || entrant.nafPending) continue;
         entrant.nafPending = true;
         marked.push(id);
@@ -881,9 +897,9 @@ export class TournamentStore {
     return this.mutate((data) => {
       const tournament = data.tournaments[tournamentId];
       if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
-      const entrant = data.entrants[entrantId];
-      if (!entrant || entrant.tournamentId !== tournamentId || entrant.droppedAt !== undefined)
-        throw new TournamentStoreError(404, "Tournament entrant not found.");
+      // A pending or waitlisted (held) entry answers too (lane L4).
+      const entrant = liveEntryIn(data, tournamentId, entrantId);
+      if (!entrant) throw new TournamentStoreError(404, "Tournament entrant not found.");
       if ("nafNumber" in answer) { entrant.nafNumber = answer.nafNumber; delete entrant.notNafMember; }
       else if ("notNafMember" in answer) { entrant.notNafMember = true; delete entrant.nafNumber; }
       else { delete entrant.notNafMember; delete entrant.nafNumber; }
@@ -950,10 +966,18 @@ export class TournamentStore {
    * (re)submission, then the registration fields. Accepted entries live in `entrants` (moving in takes the next seed);
    * an entry that leaves the field after acceptance stays there with droppedAt; everything else is held.
    */
-  commitRegistration(tournamentId: string, writes: readonly RegistrationWrite[], now = new Date()): TournamentEntrantRecord[] {
+  commitRegistration(
+    tournamentId: string,
+    writes: readonly RegistrationWrite[],
+    now = new Date(),
+    /** Re-checks the decision against the data as stored now, in the same synchronous mutation as the write (rosters
+     *  locked, play started, the cap lowered or the window closed since the registration core read): throws to refuse. */
+    guard?: (data: TournamentDataFileV4) => void,
+  ): TournamentEntrantRecord[] {
     return this.mutate((data) => {
       const tournament = data.tournaments[tournamentId];
       if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
+      guard?.(data);
       const held = data.heldEntrants ?? {};
       const at = now.toISOString();
       const out: TournamentEntrantRecord[] = [];
@@ -1024,6 +1048,41 @@ export class TournamentStore {
     });
   }
 
+  /** Held entries whose coach was told their profile NAF details reach the organisers (or asked for them): only then
+   *  does the Registrations panel show the auto-filled details (law 23a). */
+  markNafTold(tournamentId: string, entrantIds: readonly string[], now = new Date()): void {
+    if (!entrantIds.length) return;
+    this.mutate((data) => {
+      for (const id of entrantIds) {
+        const e = liveEntryIn(data, tournamentId, id);
+        if (e) e.nafToldAt ??= now.toISOString();
+      }
+    });
+  }
+
+  /** Gives every entry (field or held) without a payment reference a fresh one from `generate`, unique within its
+   *  tournament. A write (never on a read). Returns how many codes were given. */
+  ensureReferenceCodes(generate: (taken: ReadonlySet<string>) => string, tournamentId?: string): number {
+    const missing = [...Object.values(this.snapshot().entrants), ...Object.values(this.snapshot().heldEntrants ?? {})]
+      .some((e) => (tournamentId === undefined || e.tournamentId === tournamentId) && !e.refCode);
+    if (!missing) return 0;
+    return this.mutate((data) => {
+      let given = 0;
+      const rows = [...Object.values(data.entrants), ...Object.values(data.heldEntrants ?? {})]
+        .filter((e) => tournamentId === undefined || e.tournamentId === tournamentId);
+      const taken = new Map<string, Set<string>>();
+      for (const e of rows) if (e.refCode) (taken.get(e.tournamentId) ?? taken.set(e.tournamentId, new Set()).get(e.tournamentId)!).add(e.refCode);
+      for (const e of rows) {
+        if (e.refCode) continue;
+        const set = taken.get(e.tournamentId) ?? taken.set(e.tournamentId, new Set()).get(e.tournamentId)!;
+        e.refCode = generate(set);
+        set.add(e.refCode);
+        given += 1;
+      }
+      return given;
+    });
+  }
+
   /** Check an accepted entry in (the coach during the window, or an organiser). Idempotent. */
   checkInEntrant(tournamentId: string, entrantId: string, by: string, now = new Date()): TournamentEntrantRecord {
     return this.mutate((data) => {
@@ -1042,7 +1101,7 @@ export class TournamentStore {
   }
 
   /** The coach's "I've paid" (true) or taking it back (false), on their live entry. Organisers still tick Paid. */
-  setCoachSaysPaid(tournamentId: string, entrantId: string, paid: boolean, now = new Date()): TournamentEntrantRecord {
+  setCoachSaysPaid(tournamentId: string, entrantId: string, paid: boolean, now = new Date()): { entrant: TournamentEntrantRecord; notify: boolean } {
     return this.mutate((data) => {
       const tournament = data.tournaments[tournamentId];
       if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
@@ -1052,10 +1111,15 @@ export class TournamentStore {
         ? field
         : held && held.tournamentId === tournamentId && (held.entryState === "pending" || held.entryState === "waitlisted") ? held : undefined;
       if (!entrant) throw new TournamentStoreError(404, "No active entry with that id.");
-      if (paid) entrant.coachSaysPaid ??= { at: now.toISOString() };
-      else delete entrant.coachSaysPaid;
+      // The organisers hear about "I've paid" once per 24 hours however often it is toggled (the guard is stored).
+      let notify = false;
+      if (paid) {
+        entrant.coachSaysPaid ??= { at: now.toISOString() };
+        const last = entrant.paidClaimNotifiedAt ? Date.parse(entrant.paidClaimNotifiedAt) : Number.NaN;
+        if (!(now.getTime() - last < PAID_CLAIM_NOTICE_MS)) { entrant.paidClaimNotifiedAt = now.toISOString(); notify = true; }
+      } else delete entrant.coachSaysPaid;
       tournament.updatedAt = now.toISOString();
-      return entrant;
+      return { entrant, notify };
     });
   }
 

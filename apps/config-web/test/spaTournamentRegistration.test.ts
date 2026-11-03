@@ -71,6 +71,15 @@ describe("registration helpers (pure)", () => {
     expect(registerBody({ teamRef: "save:s1", region: "North", share: [], notNafMember: true }, false)).toEqual({ teamRef: "save:s1", share: [], notNafMember: true });
   });
 
+  it("review P2-10: a library team linked to a save for ANOTHER ruleset is still offered; one stood for by this ruleset's save is not", () => {
+    const saves = [
+      { id: "s1", name: "Orc sheet", raceName: "Orc", packageName: "nut-cup", teamId: "tm1", updatedAt: "x" },
+      { id: "s2", name: "Elf sheet", raceName: "Elf", packageName: "other-cup", teamId: "tm2", updatedAt: "x" },
+    ];
+    const lib = [{ teamId: "tm1", teamName: "Orcs", race: "Orc", teamValue: 1 }, { teamId: "tm2", teamName: "Elves", race: "Elf", teamValue: 1 }];
+    expect(registerChoices(saves, lib as never, "nut-cup", { rosterLater: false }).map((c) => c.ref)).toEqual(["save:s1", "library:tm2"]);
+  });
+
   it("state, places, outcome, check-in and roster words", () => {
     expect(stateChip({ state: "waitlisted", position: 2 })).toBe("Waitlist #2");
     expect(stateChip({ state: "pending" })).toBe("Pending");

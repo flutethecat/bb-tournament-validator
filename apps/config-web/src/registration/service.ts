@@ -306,8 +306,10 @@ export function createRegistrationService(deps: RegistrationServiceDeps) {
       });
     },
 
-    /** Organiser: remove an accepted entry (standby / remove). Frees the place. */
-    async drop(competitionId: string, entryId: string, actor: RegistrationActor, reason?: string): Promise<RegistrationResult> {
+    /** Organiser: remove an accepted entry (standby / remove). Frees the place. `promoteNext` (organiser mode, "remove and
+     *  promote waitlist"): the first waitlisted entry that fits the freed place is accepted in the same lock, so two
+     *  concurrent removals never pick the same entry and each freed place is filled once. */
+    async drop(competitionId: string, entryId: string, actor: RegistrationActor, reason?: string, opts: { promoteNext?: boolean } = {}): Promise<RegistrationResult> {
       return lock.run(lockKey(competitionId), async () => {
         const { competition: c, entries } = await load(competitionId, actor);
         requireManager(c, actor);
@@ -317,7 +319,18 @@ export function createRegistrationService(deps: RegistrationServiceDeps) {
         const at = now().toISOString();
         const change = transition(entry, "dropped", "drop", actor.coach, at, reason);
         put(entries, change.after);
-        const { promotions, tellOrganisers } = afterFreed(c, entries, at, true);
+        const freed = afterFreed(c, entries, at, true);
+        const promotions = [...freed.promotions];
+        let tellOrganisers = freed.tellOrganisers;
+        if (opts.promoteNext && c.window.approval === "organiser" && organiserMayAdd(c).open) {
+          const next = waitlistOrder(entries).find((e) => roomFor(c.window, entries, e).ok);
+          if (next) {
+            const p = transition(next, "accepted", "promote", actor.coach, at);
+            put(entries, p.after);
+            promotions.push(p);
+            tellOrganisers = false;
+          }
+        }
         await commit(c, [change, ...promotions]);
         const ctx = notifyCtx(c);
         notifyCoachOutcome(ctx, change.after, "removed", { ...(change.transition.reason ? { reason: change.transition.reason } : {}) });

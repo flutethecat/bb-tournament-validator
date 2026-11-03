@@ -11,14 +11,61 @@
 // Every state change goes through createRegistrationService: one per-competition KeyedLock (read -> decide -> commit), so
 // two simultaneous registrations at the last place never both get it and a waitlist promotion runs exactly once.
 
-import { createHash, randomInt } from "node:crypto";
+import { randomInt } from "node:crypto";
 import {
-  checkInWindow, createRegistrationService, isCheckInOpen, type CheckInNoticeRecord, type CompetitionSnapshot, type EntryState,
+  checkInWindow, createRegistrationService, isCheckInOpen, normalizeCap, organiserMayAdd, RegistrationError, windowStatus, type CheckInNoticeRecord, type CompetitionSnapshot, type EntryState,
   type RegistrationAdapter, type RegistrationChange, type RegistrationEntry, type RegistrationNotifySink,
 } from "../registration/index.js";
 import { tournamentCompetition } from "./publication.js";
 import type { RegistrationWrite, TournamentStore } from "./store.js";
-import type { TournamentEntrantRecord, TournamentRecord } from "./types.js";
+import type { TournamentDataFileV4, TournamentEntrantRecord, TournamentRecord } from "./types.js";
+
+const LIVE: ReadonlySet<string> = new Set(["pending", "waitlisted", "accepted"]);
+const ckey = (c: string) => c.trim().toLowerCase();
+
+/**
+ * The registration core decided on a snapshot read inside its lock, but other writers (lock rosters, start, a lowered cap,
+ * new settings) do not take that lock. This re-checks the decision against the stored data in the same synchronous
+ * store mutation as the write: an entry becoming live or accepted needs the competition still open for it (not
+ * finished, rosters not locked, play not started), a coach entering themselves needs the window still open, and the
+ * accepted entries after the write must fit the cap. Leaving (withdraw, decline, drop) is never refused.
+ */
+export function registrationCommitGuard(tournamentId: string, changes: readonly RegistrationChange[], now: Date) {
+  return (data: TournamentDataFileV4): void => {
+    const t = data.tournaments[tournamentId];
+    if (!t) throw new RegistrationError(404, "not-found", "Not found.");
+    const round1 = Object.values(data.rounds).some((r) => r.tournamentId === tournamentId && r.number === 1);
+    const c = tournamentCompetition(t, round1);
+    let gainsAccepted = false;
+    for (const change of changes) {
+      const to = change.after.state;
+      const from = change.before?.state;
+      const becomesLive = LIVE.has(to) && !(from && LIVE.has(from));
+      const becomesAccepted = to === "accepted" && from !== "accepted";
+      if (becomesAccepted) gainsAccepted = true;
+      if (becomesLive || becomesAccepted) {
+        const s = organiserMayAdd(c);
+        if (!s.open) throw new RegistrationError(409, "closed", s.message);
+      }
+      const action = change.transition.action;
+      if (action === "submit" || action === "reenter") {
+        const by = change.transition.by;
+        const self = ckey(by) === ckey(change.after.coach) && !c.managers.some((m) => ckey(m) === ckey(by));
+        if (self) {
+          const w = windowStatus(c, now);
+          if (!w.open) throw new RegistrationError(409, "closed", w.message);
+        }
+      }
+    }
+    const cap = normalizeCap(c.window.cap);
+    if (gainsAccepted && cap !== null) {
+      const changed = new Map(changes.map((ch) => [ch.after.id, ch.after.state] as const));
+      const field = Object.values(data.entrants).filter((e) => e.tournamentId === tournamentId && e.droppedAt === undefined && !changed.has(e.id)).length;
+      const after = field + [...changed.values()].filter((s) => s === "accepted").length;
+      if (after > cap) throw new RegistrationError(409, "full", "Full.");
+    }
+  };
+}
 
 /** The state of a stored entrant row (absent entryState = accepted; droppedAt = withdrawn unless marked dropped). */
 export function entryStateOf(record: Pick<TournamentEntrantRecord, "entryState" | "droppedAt">): EntryState {
@@ -55,30 +102,20 @@ export const REF_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const REF_LENGTH = 4;
 export const REF_CODE = /^SF-[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{4,6}$/;
 
-function derivedCode(record: Pick<TournamentEntrantRecord, "id" | "coach" | "registeredAt">, salt: number): string {
-  const digest = createHash("sha256").update(`${record.id}|${record.coach.verifiedAt}|${record.registeredAt}|${salt}`).digest();
-  let out = "";
-  for (let i = 0; i < REF_LENGTH; i++) out += REF_ALPHABET[digest[i]! % REF_ALPHABET.length];
-  return `SF-${out}`;
-}
-
 /**
- * Every entry's reference code: the stored one, else (rows written before codes existed) one derived from the entry's
- * private fields, unique within the tournament. Coach and managers only: never on a public read.
+ * Every entry's reference code, as stored. Codes are random (newReferenceCode), never derived from an entry's fields:
+ * a row written before codes existed gets one from ensureReferenceCodes (a write: the minute sweep, server start, or
+ * the coach's "I've paid"), never on a read. Coach and managers only: never on a public read.
  */
 export function referenceCodes(records: readonly TournamentEntrantRecord[]): Map<string, string> {
   const out = new Map<string, string>();
-  const taken = new Set<string>();
-  for (const r of records) if (r.refCode && REF_CODE.test(r.refCode)) { out.set(r.id, r.refCode); taken.add(r.refCode); }
-  for (const r of [...records].sort((a, b) => a.id.localeCompare(b.id))) {
-    if (out.has(r.id)) continue;
-    let salt = 0;
-    let code = derivedCode(r, salt);
-    while (taken.has(code)) code = derivedCode(r, ++salt);
-    taken.add(code);
-    out.set(r.id, code);
-  }
+  for (const r of records) if (r.refCode && REF_CODE.test(r.refCode)) out.set(r.id, r.refCode);
   return out;
+}
+
+/** Gives every entry without a code a fresh random one (all tournaments, or one). Returns how many were given. */
+export function ensureReferenceCodes(store: TournamentStore, tournamentId?: string): number {
+  return store.ensureReferenceCodes((taken) => newReferenceCode(taken), tournamentId);
 }
 
 /** A fresh random code not used by any entry of the tournament (stored or derived). */
@@ -178,7 +215,7 @@ export class TournamentRegistrationAdapter implements RegistrationAdapter {
       }
       return write;
     });
-    this.store.commitRegistration(id, writes, now);
+    this.store.commitRegistration(id, writes, now, registrationCommitGuard(id, changes, now));
   }
 
   markCheckInNotice(id: string, notice: CheckInNoticeRecord): void {
@@ -238,6 +275,8 @@ export async function sweepTournamentRegistrations(
 ): Promise<{ checkIn: number; rosterDue: number }> {
   let checkIn = 0;
   let rosterDue = 0;
+  // Rows written before payment references existed get a random one here (a write, never on a read).
+  try { ensureReferenceCodes(store); } catch (e) { console.error(`[registration] reference codes: ${(e as Error).message}`); }
   for (const t of store.tournaments(["draft", "active"])) {
     if (t.unpublished === true) continue;
     // "Check in here" only where coaches check themselves in (organiser check-in needs no notice).

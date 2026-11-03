@@ -40,8 +40,9 @@ function deps(store: TournamentStore, over: Partial<TournamentApiDeps> = {}): To
     teamOwner: (teamId) => NAMES.find((n) => `team-${n.toLowerCase()}` === teamId),
     teamBuild: (teamId) => ({ teamName: `${teamId} live`, race: "Orc" }),
     validateSubmission: stubValidate,
-    // the re-check after a rules change validates the stored snapshot (stub: passes)
-    revalidateSubmission: (_c, submission, packageName, at) => ({ ...submission, validation: { ok: true, problems: [], checkedAt: at.toISOString(), packageName } }),
+    // the re-check of a STORED snapshot (rules change, lock, start; lane L4: never the live save). Stub: the snapshot of
+    // "save:bad" stays invalid, every other snapshot passes.
+    revalidateSubmission: (c, submission, packageName, at) => ({ ...submission, validation: submission.saveId === "save:bad" ? stubValidate(c, "save:bad", packageName, at).validation : { ok: true, problems: [], checkedAt: at.toISOString(), packageName } }),
     rulesNotices: new RulesChangeCoalescer(0, () => undefined),
     registeredCoach: (id) => [...NAMES, "Veers", "Thrawn"].find((n) => n.toLowerCase() === id.trim().toLowerCase()),
     coachRating: (name) => ({ Alice: 1700, Bob: 1600, Cy: 1500, Dee: 1400 })[name],

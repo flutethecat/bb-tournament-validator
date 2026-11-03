@@ -288,6 +288,10 @@ export interface TournamentEntrantRecord {
   refCode?: string;
   /** The coach pressed "I've paid" (coach and managers only); organisers still tick Paid themselves. */
   coachSaysPaid?: { at: string };
+  /** A held entry's coach was told (or asked) about NAF on a sanctioned tournament: the panel may show the profile NAF. */
+  nafToldAt?: string;
+  /** When organisers were last told about "I've paid" (one notice per 24 h however often it is toggled). */
+  paidClaimNotifiedAt?: string;
   /** When the entry was checked in, and by whom (the coach, or an organiser). */
   checkedInBy?: { by: string; at: string };
 }

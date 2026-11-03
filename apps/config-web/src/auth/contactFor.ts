@@ -41,6 +41,9 @@ export interface MembershipSources {
   tournaments: {
     tournament(id: string): unknown;
     entrants(id: string): ReadonlyArray<{ coach: { ffbCoachId: string }; droppedAt?: string; registeredAt?: string }>;
+    /** Registration (lane L4): every entry in any state, the held ones too (pending / waitlisted / declined). Used only
+     *  by the coach's own sharing scope (they may change or revoke a grant while waiting for a decision). */
+    registrationEntries?(id: string): ReadonlyArray<{ coach: { ffbCoachId: string }; droppedAt?: string; registeredAt?: string; entryState?: string }>;
   };
   leagues: {
     league(id: string): LeagueSummary | undefined;
@@ -152,15 +155,18 @@ const tournamentStatus = (t: unknown): string | undefined =>
 export function inShareScope(record: CoachIdentityRecord, scope: ShareScope, sources: MembershipSources): boolean {
   if (scope.kind === "tournament") {
     const t = sources.tournaments.tournament(scope.id);
-    return Boolean(t) && tournamentStatus(t) !== "cancelled" && isTournamentMember(record.ffbCoachId, scope.id, sources);
+    return Boolean(t) && tournamentStatus(t) !== "cancelled" && activeEntry(record, scope.id, sources) !== undefined;
   }
   return isLeagueRosterMember(record.ffbCoachId, scope.id, sources) && sharesWithLeague(record, scope.id);
 }
 
-/** The coach's active entry of a tournament (undefined when none). */
+/** The coach's active entry of a tournament (undefined when none): an entrant who has not dropped, or (lane L4) a pending
+ *  or waitlisted registration, whose grant the organisers see while they decide. */
 function activeEntry(record: CoachIdentityRecord, tournamentId: string, sources: MembershipSources) {
   const key = normalizeFfbCoachId(record.ffbCoachId);
-  return sources.tournaments.entrants(tournamentId).find((e) => !e.droppedAt && sameCoach(key)(e.coach.ffbCoachId));
+  return sources.tournaments.entrants(tournamentId).find((e) => !e.droppedAt && sameCoach(key)(e.coach.ffbCoachId))
+    ?? sources.tournaments.registrationEntries?.(tournamentId)
+      .find((e) => !e.droppedAt && (e.entryState === "pending" || e.entryState === "waitlisted") && sameCoach(key)(e.coach.ffbCoachId));
 }
 
 /** The coach's grant for this scope is in force: they are in the scope, and the grant was given during the current

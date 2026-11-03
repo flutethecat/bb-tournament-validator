@@ -83,7 +83,8 @@ const nafLinkError = ref("");
 const nafLinking = ref(false);
 const nafShown = computed(() => nafLinkError.value || (nafTouched.value ? nafError.value : ""));
 watch(nafDraft, () => { nafLinkError.value = ""; });
-const nafPending = computed(() => Boolean(mine.value?.nafPending && sanctioned.value && entered.value));
+// A pending or waitlisted entry answers too (lane L4): the form works on the live entry, in the field or held.
+const nafPending = computed(() => Boolean(current.value?.nafPending && sanctioned.value));
 onMounted(() => {
   if (coach.value && state.teamOptions.status === "idle") void detail.loadTeamOptions(coach.value);
 });
@@ -111,9 +112,9 @@ const busy = computed(() => Boolean(state.busy) || nafLinking.value);
 async function doSubmit() { if (saveRef.value) await detail.submit(saveRef.value); }
 async function doAnswerNaf() {
   nafTouched.value = true;
-  if (!mine.value || nafError.value) return;
+  if (!current.value || nafError.value) return;
   if (!(await ensureProfileNaf())) return;
-  await detail.answerNaf(mine.value.id, notNafMember.value && !profileNaf.value ? { notNafMember: true } : {});
+  await detail.answerNaf(current.value.id, notNafMember.value && !profileNaf.value ? { notNafMember: true } : {});
 }
 async function doWithdraw() { if (current.value) await detail.withdrawEntry(current.value.id); }
 const HELD_TEXT = {

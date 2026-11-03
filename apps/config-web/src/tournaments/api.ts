@@ -41,7 +41,7 @@ import {
 } from "../registration/index.js";
 import { tournamentCompetition, tournamentRegistrationWindow } from "./publication.js";
 import {
-  checkInView, entryStateOf, referenceCodes, rosterDeadlinePassed, toRegistrationEntry, tournamentRegistrationService,
+  checkInView, ensureReferenceCodes, entryStateOf, referenceCodes, rosterDeadlinePassed, toRegistrationEntry, tournamentRegistrationService,
   type TournamentEntryData,
 } from "./registration.js";
 
@@ -241,11 +241,24 @@ function rosterChecks(
       out[entrant.id] = { error: NO_ROSTER_PROBLEM };
       continue;
     }
+    // A submitted roster is judged by the snapshot stored when it was submitted (never the coach's live save, which may
+    // have changed after the roster deadline); re-checked against the current rules when the host can.
+    if (entrant.submission) {
+      try {
+        out[entrant.id] = deps.revalidateSubmission
+          ? deps.revalidateSubmission(entrant.coach.ffbCoachId, entrant.submission, tournament.packageName, now, houseRulesOf(tournament, "tournament"))
+          : structuredClone(entrant.submission);
+      } catch {
+        throw new TournamentStoreError(503, "Team validation failed on this host; nothing was locked. Try again.");
+      }
+      continue;
+    }
     if (!deps.validateSubmission) {
       out[entrant.id] = { error: "Team validation is unavailable on this host." };
       continue;
     }
-    const ref = entrant.submission?.saveId ?? `library:${entrant.teamId}`;
+    // No submission: the library team the coach entered with (a fork team, not a Roster Builder save).
+    const ref = `library:${entrant.teamId}`;
     let check: ReturnType<NonNullable<TournamentApiDeps["validateSubmission"]>>;
     try {
       check = deps.validateSubmission(entrant.coach.ffbCoachId, ref, tournament.packageName, now, houseRulesOf(tournament, "tournament"));
@@ -282,7 +295,7 @@ function clientEntrant(entrant: TournamentEntrantRecord, deps: Pick<TournamentAp
     coach, submission: _submission, flags, rosterVerifiedOverride, manualSeed, nafNumber, notNafMember, nafPending, nafSnapshot: _nafSnapshot, paidUpdated,
     // Registration (lane L4): the state machine's fields, the payment reference and "I've paid" are never public.
     entryState: _state, firstRegisteredAt: _first, waitlistAt: _wAt, waitlistSeq: _wSeq, decided: _decided, registrationLog: _log,
-    refCode: storedCode, coachSaysPaid, checkedInBy, region,
+    refCode: storedCode, coachSaysPaid, checkedInBy, region, nafToldAt: _told, paidClaimNotifiedAt: _paidTold,
     ...rest
   } = entrant;
   const team = deps.teamBuild(entrant.teamId);
@@ -427,12 +440,31 @@ function clientMatch(
   };
 }
 
+/** The stored tournament fields a tournament payload may carry (everything else is derived or private). */
+export const PUBLIC_TOURNAMENT_FIELDS = [
+  "id", "name", "status", "test", "publishedAt", "unpublished", "registration", "format", "packageName", "maxPlayers",
+  "roundCount", "roundCountExplicit", "currentRound", "tiebreakers", "points", "turnTimer", "inducementOptIns",
+  "organizerCoachId", "ownerCoachId", "organizerCoachIds", "pairingSystem", "seedingMode", "rostersLockedAt", "startedAt",
+  "seriesId", "location", "startTime", "entryFee", "payPal", "venmo", "summary", "notes", "deadlines", "nafSanctioned",
+  "playOnFork", "awards", "awardsRevision", "houseRules", "pairingAvoid", "regions", "authorised", "createdAt", "updatedAt",
+] as const satisfies ReadonlyArray<keyof TournamentRecord>;
+
+function pickPublicTournament(t: TournamentRecord): Partial<Pick<TournamentRecord, (typeof PUBLIC_TOURNAMENT_FIELDS)[number]>> {
+  const out: Record<string, unknown> = {};
+  for (const key of PUBLIC_TOURNAMENT_FIELDS) if (t[key] !== undefined) out[key] = structuredClone(t[key]);
+  return out as Partial<Pick<TournamentRecord, (typeof PUBLIC_TOURNAMENT_FIELDS)[number]>>;
+}
+
 function clientTournament(
   tournament: TournamentRecord,
   entrants: TournamentEntrantRecord[],
   auth?: TournamentApiIdentity,
 ) {
-  const { startsAt, endsAt, bannerPath: _bannerPath, news, activity: _activity, ...record } = tournament;
+  const { startsAt, endsAt, news } = tournament;
+  // An allow-list, never a spread (lane L4): internal bookkeeping (bannerPath, the activity log, the check-in and
+  // roster-due notice guards that list held entry ids) never reaches a tournament payload. A new stored field stays
+  // private until it is added here.
+  const record = pickPublicTournament(tournament);
   const banner = bannerUrl(tournament);
   // Payment links as a page may show them (re-checked; only valid links). The detail route is the only way to a draft.
   const payment = paymentLinksView(tournament.payPal, tournament.venmo);
@@ -1437,19 +1469,27 @@ export async function tournamentApi(
         patch.confirmAfterStart = true;
       }
       const coreKeys = Object.keys(input).filter((key) => !(PAGE_FIELDS as readonly string[]).includes(key) && key !== "registration" && key !== "changeMessage" && key !== "confirmAfterStart");
-      const pendingBefore = new Set(deps.store.entrants(tournamentId).filter((e) => e.nafPending).map((e) => e.id));
+      const pendingBefore = new Set(deps.store.registrationEntries(tournamentId).filter((e) => e.nafPending).map((e) => e.id));
       const wasSanctioned = existing.nafSanctioned === true;
       let tournament = coreKeys.length || (!hasPage && registration === undefined) ? deps.store.updateTournament(tournamentId, patch, now) : existing;
       if (patch.nafSanctioned === true && !wasSanctioned) {
         // Made NAF sanctioned with entries already in: one notice per coach, none to organisers. Every active entrant
         // whose profile NAF details now reach the organisers is told so (whatever the entry stored before); a newly
         // marked entry without them is asked to add them (or say "not a NAF member").
-        const entries = deps.store.entrants(tournamentId).filter((e) => e.droppedAt === undefined);
+        // Pending and waitlisted entries are treated alike (lane L4); a held entry is marked told before the notice, so
+        // the Registrations panel shows its profile NAF details only once the coach has been told (law 23a).
+        const entries = deps.store.registrationEntries(tournamentId).filter((e) => LIVE_STATES.has(entryStateOf(e)));
         const profiles = profileNafs(deps, entries.map((e) => e.coach.ffbCoachId));
+        const told: Array<{ e: TournamentEntrantRecord; shared: boolean }> = [];
         for (const e of entries) {
           const shared = entryNaf(tournament, e, profiles.get(coachKey(e.coach.ffbCoachId)));
-          if (shared && profiles.get(coachKey(e.coach.ffbCoachId)) === shared) notifyNafShared(deps, tournament, e.coach.ffbCoachId, identity.coach);
-          else if (e.nafPending && !pendingBefore.has(e.id)) notifyNafRequest(deps, tournament, e.coach.ffbCoachId, identity.coach, false);
+          if (shared && profiles.get(coachKey(e.coach.ffbCoachId)) === shared) told.push({ e, shared: true });
+          else if (e.nafPending && !pendingBefore.has(e.id)) told.push({ e, shared: false });
+        }
+        deps.store.markNafTold(tournamentId, told.filter((x) => entryStateOf(x.e) !== "accepted").map((x) => x.e.id), now);
+        for (const { e, shared } of told) {
+          if (shared) notifyNafShared(deps, tournament, e.coach.ffbCoachId, identity.coach);
+          else notifyNafRequest(deps, tournament, e.coach.ffbCoachId, identity.coach, false);
         }
       }
       if (hasPage) tournament = deps.store.updatePage(tournamentId, pagePatch, now);
@@ -1497,7 +1537,8 @@ export async function tournamentApi(
       const tournament = deps.store.tournament(tournamentId);
       if (!tournament) return { status: 404, body: { error: "Tournament not found." } };
       requireTournamentManager(tournament, identity);
-      return { status: 200, body: { tournament: deps.store.finishTournament(tournamentId, now) } };
+      const finished = deps.store.finishTournament(tournamentId, now);
+      return { status: 200, body: { tournament: clientTournament(finished, deps.store.entrants(tournamentId), auth) } };
     }
 
     const exportMatch = path.match(/^\/api\/tournaments\/([^/]+)\/export$/);
@@ -1653,8 +1694,9 @@ export async function tournamentApi(
       const entrantId = decoded(nafMatch[2]!);
       const tournament = tournamentId ? deps.store.tournament(tournamentId) : undefined;
       if (!tournament || !entrantId) return { status: 404, body: { error: "Tournament not found." } };
-      const entrant = deps.store.entrants(tournament.id).find((candidate) => candidate.id === entrantId);
-      if (!entrant || entrant.droppedAt !== undefined) return { status: 404, body: { error: "No active entry with that id." } };
+      // The field or (lane L4) a pending / waitlisted entry: a held coach answers too.
+      const entrant = deps.store.liveEntry(tournament.id, entrantId);
+      if (!entrant) return { status: 404, body: { error: "No active entry with that id." } };
       if (coachKey(entrant.coach.ffbCoachId) !== coachKey(identity.coach)) return { status: 403, body: { error: "Only the coach answers for their entry." } };
       if (!tournament.nafSanctioned) return { status: 400, body: { error: "This tournament is not NAF sanctioned." } };
       const profile = profileNaf(deps, entrant.coach.ffbCoachId);
@@ -2159,6 +2201,8 @@ async function registrationRoutes(
       ...(notNafMember && self ? { notNafMember: true as const } : {}),
       ...(nafPending ? { nafPending: true as const } : {}),
       ...(region ? { region } : {}),
+      // The coach filled in the NAF block (profile details shown, or "not a NAF member") on a sanctioned tournament.
+      ...(sanctioned && self ? { nafToldAt: now.toISOString() } : {}),
     };
     let result: Awaited<ReturnType<ReturnType<typeof registrationServiceFor>["submit"]>>;
     try {
@@ -2237,10 +2281,10 @@ async function registrationRoutes(
     if (!record) return { status: 404, body: { error: "No active entry with that id." } };
     if (coachKey(record.coach.ffbCoachId) !== coachKey(identity.coach)) return { status: 403, body: { error: "Only the coach can say they paid." } };
     if (tournament.status === "completed" || tournament.status === "cancelled") return { status: 409, body: { error: "This tournament is closed." } };
-    const before = Boolean(record.coachSaysPaid);
-    const updated = deps.store.setCoachSaysPaid(tournament.id, record.id, input.paid, now);
+    ensureReferenceCodes(deps.store, tournament.id);
+    const { entrant: updated, notify } = deps.store.setCoachSaysPaid(tournament.id, record.id, input.paid, now);
     const code = referenceCodes(deps.store.registrationEntries(tournament.id)).get(record.id);
-    if (input.paid && !before) {
+    if (notify) {
       quietly(() => deps.notify?.managers(tournament.id, {
         type: "registration",
         title: `${record.coach.ffbCoachId} says they paid: ${tournament.name}`,
@@ -2288,7 +2332,10 @@ async function registrationRoutes(
       contacts = deps.sharing?.registrationContacts?.(identity, live.map(toRegistrationEntry), managers) ?? [];
     } catch { contacts = []; }
     const shared = new Map(live.map((r, i) => [r.id, contacts[i]] as const));
-    const profiles = tournament.nafSanctioned ? profileNafs(deps, live.map((r) => r.coach.ffbCoachId)) : new Map<string, ProfileNaf>();
+    // Profile NAF details only for entries whose coach knows they go to the organisers: the field (told on entry or when
+    // the tournament was sanctioned), and held entries marked told (law 23a).
+    const nafVisible = (r: TournamentEntrantRecord) => entryStateOf(r) === "accepted" || Boolean(r.nafToldAt);
+    const profiles = tournament.nafSanctioned ? profileNafs(deps, live.filter(nafVisible).map((r) => r.coach.ffbCoachId)) : new Map<string, ProfileNaf>();
     const order = waitlistOrder(entries);
     const nextInLine = order[0]?.id;
     const rank = new Map(order.map((e, i) => [e.id, i + 1]));
@@ -2367,21 +2414,12 @@ async function registrationRoutes(
     else if (verb === "waitlist") result = await service.waitlist(tournament.id, entrantId, actor, reason);
     else if (verb === "decline") result = await service.decline(tournament.id, entrantId, actor, reason);
     else {
-      result = await service.drop(tournament.id, entrantId, actor, reason);
+      // "Remove and promote waitlist" (no-shows): in organiser mode the next in line who fits is accepted in the same
+      // lock as the removal (auto mode promotes on its own), so concurrent removals each fill their own place once.
+      result = await service.drop(tournament.id, entrantId, actor, reason, { promoteNext: input.promote === true });
       if (result.changed) {
         notifyRemoval(deps, tournament, result.entry.coach, identity.coach);
         promoted.push(...result.promoted);
-        // "Remove and promote waitlist" (no-shows): in organiser mode the next in line who fits is accepted now (auto mode
-        // already promoted). Each accept runs in the lock, so two removals never promote the same entry.
-        if (input.promote === true && tournamentRegistrationWindow(tournament).approval === "organiser") {
-          const next = waitlistOrder(deps.store.registrationEntries(tournament.id).map(toRegistrationEntry))[0];
-          if (next) {
-            try {
-              const accepted = await service.accept(tournament.id, next.id, actor);
-              if (accepted.changed) promoted.push(accepted.entry);
-            } catch (error) { if (!(error instanceof RegistrationError)) throw error; }
-          }
-        }
       }
     }
     return {

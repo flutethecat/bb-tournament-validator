@@ -4,7 +4,9 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { tournamentApi, type TournamentApiDeps, type TournamentApiIdentity } from "../src/tournaments/api.js";
 import { TournamentStore } from "../src/tournaments/store.js";
-import { referenceCodes, sweepTournamentRegistrations, tournamentRegistrationService } from "../src/tournaments/registration.js";
+import { REF_CODE, referenceCodes, registrationCommitGuard, sweepTournamentRegistrations, toRegistrationEntry, tournamentRegistrationService } from "../src/tournaments/registration.js";
+import { inShareScope } from "../src/auth/contactFor.js";
+import { sharingView } from "../src/auth/sharing.js";
 import { registrationContactFor } from "../src/registration/index.js";
 import { parseShareScope } from "../src/auth/contactFor.js";
 import { isTournamentMember } from "../src/auth/contactFor.js";
@@ -37,6 +39,8 @@ function harness(start = "2026-11-10T12:00:00.000Z") {
   roots.push(root);
   const store = new TournamentStore(root);
   const clock = { now: new Date(start) };
+  /** The coaches' live saves turned bad after submission (lock / start must not read them). */
+  const live = { bad: false };
   const sent: Sent[] = [];
   const grants: Array<{ coach: string; scope: string; fields: string[]; at: string }> = [];
   const naf: Record<string, { nafName: string; nafId: string }> = {};
@@ -52,7 +56,7 @@ function harness(start = "2026-11-10T12:00:00.000Z") {
     identityRecord: (c) => (naf[c.toLowerCase()] ? { ffbCoachId: c, identities: naf[c.toLowerCase()]! } : undefined),
     validateSubmission: (c, ref, packageName, at) => {
       if (ref === "save:missing") return { error: "Save not found.", status: 404 };
-      const ok = ref !== "save:bad";
+      const ok = ref !== "save:bad" && !live.bad;
       const s: TournamentSubmission = {
         saveId: ref, revision: "r1", submittedAt: at.toISOString(), teamName: `${c} Save`, race: "Orc", snapshot: { ref },
         validation: { ok, problems: ok ? [] : ["Too many big guys."], checkedAt: at.toISOString(), packageName },
@@ -91,7 +95,7 @@ function harness(start = "2026-11-10T12:00:00.000Z") {
   };
   const panel = async (t: TournamentRecord, who: TournamentApiIdentity = OWNER) => (await call("GET", `/api/tournaments/${t.id}/registrations`, who))!;
   const stateOf = (t: TournamentRecord, who: string) => store.registrationEntries(t.id).find((r) => r.coach.ffbCoachId === who)?.entryState ?? (store.registrationEntries(t.id).some((r) => r.coach.ffbCoachId === who) ? "accepted" : undefined);
-  return { store, clock, sent, grants, naf, identities, call, create, register, detail, panel, stateOf, deps };
+  return { live, store, clock, sent, grants, naf, identities, call, create, register, detail, panel, stateOf, deps };
 }
 
 describe("coach registration flow", () => {
@@ -531,5 +535,169 @@ describe("Sol hunt list", () => {
     const entries = JSON.parse(files[0]!.content).entries as Array<{ coach: { ffbCoachId: string }; entryState: string }>;
     expect(entries).toEqual([expect.objectContaining({ coach: expect.objectContaining({ ffbCoachId: "Alice" }), entryState: "pending" })]);
     expect(readFileSync(new URL("../src/privacy/collectors.ts", import.meta.url), "utf8")).toContain("...vals(data.heldEntrants)");
+  });
+});
+
+// Sol review round 1 (lane L4): one test per finding.
+describe("review round 1", () => {
+  it("P2-1: a commit re-checks lifecycle, window and cap against the stored data (rosters locked, cap lowered, window closed)", async () => {
+    const h = harness();
+    const t = await h.create({ maxPlayers: 3, registration: { approval: "organiser", waitlist: true, rosterLater: true } });
+    for (const c of ["Alice", "Bob", "Carol"]) await h.register(t, c);
+    const entries = () => h.store.registrationEntries(t.id).map(toRegistrationEntry);
+    const accept = (who: string) => {
+      const before = entries().find((e) => e.coach === who)!;
+      const after = { ...before, state: "accepted" as const, log: [...before.log] };
+      return [{ before, after, transition: { action: "accept" as const, from: "pending" as const, to: "accepted" as const, by: "Veers", at: h.clock.now.toISOString() } }];
+    };
+    const write = (who: string) => ({ id: entries().find((e) => e.coach === who)!.id, reg: { entryState: "accepted" as const, registeredAt: h.clock.now.toISOString() } });
+    // the cap was lowered to 1 after Alice was accepted: accepting Bob is refused inside the write
+    await h.call("POST", `/api/tournaments/${t.id}/registrations/${encodeURIComponent(write("Alice").id)}/accept`, OWNER, {});
+    h.store.updateTournament(t.id, { maxPlayers: 2 });
+    await h.call("POST", `/api/tournaments/${t.id}/registrations/${encodeURIComponent(write("Bob").id)}/accept`, OWNER, {});
+    expect(() => h.store.commitRegistration(t.id, [write("Carol")], h.clock.now, registrationCommitGuard(t.id, accept("Carol"), h.clock.now))).toThrow(/Full/);
+    // rosters locked meanwhile: refused as closed
+    h.store.updateTournament(t.id, { maxPlayers: 8 });
+    h.store.lockRosters(t.id, {}, h.clock.now);
+    expect(() => h.store.commitRegistration(t.id, [write("Carol")], h.clock.now, registrationCommitGuard(t.id, accept("Carol"), h.clock.now))).toThrow(/locked/);
+    expect(h.stateOf(t, "Carol")).toBe("pending");
+    // a self-entry when the window closed in between
+    const open = await h.create({ name: "Open" });
+    const fresh = { id: `${open.id}:entrant:9`, competitionId: open.id, coach: "Dee", state: "accepted" as const, submittedAt: "x", enteredAt: "x", log: [] };
+    h.store.updatePage(open.id, { deadlines: { registration: "2026-11-10T11:00:00.000Z" } });
+    expect(() => registrationCommitGuard(open.id, [{ after: fresh, transition: { action: "submit", from: null, to: "accepted", by: "Dee", at: "x" } }], h.clock.now)(h.store.snapshot())).toThrow(/closed/);
+    // leaving is never refused
+    const alice = entries().find((e) => e.coach === "Alice")!;
+    expect(() => registrationCommitGuard(t.id, [{ before: alice, after: { ...alice, state: "withdrawn" }, transition: { action: "withdraw", from: "accepted", to: "withdrawn", by: "Alice", at: "x" } }], h.clock.now)(h.store.snapshot())).not.toThrow();
+  });
+
+  it("P2-2: lock and start judge the stored snapshot, never the live save edited after the roster deadline", async () => {
+    const h = harness();
+    const t = await h.create();
+    await h.call("POST", `/api/tournaments/${t.id}/entrants`, coach("Alice"), { teamRef: "save:good" });
+    const snapshot = structuredClone(h.store.entrants(t.id)[0]!.submission);
+    h.live.bad = true; // the coach changed the live save afterwards
+    expect((await h.call("POST", `/api/tournaments/${t.id}/lock-rosters`, OWNER))?.status).toBe(200);
+    const after = h.store.entrants(t.id)[0]!.submission!;
+    expect(after.snapshot).toEqual(snapshot!.snapshot);
+    expect(after.validation.ok).toBe(true);
+  });
+
+  it("P2-3: two concurrent 'remove and promote' calls fill both freed places, never the same waiting entry", async () => {
+    const h = harness();
+    const t = await h.create({ maxPlayers: 2, registration: { approval: "organiser", waitlist: true, rosterLater: true } });
+    for (const c of ["Alice", "Bob", "Carol", "Dee"]) await h.register(t, c);
+    const id = (who: string) => encodeURIComponent(h.store.registrationEntries(t.id).find((r) => r.coach.ffbCoachId === who)!.id);
+    for (const c of ["Alice", "Bob"]) await h.call("POST", `/api/tournaments/${t.id}/registrations/${id(c)}/accept`, OWNER, {});
+    for (const c of ["Carol", "Dee"]) await h.call("POST", `/api/tournaments/${t.id}/registrations/${id(c)}/waitlist`, OWNER, {});
+    const [a, b] = await Promise.all(["Alice", "Bob"].map((c) => h.call("POST", `/api/tournaments/${t.id}/registrations/${id(c)}/remove`, OWNER, { promote: true })));
+    const promoted = [a, b].flatMap((r) => (r!.body as { promoted: Array<{ coachId: string }> }).promoted.map((p) => p.coachId)).sort();
+    expect(promoted).toEqual(["Carol", "Dee"]);
+    expect(h.store.entrants(t.id).filter((e) => !e.droppedAt).map((e) => e.coach.ffbCoachId).sort()).toEqual(["Carol", "Dee"]);
+  });
+
+  it("P2-4: a pending or waitlisted coach has the tournament in Account Sharing (change or revoke); not after withdrawing", async () => {
+    const h = harness();
+    const t = await h.create({ registration: { approval: "organiser", waitlist: true, rosterLater: true } });
+    await h.register(t, "Alice", { share: ["email"] });
+    const record = { ...h.identities.alice!, identities: h.identities.alice!.identities ?? {} } as CoachIdentityRecord;
+    const sources = { tournaments: h.store, leagues: { league: () => undefined, list: () => [], seasons: () => [] } };
+    const scope = parseShareScope(`tournament:${t.id}`)!;
+    expect(inShareScope(record, scope, sources)).toBe(true);
+    expect(sharingView(record, sources).scopes.map((s) => [s.scope, s.fields])).toEqual([[`tournament:${t.id}`, ["email"]]]);
+    const e = h.store.registrationEntries(t.id)[0]!;
+    await h.call("DELETE", `/api/tournaments/${t.id}/entrants/${encodeURIComponent(e.id)}`, coach("Alice"));
+    expect(inShareScope(record, scope, sources)).toBe(false);
+  });
+
+  it("P2-5: sanctioning with held entries tells those coaches first; the panel shows profile NAF only once they were told", async () => {
+    const h = harness();
+    h.naf.bob = { nafName: "Bob Fake", nafId: "42" };
+    const t = await h.create({ registration: { approval: "organiser", waitlist: true, rosterLater: true } });
+    await h.register(t, "Bob");
+    await h.register(t, "Carol");
+    const panelText = async () => JSON.stringify((await h.panel(t)).body);
+    // sanctioned without the notice path (another writer): Bob's profile NAF stays out of the panel
+    h.store.updateTournament(t.id, { nafSanctioned: true });
+    expect(await panelText()).not.toContain("Bob Fake");
+    h.store.updateTournament(t.id, { nafSanctioned: false });
+    h.sent.length = 0;
+    expect((await h.call("PATCH", `/api/tournaments/${t.id}`, OWNER, { nafSanctioned: true }))?.status).toBe(200);
+    expect(h.sent.filter((s) => s.input.type === "naf-request").map((s) => s.coach).sort()).toEqual(["Bob", "Carol"]);
+    expect(h.store.heldEntrants(t.id).every((r) => r.nafToldAt)).toBe(true);
+    expect(h.store.heldEntrants(t.id).find((r) => r.coach.ffbCoachId === "Carol")?.nafPending).toBe(true);
+    expect(await panelText()).toContain("Bob Fake");
+  });
+
+  it("P2-6: a held coach answers the NAF question (route and My entry)", async () => {
+    const h = harness();
+    const t = await h.create({ registration: { approval: "organiser", waitlist: true, rosterLater: true } });
+    await h.register(t, "Carol");
+    await h.call("PATCH", `/api/tournaments/${t.id}`, OWNER, { nafSanctioned: true });
+    const carol = h.store.heldEntrants(t.id)[0]!;
+    expect((await h.detail(t, coach("Carol"))).myRegistration).toMatchObject({ state: "pending", nafPending: true });
+    h.sent.length = 0;
+    const res = await h.call("POST", `/api/tournaments/${t.id}/entrants/${encodeURIComponent(carol.id)}/naf`, coach("Carol"), { notNafMember: true });
+    expect(res?.status).toBe(200);
+    expect(h.store.heldEntrants(t.id)[0]).toMatchObject({ notNafMember: true });
+    expect(h.store.heldEntrants(t.id)[0]!.nafPending).toBeUndefined();
+    expect(h.sent.filter((s) => s.input.type === "registration").map((s) => s.coach)).toEqual(["Veers", "Piett"]);
+    expect(readFileSync(new URL("../spa/src/components/TournamentMyEntry.vue", import.meta.url), "utf8")).toContain("current.value?.nafPending && sanctioned.value");
+  });
+
+  it("P2-7: notice guards (held entry ids) never reach a tournament payload; the serializer is an allow-list", async () => {
+    const h = harness("2026-11-30T19:00:00.000Z");
+    const t = await h.create({ startsAt: "2026-12-01T09:00:00.000Z", registration: { approval: "organiser", waitlist: true, rosterLater: true, rosterBy: "2026-12-01T08:00:00.000Z" } });
+    await h.call("POST", `/api/tournaments/${t.id}/entrants`, coach("Alice"), { rosterLater: true });
+    const heldId = h.store.heldEntrants(t.id)[0]!.id;
+    await sweepTournamentRegistrations(h.store, tournamentRegistrationService(h.store, { now: () => h.clock.now }), () => undefined, h.clock.now);
+    expect(h.store.tournament(t.id)!.rosterDueNotice?.entryIds).toEqual([heldId]);
+    h.store.setCheckInNotice(t.id, { window: "w", entryIds: [heldId], at: "x" });
+    for (const res of [await h.call("GET", `/api/tournaments/${t.id}`, undefined), await h.call("GET", "/api/tournaments", undefined, undefined), await h.call("GET", `/api/tournaments/${t.id}`, OWNER)]) {
+      const text = JSON.stringify(res?.body);
+      expect(text).not.toContain("rosterDueNotice");
+      expect(text).not.toContain("checkInNotice");
+      expect(text).not.toContain(heldId);
+    }
+    expect(readFileSync(new URL("../src/tournaments/api.ts", import.meta.url), "utf8")).toContain("const record = pickPublicTournament(tournament);");
+  });
+
+  it("P2-8: reference codes are random, given in a write to rows without one, never derived or written on a read", async () => {
+    const h = harness();
+    const t = await h.create();
+    const legacy = h.store.registerEntrant(t.id, { coachId: "Alice", ffbCoachId: "Alice", verifiedAt: h.clock.now.toISOString() }, "team-alice", h.clock.now);
+    expect(legacy.refCode).toBeUndefined();
+    const own = await h.detail(t, coach("Alice"));
+    expect(own.entrants[0]).not.toHaveProperty("refCode");
+    expect(h.store.entrants(t.id)[0]!.refCode).toBeUndefined();
+    await sweepTournamentRegistrations(h.store, tournamentRegistrationService(h.store), undefined, h.clock.now);
+    const code = h.store.entrants(t.id)[0]!.refCode!;
+    expect(code).toMatch(REF_CODE);
+    // the same row in another store gets another code: nothing is derived from the entry's fields
+    const h2 = harness();
+    h2.store.writeSnapshot({ ...h.store.snapshot(), entrants: Object.fromEntries(Object.entries(h.store.snapshot().entrants).map(([k, v]) => [k, { ...v, refCode: undefined }])) });
+    const codes = new Set<string>();
+    for (let i = 0; i < 5; i++) {
+      h2.store.writeSnapshot({ ...h2.store.snapshot(), entrants: Object.fromEntries(Object.entries(h2.store.snapshot().entrants).map(([k, v]) => [k, { ...v, refCode: undefined }])) });
+      await sweepTournamentRegistrations(h2.store, tournamentRegistrationService(h2.store), undefined, h.clock.now);
+      codes.add(h2.store.entrants(t.id)[0]!.refCode!);
+    }
+    expect(codes.size).toBeGreaterThan(1);
+    expect(readFileSync(new URL("../src/tournaments/registration.ts", import.meta.url), "utf8")).not.toContain("createHash");
+  });
+
+  it("P2-9: toggling I've paid tells the organisers once per 24 hours", async () => {
+    const h = harness();
+    const t = await h.create({ entryFee: "15 GBP" });
+    await h.register(t, "Alice");
+    const path = `/api/tournaments/${t.id}/entrants/${encodeURIComponent(h.store.entrants(t.id)[0]!.id)}/paid-claim`;
+    h.sent.length = 0;
+    for (const paid of [true, false, true, false, true]) await h.call("POST", path, coach("Alice"), { paid });
+    expect(h.sent.filter((s) => s.input.title.includes("says they paid")).map((s) => s.coach)).toEqual(["Veers", "Piett"]);
+    h.clock.now = new Date(h.clock.now.getTime() + 25 * 60 * 60 * 1000);
+    await h.call("POST", path, coach("Alice"), { paid: false });
+    await h.call("POST", path, coach("Alice"), { paid: true });
+    expect(h.sent.filter((s) => s.input.title.includes("says they paid"))).toHaveLength(4);
+    expect(JSON.stringify((await h.detail(t, coach("Alice"))).entrants)).not.toContain("paidClaimNotifiedAt");
   });
 });

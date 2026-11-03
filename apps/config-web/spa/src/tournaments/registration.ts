@@ -25,11 +25,14 @@ export function registerChoices(
   status: Pick<TournamentRegistrationStatus, "rosterLater" | "rosterBy"> | null | undefined,
 ): TeamChoice[] {
   const pkg = packageName.trim().toLowerCase();
-  const linked = new Set(saves.map((s) => s.teamId).filter((id): id is string => Boolean(id)));
+  const forThis = saves.filter((s) => (s.packageName ?? "").trim().toLowerCase() === pkg);
+  // A library team is offered on its own merits (the server checks it against this ruleset at registration). It is left
+  // out only when a save for THIS ruleset already stands for it, never because a save for another ruleset links it.
+  const shownBySave = new Set(forThis.map((s) => s.teamId).filter((id): id is string => Boolean(id)));
   const out: TeamChoice[] = [
-    ...saves.filter((s) => (s.packageName ?? "").trim().toLowerCase() === pkg)
+    ...forThis
       .map((s) => ({ ref: `save:${s.id}`, kind: "save" as const, label: s.name, sub: s.raceName ? `${s.raceName} · Roster Builder save` : "Roster Builder save" })),
-    ...library.filter((t) => !linked.has(t.teamId))
+    ...library.filter((t) => !shownBySave.has(t.teamId))
       .map((t) => ({ ref: `library:${t.teamId}`, kind: "library" as const, label: t.teamName, sub: t.race ? `${t.race} · Library team` : "Library team" })),
   ];
   if (status?.rosterLater) {
