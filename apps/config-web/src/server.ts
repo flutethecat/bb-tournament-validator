@@ -380,6 +380,9 @@ import { DiscordObserver, OBSERVER_TICK_MS } from "./discord/observer.js";
 import { createDiscordReach } from "./discord/reach.js";
 import { DISPLAY_SETTINGS_PATH, displaySettingsRoute } from "./discord/displaySettings.js";
 import { DiscordStateStore } from "./discord/store.js";
+import { tournamentTarget } from "./discord/targets.js";
+import { isTemplatesApiPath, seasonTemplateFor, templatesApi, type TemplatesDeps } from "./templates/api.js";
+import { TemplateStore } from "./templates/store.js";
 import { forkGame, setPublicPlayerNames, tabletopGame, type GameRecord } from "./discord/games.js";
 import { playerLabel, visibleComments } from "./discord/hub.js";
 import { leagueFixtureRef } from "./leagues/tabletopFixtures.js";
@@ -936,6 +939,8 @@ fenceOpenJobs(FORK_STATE_DIR);
 importLegacyOrganizers(FORK_STATE_DIR);
 // "Become an organiser" requests and the admin queue (src/organiserRequests.ts).
 const organiserRequestStore = new OrganiserRequestStore(FORK_STATE_DIR);
+// Competition templates (src/templates): season and tournament templates, owned by their organiser, shared by name.
+const templateStore = new TemplateStore(FORK_STATE_DIR);
 void privacyService.resumeAll().catch((e) => console.error(`[privacy] resume failed: ${(e as Error).message}`));
 setInterval(() => { void privacyService.resumeAll().catch(() => undefined); }, PRIVACY_RETRY_MS).unref();
 
@@ -977,6 +982,19 @@ const tabletopUsageSource = {
 // Competition Discord (src/discord/): per-competition webhooks, the recorder's live posts and end-of-game digests, the
 // observer that notices tournament / season events and runs the Weekly Digest. Webhook URLs are never logged.
 const discordState = new DiscordStateStore(join(FORK_STATE_DIR, "discord"));
+/** Templates API deps: share targets are site organisers and admins who are not banned, linked by account. */
+function templatesDeps(): TemplatesDeps {
+  return {
+    store: templateStore, leagues: leagueStore, tournaments: tournamentStore,
+    // the Discord event toggles only; the webhook URL never reaches a template
+    tournamentDiscordEvents: (id) => { const t = tournamentStore.tournament(id); return t ? { ...tournamentTarget(discordState, t).config.events } : undefined; },
+    organisers: () => Object.values(readIdentities().coaches)
+      .filter((c) => !c.banned && (c.level === "organizer" || c.level === "admin"))
+      .map((c) => ({ coach: c.ffbCoachId, ...(c.profile?.displayName ? { displayName: c.profile.displayName } : {}) })),
+    displayName: (coach) => readIdentities().coaches[normalizeFfbCoachId(coach)]?.profile?.displayName ?? "",
+    notify: (coach, input) => { notificationStore.add(coach, input); },
+  };
+}
 const DISCORD_PUBLIC_NAMES = publicPlayerLinesFromEnv(process.env.GAME_PAGES_PUBLIC_PLAYER_LINES);
 const discordHub = new DiscordHub({
   leagues: leagueStore, tournaments: tournamentStore, state: discordState,
@@ -2508,6 +2526,26 @@ async function handleApi(
     if (result) return sendJson(res, result.status, result.body);
   }
 
+  if (isTemplatesApiPath(path)) {
+    // Competition templates (src/templates/api.ts): the owner edits, shared organisers read and copy, anyone else 404.
+    const testSession = getSession(sessionTokenFromRequest(req))?.test === true;
+    let body: unknown;
+    if (method === "POST" || method === "PATCH") { try { body = await readBody(req, 128 * 1024); } catch { return sendJson(res, 400, { error: "Invalid JSON request body." }); } }
+    // Writes use the identity and levels as they are NOW (the session may have ended or lost its level while the body was read).
+    let actor = auth;
+    if (WRITE_METHODS.has(method) && auth) {
+      if (isCoachFenced(auth.coach)) return sendJson(res, 410, { error: "This account is being deleted." });
+      const current = requestIdentity(req);
+      if (!current || normalizeFfbCoachId(current.coach) !== normalizeFfbCoachId(auth.coach)) return sendJson(res, 401, { error: "Authentication required." });
+      actor = current;
+    }
+    const result = templatesApi(method, path, query, actor ? { coach: actor.coach, organizer: actor.organizer, admin: actor.admin, ...(testSession ? { test: true } : {}) } : undefined, body, templatesDeps());
+    if (result) {
+      for (const [name, value] of Object.entries(result.headers ?? {})) res.setHeader(name, value);
+      return sendJson(res, result.status, result.body);
+    }
+  }
+
   if (isSocialApiPath(path) && await handleSocialRequest(req, res, method, path, query, auth)) return;
   if (isScheduleApiPath(path) && await handleScheduleRequest(req, res, method, path, auth)) return;
 
@@ -2601,6 +2639,8 @@ async function handleApi(
       gamePage: (gameId) => { try { return onlineGamePageServes(gameId, tournamentResults.get(gameId)); } catch { return false; } },
       diceLog,
       leagueEvents: leagueEventsDeps,
+      // Start a new season "From template" (src/templates): the caller must own the template or have it shared.
+      seasonTemplate: (id, coach) => seasonTemplateFor(templateStore, id, coach),
     });
     if (league) {
       for (const [name, value] of Object.entries(league.headers ?? {})) res.setHeader(name, value);

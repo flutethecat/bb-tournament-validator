@@ -24,6 +24,7 @@ import { avatarStoreFor } from "../teamAvatars.js";
 import { notificationCoachKey, notificationFileName } from "../notifications.js";
 import { socialFileName } from "../social/store.js";
 import { ProposalStore } from "../schedule/store.js";
+import { TemplateStore, templatesFile } from "../templates/store.js";
 import { anonymiseLeagueRegistration, anonymiseRegistrationTrail, ownLeagueRegistrations } from "../registration/privacy.js";
 import { createAnonymiser, createTextReplacer, nameKey, textAliases, type Anonymiser, type TextReplacer } from "./anonymise.js";
 import { coachKeyHash, isReservedCoachName } from "./fence.js";
@@ -649,6 +650,22 @@ export const STORE_COLLECTORS: StoreCollector[] = [
     erase: ["organiser-requests"],
   },
   {
+    // Competition templates (src/templates/store.ts): the coach's own templates in full (settings and who they shared
+    // them with), and the templates other organisers shared with them (name, kind, owner, when).
+    id: "competition-templates",
+    location: "FORK_STATE_DIR/competition-templates.json",
+    export: (ctx) => {
+      const all = objs(readJsonLoose<Obj>(templatesFile(ctx.deps.stateDir))?.templates);
+      const own = all.filter((t) => isMine(ctx.keys, t.owner));
+      const shared = all.filter((t) => !isMine(ctx.keys, t.owner)).flatMap((t) => {
+        const grant = objs(t.sharedWith).find((g) => isMine(ctx.keys, g.coach));
+        return grant ? [{ id: t.id, kind: t.kind, name: t.name, owner: t.owner, sharedAt: grant.at }] : [];
+      });
+      return own.length || shared.length ? [{ name: "templates.json", content: json({ own, sharedWithYou: shared }) }] : [];
+    },
+    erase: ["competition-templates", "final-sweep"],
+  },
+  {
     id: "mail",
     location: "FORK_STATE_DIR/mail/ (outbox/journal.jsonl, prefs.json, suppression.json, audit.jsonl)",
     export: (ctx) => (ctx.deps.mail ? [{ name: "mail.json", content: json(ctx.deps.mail.exportFor(ctx.coach)) }] : []),
@@ -685,7 +702,7 @@ export const KNOWN_STORES = [
   "team-library", "fork-db", "tournaments", "leagues", "tabletop", "tabletop-teams", "tournament-results", "tournament-matches", "naf-games",
   "coach-titles", "replay-moments", "notifications", "bug-reports", "test-games", "logs", "fork-teams-xml", "bot-registry",
   "privacy-blocklist", "lobby-chat", "desktop-claims", "translation-cache", "mail", "friends", "blocks", "messages",
-  "fixture-lobbies", "schedule-proposals", "organiser-requests",
+  "fixture-lobbies", "schedule-proposals", "organiser-requests", "competition-templates",
 ] as const;
 
 /**
@@ -702,6 +719,7 @@ export const INVENTORY_ROWS: Record<(typeof KNOWN_STORES)[number], string[]> = {
   "bot-registry": ["bot-registry"], "privacy-blocklist": [], "lobby-chat": ["lobby-chat"], "desktop-claims": ["desktop-claims"],
   "translation-cache": ["translation-cache"], mail: ["mail"], friends: ["friends"], blocks: ["blocks"], messages: ["messages"],
   "fixture-lobbies": ["fixture-lobbies"], "schedule-proposals": ["schedule-proposals"], "organiser-requests": ["organiser-requests"],
+  "competition-templates": ["competition-templates"],
 };
 
 /** Team keys whose logos belong to the coach: their builder saves and library teams. */
@@ -1222,6 +1240,8 @@ export const DELETE_STEPS: DeleteStep[] = [
     id: "bug-reports",
     run: ({ deps, names }) => { for (const r of bugReportDirs(deps.bugReportsDir, names)) rmSync(r.path, { recursive: true, force: true }); return "done"; },
   },
+  // Competition templates: the coach's own templates go, and every share grant naming them (strict: retried on failure).
+  { id: "competition-templates", run: ({ deps, names }) => { new TemplateStore(deps.stateDir).removeCoach(names); return "done"; } },
   {
     // Organiser requests: the coach's rows stay (status and dates, for the admin audit) under the pseudonym with every
     // free-text field cleared; an admin's name on a decision becomes their pseudonym; other coaches' notes and reasons get
@@ -1419,6 +1439,7 @@ export const DELETE_STEPS: DeleteStep[] = [
       removeNotifications(deps, plan);
       removeSocial(deps, plan, names);
       new ProposalStore(deps.stateDir).removeCoach(names);
+      new TemplateStore(deps.stateDir).removeCoach(names);
       if (deps.mail) for (const n of plan.coachNames) deps.mail.forgetCoach(n);
       for (const n of plan.coachNames) await deleteCoachAvatarData(deps.coachAvatarsDir, n, plan.proxyKeys);
       return "done";

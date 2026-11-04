@@ -211,6 +211,13 @@ export const INVENTORY: readonly InventoryRow[] = [
     public: "no", retention: `${ACCOUNT_LIFETIME} When you delete your account, the text is cleared and the request is kept under your pseudonym.`,
   },
   {
+    id: "competition-templates", store: "competition-templates.json (FORK_STATE_DIR)",
+    data: "Season and tournament templates you save as an organiser: settings only (rules, format, registration settings, regions, Discord event choices and, if you include them, your payment links), and which organisers you shared each one with. Never webhook URLs, coaches or entries.",
+    purpose: "Starting new seasons and tournaments from settings you saved, and sharing them with other organisers.",
+    public: "partly", publicNote: "Only the organisers you share a template with see it, without your payment links.",
+    retention: `${ACCOUNT_LIFETIME} When you delete your account, your templates and every share of them are deleted.`,
+  },
+  {
     id: "logs", store: "config-web.*.log, data-store/config-web.log",
     data: "Server logs of errors and operations. They do not carry email addresses or IP addresses (see docs/privacy/log-hygiene.md).",
     purpose: "Keeping the site running and secure.",
@@ -262,7 +269,7 @@ export interface CollectGroup { title: string; text: string; ids: readonly strin
 
 export const COLLECT_GROUPS: readonly CollectGroup[] = [
   { title: "Your account", text: "Your Discord user id and username, the verified email on your Discord account, and your Discord avatar. If you add them: your preferred name, a contact email, your country and one phone number.", ids: ["identities", "contact-details", "consents", "sessions", "discord-sso", "organizers", "organiser-requests"] },
-  { title: "What you create", text: "Rosters, teams, logos, avatars, match records, and league and tournament entries.", ids: ["coach-avatars", "team-avatars", "builder-saves", "team-library", "tournaments", "leagues", "tabletop", "tabletop-teams"] },
+  { title: "What you create", text: "Rosters, teams, logos, avatars, match records, and league and tournament entries.", ids: ["coach-avatars", "team-avatars", "builder-saves", "team-library", "tournaments", "leagues", "tabletop", "tabletop-teams", "competition-templates"] },
   { title: "Game results and ratings", text: "Who played, who won, and the ratings and titles that follow.", ids: ["results", "tournament-matches", "fork-db", "fork-teams-xml"] },
   { title: "Notifications, email, chat and bug reports", text: "Notices we send you on the site, Discord messages from our bot about actions you need to take (you can turn them off), emails we send you (only if you opt in and confirm an address), lobby chat messages, and the bug reports you choose to send.", ids: ["notifications", "mail", "bug-reports", "lobby-chat"] },
   { title: "Friends, private messages and blocks", text: "Your friends and friend requests, the private messages you send and receive on the site, and the coaches you blocked.", ids: ["friends", "messages", "blocks"] },

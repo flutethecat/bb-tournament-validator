@@ -82,6 +82,8 @@ import { leagueCsvFiles, zipFiles } from "./exportZip.js";
 import { readJsonObject, requestRevision } from "./http.js";
 import { applyForkSettings, leagueForkRoutes, publicForkState, updateForkSettings, type LeagueForkClient } from "./forkPlay.js";
 import { applyPendingDrafts } from "./redraft.js";
+import { copyLastSeason, seasonFromTemplate, type NewSeasonSettings } from "../templates/season.js";
+import { TemplateError, type SeasonTemplateContent } from "../competition/templates.js";
 import { assignTeamCoach } from "./teamCoach.js";
 import { publicTeam, settleServedMng } from "./teamOps.js";
 import { teamPageRoutes } from "./teamPage.js";
@@ -219,6 +221,9 @@ export interface LeagueApiDeps extends LeagueRegistrationApiDeps, TeamLibraryApi
   packageExists?: (name: string) => boolean;
   /** League Events (leagueEvents.ts): the Discord bot client for scheduled events (unset = no bot) and the sync kick. */
   leagueEvents?: LeagueEventsDeps;
+  /** Competition templates (src/templates): a season template the caller may use for Start a new season "From template"
+   *  (owner or shared organiser; payment links only for the owner). Throws TemplateError. Unset = templates off (503). */
+  seasonTemplate?: (id: unknown, coach: string) => { content: SeasonTemplateContent; mine: boolean; name: string };
 }
 
 /** Refuses a ruleset card that is not a saved package (null = the plain base ruleset). */
@@ -946,6 +951,37 @@ async function createSeason(league: LeagueRecord, who: LeagueApiIdentity, input:
   let id = `season-${number}`;
   for (let i = 2; seasons.some((s) => s.id === id || s.sourceSlug === id); i++) id = `season-${number}-${i}`;
   if (!SEASON_ID.test(id)) throw new SettingsError(400, "Bad season id.");
+  // Start a new season (creation wizards v2): "Copy last season" (from: "last", the dialog's default) takes the newest
+  // season's phases and registration settings; "From template" (from: "template") takes a season template's, and with
+  // applyRules (default on) its rules snapshot and house rules too. Without `from` the old behaviour stands (one Regular
+  // phase, the league's registration defaults). Everything is checked before anything is written.
+  if (input.from !== undefined && input.from !== "last" && input.from !== "template") throw new SettingsError(400, "from must be last or template.", "from");
+  let carried: NewSeasonSettings | undefined;
+  let template: { content: SeasonTemplateContent; mine: boolean; name: string } | undefined;
+  let rulesPatch: { rulesetPackage: string | null; ruleset: LeagueRuleset; houseRules: HouseRules } | undefined;
+  if (input.from === "template") {
+    if (!deps.seasonTemplate) return { status: 503, body: { error: "Templates are not available right now." } };
+    try { template = deps.seasonTemplate(input.templateId, who.coach); } catch (e) {
+      if (e instanceof TemplateError) return { status: e.status, body: { error: e.message, ...(e.field ? { field: e.field } : {}) } };
+      throw e;
+    }
+    if (input.usePayLinks !== undefined && typeof input.usePayLinks !== "boolean") throw new SettingsError(400, "usePayLinks must be true or false.", "usePayLinks");
+    if (input.applyRules !== undefined && typeof input.applyRules !== "boolean") throw new SettingsError(400, "applyRules must be true or false.", "applyRules");
+    carried = seasonFromTemplate(league, template.content, input.usePayLinks === true && template.mine);
+    if (input.ruleset === undefined && carried.ruleset) ruleset = template.content.rulesetPackage ? "BB2025" : carried.ruleset;
+    if (input.applyRules !== false) {
+      const c = template.content;
+      const differs = (league.rulesetPackage ?? null) !== c.rulesetPackage || JSON.stringify(houseRulesOf(league, "league")) !== JSON.stringify(c.houseRules)
+        || (!c.rulesetPackage && (league.ruleset ?? "BB2025") !== c.ruleset);
+      if (differs) {
+        assertRulesetPackage(c.rulesetPackage, deps);
+        // A season still running with coaches must hear about a rules change (League settings, Rules asks for the message).
+        const running = seasons.find((s) => seasonStage(s) !== "completed" && seasonCoaches(s).length > 0);
+        if (running) throw new SettingsError(409, `${running.name} is still running with coaches, so the template's rules can't replace the league's here. Untick "Use its rules", or change the rules from League settings so the coaches are told.`, "applyRules");
+        rulesPatch = { rulesetPackage: c.rulesetPackage, ruleset: c.rulesetPackage ? "BB2025" : c.ruleset, houseRules: structuredClone(c.houseRules) };
+      }
+    }
+  } else if (input.from === "last") carried = copyLastSeason(league, newest);
   const at = (deps.now?.() ?? new Date()).toISOString();
   const copied = newest?.rules?.teamBuilding;
   const copiedInducements = newest?.rules?.inducements;
@@ -965,14 +1001,28 @@ async function createSeason(league: LeagueRecord, who: LeagueApiIdentity, input:
   const redrafted = applyPendingDrafts(seasons, season);
   // Lane L5: the season starts from the league's registration defaults (Q7), in setup unless redraft gave it teams
   // (Open registration / Start season in Administration move it on).
-  season.registration = defaultSeasonRegistration(league);
+  season.registration = carried ? structuredClone(carried.registration) : defaultSeasonRegistration(league);
+  if (carried) season.phases = structuredClone(carried.phases);
   if (!season.teams.length) season.stage = "setup";
   deps.store.putSeason(season);
   for (const s of redrafted) deps.store.putSeason(s);
+  // The template's league-level pieces: its regions (when it has any) and, with applyRules, the rules snapshot.
+  if (template && (rulesPatch || template.content.regions.length)) {
+    const regions = template.content.regions;
+    deps.store.updateLeague(league.id, (l) => {
+      if (regions.length) l.regions = [...regions];
+      if (rulesPatch) {
+        if (rulesPatch.rulesetPackage) l.rulesetPackage = rulesPatch.rulesetPackage; else delete l.rulesetPackage;
+        l.ruleset = rulesPatch.ruleset;
+        l.houseRules = rulesPatch.houseRules;
+      }
+      l.revision = (l.revision ?? 0) + 1;
+    }, deps.now?.() ?? new Date());
+  }
   // Per-competition Discord: the new season starts with the league's webhook and options copied in.
   populateSeasonDiscord(deps.store, league.id, season.id);
   await postMilestone(league, deps, buildMilestonePost(league, "season-started", name, ruleset), season.id, "seasonStarted");
-  return { status: 201, body: { ok: true, season: seasonSummary(season) } };
+  return { status: 201, body: { ok: true, season: seasonSummary(season), ...(template ? { template: { name: template.name, rulesApplied: Boolean(rulesPatch) } } : {}) } };
 }
 
 /**

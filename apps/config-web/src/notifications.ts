@@ -41,6 +41,8 @@ export const NOTIFICATION_TYPES = [
   // League ladders (lane 8b): challenges received / accepted (propose a time), scheduled-round fixtures, and the notes
   // (declined, expired, discarded, counted as a loss).
   "ladder",
+  // Competition templates (creation wizards v2 Q10): an organiser shared a season or tournament template with you.
+  "template-shared",
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
