@@ -8,8 +8,8 @@ import type { LobbyFixture, LobbyRecord, LobbyRules, LobbyTeam } from "../src/fi
 import { leagueApi, type LeagueApiDeps, type LeagueApiResult } from "../src/leagues/api";
 import { effectiveInducements, seasonInducementOffers } from "../src/leagues/inducements";
 import {
-  BB2025_RULEBOOK_WINNINGS, DEFAULT_MONEY_RULES, LEGACY_MONEY, MoneyRulesError, applyTreasuryCap, computeWinnings, effectiveMoneyRules, forfeitWinnings, isHundredths,
-  lobbyBudget, matchMoney, moneyRulesDiff, moneySnapshot, overridePayload, parseMoneyRules, type MoneyRules,
+  BB2025_RULEBOOK_WINNINGS, DEFAULT_MONEY_RULES, LEGACY_MONEY, LEGACY_MONEY_RULES, LEGACY_WINNINGS, MoneyRulesError, applyTreasuryCap, computeWinnings, effectiveMoneyRules, forfeitWinnings, isHundredths,
+  lobbyBudget, matchMoney, moneyRulesDiff, moneyRulesRows, moneyRulesView, moneySnapshot, overridePayload, parseMoneyRules, winningsPreset, type MoneyRules,
 } from "../src/leagues/moneyRules";
 import { applyForfeit, forfeitModel } from "../src/leagues/forfeit";
 import { LeagueStore } from "../src/leagues/store";
@@ -21,21 +21,45 @@ import { applyPostMatch, type TabletopTeamFile } from "../src/tabletop/postMatch
 import { FileTabletopRepository } from "../src/tabletop/store";
 import { TournamentResultStore } from "../src/tournamentResults";
 
-// League money rules (src/leagues/moneyRules.ts; owner 11-04, round 2 item 3): the defaults keep every number the site
-// produced before, each option changes only what it says, a competition override falls back to the league, and a
-// result keeps the rules it started with. Fake data only.
+// League money rules (src/leagues/moneyRules.ts; owner 11-04, round 2 item 3): the defaults are the BB2025 rulebook
+// formula (owner 11-04), the legacy rules keep every number the site produced before, each option changes only what it
+// says, a competition override falls back to the league, and a result keeps the rules it started with. Fake data only.
 
-const rules = (over: Partial<MoneyRules> = {}): MoneyRules => ({ ...DEFAULT_MONEY_RULES, ...over });
+/** The option tests build on the legacy rules (10k per touchdown and nothing else), so each option shows on its own. */
+const rules = (over: Partial<MoneyRules> = {}): MoneyRules => ({ ...LEGACY_MONEY_RULES, ...over });
 
 describe("money rules: the maths", () => {
-  it("the defaults are the site's fixed rule: 10k per touchdown, nothing for attendance, stalling, results or concessions", () => {
-    const r = rules();
+  it("the defaults are the BB2025 rulebook formula: (half the attendance + touchdowns + 1 without stalling) x 10k, the rulebook concession", () => {
+    expect(DEFAULT_MONEY_RULES).toEqual({ ...LEGACY_MONEY_RULES, ...BB2025_RULEBOOK_WINNINGS });
+    expect(DEFAULT_MONEY_RULES).toMatchObject({ perTouchdown: 10_000, fanMultiplier: 0.5, noStallingBonus: 10_000, winBonus: 0, drawBonus: 0, concession: "rulebook" });
+    const r = { ...DEFAULT_MONEY_RULES };
+    const w = (f: number, a: number, att: number | undefined, stalled = false, conceded = { self: false, other: false }) =>
+      computeWinnings(r, { score: { for: f, against: a }, attendance: att, stalled, conceded }).winnings;
+    expect(w(2, 1, 7)).toBe(65_000); // (3.5 + 2 + 1) x 10k
+    expect(w(2, 1, 7, true)).toBe(55_000);
+    expect(w(0, 0, 4)).toBe(30_000);
+    expect(w(0, 1, 7, false, { self: true, other: false })).toBe(0);
+    expect(w(1, 0, 7, false, { self: false, other: true })).toBe(80_000);
+    // the rest is as before: petty cash with treasury top-up, no cap
+    expect(lobbyBudget(r)).toEqual({ pettyCash: true, treasuryTopUp: true, fixedBudget: 0 });
+    expect(applyTreasuryCap(r, 9_000_000, 3, 6)).toEqual({ treasury: 9_000_000, fans: 3, lost: 0, fansGained: 0 });
+    expect(winningsPreset(r)).toBe("rulebook");
+    expect(moneyRulesRows(r)[0]!.v).toBe("fan attendance x 0.5 x 10k + touchdowns x 10k + 10k without stalling (the BB2025 rulebook)");
+    expect(moneyRulesRows(r)[1]!.v).toMatch(/conceding team gets no winnings/);
+  });
+
+  it("the legacy rules are the site's old fixed rule: 10k per touchdown, nothing for attendance, stalling, results or concessions", () => {
+    const r = { ...LEGACY_MONEY_RULES };
+    expect(r).toEqual({ ...DEFAULT_MONEY_RULES, ...LEGACY_WINNINGS });
     for (const [f, a, conceded] of [[0, 0, false], [2, 1, false], [1, 3, false], [3, 0, true]] as const) {
       const w = computeWinnings(r, { score: { for: f, against: a }, attendance: 9, stalled: false, conceded: { self: conceded, other: false } });
       expect(w.winnings).toBe(f * 10_000);
     }
     expect(lobbyBudget(r)).toEqual({ pettyCash: true, treasuryTopUp: true, fixedBudget: 0 });
     expect(applyTreasuryCap(r, 9_000_000, 3, 6)).toEqual({ treasury: 9_000_000, fans: 3, lost: 0, fansGained: 0 });
+    expect(winningsPreset(r)).toBe("legacy");
+    expect(moneyRulesRows(r)[0]!.v).toBe("touchdowns x 10k (legacy: 10k per touchdown)");
+    expect(winningsPreset({ ...r, perTouchdown: 20_000 })).toBeNull();
   });
 
   it("the BB2025 rulebook formula: half the attendance + touchdowns + 1 without stalling, x 10k (bloodbowlbase example: 65k)", () => {
@@ -47,6 +71,7 @@ describe("money rules: the maths", () => {
     expect(computeWinnings(r, { score: { for: 1, against: 0 }, attendance: 7, stalled: false, conceded: { self: false, other: true } }).winnings).toBe(80_000);
     // attendance not recorded: the fan term is 0
     expect(computeWinnings(r, { score: { for: 1, against: 0 }, attendance: undefined, stalled: false, conceded: { self: false, other: false } }).winnings).toBe(20_000);
+    expect(computeWinnings(r, { score: { for: 1, against: 0 }, attendance: undefined, stalled: false, conceded: { self: false, other: false } }).lines[0]).toEqual({ what: "Fan attendance not recorded", gold: 0 });
   });
 
   it("each winnings option: per touchdown, the fan multiplier, win and draw bonuses", () => {
@@ -111,8 +136,9 @@ describe("money rules: the maths", () => {
   });
 
   it("a match without its own copy uses the legacy rules, never the league's current ones (Sol P2 3)", () => {
-    expect(matchMoney({})).toEqual({ version: 0, rules: DEFAULT_MONEY_RULES });
-    expect(LEGACY_MONEY.rules).toEqual(DEFAULT_MONEY_RULES);
+    expect(matchMoney({})).toEqual({ version: 0, rules: LEGACY_MONEY_RULES });
+    expect(LEGACY_MONEY.rules).toEqual(LEGACY_MONEY_RULES);
+    expect(LEGACY_MONEY.rules).not.toEqual(DEFAULT_MONEY_RULES);
     const copy = { version: 5, rules: rules({ inducementBudget: "treasury" }) };
     expect(matchMoney({ money: copy })).toBe(copy);
     expect(lobbyRulesFor(matchMoney({}).rules)).toEqual({ treasuryTopUp: true, highlander: false, starClash: "refund" });
@@ -145,10 +171,10 @@ describe("money rules in applyPostMatch", () => {
   ];
   const opt = { postMatch: "full" as const, ruleset: "bb2025" as const, matchId: "m1" };
 
-  it("the default rules give exactly the numbers of a match without money rules (every past and default league match)", () => {
+  it("the legacy rules give exactly the numbers of a match without money rules (every match from before the rules existed)", () => {
     for (const side of ["home", "away"] as const) {
       const base = applyPostMatch(file(100_000, 3), events(), { ...opt, team: side });
-      const withRules = applyPostMatch(file(100_000, 3), events(), { ...opt, team: side, money: moneySnapshot({}) });
+      const withRules = applyPostMatch(file(100_000, 3), events(), { ...opt, team: side, money: matchMoney({}) });
       expect(withRules.teamFile).toEqual(base.teamFile);
       const { money, ...summary } = withRules.summary;
       expect(summary).toEqual(base.summary);
@@ -156,6 +182,17 @@ describe("money rules in applyPostMatch", () => {
     }
     // and without money rules the summary carries no money block at all
     expect(applyPostMatch(file(0, 3), events(), { ...opt, team: "home" }).summary.money).toBeUndefined();
+  });
+
+  it("a league on the defaults (no saved money settings) pays the BB2025 rulebook formula in the post-game step", () => {
+    const home = applyPostMatch(file(100_000, 3), events(), { ...opt, team: "home", money: moneySnapshot({}) });
+    // (8 / 2 + 2 TDs + 1 no stalling) x 10k = 70k; 100k - 20k spent + 70k
+    expect(home.summary.winnings).toBe(70_000);
+    expect(home.summary.treasuryAfter).toBe(150_000);
+    expect(home.summary.money).toMatchObject({ version: 0, attendance: 8, stalled: false });
+    expect(home.summary.money!.lines.map((l) => l.what)).toEqual(["Fan attendance 8 x 0.5", "2 touchdowns", "No stalling"]);
+    const away = applyPostMatch(file(0, 2), events(), { ...opt, team: "away", money: moneySnapshot({}) });
+    expect(away.summary.winnings).toBe(50_000); // stalled: (4 + 1) x 10k
   });
 
   it("the rulebook formula reads the pre-game fans and stalling; the cap applies after the inducement spend", () => {
@@ -400,12 +437,17 @@ describe("League settings -> Money", () => {
     expect(store.season("tabbl", "season-1")!.teams.map((t) => t.treasury)).toEqual([50_000, 0]);
   });
 
-  it("the forfeit dialog: default suggestions unchanged (no winnings); the rulebook concession pays the winner and the cap applies", async () => {
+  it("the forfeit dialog: the defaults' rulebook concession pays the winner; the legacy preset suggests no winnings; the cap applies", async () => {
     const F = "/api/leagues/tabbl/seasons/season-1/fixtures/f1/forfeit";
     const plain = (await call("GET", F, JAY)).body as any;
+    expect(plain.money).toMatchObject({ version: 0, concession: "rulebook", treasuryCap: null });
     expect(plain.suggestions.home.home.winnings).toBe(0);
-    expect(plain.suggestions.home.away.winnings).toBe(0);
-    expect(plain.money).toMatchObject({ version: 0, concession: "none", treasuryCap: null });
+    expect(plain.suggestions.home.away.winnings).toBe(70_000);
+    await call("PATCH", S, JAY, { revision: rev(), money: { ...LEGACY_WINNINGS } });
+    const legacy = (await call("GET", F, JAY)).body as any;
+    expect(legacy.money).toMatchObject({ version: 1, concession: "none" });
+    expect(legacy.suggestions.home.home.winnings).toBe(0);
+    expect(legacy.suggestions.home.away.winnings).toBe(0);
     await call("PATCH", S, JAY, { revision: rev(), money: { ...BB2025_RULEBOOK_WINNINGS, treasuryCapEnabled: true, treasuryCap: 40_000 } });
     const m = (await call("GET", F, JAY)).body as any;
     // home forfeits: away (Elves) gets the whole attendance (3 + 2 Dedicated Fans) x 10k + 2 awarded TDs x 10k
@@ -417,8 +459,8 @@ describe("League settings -> Money", () => {
     expect(applied.status).toBe(200);
     const after = store.season("tabbl", "season-1")!;
     const f1 = after.fixtures.find((f) => f.id === "f1")!;
-    expect(f1.moneyRulesVersion).toBe(1);
-    expect(f1.forfeitDetail?.moneyRulesVersion).toBe(1);
+    expect(f1.moneyRulesVersion).toBe(2);
+    expect(f1.forfeitDetail?.moneyRulesVersion).toBe(2);
     expect(after.teams.find((t) => t.id === "elves")!.treasury).toBe(40_000); // 70k capped at 40k
   });
 
@@ -459,7 +501,7 @@ describe("League settings -> Money", () => {
     expect(r.status).toBe(200);
     const teams = store.season("tabbl", "season-1")!.teams;
     expect(teams.find((t) => t.id === "orcs")!.treasury).toBe(30_000); // 50k - 5k = 45k, capped at 30k
-    expect(teams.find((t) => t.id === "elves")!.treasury).toBe(0);
+    expect(teams.find((t) => t.id === "elves")!.treasury).toBe(30_000); // the defaults' rulebook concession: 70k, capped at 30k
   });
 
   it("a suggestion above the 2,000,000 a forfeit accepts is clamped to it, with a note, and submits (Sol P2 5)", async () => {

@@ -82,7 +82,7 @@ export interface LeagueRecord {
   /** Redraft budget formula and options (League settings -> Redraft; redraftRules.ts). Unset keys take the defaults; unset
    *  liftToBudget = off (leagues made before 11-02 keep the old behaviour; the wizard sets it on for new leagues). */
   redraftRules?: Partial<RedraftRules>;
-  /** Money rules (League settings -> Money; moneyRules.ts). Unset keys take the defaults (the site's behaviour before 11-04). */
+  /** Money rules (League settings -> Money; moneyRules.ts). Unset keys take the defaults (the BB2025 rulebook formula since 11-04). */
   moneyRules?: Partial<import("./moneyRules.js").MoneyRules>;
   /** Bumped by every change to the money rules (league or a competition override); each fixture result stores the one it used. */
   moneyRulesVersion?: number;
@@ -446,7 +446,7 @@ export interface LeagueFixture {
   defectionRolls?: false;
   /** A ladder fixture (lane 8b): the challenge it was made from, or the organiser's scheduled round. */
   ladder?: { challengeId?: string; roundId?: string; title?: import("./ladderTypes.js").TitleFixtureKind; boutId?: string; rumbleId?: string };
-  /** The money rules version the result used (moneyRules.ts): a recorder result or a forfeit. Absent = before 11-04 (the defaults). */
+  /** The money rules version the result used (moneyRules.ts): a recorder result or a forfeit. Absent = before 11-04 (the legacy 10k per touchdown). */
   moneyRulesVersion?: number;
 }
 

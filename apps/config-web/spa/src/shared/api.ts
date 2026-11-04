@@ -237,7 +237,9 @@ export interface TournamentEntrant {
    *  checked the coach in, and the region they picked. */
   refCode?: string;
   coachSaysPaid?: { at: string };
-  checkedInBy?: { by: string; at: string };
+  /** `via` for the tournament's managers only: how the entry was checked in ("organiser-override" = an organiser checked
+   *  the coach in while check-in was not open). */
+  checkedInBy?: { by: string; at: string; via?: "self" | "organiser" | "organiser-override" | "personal-qr" | "venue-qr" };
   region?: string;
   /** The club the coach represents here (clubs lane). */
   clubId?: string;

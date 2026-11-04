@@ -202,12 +202,22 @@
 .fs-roster-link { justify-self: start; font: 12px/1.4 var(--sf-band-font); text-transform: uppercase; letter-spacing: .06em; }
 .fs-team[data-pos="right"] .fs-roster-link { justify-self: end; }
 .fs-compare { display: grid; gap: 4px; min-width: 0; }
+/* the comparison never pushes past its column (11-04: it overlapped the away team at 1920 with long team names and
+   scrolled the page sideways on phones): in a narrow column the row labels wrap between words and the form chips wrap,
+   and anything still too wide scrolls inside this pane */
+.fs-compare { overflow-x: auto; container: fs-compare / inline-size; }
 .fs-when { display: flex; align-items: baseline; justify-content: center; gap: 10px; margin: 0; font-size: 14px; color: var(--ui-text); }
 .fs-when .fl-vs { font-size: 22px; }
 .fs-compare-table { width: 100%; border-collapse: collapse; font-size: 14px; line-height: 1.3; }
 .fs-compare-table th { padding: 1px 10px; font: 11px/1.5 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); text-align: center; white-space: nowrap; background: var(--ui-surface-2); }
 .fs-compare-table td { width: 50%; padding: 1px 8px; font-family: var(--font-heading); font-weight: 700; }
 .fs-compare-table td:first-child { text-align: right; }
+.fs-compare-table .fl-form { flex-wrap: wrap; vertical-align: middle; }
+.fs-compare-table td:first-child .fl-form { justify-content: flex-end; }
+@container fs-compare (max-width: 460px) {
+  .fs-compare-table th { width: 1%; padding: 1px 6px; line-height: 1.3; letter-spacing: .05em; white-space: normal; }
+  .fs-compare-table td { width: auto; padding: 1px 5px; }
+}
 .fs-compare-table td[data-seat="home"] { color: var(--sf-seat-home); }
 .fs-compare-table td[data-seat="away"] { color: var(--sf-seat-away); }
 .fs-compare-table tr + tr th, .fs-compare-table tr + tr td { border-top: 1px solid var(--sf-panel-line); }

@@ -13,10 +13,12 @@
  *   treasury cap      optional: gold over the cap is lost, or converted to Dedicated Fans (one per `capFansStep`, up to the
  *                     maximum; the rest is lost).
  *
- * DEFAULTS reproduce what the site did before the card existed, so no existing league changes: 10,000 per touchdown and
- * nothing else (owner ruling in tabletop/postMatch.ts: no win/draw bonus), petty cash with treasury top-up, no cap. The
- * BB2025 rulebook formula (half the fan attendance, +1 without stalling, the concession rule) is one click away
- * (BB2025_RULEBOOK_WINNINGS) and is what the card offers as "Use the BB2025 rulebook formula".
+ * DEFAULTS (owner 11-04) are the BB2025 rulebook formula: (half the fan attendance + touchdowns + 1 if no player was
+ * recorded Stalling) x 10,000, with the rulebook concession rule; petty cash with treasury top-up, no cap. They apply to
+ * every league that never saved money settings (a league that saved them keeps them: the card saves every key).
+ * LEGACY_MONEY_RULES are the site's numbers before the card existed (10,000 per touchdown and nothing else, no
+ * concession rule): the rules of a recorder match started before money rules existed (no snapshot), and the card's
+ * "Legacy: 10k per touchdown" preset. Nothing already played is recalculated.
  * Spiralling expenses are not offered: neither BB2020 nor BB2025 has them (their gold sink is Expensive Mistakes, rolled at
  * the table).
  *
@@ -60,7 +62,8 @@ export const MONEY_AMOUNT_MAX = 500_000;
 export const FAN_MULTIPLIER_MAX = 5;
 export const MONEY_LOG_KEEP = 500;
 
-export const DEFAULT_MONEY_RULES: Readonly<MoneyRules> = Object.freeze({
+/** The site's numbers before the money rules existed: 10,000 per touchdown and nothing else, no concession rule. */
+export const LEGACY_MONEY_RULES: Readonly<MoneyRules> = Object.freeze({
   perTouchdown: 10_000,
   fanMultiplier: 0,
   winBonus: 0,
@@ -80,6 +83,14 @@ export const DEFAULT_MONEY_RULES: Readonly<MoneyRules> = Object.freeze({
 export const BB2025_RULEBOOK_WINNINGS: Readonly<Partial<MoneyRules>> = Object.freeze({
   perTouchdown: 10_000, fanMultiplier: 0.5, winBonus: 0, drawBonus: 0, noStallingBonus: 10_000, concession: "rulebook",
 });
+
+/** The legacy preset's winnings keys (the card's "Legacy: 10k per touchdown"). */
+export const LEGACY_WINNINGS: Readonly<Partial<MoneyRules>> = Object.freeze({
+  perTouchdown: 10_000, fanMultiplier: 0, winBonus: 0, drawBonus: 0, noStallingBonus: 0, concession: "none",
+});
+
+/** The defaults (owner 11-04): the BB2025 rulebook formula and concession rule; the rest as before. */
+export const DEFAULT_MONEY_RULES: Readonly<MoneyRules> = Object.freeze({ ...LEGACY_MONEY_RULES, ...BB2025_RULEBOOK_WINNINGS } as MoneyRules);
 
 const KEYS = Object.keys(DEFAULT_MONEY_RULES) as Array<keyof MoneyRules>;
 const BUDGET_RULES: readonly InducementBudgetRule[] = ["pettyCash", "treasury", "both", "fixed"];
@@ -102,7 +113,7 @@ export interface MoneySnapshot { version: number; rules: MoneyRules }
  * The rules of a recorder match started before the money rules existed (no copy on the match): the site's fixed rule,
  * version 0. Such a match never picks up a league's current rules.
  */
-export const LEGACY_MONEY: Readonly<MoneySnapshot> = Object.freeze({ version: 0, rules: { ...DEFAULT_MONEY_RULES } });
+export const LEGACY_MONEY: Readonly<MoneySnapshot> = Object.freeze({ version: 0, rules: { ...LEGACY_MONEY_RULES } });
 export const matchMoney = (match: { money?: MoneySnapshot }): MoneySnapshot => match.money ?? { version: LEGACY_MONEY.version, rules: { ...LEGACY_MONEY.rules } };
 
 /** Is `v` a whole number of hundredths (0.55 and 1.1 are; 0.333 is not)? Float-safe. */
@@ -223,10 +234,22 @@ export function winningsFormulaText(r: MoneyRules): string {
   return parts.length ? parts.join(" + ") : "No winnings";
 }
 
+const matches = (r: MoneyRules, preset: Readonly<Partial<MoneyRules>>): boolean =>
+  (Object.keys(preset) as Array<keyof MoneyRules>).every((key) => r[key] === preset[key]);
+
+/** Which winnings preset the rules follow: the BB2025 rulebook (the default), the legacy 10k per touchdown, or neither. */
+export function winningsPreset(r: MoneyRules): "rulebook" | "legacy" | null {
+  if (matches(r, BB2025_RULEBOOK_WINNINGS)) return "rulebook";
+  if (matches(r, LEGACY_WINNINGS)) return "legacy";
+  return null;
+}
+export const WINNINGS_PRESET_LABEL = { rulebook: "the BB2025 rulebook", legacy: "legacy: 10k per touchdown" } as const;
+
 /** The rows the ruleset card and the settings card show (read-only facts). */
 export function moneyRulesRows(r: MoneyRules): Array<{ k: string; v: string }> {
+  const preset = winningsPreset(r);
   return [
-    { k: "Winnings", v: winningsFormulaText(r) },
+    { k: "Winnings", v: `${winningsFormulaText(r)}${preset ? ` (${WINNINGS_PRESET_LABEL[preset]})` : ""}` },
     { k: "Concession", v: r.concession === "rulebook" ? "The conceding team gets no winnings; the other team gets the whole fan attendance" : "No special rule" },
     { k: "Petty cash", v: r.inducementBudget === "fixed" || r.inducementBudget === "treasury" ? "Not used" : r.pettyCash ? "On" : "Off" },
     { k: "Inducements", v: r.inducementBudget === "fixed" ? `${k(r.fixedBudget)} per team per game` : BUDGET_LABEL[r.inducementBudget] },
@@ -267,7 +290,7 @@ export function computeWinnings(r: MoneyRules, x: WinningsInput): { winnings: nu
   const byConcession = rulebook && x.conceded.other;
   const att = x.attendance ?? 0;
   const mult = byConcession ? r.fanMultiplier * 2 : r.fanMultiplier;
-  if (r.fanMultiplier) lines.push({ what: `Fan attendance ${att} x ${mult}${byConcession ? " (the opponent conceded)" : ""}`, gold: Math.round(att * mult * FAN_ATTENDANCE_UNIT) });
+  if (r.fanMultiplier) lines.push({ what: x.attendance === undefined ? "Fan attendance not recorded" : `Fan attendance ${att} x ${mult}${byConcession ? " (the opponent conceded)" : ""}`, gold: Math.round(att * mult * FAN_ATTENDANCE_UNIT) });
   if (r.perTouchdown) lines.push({ what: `${x.score.for} touchdown${x.score.for === 1 ? "" : "s"}`, gold: x.score.for * r.perTouchdown });
   if (r.noStallingBonus && !x.stalled && !byConcession) lines.push({ what: "No stalling", gold: r.noStallingBonus });
   const won = x.score.for > x.score.against || (x.conceded.other && !x.conceded.self);
@@ -298,8 +321,8 @@ export function lobbyBudget(r: MoneyRules): { pettyCash: boolean; treasuryTopUp:
 }
 
 /**
- * The forfeit dialog's winnings suggestion for one side. Concession rule "none" (the default) suggests no winnings, as
- * before; "rulebook" gives the team that did not forfeit the whole fan attendance (both teams' Dedicated Fans: no Fan
+ * The forfeit dialog's winnings suggestion for one side. Concession rule "none" (the legacy rule) suggests no winnings;
+ * "rulebook" (the default) gives the team that did not forfeit the whole fan attendance (both teams' Dedicated Fans: no Fan
  * Factor was rolled) plus its awarded touchdowns and win bonus, and the forfeiting team nothing.
  */
 export function forfeitWinnings(r: MoneyRules, x: { forfeit: boolean; otherForfeit: boolean; score: number; otherScore: number; attendance: number }): number {
@@ -323,6 +346,8 @@ export interface MoneyRulesView {
   rules: MoneyRules;
   defaults: MoneyRules;
   rulebook: Partial<MoneyRules>;
+  /** The "Legacy: 10k per touchdown" preset's winnings keys. */
+  legacy: Partial<MoneyRules>;
   /** Keys the league set itself. */
   set: Array<keyof MoneyRules>;
   competitions: MoneyCompetitionView[];
@@ -336,6 +361,7 @@ export function moneyRulesView(league: LeagueMoney, seasons: readonly Competitio
     rules: effectiveMoneyRules(league),
     defaults: { ...DEFAULT_MONEY_RULES },
     rulebook: { ...BB2025_RULEBOOK_WINNINGS },
+    legacy: { ...LEGACY_WINNINGS },
     set: Object.keys(clean(league.moneyRules)) as Array<keyof MoneyRules>,
     competitions: [...seasons].sort((a, b) => b.number - a.number).map((s) => ({
       seasonId: s.id, name: s.name, kind: s.ladder ? "ladder" as const : "season" as const, override: clean(s.rules?.money), rules: effectiveMoneyRules(league, s),

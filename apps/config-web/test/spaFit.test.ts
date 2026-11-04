@@ -287,3 +287,13 @@ describe("fit to 1920x1080: hash reveal", () => {
     expect(revealed).toEqual(["deadlines", "deadlines", "my-teams"]);
   });
 });
+
+describe("the fixture summary's comparison table (11-04: no sideways page scroll at 440 / 375, no overlap at 1920)", () => {
+  it("scrolls inside its own pane, wraps the form chips, and wraps the row labels in a narrow column", () => {
+    const css = src("leagues/lobby.css");
+    expect(css).toMatch(/\.fs-compare \{ overflow-x: auto; container: fs-compare \/ inline-size; \}/);
+    expect(css).toContain(".fs-compare-table .fl-form { flex-wrap: wrap;");
+    const narrow = css.slice(css.indexOf("@container fs-compare (max-width: 460px)"));
+    expect(narrow).toMatch(/^@container fs-compare \(max-width: 460px\) \{\s*\.fs-compare-table th \{[^}]*white-space: normal;[^}]*\}\s*\.fs-compare-table td \{ width: auto;/);
+  });
+});

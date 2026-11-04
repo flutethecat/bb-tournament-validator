@@ -114,6 +114,7 @@ td.tn-team > .tn-side-text, td.tn-team > .tn-team-name { display: inline-grid; v
 .tn-participants td.tn-flag { text-align: center; }
 .tn-participants thead th { white-space: normal; }
 .tn-flag input, .tn-participants input[type="checkbox"] { width: 22px; height: 22px; min-height: 0; accent-color: var(--ui-primary); }
+.tn-participants .tn-override { cursor: help; white-space: nowrap; }
 .tn-seed { display: inline-block; min-width: 1.5em; color: var(--ui-muted); }
 .tn-seed-input { width: 64px; min-height: 36px; }
 .tn-row-menu { white-space: nowrap; }
@@ -174,6 +175,9 @@ td.tn-shared > span + span { margin-top: 2px; }
   .sf-table.tn-table td.tn-row-menu { flex-wrap: wrap; justify-content: flex-start; }
   .tn-row-menu .sf-btn + .sf-btn { margin-left: 0; }
   .tn-participants td.tn-flag { justify-content: space-between; }
+  /* an organiser-override check-in: the cell takes the card's full width so the Override chip has room */
+  .tn-participants td.tn-flag:has(.tn-override) { grid-column: 1 / -1; justify-content: flex-start; }
+  .tn-participants td.tn-flag:has(.tn-override)::before { margin-right: auto; }
 }
 
 /* ---- tournament page (lane 6): banner front block, facts panel, summary, news, page settings ---- */

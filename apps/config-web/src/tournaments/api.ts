@@ -299,8 +299,10 @@ function submissionView(entrant: TournamentEntrantRecord, private_: boolean) {
 /** An entrant for the page; `private_` (the coach themselves or a manager) adds flags, manual seed and problems. */
 /** shared: the coach's granted fields, for a manager's view only (sharedContactFor). tournament: when given, the NAF
  *  details and nafPending are derived from it and the coach's current profile NAF (`profile`): a sanctioned entry shows
- *  the profile's NAF name and number, and owes its answer when there is none (reads never write). */
-function clientEntrant(entrant: TournamentEntrantRecord, deps: Pick<TournamentApiDeps, "teamBuild">, private_: boolean, shared?: SharedContact, tournament?: TournamentRecord, profile?: ProfileNaf, refCode?: string) {
+ *  the profile's NAF name and number, and owes its answer when there is none (reads never write). manager: the
+ *  tournament's managers also see how the entry was checked in (`checkedInBy.via`, e.g. "organiser-override"); the coach
+ *  sees only who and when. */
+function clientEntrant(entrant: TournamentEntrantRecord, deps: Pick<TournamentApiDeps, "teamBuild">, private_: boolean, shared?: SharedContact, tournament?: TournamentRecord, profile?: ProfileNaf, refCode?: string, manager = false) {
   const {
     coach, submission: _submission, flags, rosterVerifiedOverride, manualSeed, nafNumber, notNafMember, nafPending, nafSnapshot: _nafSnapshot, paidUpdated,
     // Registration (lane L4): the state machine's fields, the payment reference and "I've paid" are never public.
@@ -333,7 +335,7 @@ function clientEntrant(entrant: TournamentEntrantRecord, deps: Pick<TournamentAp
       ...((tournament ? nafOwed(tournament, entrant, profile) : nafPending) ? { nafPending: true as const } : {}),
       ...(refCode ?? storedCode ? { refCode: refCode ?? storedCode } : {}),
       ...(coachSaysPaid ? { coachSaysPaid: { ...coachSaysPaid } } : {}),
-      ...(checkedInBy ? { checkedInBy: { ...checkedInBy } } : {}),
+      ...(checkedInBy ? { checkedInBy: manager ? { ...checkedInBy } : { by: checkedInBy.by, at: checkedInBy.at } } : {}),
       ...(region ? { region } : {}),
     } : {}),
     ...(shared ? { shared } : {}),
@@ -1312,7 +1314,7 @@ export async function tournamentApi(
         ...(input.manualSeed === undefined ? {} : { manualSeed: input.manualSeed as number | null }),
       }, now, identity.coach, override);
       notifyFlagChanges(deps, tournament, before, updated, identity.coach);
-      return { status: 200, body: { entrant: clientEntrant(updated, deps, true, undefined, tournament, tournament.nafSanctioned && updated.droppedAt === undefined ? profileNaf(deps, updated.coach.ffbCoachId) : undefined) } };
+      return { status: 200, body: { entrant: clientEntrant(updated, deps, true, undefined, tournament, tournament.nafSanctioned && updated.droppedAt === undefined ? profileNaf(deps, updated.coach.ffbCoachId) : undefined, undefined, true) } };
     }
 
     // ---- registration (lane L4: src/tournaments/registration.ts over the src/registration core) ----
@@ -1689,6 +1691,7 @@ export async function tournamentApi(
               tournament,
               entrant.droppedAt === undefined ? profiles.get(coachKey(entrant.coach.ffbCoachId)) : undefined,
               private_ ? codes.get(entrant.id) : undefined,
+              manager,
             );
           }),
           rounds: deps.store.rounds(tournament.id),
@@ -2386,7 +2389,7 @@ async function registrationRoutes(
         };
       }
       return {
-        ...clientEntrant(record, deps, true, shared.get(record.id), tournament, profiles.get(coachKey(record.coach.ffbCoachId)), codes.get(record.id)),
+        ...clientEntrant(record, deps, true, shared.get(record.id), tournament, profiles.get(coachKey(record.coach.ffbCoachId)), codes.get(record.id), true),
         // Profile NAF details withheld (coach not told yet): "NAF pending" is what the entry stores, not derived from the
         // missing profile.
         ...(tournament.nafSanctioned && !nafVisible(record) ? { nafPending: record.nafPending === true } : {}),

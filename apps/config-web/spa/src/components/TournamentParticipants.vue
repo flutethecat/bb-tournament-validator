@@ -5,6 +5,8 @@
 // this tournament's organisers (owner 10-31; "Not shared" otherwise), the entry's NAF name and number (on a NAF-sanctioned
 // tournament the coach's current profile details, so a change or unlink shows here), and a "Not a NAF member" flag. The Paid
 // count sits by the filters, and each Paid box says who last changed it and when (organisers only, like the flag). The row menu has "Message coach" (notifications lane) and "NAF details" (organisers record a coach's NAF name and number).
+// A check-in an organiser made outside the check-in window carries an "Override" chip saying who and when (the server
+// sends checkedInBy.via to managers only).
 import { computed, inject, ref } from "vue";
 import type { TournamentEntrant, TournamentEntrantFlags } from "../shared/api";
 import Crest from "./Crest.vue";
@@ -70,6 +72,12 @@ const paidBy = (e: TournamentEntrant): string => {
   const u = e.paidUpdated;
   if (!u?.at) return "";
   return `${flagsOf(e).paid ? "Marked paid" : "Marked not paid"}${u.by ? ` by ${u.by}` : ""}, ${localWhen(u.at)}`;
+};
+/** "Checked in by Piett outside the check-in window, <when>" for an organiser-override check-in still in force. */
+const overrideLine = (e: TournamentEntrant): string => {
+  const c = e.checkedInBy;
+  if (!flagsOf(e).checkedIn || c?.via !== "organiser-override") return "";
+  return `Checked in by ${c.by || "an organiser"} outside the check-in window, ${localWhen(c.at)}`;
 };
 const busyRow = (_id: string): boolean => Boolean(state.busy);
 const messaging = ref<TournamentEntrant | null>(null);
@@ -138,6 +146,7 @@ function seed(e: TournamentEntrant, raw: string) {
               type="checkbox" :checked="r.flags[f.key]" :aria-label="`${f.label}: ${r.e.teamName || r.e.teamId}`" :disabled="busyRow(r.e.id)"
               @change="toggle(r.e, f.key, ($event.target as HTMLInputElement).checked, $event.target as HTMLInputElement)"
             />
+            <template v-if="f.key === 'checkedIn' && overrideLine(r.e)"><span class="sf-chip tn-override" data-tone="soon" data-check-in-override="true" :title="overrideLine(r.e)" aria-hidden="true">Override</span><span class="tn-sr">{{ overrideLine(r.e) }}</span></template>
             <span v-if="f.key === 'paid' && coachSaysPaidLine(r.e)" class="sf-chip" data-tone="soon" data-coach-says-paid="true" :title="coachSaysPaidLine(r.e)">Coach says paid</span>
           </td>
           <td data-label="Next fixture">

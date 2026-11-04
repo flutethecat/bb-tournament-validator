@@ -61,6 +61,9 @@ describe("money rules in the SPA (server-rendered)", () => {
     expect(html).toContain("Changes apply from the next fixture. Games already played keep their numbers.");
     for (const b of ["Team value gap plus treasury top-up", "Team value gap only", "Treasury only", "A fixed amount per game"]) expect(html).toContain(b);
     expect(html).toContain("Use the BB2025 rulebook formula");
+    expect(html).toContain("Legacy: 10k per touchdown"); // the old default, now a preset
+    expect(html).toContain("data-money-legacy");
+    expect(html).not.toContain("data-money-preset"); // 20k per touchdown follows neither preset
     expect(html).toContain("Money over the cap is lost");
     expect(html).toContain("It buys Dedicated Fans");
     // the log: newest first, who and what
@@ -69,6 +72,13 @@ describe("money rules in the SPA (server-rendered)", () => {
     expect(html).toContain("Win bonus: 0k to 10k");
     expect(html).toContain("Own rules: Season 2.");
     expect(html).not.toMatch(/style="[^"]*#[0-9a-f]{3}/i);
+  });
+
+  it("a league on the defaults: the card shows the rulebook formula and names it; the log says so", async () => {
+    const html = await render(mods.Money, {}, settingsWith(moneyRulesView({}, [])));
+    expect(html).toContain("fan attendance x 0.5 x 10k + touchdowns x 10k + 10k without stalling");
+    expect(html).toContain("(the BB2025 rulebook)");
+    expect(html).toContain("The league plays on the defaults (the BB2025 rulebook formula).");
   });
 
   it("an older server without money settings: a single muted line", async () => {
@@ -86,7 +96,9 @@ describe("money rules in the SPA (server-rendered)", () => {
     expect(coach).not.toContain("data-money-edit");
     const org = await render(mods.House, { kind: "league", rules: null, ruleset: "BB2025", idPrefix: "lg", money: DEFAULT_MONEY_RULES, moneyEditTo: { name: "league-settings", params: { id: "tabbl" }, query: { tab: "money" } } });
     expect(org).toContain("data-money-edit");
-    expect(org).toContain("touchdowns x 10k");
+    // the defaults (owner 11-04): the BB2025 rulebook formula and concession rule
+    expect(org).toContain("fan attendance x 0.5 x 10k + touchdowns x 10k + 10k without stalling (the BB2025 rulebook)");
+    expect(org).toContain("The conceding team gets no winnings");
     expect(org).toContain("Team value gap plus treasury top-up");
     expect(coach).toContain("Not used"); // petty cash under a fixed amount
     const tn = await render(mods.House, { kind: "tournament", rules: null, ruleset: "BB2025", idPrefix: "tn" });

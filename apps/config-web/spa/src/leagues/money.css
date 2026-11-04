@@ -14,6 +14,7 @@
 .mn-narrow { max-width: 200px; }
 .mn-radios { display: grid; gap: 4px; }
 .mn-formula { font: 700 15px/1.4 var(--font-heading); color: var(--sf-gold); overflow-wrap: anywhere; }
+.mn-preset { font: 400 13px/1.4 var(--font-body); color: var(--ui-muted); }
 .mn-warn { color: var(--ui-danger); }
 .mn-log-body { display: grid; gap: 8px; overflow: auto; max-height: calc(70vh / var(--sf-zoom, 1)); min-width: 0; }
 .mn-log-body > p { margin: 0; }

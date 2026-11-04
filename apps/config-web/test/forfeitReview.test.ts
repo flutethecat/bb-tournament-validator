@@ -167,7 +167,8 @@ describe("#7 a legal concession carries no illegal-only penalties", () => {
   it("the conceder's fan loss is dropped unless overridden; the model offers legal suggestions", async () => {
     const m = (await call("GET", F)).body as any;
     expect(m.legalSuggestions.home.home.fans).toBe(0);
-    expect(m.legalSuggestions.home.notes).toEqual([]);
+    // no penalty notes; only the default money rules' line (the BB2025 rulebook concession pays the other team)
+    expect(m.legalSuggestions.home.notes).toEqual([expect.stringMatching(/^The league's money rules: the other team gets the whole fan attendance/)]);
     const r = await call("POST", F, homeForfeits({ legalConcession: true, away: { ...suggestForfeit({ home: true, away: false }).away } }));
     expect(r.status).toBe(200);
     expect((r.body as any).ignored).toEqual(["home.fans"]);

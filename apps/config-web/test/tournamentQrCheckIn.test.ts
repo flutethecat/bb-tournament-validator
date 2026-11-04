@@ -410,6 +410,17 @@ describe("Sol review 11-04", () => {
     h.clock.now = new Date(IN_WINDOW);
     expect((await h.call("PATCH", `/api/tournaments/${t.id}/entrants/${id("Bob")}`, CO, { flags: { checkedIn: true } }))?.status).toBe(200);
     expect(h.entry(t, "Bob").checkedInBy).toMatchObject({ by: "Piett", via: "organiser" });
+    // the read model: managers see how each entry was checked in (the Participants "Override" chip); the coach sees who
+    // and when only
+    type Row = { coachId: string; checkedInBy?: { by: string; at: string; via?: string } };
+    const rows = async (who: TournamentApiIdentity) => ((await h.call("GET", `/api/tournaments/${t.id}`, who))!.body as { entrants: Row[] }).entrants;
+    const asOrganiser = await rows(CO);
+    expect(asOrganiser.find((e) => e.coachId === "Alice")!.checkedInBy).toEqual({ by: "Piett", at: "2026-11-10T12:00:00.000Z", via: "organiser-override" });
+    expect(asOrganiser.find((e) => e.coachId === "Bob")!.checkedInBy).toMatchObject({ via: "organiser" });
+    expect((await h.call("GET", `/api/tournaments/${t.id}/registrations`, CO))!.body).toMatchObject({ entries: expect.arrayContaining([expect.objectContaining({ coachId: "Alice", checkedInBy: expect.objectContaining({ via: "organiser-override" }) })]) });
+    const own = (await rows(coach("Alice"))).find((e) => e.coachId === "Alice")!;
+    expect(own.checkedInBy).toEqual({ by: "Piett", at: "2026-11-10T12:00:00.000Z" });
+    expect((await rows(coach("Bob"))).find((e) => e.coachId === "Alice")!.checkedInBy).toBeUndefined();
     // the Participants toggle confirms first while check-in is not open; never for un-checking or other flags
     const ci = { opensAt: "x", self: true, open: false, closed: false };
     expect(overrideCheckInPrompt(ci, "checkedIn", true)).toBe("Check-in is not open yet. Check this coach in anyway? It is logged as an organiser override.");

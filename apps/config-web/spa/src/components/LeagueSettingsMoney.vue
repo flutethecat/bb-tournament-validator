@@ -1,13 +1,14 @@
 <script setup lang="ts">
-// League settings -> Money (owner 11-04, round 2 item 3): the league's money rules, with BB2025 defaults that keep the
-// site's numbers (10k per touchdown), and an optional override per competition (a season or a ladder) that falls back to
-// the league. Winnings formula, petty cash, the inducement budget rule and an optional treasury cap. Changes apply from
+// League settings -> Money (owner 11-04, round 2 item 3): the league's money rules, defaulting to the BB2025 rulebook
+// formula (owner 11-04: half the fan attendance + touchdowns + 1 without stalling, x 10k, and the concession rule; the
+// old 10k per touchdown is the "Legacy" preset), and an optional override per competition (a season or a ladder) that
+// falls back to the league. Winnings formula, petty cash, the inducement budget rule and an optional treasury cap. Changes apply from
 // the next fixture; games already played keep their numbers. Saves the "money" / "moneyOverride" sections of PATCH
 // /api/leagues/:id/settings (revision checked: a stale save answers 409 and the page reloads). The server validates,
 // logs every change (who, when, before, after) and tells the other organisers.
 import { computed, inject, reactive, ref, watch } from "vue";
 import { LEAGUE_SETTINGS_KEY } from "../leagues/settings";
-import { BUDGET_LABEL, isHundredths, overridePayload, toHundredths, winningsFormulaText, type InducementBudgetRule, type MoneyRules } from "../../../src/leagues/moneyRules";
+import { BUDGET_LABEL, DEFAULT_MONEY_RULES, WINNINGS_PRESET_LABEL, isHundredths, overridePayload, toHundredths, winningsFormulaText, winningsPreset, type InducementBudgetRule, type MoneyRules } from "../../../src/leagues/moneyRules";
 import "../leagues/money.css";
 
 const settings = inject(LEAGUE_SETTINGS_KEY)!;
@@ -35,10 +36,7 @@ const toRules = (f: Form): MoneyRules => ({
   inducementBudget: f.inducementBudget, fixedBudget: f.fixedBudgetK * 1000, treasuryCapEnabled: f.treasuryCapEnabled,
   treasuryCap: f.treasuryCapK * 1000, capOverflow: f.capOverflow, capFansStep: f.capFansStepK * 1000,
 });
-const FALLBACK: MoneyRules = {
-  perTouchdown: 10_000, fanMultiplier: 0, winBonus: 0, drawBonus: 0, noStallingBonus: 0, concession: "none", pettyCash: true, inducementBudget: "both",
-  fixedBudget: 100_000, treasuryCapEnabled: false, treasuryCap: 1_000_000, capOverflow: "lost", capFansStep: 50_000,
-};
+const FALLBACK: MoneyRules = { ...DEFAULT_MONEY_RULES };
 const form = reactive<Form>(toForm(current.value ?? FALLBACK));
 watch(() => JSON.stringify([scope.value, current.value ?? null]), () => { if (current.value) Object.assign(form, toForm(current.value)); }, { immediate: true });
 
@@ -55,6 +53,7 @@ const error = computed(() => {
 const rules = computed(() => toRules(form));
 const dirty = computed(() => Boolean(current.value) && JSON.stringify(rules.value) !== JSON.stringify(current.value));
 const formula = computed(() => winningsFormulaText(rules.value));
+const preset = computed(() => winningsPreset(rules.value));
 const busy = computed(() => state.busy === "money");
 
 const NOTICE = "Money rules saved. They apply from the next fixture; games already played keep their numbers.";
@@ -72,6 +71,7 @@ async function followLeague(): Promise<void> {
 }
 function useDefaults(): void { if (view.value) Object.assign(form, toForm(scope.value ? view.value.rules : view.value.defaults)); }
 function useRulebook(): void { if (view.value) Object.assign(form, toForm({ ...rules.value, ...view.value.rulebook } as MoneyRules)); }
+function useLegacy(): void { if (view.value?.legacy) Object.assign(form, toForm({ ...rules.value, ...view.value.legacy } as MoneyRules)); }
 const BUDGETS: InducementBudgetRule[] = ["both", "pettyCash", "treasury", "fixed"];
 const scopeName = (seasonId: string): string => view.value?.competitions.find((c) => c.seasonId === seasonId)?.name ?? seasonId;
 const logScope = (s: "league" | { seasonId: string; name: string }): string => (s === "league" ? "League" : s.name || scopeName(s.seasonId));
@@ -96,7 +96,7 @@ const overrides = computed(() => (view.value?.competitions ?? []).filter((c) => 
 
         <fieldset class="ls-sub mn-group">
           <legend class="ls-sub-h">Winnings</legend>
-          <p class="mn-formula" aria-live="polite" data-money-formula>{{ formula }}</p>
+          <p class="mn-formula" aria-live="polite" data-money-formula>{{ formula }}<span v-if="preset" class="mn-preset" data-money-preset> ({{ WINNINGS_PRESET_LABEL[preset] }})</span></p>
           <div class="mn-grid">
             <label class="ls-field"><span>Per touchdown (k)</span><input v-model.number="form.perTouchdownK" type="number" min="0" max="500" step="5" inputmode="numeric" /></label>
             <label class="ls-field"><span>Fan attendance x</span><input v-model.number="form.fanMultiplier" type="number" min="0" max="5" step="0.05" inputmode="decimal" /></label>
@@ -105,8 +105,11 @@ const overrides = computed(() => (view.value?.competitions ?? []).filter((c) => 
             <label class="ls-field"><span>Draw bonus (k)</span><input v-model.number="form.drawBonusK" type="number" min="0" max="500" step="5" inputmode="numeric" /></label>
           </div>
           <label class="ls-check"><input v-model="form.rulebookConcession" type="checkbox" /> Concession rule: the conceding team gets no winnings, the other team gets the whole fan attendance</label>
-          <p class="hm-small">Fan attendance is both teams' Fan Factors added together, from the pre-game fans roll. The BB2025 rulebook pays half of it plus the touchdowns, and 10k more without stalling.</p>
-          <div><button class="sf-btn small" type="button" :disabled="busy" data-money-rulebook @click="useRulebook">Use the BB2025 rulebook formula</button></div>
+          <p class="hm-small">Fan attendance is both teams' Fan Factors added together, from the pre-game fans roll. The default is the BB2025 rulebook: (half the fan attendance + touchdowns + 1 without stalling) x 10k.</p>
+          <div class="sf-btn-row mn-presets">
+            <button class="sf-btn small" type="button" :disabled="busy" data-money-rulebook @click="useRulebook">Use the BB2025 rulebook formula</button>
+            <button v-if="view.legacy" class="sf-btn small" type="button" :disabled="busy" data-money-legacy @click="useLegacy">Legacy: 10k per touchdown</button>
+          </div>
         </fieldset>
 
         <fieldset class="ls-sub mn-group">
@@ -147,7 +150,7 @@ const overrides = computed(() => (view.value?.competitions ?? []).filter((c) => 
       <header class="hm-band"><h2 id="mn-log-h">Changes</h2><span class="hm-cap">{{ view.log.length ? `${view.log.length} latest` : "None" }}</span></header>
       <div class="mn-log-body">
         <p v-if="overrides.length" class="hm-small" data-money-overrides>Own rules: {{ overrides.map((c) => c.name).join(", ") }}.</p>
-        <p v-if="!view.log.length" class="hm-empty">No changes yet. The league plays on the defaults.</p>
+        <p v-if="!view.log.length" class="hm-empty">No changes yet. The league plays on the defaults (the BB2025 rulebook formula).</p>
         <ol v-else class="mn-log-list">
           <li v-for="e in view.log" :key="e.version" data-money-log>
             <p class="mn-log-head"><strong>Version {{ e.version }}</strong> <span>{{ logScope(e.scope) }} · {{ e.by }} · {{ when(e.at) }}</span></p>

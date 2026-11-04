@@ -238,6 +238,20 @@ describe("registration views (server-rendered)", () => {
     expect(manage).toContain("Ref SF-7Q2K");
   });
 
+  it("Participants: an organiser-override check-in carries an Override chip with who and when; ordinary check-ins do not", async () => {
+    const at = "2026-11-10T12:00:00.000Z";
+    const rows = [
+      entrant({ id: "t1:entrant:7", coachId: "Gil", flags: { ...FLAGS, checkedIn: true }, checkedInBy: { by: "Piett", at, via: "organiser-override" } }),
+      entrant({ id: "t1:entrant:8", coachId: "Hal", flags: { ...FLAGS, checkedIn: true }, checkedInBy: { by: "Piett", at, via: "organiser" } }),
+      // un-checked since: the old override no longer applies
+      entrant({ id: "t1:entrant:9", coachId: "Ida", flags: { ...FLAGS, checkedIn: false }, checkedInBy: { by: "Piett", at, via: "organiser-override" } }),
+    ];
+    const manage = await render("/tournaments/t1/manage", { ...AS("Veers"), "/api/tournaments/t1": body({ entrants: rows, capabilities: { manage: true, assignRoles: true } }), "/api/tournaments/t1/registrations": PANEL }, true);
+    expect(manage.match(/data-check-in-override="true"/g)).toHaveLength(1);
+    expect(manage).toContain(`Checked in by Piett outside the check-in window, ${localWhen(at)}`);
+    expect(manage).toMatch(/data-check-in-override="true"[^>]*>Override<\/span>/);
+  });
+
   it("the register sheet's team step: save cards, Roster later, Build one now, the region pick", async () => {
     const f = mockFetcher({
       ...AS("Bob"),

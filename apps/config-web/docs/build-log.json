@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-04",
+    "title": "League money defaults to the BB2025 rulebook",
+    "body": "Leagues that never set their money rules now pay the BB2025 rulebook winnings: (half the fan attendance + touchdowns + 1 without stalling) x 10k, with the rulebook concession rule. Leagues that saved their own money rules keep them, games already played keep their numbers, and the old 10k per touchdown is a one-click Legacy preset. Also: the fixture summary's comparison no longer scrolls sideways on phones, and tournament organisers see an Override mark on check-ins made outside the check-in window.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-04",
     "title": "QR check-in, and tournament times in your own time zone",
     "body": "Every coach in a tournament's field gets a personal check-in QR code on their entry: an organiser scans it at the venue, or the coach opens it while check-in is open, and it works once. Organisers can also put up a venue QR (full screen, with New code and Switch off) that coaches scan to check themselves in. Tournament times (start, registration, check-in, the registration gate) are now shown and typed in your device's time zone, and Discord posts show them in each reader's own zone.",
     "links": [
