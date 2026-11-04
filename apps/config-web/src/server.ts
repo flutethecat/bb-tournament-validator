@@ -386,7 +386,7 @@ import { TemplateStore } from "./templates/store.js";
 import { clubsApi, createClubsLimiters, isClubsApiPath, type ClubsApiDeps } from "./clubs/api.js";
 import { ClubObserver, CLUB_OBSERVER_TICK_MS } from "./clubs/observer.js";
 import { setClubDirectory } from "./clubs/pick.js";
-import { clubLedger, type ClubLedger } from "./clubs/stats.js";
+import { clubHasHistory, clubLedger, type ClubLedger } from "./clubs/stats.js";
 import { ClubStore } from "./clubs/store.js";
 import { BoardStore } from "./boards/board.js";
 import { forkGame, setPublicPlayerNames, tabletopGame, type GameRecord } from "./discord/games.js";
@@ -1067,6 +1067,9 @@ const clubsDeps: Omit<ClubsApiDeps, "readRaw" | "declaredTooLarge"> = {
   isFenced: (coach) => isCoachFenced(coach),
   limiters: createClubsLimiters(),
   avatarFor: (coach) => coachAvatars.avatarFor(coach) ?? undefined,
+  // A delete checks the stored competitions strictly (an unreadable file fails closed).
+  history: (clubId) => clubHasHistory({ stateDir: FORK_STATE_DIR, tournamentsDir: TOURNAMENTS_DIR }, clubId),
+  webhookConnected: (club) => clubObserver.baselineWebhook(club),
 };
 const clubObserver = new ClubObserver({ store: clubStore, ledger: clubLedgerNow, state: discordState, notify: leagueNotify, log: (line) => console.error(line) });
 const clubTick = (): void => { clubObserver.tick().catch((e) => console.error(`[clubs] observer tick failed: ${(e as Error).message}`)); };
@@ -2854,6 +2857,7 @@ async function handleApi(
       ...clubsDeps,
       readRaw: (max) => readRawCapped(req, max),
       declaredTooLarge: (max) => declaredTooLarge(req, max),
+      recheck: () => { const c = requestIdentity(req); return c ? { coach: c.coach, admin: c.admin, ...(testSession ? { test: true } : {}) } : undefined; },
     });
     if (result) {
       for (const [name, value] of Object.entries(result.headers ?? {})) res.setHeader(name, value);

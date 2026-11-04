@@ -71,6 +71,13 @@ export interface ClubsApiDeps {
   /** The crest upload: reads the raw body up to `max` bytes (undefined = too large). */
   readRaw?(max: number): Promise<Buffer | undefined>;
   declaredTooLarge?(max: number): boolean;
+  /** Strict history check for a delete (stats.ts clubHasHistory): true / false, or undefined when a competition file can't
+   *  be read (the delete then fails closed). Absent = the ledger's picks. */
+  history?(clubId: string): boolean | undefined;
+  /** The caller's identity as it is NOW (re-resolved after a slow body read, e.g. the crest upload). */
+  recheck?(): ClubsAuth | undefined;
+  /** A webhook was connected (or changed): every event that exists now is baselined, so only later ones post. */
+  webhookConnected?(club: ClubRecord): void;
 }
 
 export interface ClubsApiResult {
@@ -154,6 +161,7 @@ function manageView(c: ClubRecord, deps: ClubsApiDeps) {
     webhook: { configured: Boolean(url), maskedUrl: maskWebhookUrl(url) },
     settings: structuredClone(c.settings),
     revision: c.revision,
+    ...(c.review ? { review: { ...c.review } } : {}),
   };
 }
 
@@ -280,7 +288,14 @@ async function route(method: string, path: string, query: URLSearchParams, auth:
     requireAdmin(club, actor);
     const url = input.url;
     if (url !== null && url !== "" && !isDiscordWebhookUrl(url)) return fail(400, "That is not a Discord webhook URL (https://discord.com/api/webhooks/...).", { field: "url" });
-    deps.store.setWebhook(club.id, typeof url === "string" && url ? url : null);
+    const next = typeof url === "string" && url ? url.trim() : null;
+    const changed = (deps.store.webhook(club.id) ?? null) !== next;
+    deps.store.setWebhook(club.id, next);
+    // A new connection posts only what happens from now on (P3): stamp it and baseline every event that exists now.
+    if (changed && next) {
+      const stamped = deps.store.update(club.id, (c) => { c.webhookConnectedAt = deps.store.now().toISOString(); });
+      try { deps.webhookConnected?.(stamped); } catch { /* the observer baselines on its next pass */ }
+    } else if (changed) deps.store.update(club.id, (c) => { delete c.webhookConnectedAt; });
     return ok(manageView(deps.store.get(club.id) ?? club, deps));
   }
 
@@ -383,7 +398,7 @@ function patchClub(club: ClubRecord, input: Obj, deps: ClubsApiDeps): ClubsApiRe
     if (c.archivedAt && (name !== undefined)) throw new ClubError(409, "This club is archived.", "archived");
     if (name !== undefined) c.name = name;
     if (homeRegion !== undefined) c.homeRegion = homeRegion;
-    if (description !== undefined) c.description = description;
+    if (description !== undefined) { c.description = description; delete c.review; }
     if (typeof input.ladderGamesCount === "boolean") c.settings.ladderGamesCount = input.ladderGamesCount;
     if (events) c.settings.webhookEvents = { ...c.settings.webhookEvents, ...events };
   }, input.revision);
@@ -393,9 +408,11 @@ function patchClub(club: ClubRecord, input: Obj, deps: ClubsApiDeps): ClubsApiRe
 function deleteClub(club: ClubRecord, input: Obj, deps: ClubsApiDeps): ClubsApiResult {
   if (club.members.some((m) => m.role !== "admin")) return fail(409, "Remove the members first, or archive the club.", { code: "members" });
   if (input.revision !== undefined && input.revision !== club.revision) return fail(409, "The club changed since you loaded it. Reload and try again.", { code: "stale" });
-  // A club that any competition entry names keeps its history: archived, never deleted.
-  let picked = false;
-  try { picked = deps.ledger().picked.has(club.id); } catch { picked = true; }
+  // A club that any competition entry names keeps its history: archived, never deleted. Fail closed: when a competition
+  // file can't be read the history is unknown, so nothing is deleted (503).
+  let picked: boolean | undefined;
+  try { picked = deps.history ? deps.history(club.id) : deps.ledger().picked.has(club.id); } catch { picked = undefined; }
+  if (picked === undefined) return fail(503, "The club's history can't be checked right now, so it can't be deleted. Try again later, or archive it.", { code: "history-unknown" });
   if (picked) {
     const updated = deps.store.update(club.id, (c) => { c.archivedAt ??= deps.store.now().toISOString(); });
     return ok({ archived: true, club: summary(updated) });
@@ -501,11 +518,18 @@ async function crestRoute(method: string, club: ClubRecord, auth: ClubsAuth | un
   if (deps.declaredTooLarge?.(LOGO_MAX_BYTES)) return tooLarge;
   const bytes = await deps.readRaw?.(LOGO_MAX_BYTES);
   if (!bytes) return tooLarge;
+  // The body read can be slow: the session and the admin right are judged again as they are NOW (and once more inside the
+  // write, against the club as stored), so a sign-out, an account deletion or a demotion meanwhile writes nothing.
+  const current = deps.recheck ? deps.recheck() : auth;
+  if (!current || k(current.coach) !== k(actor.coach) || deps.isFenced(actor.coach) || !deps.coach(actor.coach)) return fail(401, "Sign in first.");
+  const stillAdmin = (c: ClubRecord | undefined) => Boolean(c) && (isAdminOf(c!, actor.coach) || current.admin === true);
+  if (!stillAdmin(deps.store.get(club.id))) return fail(403, "Only this club's admins can do that.");
   const checked = checkLeagueArt("logo", bytes);
   if (!checked.ok) return fail(400, checked.error.replace("The logo", "The crest"));
   const ext = checked.image.ext;
   const rel = `crests/${createHash("sha256").update(club.id).update("\0").update(bytes).digest("hex").slice(0, 32)}.${ext}`;
   const updated = await withCrestLock(club.id, async () => {
+    if (!stillAdmin(deps.store.get(club.id))) return undefined;
     const target = deps.store.crestFile(rel);
     const temp = `${target}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
     await fsp.mkdir(join(deps.store.dir, "crests"), { recursive: true });
@@ -517,10 +541,17 @@ async function crestRoute(method: string, club: ClubRecord, auth: ClubsAuth | un
       throw err;
     }
     const previous = deps.store.get(club.id)?.crestPath;
-    const next = deps.store.update(club.id, (c) => { c.crestPath = rel; });
+    let next: ClubRecord;
+    try {
+      next = deps.store.update(club.id, (c) => {
+        if (!isAdminOf(c, actor.coach) && current.admin !== true) throw new ClubError(403, "Only this club's admins can do that.");
+        c.crestPath = rel;
+      });
+    } catch (e) { deps.store.dropCrest(rel); throw e; }
     if (previous !== rel) deps.store.dropCrest(previous);
     return next;
   });
+  if (!updated) return fail(403, "Only this club's admins can do that.");
   return ok({ crestUrl: crestUrl(updated) });
 }
 

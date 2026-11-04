@@ -82,25 +82,54 @@ export class ClubObserver {
     return n;
   }
 
+  private markers(club: ClubRecord, ledger: ClubLedger): string[] {
+    return [...(ledger.games.get(club.id) ?? []).map((g) => `game:${g.id}`), ...(ledger.honours.get(club.id) ?? []).map((h) => `honour:${h.id}`)];
+  }
+
+  /** The webhook ledger of the club's CURRENT connection: a new connection (webhookConnectedAt) starts a fresh one. */
+  static hookKey(club: Pick<ClubRecord, "id" | "webhookConnectedAt">): string | undefined {
+    return club.webhookConnectedAt ? `clubhook:${club.id}:${club.webhookConnectedAt}` : undefined;
+  }
+
+  /** A webhook was just connected: baseline every event that exists now, so only later ones post (P3). Never throws. */
+  baselineWebhook(club: ClubRecord): void {
+    const key = ClubObserver.hookKey(club);
+    if (!key) return;
+    try {
+      const markers = this.markers(club, this.deps.ledger());
+      this.deps.state.mark(key, markers, this.now().toISOString(), true, new Set(markers));
+    } catch (e) { this.deps.log?.(`[clubs] webhook baseline failed: ${(e as Error).message}`); }
+  }
+
   private async club(club: ClubRecord, ledger: ClubLedger): Promise<number> {
-    const key = `club:${club.id}`;
+    const at = this.now().toISOString();
     const all = ledger.games.get(club.id) ?? [];
     const honours = ledger.honours.get(club.id) ?? [];
     const counted = new Set(countedGames(club, ledger).map((g) => g.id));
-    const markers = [...all.map((g) => `game:${g.id}`), ...honours.map((h) => `honour:${h.id}`)];
-    const known = this.deps.state.entry(key);
-    const fresh = new Set(this.deps.state.mark(key, markers, this.now().toISOString(), true, new Set(markers)));
-    // First sight, or an archived club: marked, never announced.
-    if (!known?.baselineAt || club.archivedAt || !fresh.size) return 0;
-    const url = this.deps.store.webhook(club.id);
+    const markers = this.markers(club, ledger);
+    const live = new Set(markers);
     let n = 0;
+    // Clubmate wins (inbox): the club's own ledger, baselined on first sight.
+    const key = `club:${club.id}`;
+    const known = this.deps.state.entry(key);
+    const fresh = new Set(this.deps.state.mark(key, markers, at, true, live));
+    if (known?.baselineAt && !club.archivedAt) {
+      for (const g of all) if (fresh.has(`game:${g.id}`) && counted.has(g.id) && g.recorded && g.result === "win") n += this.tellWin(club, g);
+    }
+    // Webhook posts: the current connection's ledger, baselined when it was connected (or on first sight of it), so
+    // nothing from before the connection posts.
+    const url = this.deps.store.webhook(club.id);
+    const hookKey = ClubObserver.hookKey(club);
+    if (!url || !hookKey) return n;
+    const hookKnown = this.deps.state.entry(hookKey);
+    const hookFresh = new Set(this.deps.state.mark(hookKey, markers, at, true, live));
+    if (!hookKnown?.baselineAt || club.archivedAt) return n;
     for (const g of all) {
-      if (!fresh.has(`game:${g.id}`) || !counted.has(g.id) || !g.recorded) continue;
-      if (url && club.settings.webhookEvents.results && (await this.send(url, clubResultPost(club, g)))) n += 1;
-      if (g.result === "win") n += this.tellWin(club, g);
+      if (!hookFresh.has(`game:${g.id}`) || !counted.has(g.id) || !g.recorded || !club.settings.webhookEvents.results) continue;
+      if (await this.send(url, clubResultPost(club, g))) n += 1;
     }
     for (const h of honours) {
-      if (!fresh.has(`honour:${h.id}`) || !url) continue;
+      if (!hookFresh.has(`honour:${h.id}`)) continue;
       const on = h.kind === "title" ? club.settings.webhookEvents.titles : club.settings.webhookEvents.podiums;
       if (on && (await this.send(url, clubHonourPost(club, h)))) n += 1;
     }

@@ -36,6 +36,7 @@ export interface ClubManage {
   webhook: { configured: boolean; maskedUrl: string };
   settings: { ladderGamesCount: boolean; webhookEvents: { results: boolean; podiums: boolean; titles: boolean } };
   revision: number;
+  review?: { reason: "creator-deleted"; at: string };
 }
 export interface ClubPage { club: ClubView; latest: ClubGame[]; me: ClubMe | null; manage?: ClubManage }
 

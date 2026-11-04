@@ -13,6 +13,8 @@
 //
 // Pure reads over the stores' snapshots (no writes): server.ts calls it for the club page and the club observer.
 
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { fixtureOutcome, gameCoach, playedTime } from "../leagues/identity.js";
 import { isDraftLeague } from "../leagues/lifecycle.js";
 import { ladderState } from "../leagues/ladder.js";
@@ -181,7 +183,7 @@ function tournamentPass(t: TournamentRecord, field: TournamentEntrantRecord[], h
 function seasonPicks(season: SeasonRecord): Map<string, string> {
   const out = new Map<string, string>();
   for (const r of season.registrations ?? []) {
-    if (!r.clubId || !everAccepted(r.state, r.registrationLog)) continue;
+    if (!r.clubId || !everAccepted(r.state, r.registrationLog, Boolean(r.teamId))) continue;
     out.set(clubCoachKey(r.coach), r.clubId);
   }
   return out;
@@ -209,13 +211,31 @@ function leaguePass(league: LeagueRecord, seasons: SeasonRecord[], out: ClubLedg
       ? season.teams.find((t) => t.name === ref.slice(5))
       : season.teams.find((t) => t.id === ref);
     if (!team) continue;
-    const clubId = picks.get(clubCoachKey(team.coachId || team.coach));
+    // The coach who EARNED the title: the one frozen on the champion's last played game (playedBy), never the team's
+    // current coach (a takeover after the season never moves a title to another club). No played game: the entry's coach.
+    const earnedBy = titleCoach(season, team.id) ?? { coach: team.coachId || team.coach };
+    const clubId = picks.get(clubCoachKey(earnedBy.coach));
     if (!clubId) continue;
     pushTo(out.honours, clubId, {
       id: `title:${league.id}:${season.id}`, clubId, kind: "title", competitionId: league.id, competitionName: league.name, seasonName: season.name,
-      link, coach: team.coachId || team.coach, team: team.name, place: 1, ...(season.endedAt ? { at: season.endedAt } : {}),
+      link, coach: earnedBy.coach, team: team.name, place: 1, ...(season.endedAt ? { at: season.endedAt } : {}),
     });
   }
+}
+
+/** The coach of a team's last played game in a season (the playedBy stamp, by gameCoach), or undefined. */
+function titleCoach(season: SeasonRecord, teamId: string): { coach: string } | undefined {
+  let best: { at: string; coach: string } | undefined;
+  for (const f of season.fixtures) {
+    if (f.test || !fixtureOutcome(f)) continue;
+    for (const raw of [f.home, f.away]) {
+      if (raw.teamId !== teamId) continue;
+      const g = gameCoach(raw);
+      const at = playedTime(f) ?? "";
+      if (!best || at >= best.at) best = { at, coach: g.coachId || g.coach };
+    }
+  }
+  return best ? { coach: best.coach } : undefined;
 }
 
 function gamePass(league: LeagueRecord, season: SeasonRecord, f: LeagueFixture, picks: Map<string, string>, link: string, ladderGame: boolean, out: ClubLedger): void {
@@ -351,4 +371,40 @@ export function clubStats(club: ClubRecord, ledger: ClubLedger): ClubStats {
 /** The club's latest results for the Overview tab. */
 export function latestResults(club: ClubRecord, ledger: ClubLedger, n = 6): ClubGame[] {
   return countedGames(club, ledger).slice(0, n);
+}
+
+/**
+ * Does any competition entry name this club? A STRICT scan of the stored files (the stores skip an unreadable file, which
+ * would read as "no history"): every tournament entry and every league season / ladder registration row. Returns
+ * undefined when any file can't be read or parsed, so the caller fails closed (never deletes a club it can't check).
+ */
+export function clubHasHistory(dirs: { stateDir: string; tournamentsDir: string }, clubId: string): boolean | undefined {
+  const isEnoent = (e: unknown) => (e as NodeJS.ErrnoException)?.code === "ENOENT";
+  const parse = (path: string): Record<string, unknown> | undefined | null => {
+    let text: string;
+    try { text = readFileSync(path, "utf8"); } catch (e) { return isEnoent(e) ? undefined : null; }
+    try { const v = JSON.parse(text) as unknown; return v && typeof v === "object" && !Array.isArray(v) ? v as Record<string, unknown> : null; } catch { return null; }
+  };
+  const list = (dir: string): string[] | null => {
+    try { return readdirSync(dir); } catch (e) { return isEnoent(e) ? [] : null; }
+  };
+  const rows = (v: unknown): Array<Record<string, unknown>> => (Array.isArray(v) ? v : v && typeof v === "object" ? Object.values(v) : []).filter((x): x is Record<string, unknown> => Boolean(x) && typeof x === "object");
+  const t = parse(join(dirs.tournamentsDir, "tournaments.json"));
+  if (t === null) return undefined;
+  if (t && [...rows(t.entrants), ...rows(t.heldEntrants)].some((e) => e.clubId === clubId)) return true;
+  const leagueRoot = join(dirs.stateDir, "leagues");
+  const leagues = list(leagueRoot);
+  if (leagues === null) return undefined;
+  for (const id of leagues) {
+    const seasonsDir = join(leagueRoot, id, "seasons");
+    const files = list(seasonsDir);
+    if (files === null) return undefined;
+    for (const f of files) {
+      if (!f.endsWith(".json")) continue;
+      const s = parse(join(seasonsDir, f));
+      if (s === null) return undefined;
+      if (s && rows(s.registrations).some((r) => r.clubId === clubId)) return true;
+    }
+  }
+  return false;
 }

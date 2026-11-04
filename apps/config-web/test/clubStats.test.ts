@@ -213,6 +213,7 @@ describe("club observer: webhook events and clubmate wins", () => {
     const c = clubs.create({ name: "Red Club", homeRegion: "", description: "", createdBy: "Ann" });
     clubs.update(c.id, (x) => { x.members.push({ coach: "Eve", role: "member", joinedAt: at(-1), notify: { wins: true } }, { coach: "Fay", role: "member", joinedAt: at(-1) }); });
     clubs.setWebhook(c.id, URL);
+    clubs.update(c.id, (x) => { x.webhookConnectedAt = at(-1); });
     return c.id;
   }
 
@@ -275,5 +276,41 @@ describe("club observer: webhook events and clubmate wins", () => {
     clubs.update(id, (c) => { c.settings.ladderGamesCount = true; });
     await o.tick();
     expect(posts).toEqual([]);
+  });
+});
+
+describe("review fixes: titles stay earned, webhooks post only after connection", () => {
+  it("a league title stays with the coach who played the champion's games (and their club) after the team changes hands", () => {
+    leagues.putSeason(season("season-1", [played("f1", 2, 1)], { status: "completed", endedAt: at(-2), podium: { decidedBy: "standings", proposed: {}, final: { champion: "orcs" }, overridden: false, by: "Org", at: at(-2) } }));
+    // the Orcs pass to Bob after the season (Bob represented blue)
+    const s = leagues.season("lg", "season-1")!;
+    s.teams[0]!.coach = "Bob"; s.teams[0]!.coachId = "Bob";
+    leagues.putSeason(s);
+    const ledger = clubLedger(src());
+    expect(clubStats(club("red"), ledger).honours.map((h) => [h.kind, h.coach])).toEqual([["title", "Ann"]]);
+    expect(clubStats(club("blue"), ledger).honours).toEqual([]);
+  });
+
+  it("connecting a webhook later never posts what happened before; reconnecting starts over", async () => {
+    const c = clubs.create({ name: "Late Club", homeRegion: "", description: "", createdBy: "Ann" });
+    seedTournaments([tournament("t1", { status: "active" })], [entrant("t1", "Ann", 1, c.id), entrant("t1", "Bob", 2)], [smatch("t1", 1, "Ann", "Bob", 2, 1)]);
+    const posts: DiscordPayload[] = [];
+    const o = new ClubObserver({ store: clubs, ledger: () => clubLedger(src()), state: new DiscordStateStore(join(dir, "discord")), poster: async (_u, p) => { posts.push(p); return { ok: true, status: 204 }; } });
+    await o.tick();
+    // a second game while no webhook is connected
+    seedTournaments([tournament("t1", { status: "active" })], [entrant("t1", "Ann", 1, c.id), entrant("t1", "Bob", 2)], [smatch("t1", 1, "Ann", "Bob", 2, 1), smatch("t1", 2, "Bob", "Ann", 0, 1)]);
+    await o.tick();
+    // connect: the API stamps the connection and baselines (here by hand, as server.ts webhookConnected does)
+    clubs.setWebhook(c.id, "https://discord.com/api/webhooks/123456789012/abcdefghijklmnopqrstuvwxyz0123");
+    o.baselineWebhook(clubs.update(c.id, (x) => { x.webhookConnectedAt = at(0); }));
+    await o.tick();
+    expect(posts).toEqual([]);
+    seedTournaments([tournament("t1", { status: "active" })], [entrant("t1", "Ann", 1, c.id), entrant("t1", "Bob", 2)], [smatch("t1", 1, "Ann", "Bob", 2, 1), smatch("t1", 2, "Bob", "Ann", 0, 1), smatch("t1", 3, "Ann", "Bob", 3, 0)]);
+    await o.tick();
+    expect(posts.map((p) => p.embeds[0]!.description.split("\n")[0])).toEqual(["Ann (Ann Team) beat Bob (Bob Team) 3-0"]);
+    // a new connection without the API's baseline (first sight) still posts nothing old
+    clubs.update(c.id, (x) => { x.webhookConnectedAt = at(1); });
+    await o.tick();
+    expect(posts).toHaveLength(1);
   });
 });

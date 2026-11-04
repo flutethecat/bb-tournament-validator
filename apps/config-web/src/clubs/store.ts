@@ -114,6 +114,8 @@ function normalise(raw: Obj): ClubRecord | undefined {
       reason: f.reason === "removed" ? "removed" as const : "left" as const,
     })),
     settings: normaliseSettings(raw.settings),
+    ...(isStr(raw.webhookConnectedAt) ? { webhookConnectedAt: raw.webhookConnectedAt } : {}),
+    ...(isObj(raw.review) && raw.review.reason === "creator-deleted" && isStr(raw.review.at) ? { review: { reason: "creator-deleted" as const, at: raw.review.at } } : {}),
     ...(isStr(raw.archivedAt) ? { archivedAt: raw.archivedAt } : {}),
   };
 }

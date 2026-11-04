@@ -318,3 +318,69 @@ describe("crest upload", () => {
     expect((await h.call("GET", `/api/clubs/${club.id}/crest`)).status).toBe(404);
   });
 });
+
+describe("review fixes", () => {
+  it("a legacy accepted entry is fixed: a log that only shows leaving accepted, a league row that made its team, a field entry", async () => {
+    const { everAccepted, priorClubEntry, resolveClubPick } = await import("../src/clubs/pick.js");
+    expect(everAccepted("withdrawn", [{ from: "accepted", to: "withdrawn" }])).toBe(true);
+    expect(everAccepted("withdrawn", [], true)).toBe(true);
+    expect(everAccepted("withdrawn", [{ from: "pending", to: "withdrawn" }])).toBe(false);
+    const rows = [{ coach: "Ann", clubId: "red", state: "dropped", teamId: "t-ann", registrationLog: [] }];
+    expect(priorClubEntry(rows, "ann")).toEqual({ clubId: "red", everAccepted: true });
+    expect(resolveClubPick("Ann", "blue", priorClubEntry(rows, "Ann"))).toMatchObject({ ok: false, code: "club-fixed" });
+  });
+
+  it("a crest upload re-checks the admin right after the body is read (demoted meanwhile: 403, nothing stored)", async () => {
+    const h = harness();
+    const club = await h.create();
+    await h.join(club.id, "Ben");
+    await h.call("POST", `/api/clubs/${club.id}/members/Ben/role`, h.as("Ann"), { role: "admin" });
+    const png = Buffer.alloc(40);
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(png, 0);
+    png.writeUInt32BE(13, 8); png.write("IHDR", 12, "latin1"); png.writeUInt32BE(128, 16); png.writeUInt32BE(128, 20);
+    // Ben is demoted while his upload body is still arriving
+    const r = await clubsApi("PUT", `/api/clubs/${club.id}/crest`, new URLSearchParams(), h.as("Ben"), undefined, {
+      ...h.deps, readRaw: async () => { h.store.update(club.id, (c) => { c.members.find((m) => m.coach === "Ben")!.role = "member"; }); return png; },
+    });
+    expect(r!.status).toBe(403);
+    expect(h.store.get(club.id)!.crestPath).toBeUndefined();
+    expect(existsSync(join(h.root, "clubs", "crests")) ? readdirSync(join(h.root, "clubs", "crests")) : []).toEqual([]);
+    // the session ended meanwhile
+    const gone = await clubsApi("PUT", `/api/clubs/${club.id}/crest`, new URLSearchParams(), h.as("Ann"), undefined, { ...h.deps, readRaw: async () => png, recheck: () => undefined });
+    expect(gone!.status).toBe(401);
+  });
+
+  it("delete fails closed when a competition file can't be read (503, the club stays); a strict scan finds picks", async () => {
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    const { clubHasHistory } = await import("../src/clubs/stats.js");
+    const h = harness();
+    const club = await h.create();
+    const dirs = { stateDir: h.root, tournamentsDir: join(h.root, "tournaments") };
+    const deps = { ...h.deps, history: (id: string) => clubHasHistory(dirs, id) };
+    mkdirSync(join(h.root, "leagues", "lg", "seasons"), { recursive: true });
+    writeFileSync(join(h.root, "leagues", "lg", "seasons", "season-1.json"), "{broken", "utf8");
+    const r = await clubsApi("DELETE", `/api/clubs/${club.id}`, new URLSearchParams(), h.as("Ann"), {}, deps);
+    expect(r!.status).toBe(503);
+    expect(h.store.get(club.id)).toBeDefined();
+    writeFileSync(join(h.root, "leagues", "lg", "seasons", "season-1.json"), JSON.stringify({ registrations: [{ coach: "Ann", clubId: club.id }] }), "utf8");
+    expect(clubHasHistory(dirs, club.id)).toBe(true);
+    expect((await clubsApi("DELETE", `/api/clubs/${club.id}`, new URLSearchParams(), h.as("Ann"), {}, deps))!.body).toMatchObject({ archived: true });
+    writeFileSync(join(h.root, "leagues", "lg", "seasons", "season-1.json"), JSON.stringify({ registrations: [] }), "utf8");
+    expect(clubHasHistory(dirs, club.id)).toBe(false);
+  });
+
+  it("connecting a webhook stamps the connection and asks the observer to baseline; removing clears the stamp", async () => {
+    const h = harness();
+    const club = await h.create();
+    const seen: string[] = [];
+    const deps = { ...h.deps, webhookConnected: (c: { webhookConnectedAt?: string }) => { seen.push(c.webhookConnectedAt ?? ""); } };
+    const url = "https://discord.com/api/webhooks/123456789012/abcdefghijklmnopqrstuvwxyz0123";
+    await clubsApi("PUT", `/api/clubs/${club.id}/webhook`, new URLSearchParams(), h.as("Ann"), { url }, deps);
+    expect(seen).toHaveLength(1);
+    expect(h.store.get(club.id)!.webhookConnectedAt).toBe(seen[0]);
+    await clubsApi("PUT", `/api/clubs/${club.id}/webhook`, new URLSearchParams(), h.as("Ann"), { url }, deps);
+    expect(seen).toHaveLength(1); // same URL: no new connection
+    await clubsApi("PUT", `/api/clubs/${club.id}/webhook`, new URLSearchParams(), h.as("Ann"), { url: null }, deps);
+    expect(h.store.get(club.id)!.webhookConnectedAt).toBeUndefined();
+  });
+});

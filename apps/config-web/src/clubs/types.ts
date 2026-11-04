@@ -85,6 +85,10 @@ export interface ClubRecord {
   requests: ClubRequest[];
   former: ClubFormerMember[];
   settings: ClubSettings;
+  /** When the current Discord webhook was connected: the observer posts only events after it (each connection baselines). */
+  webhookConnectedAt?: string;
+  /** Set by account deletion when the club's creator was deleted: its text may need an admin's look (cleared on edit). */
+  review?: { reason: "creator-deleted"; at: string };
   /** Archived: read-only (no joins, no posts), hidden from the directory unless asked for. */
   archivedAt?: string;
 }

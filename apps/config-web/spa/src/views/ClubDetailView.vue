@@ -272,6 +272,7 @@ onMounted(async () => { await detail.load(props.id); await loadTab(); });
           <form class="hm-panel sf-form cl-edit" aria-labelledby="cl-edit-h" @submit.prevent="saveDetails">
             <header class="hm-band"><h2 id="cl-edit-h">Club details</h2></header>
             <div class="cl-edit-body">
+              <p v-if="state.manage?.review" class="sf-notice" data-review>The coach who created this club deleted their account. Check the description still reads well, then save it.</p>
               <label class="sf-field"><span class="sf-k">Name</span><input v-model="edit.name" class="sf-input" maxlength="60" /></label>
               <label class="sf-field"><span class="sf-k">Home region</span><input v-model="edit.homeRegion" class="sf-input" maxlength="60" /></label>
               <label class="sf-field"><span class="sf-k">Description</span><textarea v-model="edit.description" class="sf-input" rows="4" maxlength="2000" /></label>
