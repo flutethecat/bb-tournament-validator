@@ -754,27 +754,50 @@ describe("review: an organiser never sees or uses a private team without the coa
 });
 
 describe("review: replays, registration rows and listings", () => {
-  it("P2-4: a result cleared after a takeover re-seats the side to the new coach and the replay counts for them; a correction by the same holder keeps its coach", async () => {
+  it("P2-4: by time: a correction of a game Ann played stays Ann after Dan took over; a replay after the takeover is Dan's", async () => {
     const h = harness();
     const fx = (id: string) => h.season().fixtures.find((f) => f.id === id)!;
     const edit = (id: string, fn: (f: LeagueFixture) => void) => { const s = h.season(); fn(s.fixtures.find((f) => f.id === id)!); h.store.putSeason(s); };
+    const patch = (id: string, body: unknown) => h.call("PATCH", `${base}/fixtures/${id}`, JAY, body);
+    // f1 and f2 were played by Ann before the takeover (their played times)
+    edit("f1", (f) => { f.finishedAt = "2026-10-11T20:00:00.000Z"; });
+    edit("f2", (f) => { f.finishedAt = "2026-10-12T20:00:00.000Z"; });
+    expect(fx("f1").home.playedBy).toMatchObject({ coach: "Ann", at: "2026-10-11T20:00:00.000Z" }); // the time joins the stamp
     // a correction with no change of hands keeps the original stamp (with a NAF name only that stamp had)
-    edit("f2", (f) => { f.away.playedBy = { coach: "Ann", coachId: "Ann", nafUser: "AnnNaf", span: 0 }; });
-    edit("f2", (f) => { f.home.score = null; f.away.score = null; });
-    expect(fx("f2").away.playedBy).toBeUndefined();
-    edit("f2", (f) => { f.home.score = 1; f.away.score = 1; });
-    expect(fx("f2").away.playedBy).toEqual({ coach: "Ann", coachId: "Ann", nafUser: "AnnNaf", span: 0 });
-    // Dan takes over; unplayed fixtures move to him at once
+    edit("f2", (f) => { f.away.playedBy = { coach: "Ann", coachId: "Ann", nafUser: "AnnNaf", span: 0, at: "2026-10-12T20:00:00.000Z" }; });
+    expect((await patch("f2", { result: null })).status).toBe(200);
+    expect((await patch("f2", { result: { home: 1, away: 1 } })).status).toBe(200);
+    expect(fx("f2").away.playedBy).toEqual({ coach: "Ann", coachId: "Ann", nafUser: "AnnNaf", span: 0, at: "2026-10-12T20:00:00.000Z" });
+    // Dan takes over (2026-11-03T12:00); unplayed fixtures move to him at once
     await h.list(true);
     await h.apply("Dan", { mode: "takeover", share: [], acknowledged: true });
     await h.call("POST", `${base}/takeovers/${h.listingId()}/applications/${h.season().takeoverApplications![0]!.id}/approve`, JAY, {});
     expect(fx("f3").home).toMatchObject({ coach: "Dan", coachId: "Dan" });
-    // f1 (played by Ann) is cleared: the side is seated for Dan, and the replay counts for him
-    expect(fx("f1").home.playedBy).toMatchObject({ coach: "Ann" });
-    edit("f1", (f) => { f.home.score = null; f.away.score = null; });
-    expect(fx("f1").home).toMatchObject({ coach: "Dan", coachId: "Dan" });
-    edit("f1", (f) => { f.home.score = 0; f.away.score = 2; });
-    expect(fx("f1").home.playedBy).toEqual({ coach: "Dan", coachId: "Dan", coachAssigned: true, span: 1 });
+    // a bad "played on" is refused
+    expect((await patch("f3", { result: { home: 1, away: 0, playedOn: "soon" } })).status).toBe(400);
+    // CORRECTION: f1 is cleared and re-entered; "played on" defaults to the original time, so it stays Ann's game
+    expect((await patch("f1", { result: null })).status).toBe(200);
+    expect(fx("f1").home).toMatchObject({ coach: "Dan", coachId: "Dan", clearedPlayedBy: { coach: "Ann", at: "2026-10-11T20:00:00.000Z" } }); // seated for Dan meanwhile
+    expect((await patch("f1", { result: { home: 3, away: 1 } })).status).toBe(200);
+    expect(fx("f1").finishedAt).toBe("2026-10-11T20:00:00.000Z");
+    expect(fx("f1").home.playedBy).toMatchObject({ coach: "Ann", coachId: "Ann", span: 0 });
+    // an explicit "played on" at or before the takeover is a correction too
+    expect((await patch("f2", { result: null })).status).toBe(200);
+    expect((await patch("f2", { result: { home: 0, away: 0, playedOn: "2026-11-03" } })).status).toBe(200);
+    expect(fx("f2").away.playedBy).toMatchObject({ coach: "Ann" });
+    // REPLAY: f1 cleared again and replayed after the takeover ("played on" after it) counts for Dan
+    expect((await patch("f1", { result: null })).status).toBe(200);
+    expect((await patch("f1", { result: { home: 0, away: 2, playedOn: "2026-11-04" } })).status).toBe(200);
+    expect(fx("f1").home.playedBy).toMatchObject({ coach: "Dan", coachId: "Dan", span: 1, at: "2026-11-04T00:00:00.000Z" });
+    // a replay result from a path with a real time after the takeover (the fork, the recorder) is Dan's too
+    expect((await patch("f2", { result: null })).status).toBe(200);
+    edit("f2", (f) => { f.home.score = 2; f.away.score = 2; f.finishedAt = "2026-11-05T19:00:00.000Z"; });
+    expect(fx("f2").away.playedBy).toMatchObject({ coach: "Dan", span: 1 });
+    // no original played time: the current seat
+    edit("f3", (f) => { delete f.finishedAt; f.home.score = 1; f.away.score = 0; f.home.playedBy = { coach: "Ann", coachId: "Ann", span: 0 }; });
+    edit("f3", (f) => { f.home.score = null; f.away.score = null; });
+    edit("f3", (f) => { f.home.score = 1; f.away.score = 0; f.finishedAt = "2026-10-01T00:00:00.000Z"; });
+    expect(fx("f3").home.playedBy).toMatchObject({ coach: "Dan" });
   });
 
   it("P2-6: a race-changing swap updates the entry's accepted registration row in the same write", async () => {

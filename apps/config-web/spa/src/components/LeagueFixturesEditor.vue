@@ -7,7 +7,7 @@
 import { computed, inject, reactive, ref, watch } from "vue";
 import { API_KEY } from "../app";
 import ForfeitDialog from "./ForfeitDialog.vue";
-import { createFixtureRows, fixturePlayed, LEAGUE_DETAIL_KEY, newFixtureError, type FixtureRowEdit, type NewFixtureForm } from "../leagues/league";
+import { clearedPlayedOn, createFixtureRows, fixturePlayed, LEAGUE_DETAIL_KEY, newFixtureError, type FixtureRowEdit, type NewFixtureForm } from "../leagues/league";
 import type { LeagueFixture, SeasonRecord } from "../leagues/types";
 
 const props = defineProps<{ season: SeasonRecord }>();
@@ -49,7 +49,10 @@ async function saveResult(f: LeagueFixture): Promise<void> {
   const away = num(r.away);
   mine.value = true;
   if (home === null || away === null) { state.editError = "Enter both scores."; state.editNotice = ""; return; }
-  await detail.editFixture(props.season.id, f.id, { result: { home, away, homeCas: num(r.homeCas), awayCas: num(r.awayCas) } });
+  // A re-entered (cleared) result says when it was played: the original time by default (a correction stays with the coach
+  // who played it); a later date makes it a replay for the team's current coach.
+  const playedOn = !fixturePlayed(f) && clearedPlayedOn(f) && r.playedOn ? r.playedOn : undefined;
+  await detail.editFixture(props.season.id, f.id, { result: { home, away, homeCas: num(r.homeCas), awayCas: num(r.awayCas), ...(playedOn ? { playedOn } : {}) } });
 }
 async function clearResult(f: LeagueFixture): Promise<void> {
   mine.value = true;
@@ -147,6 +150,10 @@ async function remove(f: LeagueFixture): Promise<void> {
                 <input v-model="rowOf(f).home" type="number" min="0" max="99" inputmode="numeric" :aria-label="`${f.home.team} score`" />
                 <span>-</span>
                 <input v-model="rowOf(f).away" type="number" min="0" max="99" inputmode="numeric" :aria-label="`${f.away.team} score`" />
+                <label v-if="!fixturePlayed(f) && clearedPlayedOn(f)" class="lg-fx-played" data-played-on>
+                  <span class="tb-k">Played on</span>
+                  <input v-model="rowOf(f).playedOn" type="date" :aria-label="`${f.home.team} vs ${f.away.team} played on`" />
+                </label>
               </td>
               <td class="lg-fx-score-edit">
                 <input v-model="rowOf(f).homeCas" type="number" min="0" max="99" inputmode="numeric" :aria-label="`${f.home.team} casualties`" />

@@ -293,6 +293,9 @@ export interface PlayedCoach {
   /** How many times the team behind the entry had changed hands (LeagueTeam.entryHistory spans - 1) when this side was
    *  played: a cleared result re-entered while it is still the same holder keeps this stamp (identity.ts). */
   span?: number;
+  /** When the game was played (the fixture's finishedAt, else startedAt), UTC ISO: a cleared result re-entered after a
+   *  change of hands keeps this coach only when the re-entered result is played at or before that change. */
+  at?: string;
 }
 
 export interface LeagueFixture {

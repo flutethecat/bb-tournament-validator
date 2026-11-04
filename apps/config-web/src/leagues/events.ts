@@ -309,6 +309,19 @@ async function newsRoute(
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+/** The optional "played on" of a result typed in the editor: YYYY-MM-DD (taken as the start of that day, UTC) or a full ISO
+ *  time; undefined when not sent. Never in the future beyond a day of clock skew. */
+export function parsePlayedOn(v: unknown): string | undefined {
+  if (v === undefined || v === null || v === "") return undefined;
+  if (typeof v !== "string") throw new SettingsError(400, "Played on must look like 2026-11-05.", "playedOn");
+  const raw = v.trim();
+  const iso = DATE.test(raw) ? `${parseFixtureDate(raw)}T00:00:00.000Z` : raw;
+  const t = Date.parse(iso);
+  if (!/^\d{4}-\d{2}-\d{2}T/.test(iso) || !Number.isFinite(t)) throw new SettingsError(400, "Played on must look like 2026-11-05.", "playedOn");
+  if (t > Date.now() + 24 * 60 * 60 * 1000) throw new SettingsError(400, "Played on can't be in the future.", "playedOn");
+  return new Date(t).toISOString();
+}
+
 /** "" / null = clear; otherwise a real calendar date YYYY-MM-DD. */
 export function parseFixtureDate(v: unknown): string | null {
   if (v === null || v === "") return null;
@@ -407,6 +420,7 @@ export async function editFixture(
   const date = input.date !== undefined ? parseFixtureDate(input.date) : undefined;
   const round = input.round !== undefined ? parseRound(input.round) : undefined;
   let result: { home: number; away: number; homeCas: number | null; awayCas: number | null } | null | undefined;
+  let playedOn: string | undefined;
   if (input.result === null) result = null;
   else if (input.result !== undefined) {
     if (!input.result || typeof input.result !== "object" || Array.isArray(input.result)) throw new SettingsError(400, "result must be an object or null.", "result");
@@ -415,6 +429,7 @@ export async function editFixture(
       home: parseScore(r.home, "Home score", false)!, away: parseScore(r.away, "Away score", false)!,
       homeCas: parseScore(r.homeCas, "Home casualties", true), awayCas: parseScore(r.awayCas, "Away casualties", true),
     };
+    playedOn = parsePlayedOn(r.playedOn);
   }
   // A forfeit applied roster changes once: its result is changed only by undoing it (forfeit.ts undoForfeit), which reverses
   // them; defection rolls stay with the fixture either way, so nothing is ever rerolled or applied twice.
@@ -449,6 +464,13 @@ export async function editFixture(
     if (changed) fixture.resultEdit = { ...(who.coach ? { by: who.coach } : {}), at: (deps.now?.() ?? new Date()).toISOString() };
     // A both-lose deadline placeholder is a double concession: the real result entered over it is not.
     if (fixture.deadlineOutcome?.outcome === "both-lose") fixture.home.conceded = fixture.away.conceded = false;
+    // When it was played (team library lane: records follow the coach of each game). A result entered on an unplayed
+    // fixture takes the organiser's "played on", else the time of the result that was cleared (a correction), else none
+    // (the announcement stamps it after this write). An existing result keeps its time unless a date is sent.
+    const firstEntry = !fixturePlayed(fixture);
+    const original = fixture.home.clearedPlayedBy?.at ?? fixture.away.clearedPlayedBy?.at;
+    if (playedOn) fixture.finishedAt = playedOn;
+    else if (firstEntry && original) fixture.finishedAt = original;
     fixture.home.score = result.home;
     fixture.away.score = result.away;
     fixture.home.cas = result.homeCas;

@@ -72,6 +72,8 @@ export interface FixtureSide {
   score: number | null;
   cas: number | null;
   conceded: boolean;
+  /** The coach of a cleared result and when it was played (server identity.ts): the re-entry's "played on" default. */
+  clearedPlayedBy?: { coach: string; coachId?: string; at?: string };
 }
 
 export interface LeagueFixture {

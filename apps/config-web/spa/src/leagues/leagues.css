@@ -472,6 +472,10 @@ button.lg-cog { margin: 0; padding: 0; font: inherit; color: inherit; cursor: po
 .lg-fx-score-edit { white-space: nowrap; }
 .lg-fx-score-edit input { width: 56px; }
 .lg-fx-score-edit span { padding: 0 4px; color: var(--ui-muted); }
+/* a re-entered (cleared) result: when it was played (team library lane) */
+.lg-fx-score-edit .lg-fx-played { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.lg-fx-score-edit .lg-fx-played span { padding: 0; }
+.lg-fx-score-edit .lg-fx-played input { width: auto; }
 .lg-fx-edit-table td { vertical-align: middle; }
 
 /* Assign coach account (Teams tab roster header, organisers) */

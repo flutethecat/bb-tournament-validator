@@ -76,11 +76,15 @@ export function newsList(season: Pick<SeasonRecord, "news"> | undefined): League
 export const fixtureRowKey = (seasonId: string, fixtureId: string): string => `${seasonId}/${fixtureId}`;
 
 /** One fixtures-editor row (strings, so an empty box means "none"). */
-export interface FixtureRowEdit { date: string; home: string; away: string; homeCas: string; awayCas: string }
+export interface FixtureRowEdit { date: string; home: string; away: string; homeCas: string; awayCas: string; playedOn: string }
+
+/** When a cleared result was first played (team library lane): the re-entry form's "played on" defaults to it, so a
+ *  correction stays with the coach who played it; a later date makes it a replay for the team's current coach. */
+export const clearedPlayedOn = (f: LeagueFixture): string => (f.home.clearedPlayedBy?.at ?? f.away.clearedPlayedBy?.at ?? "").slice(0, 10);
 
 export const fixtureRowEdit = (f: LeagueFixture): FixtureRowEdit => ({
   date: f.date ?? "", home: f.home.score === null ? "" : String(f.home.score), away: f.away.score === null ? "" : String(f.away.score),
-  homeCas: f.home.cas === null ? "" : String(f.home.cas), awayCas: f.away.cas === null ? "" : String(f.away.cas),
+  homeCas: f.home.cas === null ? "" : String(f.home.cas), awayCas: f.away.cas === null ? "" : String(f.away.cas), playedOn: clearedPlayedOn(f),
 });
 
 /**
@@ -232,7 +236,7 @@ export function createLeagueDetail(deps: { api: Fetcher; upload?: RawUploader })
       edit("fixture", () => deps.api<{ fixture: LeagueFixture }>(`${seasonPath(seasonId)}/fixtures`, {
         method: "POST", body: { home: form.home, away: form.away, round: form.round, ...(form.phaseId ? { phaseId: form.phaseId } : {}), ...(form.date ? { date: form.date } : {}), ...(form.test ? { test: true } : {}) },
       }), putFixture(seasonId), "Fixture added."),
-    editFixture: (seasonId: string, id: string, patch: { date?: string | null; round?: number; result?: { home: number; away: number; homeCas?: number | null; awayCas?: number | null } | null }) =>
+    editFixture: (seasonId: string, id: string, patch: { date?: string | null; round?: number; result?: { home: number; away: number; homeCas?: number | null; awayCas?: number | null; playedOn?: string } | null }) =>
       edit(`fixture:${id}`, () => deps.api<{ fixture: LeagueFixture }>(`${seasonPath(seasonId)}/fixtures/${encodeURIComponent(id)}`, { method: "PATCH", body: patch }), putFixture(seasonId), "Fixture saved."),
     deleteFixture: (seasonId: string, id: string) =>
       edit(`fixture:${id}`, () => deps.api<{ revision?: number }>(`${seasonPath(seasonId)}/fixtures/${encodeURIComponent(id)}`, { method: "DELETE" }), (res) => {

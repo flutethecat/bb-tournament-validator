@@ -7,6 +7,8 @@ import {
   type LibraryItem, type TakeoverPanelView,
 } from "../spa/src/leagues/takeover";
 import { entryHistoryLine as serverLine } from "../src/leagues/teamLibrary";
+import { clearedPlayedOn, fixtureRowEdit } from "../spa/src/leagues/league";
+import type { LeagueFixture } from "../spa/src/leagues/types";
 
 // Team library lane, SPA side: the swap dialog's library groups and greyed rows, the entry history line (same words as
 // the server), the takeover panel's helpers (my live application, pending applications, the played-games prompt that
@@ -110,5 +112,17 @@ describe("placement and style", () => {
   it("takeover.css uses tokens only", () => {
     const css = read("leagues/takeover.css");
     expect(css).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(/i);
+  });
+});
+
+describe("re-entering a cleared result", () => {
+  it("the editor's played-on defaults to when the cleared result was played (a correction stays with its coach)", () => {
+    const side = (extra = {}) => ({ team: "T", coach: "Dan", race: "Human", score: null, cas: null, conceded: false, ...extra });
+    const f = { id: "f1", home: side({ clearedPlayedBy: { coach: "Ann", at: "2026-10-11T20:00:00.000Z" } }), away: side() } as unknown as LeagueFixture;
+    expect(clearedPlayedOn(f)).toBe("2026-10-11");
+    expect(fixtureRowEdit(f).playedOn).toBe("2026-10-11");
+    expect(clearedPlayedOn({ ...f, home: side() } as unknown as LeagueFixture)).toBe("");
+    const editor = readFileSync(join(SPA, "components/LeagueFixturesEditor.vue"), "utf8");
+    expect(editor).toContain("data-played-on");
   });
 });
