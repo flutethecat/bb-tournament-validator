@@ -9,8 +9,14 @@
  *
  * Abuse surface fails closed: 15MB body cap at READ time, per-field caps (413), and a
  * per-coach in-memory rate limit (10/hour, 429) — same idiom as auth/loginAttempts.ts.
+ *
+ * Reporter updates (owner 11-04): a successful submit also returns a one-time `receipt` (32 random bytes, base64url).
+ * Only its SHA-256 (`receiptHash`) is stored, and it never leaves this module: every read strips it. The public
+ * POST /api/bug-reports/status answers { status, reply, replyAt, fixedIn, updatedAt } for entries whose receipt
+ * matches. `playerUpdate` holds the owner's public reply and fixed-in version, apart from the private triage notes.
  */
 
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { coachSecretDigest } from "@bb/fork-ops";
@@ -26,8 +32,35 @@ export const SCREENSHOT_CAP = 5 * 1024 * 1024;
 export const TRIAGE_TEXT_CAP = 8000;
 export const RATE_LIMIT_MAX = 10;
 export const RATE_WINDOW_MS = 60 * 60 * 1000;
+/** Owner's public reply to the reporter (shown in the client). */
+export const REPLY_CAP = 2000;
+/** "Fixed in" client version, e.g. 1.0.307 or 1.0.307a. */
+export const FIXED_IN_CAP = 32;
+const FIXED_IN_PATTERN = /^\d{1,4}(?:\.\d{1,4}){1,3}(?:[-+.]?[A-Za-z0-9]{1,16})?$/;
+/** POST /api/bug-reports/status: entries per request, body cap, per-IP rate limit. */
+export const STATUS_QUERY_MAX = 50;
+export const STATUS_BODY_CAP = 16 * 1024;
+export const STATUS_RATE_MAX = 30;
+export const STATUS_RATE_WINDOW_MS = 60 * 60 * 1000;
+const REPORT_ID_PATTERN = /^[A-Za-z0-9_-]{1,160}$/;
+const RECEIPT_PATTERN = /^[A-Za-z0-9_-]{43}$/; // 32 bytes, base64url, unpadded
+const RECEIPT_HASH_PATTERN = /^[0-9a-f]{64}$/;
 
 export class BodyTooLargeError extends Error {}
+
+const sha256 = (value: string): Buffer => createHash("sha256").update(value, "utf8").digest();
+
+/** A fresh one-time receipt and the hash that is the only thing stored. */
+export function newReceipt(): { receipt: string; receiptHash: string } {
+  const receipt = randomBytes(32).toString("base64url");
+  return { receipt, receiptHash: sha256(receipt).toString("hex") };
+}
+
+/** Constant-time check of a presented receipt against a stored hash. Missing / malformed hash never matches. */
+export function receiptMatches(storedHash: unknown, receipt: string): boolean {
+  if (typeof storedHash !== "string" || !RECEIPT_HASH_PATTERN.test(storedHash)) return false;
+  return timingSafeEqual(sha256(receipt), Buffer.from(storedHash, "hex"));
+}
 
 /** readBody with a hard cap, enforced WHILE reading — an oversize body is aborted, not buffered. */
 export async function readJsonCapped(req: AsyncIterable<Buffer>, maxBytes: number): Promise<unknown> {
@@ -228,6 +261,8 @@ export async function submitBugReport(
   const reportDir = join(deps.dir, id);
   mkdirSync(reportDir, { recursive: true });
 
+  // One-time receipt for the reporter's status checks: only its hash is written, the receipt goes back once.
+  const { receipt, receiptHash } = newReceipt();
   // Explicit allowlist — password/passwordMd5 (and anything unknown) never persist.
   const report = {
     id,
@@ -252,6 +287,8 @@ export async function submitBugReport(
       updatedAt: null,
       updatedBy: null,
     },
+    playerUpdate: emptyPlayerUpdate(),
+    receiptHash,
   };
   writeFileSync(join(reportDir, "report.json"), JSON.stringify(report, null, 2), "utf8");
   if (body.wireLog) writeFileSync(join(reportDir, "wire.log"), body.wireLog, "utf8");
@@ -259,7 +296,26 @@ export async function submitBugReport(
   if (screenshot) writeFileSync(join(reportDir, screenshot.fileName), screenshot.bytes);
 
   noteReport(coach, now);
-  return { status: 200, body: { ok: true, id } };
+  return { status: 200, body: { ok: true, id, receipt } };
+}
+
+/** The owner's public answer to the reporter, kept apart from the private triage notes. */
+export interface PlayerUpdate {
+  reply: string | null;
+  replyAt: string | null;
+  fixedIn: string | null;
+  /** Last change to the PUBLIC fields (status, reply, fixedIn); private notes never move it. */
+  updatedAt: string | null;
+}
+
+function emptyPlayerUpdate(): PlayerUpdate {
+  return { reply: null, replyAt: null, fixedIn: null, updatedAt: null };
+}
+
+function normalizedPlayerUpdate(value: unknown): PlayerUpdate {
+  const raw = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const text = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
+  return { reply: text(raw.reply), replyAt: text(raw.replyAt), fixedIn: text(raw.fixedIn), updatedAt: text(raw.updatedAt) };
 }
 
 export interface BugReportRow {
@@ -278,6 +334,7 @@ export interface BugReportRow {
     updatedAt: string | null;
     updatedBy: string | null;
   };
+  playerUpdate: PlayerUpdate;
 }
 
 function normalizedTriage(value: unknown): BugReportRow["triage"] {
@@ -335,6 +392,7 @@ export function listBugReports(dir: string): BugReportRow[] {
         submittedAt: r.submittedAt ?? "",
         kind: r.kind === "feedback" ? "feedback" : "bug",
         triage: normalizedTriage(r.triage),
+        playerUpdate: normalizedPlayerUpdate((r as { playerUpdate?: unknown }).playerUpdate),
       });
     } catch {
       /* skip malformed folders */
@@ -346,14 +404,47 @@ export function listBugReports(dir: string): BugReportRow[] {
 /** Full report.json (never the logs — those stay on disk for the owner). Traversal-safe: the id
  *  must survive the same allowlist the writer used, verbatim. */
 export function getBugReport(dir: string, id: string): unknown | undefined {
-  if (!/^[A-Za-z0-9_-]+$/.test(id)) return undefined;
+  const raw = readStoredReport(dir, id);
+  return raw ? withoutReceiptHash(raw) : undefined;
+}
+
+/** report.json as stored (receiptHash included) — module-internal; every caller-facing read goes through getBugReport. */
+function readStoredReport(dir: string, id: string): Record<string, unknown> | undefined {
+  if (!REPORT_ID_PATTERN.test(id)) return undefined;
   const file = join(dir, id, "report.json");
   if (!existsSync(file)) return undefined;
   try {
-    return JSON.parse(readFileSync(file, "utf8"));
+    const parsed = JSON.parse(readFileSync(file, "utf8")) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : undefined;
   } catch {
     return undefined;
   }
+}
+
+function withoutReceiptHash(report: Record<string, unknown>): Record<string, unknown> {
+  const { receiptHash: _hidden, ...rest } = report;
+  return rest;
+}
+
+/** Owner text for the reporter: undefined = leave unchanged, null/"" = clear. */
+function parseReplyField(value: unknown): { ok: true; value: string | null | undefined } | { ok: false; error: string } {
+  if (value === undefined) return { ok: true, value: undefined };
+  if (value === null) return { ok: true, value: null };
+  if (typeof value !== "string") return { ok: false, error: "reply must be a string or null." };
+  const trimmed = value.trim();
+  if (trimmed.length > REPLY_CAP) return { ok: false, error: `reply is limited to ${REPLY_CAP} characters.` };
+  return { ok: true, value: trimmed || null };
+}
+
+function parseFixedInField(value: unknown): { ok: true; value: string | null | undefined } | { ok: false; error: string } {
+  if (value === undefined) return { ok: true, value: undefined };
+  if (value === null) return { ok: true, value: null };
+  if (typeof value !== "string") return { ok: false, error: "fixedIn must be a string or null." };
+  const trimmed = value.trim().replace(/^v(?=\d)/i, "");
+  if (!trimmed) return { ok: true, value: null };
+  if (trimmed.length > FIXED_IN_CAP || !FIXED_IN_PATTERN.test(trimmed))
+    return { ok: false, error: "fixedIn must be a version such as 1.0.307." };
+  return { ok: true, value: trimmed };
 }
 
 export function updateBugReportTriage(
@@ -363,8 +454,8 @@ export function updateBugReportTriage(
   actor: string,
   now = Date.now(),
 ): BugReportResult {
-  const current = getBugReport(dir, id);
-  if (!current || typeof current !== "object") return { status: 404, body: { error: "Bug report not found." } };
+  const current = readStoredReport(dir, id);
+  if (!current) return { status: 404, body: { error: "Bug report not found." } };
   const body = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
   const status = body.status;
   const rootCause = body.rootCause;
@@ -375,18 +466,96 @@ export function updateBugReportTriage(
     return { status: 400, body: { error: "rootCause and reason must be strings." } };
   if (rootCause.length > TRIAGE_TEXT_CAP || reason.length > TRIAGE_TEXT_CAP)
     return { status: 400, body: { error: `rootCause and reason are limited to ${TRIAGE_TEXT_CAP} characters each.` } };
+  const reply = parseReplyField(body.reply);
+  if (!reply.ok) return { status: 400, body: { error: reply.error } };
+  const fixedIn = parseFixedInField(body.fixedIn);
+  if (!fixedIn.ok) return { status: 400, body: { error: fixedIn.error } };
+  const stamp = new Date(now).toISOString();
+  // Public fields: status, reply and fixedIn move playerUpdate.updatedAt; root cause and notes never do.
+  const before = normalizedPlayerUpdate(current.playerUpdate);
+  const nextReply = reply.value === undefined ? before.reply : reply.value;
+  const nextFixedIn = fixedIn.value === undefined ? before.fixedIn : fixedIn.value;
+  const replyChanged = nextReply !== before.reply;
+  const publicChanged = normalizedTriage(current.triage).status !== status || replyChanged || nextFixedIn !== before.fixedIn;
+  const playerUpdate: PlayerUpdate = {
+    reply: nextReply,
+    replyAt: replyChanged ? (nextReply ? stamp : null) : before.replyAt,
+    fixedIn: nextFixedIn,
+    updatedAt: publicChanged ? stamp : before.updatedAt,
+  };
   const report = {
-    ...(current as Record<string, unknown>),
+    ...current,
     triage: {
       status,
       rootCause: rootCause.trim(),
       reason: reason.trim(),
-      updatedAt: new Date(now).toISOString(),
+      updatedAt: stamp,
       updatedBy: actor,
     },
+    playerUpdate,
   };
   writeFileSync(join(dir, id, "report.json"), JSON.stringify(report, null, 2), "utf8");
-  return { status: 200, body: { ok: true, report } };
+  return { status: 200, body: { ok: true, report: withoutReceiptHash(report) } };
+}
+
+export type PublicReportStatus = "received" | "triaged" | "inProgress" | "resolved" | "closed";
+const PUBLIC_STATUS: Record<ReportTriageStatus, PublicReportStatus> = {
+  new: "received",
+  triaged: "triaged",
+  "in-progress": "inProgress",
+  resolved: "resolved",
+  closed: "closed",
+};
+
+export interface ReportStatusRow {
+  id: string;
+  status: PublicReportStatus;
+  reply: string | null;
+  replyAt: string | null;
+  fixedIn: string | null;
+  updatedAt: string | null;
+}
+
+/** Validates { reports: [{ id, receipt }] }: a bad shape or more than STATUS_QUERY_MAX entries is an error. */
+export function parseStatusQuery(raw: unknown): { entries: Array<{ id: string; receipt: string }> } | { error: string } {
+  const list = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as { reports?: unknown }).reports : undefined;
+  if (!Array.isArray(list)) return { error: "reports must be an array." };
+  if (list.length > STATUS_QUERY_MAX) return { error: `At most ${STATUS_QUERY_MAX} reports per request.` };
+  const entries: Array<{ id: string; receipt: string }> = [];
+  for (const item of list) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return { error: "Each entry must be { id, receipt }." };
+    const { id, receipt } = item as { id?: unknown; receipt?: unknown };
+    if (typeof id !== "string" || typeof receipt !== "string") return { error: "Each entry must be { id, receipt }." };
+    entries.push({ id, receipt });
+  }
+  return { entries };
+}
+
+/**
+ * Public status for the entries whose receipt matches. Unknown ids, malformed ids or receipts, wrong receipts and
+ * reports with no stored hash (filed before receipts existed) are left out silently — the answer never says which.
+ * Only the allowlisted public fields are returned.
+ */
+export function lookupBugReportStatuses(dir: string, entries: ReadonlyArray<{ id: string; receipt: string }>): ReportStatusRow[] {
+  const rows: ReportStatusRow[] = [];
+  const seen = new Set<string>();
+  for (const { id, receipt } of entries) {
+    if (seen.has(id) || !REPORT_ID_PATTERN.test(id) || !RECEIPT_PATTERN.test(receipt)) continue;
+    const stored = readStoredReport(dir, id); // id validated above (and again inside) before any path is built
+    if (!stored || !receiptMatches(stored.receiptHash, receipt)) continue;
+    seen.add(id);
+    const update = normalizedPlayerUpdate(stored.playerUpdate);
+    rows.push({
+      id,
+      status: PUBLIC_STATUS[normalizedTriage(stored.triage).status],
+      reply: update.reply,
+      replyAt: update.replyAt,
+      fixedIn: update.fixedIn,
+      // Never edited yet: the report's own submit time, so the field is always a timestamp.
+      updatedAt: update.updatedAt ?? (typeof stored.submittedAt === "string" ? stored.submittedAt : null),
+    });
+  }
+  return rows;
 }
 
 export function getBugReportScreenshot(dir: string, id: string): { mimeType: string; base64: string } | undefined {

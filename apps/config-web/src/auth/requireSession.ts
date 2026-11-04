@@ -59,6 +59,8 @@ const PUBLIC_API_METHODS = new Map<string, ReadonlySet<string>>([
   ["/api/fork/team-builder/preview", new Set(["POST"])],
   // POST does its own coach auth in-handler; the GETs stay session+organizer-gated.
   ["/api/bug-reports", new Set(["POST"])],
+  // Reporter status checks (owner 11-04): public; answers only receipt-matched entries, rate-limited per IP.
+  ["/api/bug-reports/status", new Set(["POST"])],
   // Global site search (src/search/index.ts): a public read; it uses the session only to show drafts to their organisers.
   ["/api/search", new Set(["GET", "HEAD"])],
 ]);

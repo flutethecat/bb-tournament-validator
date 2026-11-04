@@ -1,8 +1,9 @@
 /**
  * Bug-report triage notifications (owner 2026-09-08): bb-bot polls config-web's bug-report store
  * and DMs the triager (and/or posts to a channel) a card for every NEW report, with triage buttons.
- * A button opens a modal (root cause + reason); submitting it PATCHes the report's triage on
- * config-web, so the owner can triage straight from Discord without opening the admin panel.
+ * A button opens a modal (root cause + reason, plus the public reply to the reporter and the fixed-in version);
+ * submitting it PATCHes the report on config-web, so the owner can triage straight from Discord without opening the
+ * admin panel. The reply and fixed-in version are shown to the player in their client (owner 11-04).
  *
  * Env (discord-bot/.env):
  *   CONFIG_WEB_URL               config-web base the bot calls (default http://127.0.0.1:4310)
@@ -64,6 +65,8 @@ export interface BugReportRow {
   submittedAt: string;
   kind: "bug" | "feedback";
   triage: { status: TriageStatus; rootCause: string; reason: string; updatedAt: string | null; updatedBy: string | null };
+  /** The owner's public answer to the reporter (owner 11-04). */
+  playerUpdate: { reply: string | null; fixedIn: string | null };
 }
 
 /** Full report.json adds the file inventory; everything else mirrors the listing row. */
@@ -73,6 +76,7 @@ export interface BugReportDetail extends BugReportRow {
 
 const isStatus = (v: unknown): v is TriageStatus => TRIAGE_STATUSES.includes(v as TriageStatus);
 const str = (v: unknown, fallback = ""): string => (typeof v === "string" ? v : fallback);
+const textOrNull = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
 
 /** Defensive parse of config-web's `{ reports: [...] }` listing — a malformed row is skipped, never thrown on. */
 export function parseBugReportRows(json: unknown): BugReportRow[] {
@@ -85,6 +89,7 @@ export function parseBugReportRows(json: unknown): BugReportRow[] {
     const id = str(r.id);
     if (!/^[A-Za-z0-9_-]+$/.test(id)) continue;
     const t = (r.triage && typeof r.triage === "object" ? r.triage : {}) as Record<string, unknown>;
+    const p = (r.playerUpdate && typeof r.playerUpdate === "object" ? r.playerUpdate : {}) as Record<string, unknown>;
     rows.push({
       id,
       coach: str(r.coach),
@@ -101,6 +106,7 @@ export function parseBugReportRows(json: unknown): BugReportRow[] {
         updatedAt: typeof t.updatedAt === "string" ? t.updatedAt : null,
         updatedBy: typeof t.updatedBy === "string" ? t.updatedBy : null,
       },
+      playerUpdate: { reply: textOrNull(p.reply), fixedIn: textOrNull(p.fixedIn) },
     });
   }
   return rows;
@@ -173,7 +179,16 @@ export function selectNewReports(rows: readonly BugReportRow[], state: BugReport
 export interface ConfigWebClient {
   listReports(): Promise<BugReportRow[]>;
   getReport(id: string): Promise<BugReportDetail | undefined>;
-  patchTriage(id: string, triage: { status: TriageStatus; rootCause: string; reason: string }): Promise<{ ok: boolean; error?: string }>;
+  patchTriage(id: string, triage: TriagePatch): Promise<{ ok: boolean; error?: string }>;
+}
+
+/** PATCH body: private triage (status, root cause, notes) plus the public reply and fixed-in version. */
+export interface TriagePatch {
+  status: TriageStatus;
+  rootCause: string;
+  reason: string;
+  reply?: string;
+  fixedIn?: string;
 }
 
 export function createConfigWebClient(opts: {
@@ -224,7 +239,9 @@ export function createConfigWebClient(opts: {
       const res = await call(`/api/bug-reports/${encodeURIComponent(id)}`);
       if (res.status === 404) return undefined;
       if (!res.ok) throw new Error(`config-web GET /api/bug-reports/${id} -> ${res.status}`);
-      const json = (await res.json()) as { files?: BugReportDetail["files"] };
+      // config-web answers { report }; a bare report.json is accepted too.
+      const body = (await res.json()) as { report?: unknown };
+      const json = (body && typeof body.report === "object" && body.report ? body.report : body) as { files?: BugReportDetail["files"] };
       const [row] = parseBugReportRows({ reports: [json] });
       return row ? { ...row, files: json.files } : undefined;
     },
@@ -280,9 +297,16 @@ export function renderBugReportEmbed(r: BugReportDetail, publicUrl: string): Emb
       { name: "Client", value: r.clientVersion ?? "—", inline: true },
       { name: "Attachments", value: attachments.length ? attachments.join(", ") : "none", inline: true },
       { name: "Triage", value: triageSummary(r.triage) },
+      { name: "Reply to reporter (shown to the player)", value: playerUpdateSummary(r.playerUpdate) },
     )
     .setFooter({ text: `${r.id} · submitted ${r.submittedAt || "?"}` });
   return e;
+}
+
+function playerUpdateSummary(p: BugReportRow["playerUpdate"]): string {
+  const lines = [p.reply ? clip(p.reply, 900) : "No reply yet."];
+  if (p.fixedIn) lines.push(`Fixed in ${p.fixedIn}`);
+  return clip(lines.join("\n"), 1024);
 }
 
 function triageSummary(t: BugReportRow["triage"]): string {
@@ -309,7 +333,16 @@ export function renderTriageButtons(id: string, publicUrl: string, current: Tria
   return [row, link];
 }
 
-export function buildTriageModal(status: TriageStatus, token: string, current: BugReportRow["triage"]): ModalBuilder {
+/** Discord modal caps: at most 5 inputs; these two ride beside root cause + notes (4 in all). */
+export const REPLY_MAX = 2000;
+export const FIXED_IN_MAX = 32;
+
+export function buildTriageModal(
+  status: TriageStatus,
+  token: string,
+  current: BugReportRow["triage"],
+  playerUpdate: BugReportRow["playerUpdate"] = { reply: null, fixedIn: null },
+): ModalBuilder {
   const rootCause = new TextInputBuilder()
     .setCustomId("rootCause")
     .setLabel("Root cause")
@@ -326,12 +359,31 @@ export function buildTriageModal(status: TriageStatus, token: string, current: B
     .setMaxLength(2000)
     .setPlaceholder("Triage notes (optional)");
   if (current.reason) reason.setValue(clip(current.reason, 2000));
+  // Discord caps an input label at 45 characters (this one is 39).
+  const reply = new TextInputBuilder()
+    .setCustomId("reply")
+    .setLabel("Reply to reporter (shown to the player)")
+    .setStyle(TextInputStyle.Paragraph)
+    .setRequired(false)
+    .setMaxLength(REPLY_MAX)
+    .setPlaceholder("Public: the player sees this in their client");
+  if (playerUpdate.reply) reply.setValue(clip(playerUpdate.reply, REPLY_MAX));
+  const fixedIn = new TextInputBuilder()
+    .setCustomId("fixedIn")
+    .setLabel("Fixed in version")
+    .setStyle(TextInputStyle.Short)
+    .setRequired(false)
+    .setMaxLength(FIXED_IN_MAX)
+    .setPlaceholder("e.g. 1.0.307 (shown to the player)");
+  if (playerUpdate.fixedIn) fixedIn.setValue(clip(playerUpdate.fixedIn, FIXED_IN_MAX));
   return new ModalBuilder()
     .setCustomId(`${MODAL_NS}:${status}:${token}`)
     .setTitle(`Mark as ${STATUS_LABEL[status]}`)
     .addComponents(
       new ActionRowBuilder<TextInputBuilder>().addComponents(rootCause),
       new ActionRowBuilder<TextInputBuilder>().addComponents(reason),
+      new ActionRowBuilder<TextInputBuilder>().addComponents(reply),
+      new ActionRowBuilder<TextInputBuilder>().addComponents(fixedIn),
     );
 }
 
@@ -428,8 +480,29 @@ export async function handleBugTriageButton(i: ButtonInteraction, ctx: BugReport
     await i.reply({ content: "That report is no longer available on config-web.", flags: MessageFlags.Ephemeral }).catch(() => void 0);
     return true;
   }
-  await i.showModal(buildTriageModal(parsed.status, parsed.token, current.triage));
+  await i.showModal(buildTriageModal(parsed.status, parsed.token, current.triage, current.playerUpdate));
   return true;
+}
+
+/**
+ * Modal values → PATCH body. A field missing from the submitted modal (a modal opened before this version) is left out,
+ * so config-web keeps the stored reply / fixed-in version rather than clearing it.
+ */
+export function triagePatchFromModal(status: TriageStatus, read: (field: string) => string | null | undefined): TriagePatch {
+  const value = (field: string): string | undefined => {
+    try {
+      const v = read(field);
+      return typeof v === "string" ? v : undefined;
+    } catch {
+      return undefined; // discord.js throws for a field the modal did not carry
+    }
+  };
+  const patch: TriagePatch = { status, rootCause: value("rootCause") ?? "", reason: value("reason") ?? "" };
+  const reply = value("reply");
+  const fixedIn = value("fixedIn");
+  if (reply !== undefined) patch.reply = reply;
+  if (fixedIn !== undefined) patch.fixedIn = fixedIn;
+  return patch;
 }
 
 /** Modal submit → PATCH triage on config-web → refresh the card. Returns false when the customId isn't ours. */
@@ -445,9 +518,8 @@ export async function handleBugTriageModal(i: ModalSubmitInteraction, ctx: BugRe
     await i.reply({ content: "That report is no longer tracked by the bot.", flags: MessageFlags.Ephemeral }).catch(() => void 0);
     return true;
   }
-  const rootCause = i.fields.getTextInputValue("rootCause") ?? "";
-  const reason = i.fields.getTextInputValue("reason") ?? "";
-  const result = await ctx.api.patchTriage(id, { status: parsed.status, rootCause, reason }).catch((e) => ({ ok: false, error: (e as Error).message }));
+  const result = await ctx.api.patchTriage(id, triagePatchFromModal(parsed.status, (field) => i.fields.getTextInputValue(field)))
+    .catch((e) => ({ ok: false, error: (e as Error).message }));
   if (!result.ok) {
     await i.reply({ content: `❌ Triage not saved: ${result.error ?? "unknown error"}`, flags: MessageFlags.Ephemeral }).catch(() => void 0);
     return true;

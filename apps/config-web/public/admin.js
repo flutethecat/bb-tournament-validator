@@ -1096,6 +1096,17 @@ function reportTriage(report) {
   };
 }
 
+// Owner 11-04: the public answer to the reporter (shown in their client), kept apart from the private triage notes.
+function reportPlayerUpdate(report) {
+  const update = report?.playerUpdate ?? {};
+  return {
+    reply: String(update.reply ?? ""),
+    replyAt: String(update.replyAt ?? ""),
+    fixedIn: String(update.fixedIn ?? ""),
+    updatedAt: String(update.updatedAt ?? ""),
+  };
+}
+
 function renderReports() {
   const rows = safeArray(state.reports);
   const selected = state.selectedReport;
@@ -1113,6 +1124,7 @@ function renderReports() {
   if (state.reportLoading) detail = '<div class="loading-banner">Loading report…</div>';
   else if (selected) {
     const triage = reportTriage(selected);
+    const playerUpdate = reportPlayerUpdate(selected);
     const files = selected.files ?? {};
     const screenshot = files.screenshot
       ? `<div class="report-screenshot"><img src="data:${escapeHtml(files.screenshotMimeType)};base64,${escapeHtml(selected.screenshotBase64 ?? "")}" alt="Attached screenshot"></div>`
@@ -1129,6 +1141,16 @@ function renderReports() {
         <label class="field report-wide"><span class="field-label">Root cause</span><textarea id="report-root-cause" class="control" rows="5" maxlength="8000" placeholder="What caused this issue?">${escapeHtml(triage.rootCause)}</textarea></label>
         <label class="field report-wide"><span class="field-label">Reason / disposition</span><textarea id="report-reason" class="control" rows="5" maxlength="8000" placeholder="Why was this status chosen, and what should happen next?">${escapeHtml(triage.reason)}</textarea></label>
       </div>
+      <div class="hint report-private-note">Root cause and reason stay private to organizers.</div>
+      <fieldset class="report-player-update">
+        <legend>Visible to the player</legend>
+        <div class="hint">The player sees the status, this reply and the fixed-in version in their client. Write nothing private here.</div>
+        <div class="form-grid report-triage-grid">
+          <label class="field report-wide"><span class="field-label">Reply to reporter (shown to the player)</span><textarea id="report-reply" class="control" rows="4" maxlength="2000" placeholder="Thanks for the report. This is fixed in the next update.">${escapeHtml(playerUpdate.reply)}</textarea></label>
+          <label class="field"><span class="field-label">Fixed in version (shown to the player)</span><input id="report-fixed-in" class="control" type="text" maxlength="32" placeholder="1.0.307" value="${escapeHtml(playerUpdate.fixedIn)}"></label>
+        </div>
+        ${playerUpdate.replyAt ? `<div class="hint">Reply saved ${escapeHtml(playerUpdate.replyAt)}</div>` : ""}
+      </fieldset>
       <div class="inline-controls"><button type="button" class="btn primary" data-action="save-report-triage" data-report-id="${escapeHtml(selected.id)}">Save Triage</button>${triage.updatedAt ? `<span class="hint">Last updated ${escapeHtml(triage.updatedAt)} by ${escapeHtml(triage.updatedBy || "unknown")}</span>` : ""}</div>
     </section>`;
   }
@@ -1167,13 +1189,15 @@ async function saveReportTriage(id) {
   const status = document.querySelector("#report-status")?.value ?? "new";
   const rootCause = document.querySelector("#report-root-cause")?.value ?? "";
   const reason = document.querySelector("#report-reason")?.value ?? "";
+  const reply = document.querySelector("#report-reply")?.value ?? "";
+  const fixedIn = document.querySelector("#report-fixed-in")?.value ?? "";
   state.busy = true;
   setMessage("");
   try {
-    const result = await requestJson(`/api/bug-reports/${encodeURIComponent(id)}`, authOptions("PATCH", { status, rootCause, reason }));
+    const result = await requestJson(`/api/bug-reports/${encodeURIComponent(id)}`, authOptions("PATCH", { status, rootCause, reason, reply, fixedIn }));
     state.selectedReport = { ...result.report, screenshotBase64: state.selectedReport?.screenshotBase64 ?? "" };
     const index = state.reports.findIndex((report) => report.id === id);
-    if (index >= 0) state.reports[index] = { ...state.reports[index], triage: result.report.triage };
+    if (index >= 0) state.reports[index] = { ...state.reports[index], triage: result.report.triage, playerUpdate: result.report.playerUpdate };
     setMessage(`Saved triage for ${id}.`);
   } catch (error) {
     setMessage(serverMessage(error), "error");

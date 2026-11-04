@@ -15,6 +15,7 @@ import {
   selectNewReports,
   shortToken,
   triageButtonId,
+  triagePatchFromModal,
   type BugReportRow,
 } from "../src/bugReportNotify";
 
@@ -30,6 +31,7 @@ const row = (over: Partial<BugReportRow> = {}): BugReportRow => ({
   submittedAt: "2026-09-08T03:00:00.000Z",
   kind: "bug",
   triage: { status: "new", rootCause: "", reason: "", updatedAt: null, updatedBy: null },
+  playerUpdate: { reply: null, fixedIn: null },
   ...over,
 });
 
@@ -89,7 +91,7 @@ describe("rendering", () => {
     const embed = renderBugReportEmbed(r, "https://superfumbbltest.duckdns.org:4310/").toJSON();
     expect(embed.title).toBe("🐛 Bug report from Flutethecat");
     expect(embed.url).toBe("https://superfumbbltest.duckdns.org:4310/admin.html#reports");
-    expect(embed.fields?.map((f) => f.value)).toEqual(["fumbbl #1940051", "0.3.20-o66iy", "wire log, screenshot", "**New**"]);
+    expect(embed.fields?.map((f) => f.value)).toEqual(["fumbbl #1940051", "0.3.20-o66iy", "wire log, screenshot", "**New**", "No reply yet."]);
     expect(embed.footer?.text).toContain(r.id);
 
     const rows = renderTriageButtons(r.id, "https://x.test", "new").map((a) => a.toJSON());
@@ -158,5 +160,59 @@ describe("config-web client + poll", () => {
     expect(patchCall.url).toBe(`http://127.0.0.1:4310/api/bug-reports/${encodeURIComponent(fresh.id)}`);
     expect(JSON.parse(String(patchCall.init?.body))).toEqual({ status: "triaged", rootCause: "x", reason: "y" });
     expect(await api.getReport("../nope")).toBeUndefined();
+  });
+});
+
+describe("reply to reporter (owner 11-04)", () => {
+  type ModalJson = { components: { components: { custom_id: string; label: string; value?: string; max_length?: number }[] }[] };
+  const inputs = (m: ModalJson) => m.components.map((r) => r.components[0]!);
+
+  it("the triage modal carries the public reply and fixed-in version beside the private fields (max 5 inputs)", () => {
+    const r = row({ playerUpdate: { reply: "Fixed, thanks!", fixedIn: "1.0.307" } });
+    const modal = buildTriageModal("resolved", shortToken(r.id), r.triage, r.playerUpdate).toJSON() as unknown as ModalJson;
+    const fields = inputs(modal);
+    expect(fields.map((f) => f.custom_id)).toEqual(["rootCause", "reason", "reply", "fixedIn"]);
+    expect(fields.length).toBeLessThanOrEqual(5);
+    expect(fields[2]!.label).toBe("Reply to reporter (shown to the player)");
+    expect(fields[2]!.label.length).toBeLessThanOrEqual(45);
+    expect(fields[3]!.label).toBe("Fixed in version");
+    expect(fields[2]!.value).toBe("Fixed, thanks!");
+    expect(fields[3]!.value).toBe("1.0.307");
+    // No current reply: the inputs start empty.
+    const blank = inputs(buildTriageModal("triaged", shortToken(r.id), r.triage).toJSON() as unknown as ModalJson);
+    expect(blank[2]!.value).toBeUndefined();
+  });
+
+  it("the card shows the current reply and fixed-in version", () => {
+    const r = { ...row({ playerUpdate: { reply: "Thanks, fixed.", fixedIn: "1.0.307" } }), files: {} };
+    const embed = renderBugReportEmbed(r, "https://x.test").toJSON();
+    const field = embed.fields?.find((f) => f.name === "Reply to reporter (shown to the player)");
+    expect(field?.value).toBe("Thanks, fixed.\nFixed in 1.0.307");
+  });
+
+  it("the modal submit becomes a PATCH with reply and fixedIn; a field the modal lacks is left out", () => {
+    const values: Record<string, string> = { rootCause: "rc", reason: "notes", reply: "Fixed!", fixedIn: "1.0.307" };
+    expect(triagePatchFromModal("resolved", (f) => values[f])).toEqual({ status: "resolved", rootCause: "rc", reason: "notes", reply: "Fixed!", fixedIn: "1.0.307" });
+    const old = triagePatchFromModal("triaged", (f) => { if (f === "reply" || f === "fixedIn") throw new Error("missing"); return values[f]; });
+    expect(old).toEqual({ status: "triaged", rootCause: "rc", reason: "notes" });
+  });
+
+  it("parses playerUpdate from config-web, reads the { report } wrapper and sends reply + fixedIn in the PATCH", async () => {
+    const id = "2026-11-04T10-00-00-000Z_Kildash_nogame";
+    const stored = { ...row({ id }), playerUpdate: { reply: "On it", fixedIn: null, replyAt: "x", updatedAt: "y" } };
+    const calls: { url: string; init?: RequestInit }[] = [];
+    const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      if (String(url).endsWith("/api/fork/login")) return new Response(JSON.stringify({ token: "t" }), { status: 200 });
+      if (init?.method === "PATCH") return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      return new Response(JSON.stringify({ report: { ...stored, files: { wireLog: "wire.log" } } }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const api = createConfigWebClient({ baseUrl: "http://127.0.0.1:4310", coach: "BBBot", password: "secret", fetchImpl });
+    const detail = await api.getReport(id);
+    expect(detail?.playerUpdate).toEqual({ reply: "On it", fixedIn: null });
+    expect(detail?.files).toEqual({ wireLog: "wire.log" });
+    await api.patchTriage(id, { status: "resolved", rootCause: "", reason: "", reply: "Fixed!", fixedIn: "1.0.307" });
+    const patch = calls.find((c) => c.init?.method === "PATCH")!;
+    expect(JSON.parse(String(patch.init?.body))).toEqual({ status: "resolved", rootCause: "", reason: "", reply: "Fixed!", fixedIn: "1.0.307" });
   });
 });

@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-04",
+    "title": "Bug reports can carry a reply to the player",
+    "body": "Organisers can now write a reply to the player and the version a fix ships in, from the admin Reports panel or the Discord triage card. These sit apart from the private root cause and notes, and the player's own client can check the status of the reports they sent.",
+    "links": [
+      {
+        "label": "Admin Console",
+        "href": "/admin.html#reports"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-04",
     "title": "Check-in QR codes use the site's public address",
     "body": "Personal and venue check-in QR codes, and the link shown under them, now always point at the site's public address, so phones can open them even when an organiser opened the page on the host computer. If the host has no public address set, the code uses the page's own address, and organisers on this computer see a note saying phones can't open it.",
     "links": [

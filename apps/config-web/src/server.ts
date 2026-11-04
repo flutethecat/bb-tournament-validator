@@ -243,7 +243,12 @@ import {
   getBugReport,
   getBugReportScreenshot,
   listBugReports,
+  lookupBugReportStatuses,
+  parseStatusQuery,
   readJsonCapped,
+  STATUS_BODY_CAP,
+  STATUS_RATE_MAX,
+  STATUS_RATE_WINDOW_MS,
   submitBugReport,
   updateBugReportTriage,
   pruneBugReports,
@@ -478,6 +483,9 @@ const PUBLIC_PATHS = new Set([
   // (session token OR coach creds — a report must be attributable); the GET listing/read
   // on the same path is organizer/admin-gated in-handler, fail closed (see bugReports.ts).
   "/api/bug-reports",
+  // Reporter status checks (owner 11-04): public by design (the public client has no session); answers only for a
+  // matching one-time receipt, rate-limited per IP in-handler.
+  "/api/bug-reports/status",
   "/api/tournaments",
   "/api/fork/tournaments",
   // Chat auto-translate relay (owner 10-12): the public desktop client holds no provider key, so it
@@ -1541,6 +1549,8 @@ const standingsLimiter = new RateLimiter({ maxRequests: 60, maxChars: Number.MAX
 // Team share links: creation per coach (owner 10-27); the public read per IP.
 const shareCreateLimiter = new RateLimiter({ maxRequests: 30, maxChars: Number.MAX_SAFE_INTEGER, windowMs: 60_000, maxKeys: 5_000 });
 const sharedReadLimiter = new RateLimiter({ maxRequests: 120, maxChars: Number.MAX_SAFE_INTEGER, windowMs: 60_000, maxKeys: 10_000 });
+// Reporter status checks (POST /api/bug-reports/status, owner 11-04): public, 30 an hour per IP.
+const bugStatusLimiter = new RateLimiter({ maxRequests: STATUS_RATE_MAX, maxChars: Number.MAX_SAFE_INTEGER, windowMs: STATUS_RATE_WINDOW_MS, maxKeys: 10_000 });
 // Tabletop match view (GET /api/tabletop/matches/:id): open to anonymous spectators (owner ruling 10-30), so every read
 // is limited per session coach, else per IP: 60 a minute covers the page's 5 s poll with room for reloads.
 const matchViewLimiter = new RateLimiter({ maxRequests: 60, maxChars: Number.MAX_SAFE_INTEGER, windowMs: 60_000, maxKeys: 10_000 });
@@ -5131,6 +5141,26 @@ async function handleApi(
     if (result.headers) res.writeHead(result.status, { "content-type": "application/json; charset=utf-8", ...result.headers }).end(JSON.stringify(result.body));
     else sendJson(res, result.status, result.body);
     return;
+  }
+
+  // Reporter status checks (owner 11-04): unauthenticated; receipt-matched entries only, public fields only.
+  if (path === "/api/bug-reports/status" && method === "POST") {
+    const wait = bugStatusLimiter.take([`ip:${clientIp(req)}`], 0);
+    if (wait > 0) {
+      res.writeHead(429, { "content-type": "application/json; charset=utf-8", "retry-after": String(wait) })
+        .end(JSON.stringify({ error: "Too many status checks; try again later." }));
+      return;
+    }
+    let body: unknown;
+    try {
+      body = await readJsonCapped(req, STATUS_BODY_CAP);
+    } catch (e) {
+      if (e instanceof BodyTooLargeError) return sendJson(res, 413, { error: e.message });
+      return sendJson(res, 400, { error: "Invalid JSON request body." });
+    }
+    const query = parseStatusQuery(body);
+    if ("error" in query) return sendJson(res, 400, { error: query.error });
+    return sendJson(res, 200, { reports: lookupBugReportStatuses(BUG_REPORTS_DIR, query.entries) });
   }
 
   // Organizer/admin listing + read (fail closed — same idiom as custom:true, SR-260 ③).

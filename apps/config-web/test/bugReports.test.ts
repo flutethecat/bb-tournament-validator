@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { existsSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createHash } from "node:crypto";
@@ -7,6 +7,9 @@ import {
   APP_LOG_CAP,
   BodyTooLargeError,
   CONTEXT_CAP,
+  FIXED_IN_CAP,
+  REPLY_CAP,
+  STATUS_QUERY_MAX,
   RATE_LIMIT_MAX,
   RATE_WINDOW_MS,
   WIRE_LOG_CAP,
@@ -14,8 +17,13 @@ import {
   getBugReport,
   getBugReportScreenshot,
   listBugReports,
+  lookupBugReportStatuses,
+  newReceipt,
   normalizeGameService,
+  parseStatusQuery,
+  pruneBugReports,
   readJsonCapped,
+  receiptMatches,
   reportTimesByCoach,
   sanitizeComponent,
   submitBugReport,
@@ -314,5 +322,136 @@ describe("GET gates + reads", () => {
     const id = (submitted.body as { id: string }).id;
     expect(updateBugReportTriage(d, id, { status: "deleted", rootCause: "", reason: "" }, "admin").status).toBe(400);
     expect(updateBugReportTriage(d, "../escape", { status: "new", rootCause: "", reason: "" }, "admin").status).toBe(404);
+  });
+});
+
+describe("reporter receipts + status lookup (owner 11-04)", () => {
+  const sha = (v: string) => createHash("sha256").update(v, "utf8").digest("hex");
+  const submit = async (d: string, now = Date.UTC(2026, 10, 4, 10)) => {
+    const result = await submitBugReport(BASE, undefined, deps(d), now);
+    return result.body as { ok: boolean; id: string; receipt: string };
+  };
+
+  it("returns a 32-byte base64url receipt only on create and stores only its SHA-256", async () => {
+    const d = dir();
+    const { id, receipt } = await submit(d);
+    expect(receipt).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(Buffer.from(receipt, "base64url")).toHaveLength(32);
+    const raw = readFileSync(join(d, id, "report.json"), "utf8");
+    expect(raw).not.toContain(receipt);
+    expect((JSON.parse(raw) as { receiptHash: string }).receiptHash).toBe(sha(receipt));
+    // Never again: not in the read, the listing, the screenshot read or the PATCH answer.
+    const hash = sha(receipt);
+    expect(JSON.stringify(getBugReport(d, id))).not.toContain(hash);
+    expect(getBugReport(d, id)).not.toHaveProperty("receiptHash");
+    expect(JSON.stringify(listBugReports(d))).not.toContain(hash);
+    const patched = updateBugReportTriage(d, id, { status: "triaged", rootCause: "", reason: "" }, "admin");
+    expect(JSON.stringify(patched.body)).not.toContain(hash);
+    expect(JSON.stringify(patched.body)).not.toContain(receipt);
+    // The stored hash survives the PATCH (status checks keep working).
+    expect((JSON.parse(readFileSync(join(d, id, "report.json"), "utf8")) as { receiptHash: string }).receiptHash).toBe(hash);
+    // Two reports never share a receipt.
+    expect((await submit(d)).receipt).not.toBe(receipt);
+  });
+
+  it("matches in constant time and never matches a missing or malformed hash", () => {
+    const { receipt, receiptHash } = newReceipt();
+    expect(receiptMatches(receiptHash, receipt)).toBe(true);
+    expect(receiptMatches(receiptHash, newReceipt().receipt)).toBe(false);
+    expect(receiptMatches(undefined, receipt)).toBe(false);
+    expect(receiptMatches("abc", receipt)).toBe(false);
+  });
+
+  it("answers exactly the public fields, mapping the triage states", async () => {
+    const d = dir();
+    const { id, receipt } = await submit(d);
+    const [row] = lookupBugReportStatuses(d, [{ id, receipt }]);
+    expect(Object.keys(row!).sort()).toEqual(["fixedIn", "id", "reply", "replyAt", "status", "updatedAt"]);
+    expect(row).toEqual({ id, status: "received", reply: null, replyAt: null, fixedIn: null, updatedAt: "2026-11-04T10:00:00.000Z" });
+    const expected = { new: "received", triaged: "triaged", "in-progress": "inProgress", resolved: "resolved", closed: "closed" } as const;
+    for (const [status, publicStatus] of Object.entries(expected)) {
+      updateBugReportTriage(d, id, { status, rootCause: "secret cause", reason: "secret note" }, "admin");
+      const [r] = lookupBugReportStatuses(d, [{ id, receipt }]);
+      expect(r!.status).toBe(publicStatus);
+      expect(JSON.stringify({ ...r, id: "" })).not.toMatch(/secret|Tarkin|Ball vanished/); // the id is the reporter's own
+    }
+  });
+
+  it("omits wrong receipts, unknown ids, traversal ids and pre-receipt reports silently", async () => {
+    const d = dir();
+    const { id, receipt } = await submit(d);
+    const legacy = await submit(d, Date.UTC(2026, 10, 4, 11));
+    // A report filed before receipts existed: no hash on disk -> never answered (no backfill).
+    const legacyFile = join(d, legacy.id, "report.json");
+    const stored = JSON.parse(readFileSync(legacyFile, "utf8")) as Record<string, unknown>;
+    delete stored.receiptHash;
+    writeFileSync(legacyFile, JSON.stringify(stored), "utf8");
+    const rows = lookupBugReportStatuses(d, [
+      { id, receipt: newReceipt().receipt },
+      { id: "2026-01-01T00-00-00-000Z_Nobody_nogame", receipt },
+      { id: "../" + id, receipt },
+      { id: legacy.id, receipt: legacy.receipt },
+      { id, receipt: receipt.slice(1) },
+      { id, receipt },
+      { id, receipt }, // duplicate answered once
+    ]);
+    expect(rows.map((r) => r.id)).toEqual([id]);
+  });
+
+  it("validates the request shape and caps it at 50 entries", () => {
+    const entry = { id: "x", receipt: "y" };
+    expect(parseStatusQuery({ reports: Array(STATUS_QUERY_MAX).fill(entry) })).toHaveProperty("entries");
+    expect(parseStatusQuery({ reports: Array(STATUS_QUERY_MAX + 1).fill(entry) })).toHaveProperty("error");
+    for (const bad of [null, [], "x", {}, { reports: "x" }, { reports: [null] }, { reports: [{ id: 1, receipt: "y" }] }, { reports: [{ id: "x" }] }])
+      expect(parseStatusQuery(bad)).toHaveProperty("error");
+  });
+
+  it("stores reply and fixedIn through the PATCH; updatedAt moves on public edits only", async () => {
+    const d = dir();
+    const { id, receipt } = await submit(d);
+    const t = (h: number) => Date.UTC(2026, 10, 4, h);
+    const status = () => lookupBugReportStatuses(d, [{ id, receipt }])[0]!;
+    // Private-only edit (status unchanged, notes added): public updatedAt stays at submit time.
+    updateBugReportTriage(d, id, { status: "new", rootCause: "cause", reason: "notes" }, "admin", t(11));
+    expect(status().updatedAt).toBe("2026-11-04T10:00:00.000Z");
+    // Status change: public.
+    updateBugReportTriage(d, id, { status: "triaged", rootCause: "cause", reason: "notes" }, "admin", t(12));
+    expect(status().updatedAt).toBe(new Date(t(12)).toISOString());
+    // Reply + fixedIn: stored, trimmed, replyAt stamped.
+    const saved = updateBugReportTriage(d, id, { status: "triaged", rootCause: "cause", reason: "notes", reply: "  Fixed, thanks!  ", fixedIn: "v1.0.307" }, "admin", t(13));
+    expect(saved.status).toBe(200);
+    expect(status()).toMatchObject({ reply: "Fixed, thanks!", replyAt: new Date(t(13)).toISOString(), fixedIn: "1.0.307", updatedAt: new Date(t(13)).toISOString() });
+    expect(listBugReports(d)[0]!.playerUpdate).toMatchObject({ reply: "Fixed, thanks!", fixedIn: "1.0.307" });
+    // Root cause / notes edits again: public fields untouched.
+    updateBugReportTriage(d, id, { status: "triaged", rootCause: "new cause", reason: "new notes" }, "admin", t(14));
+    expect(status()).toMatchObject({ reply: "Fixed, thanks!", fixedIn: "1.0.307", updatedAt: new Date(t(13)).toISOString() });
+    // Same reply re-sent: no change.
+    updateBugReportTriage(d, id, { status: "triaged", rootCause: "", reason: "", reply: "Fixed, thanks!", fixedIn: "1.0.307" }, "admin", t(15));
+    expect(status().updatedAt).toBe(new Date(t(13)).toISOString());
+    // fixedIn alone changes: public.
+    updateBugReportTriage(d, id, { status: "triaged", rootCause: "", reason: "", fixedIn: "1.0.308a" }, "admin", t(16));
+    expect(status()).toMatchObject({ fixedIn: "1.0.308a", replyAt: new Date(t(13)).toISOString(), updatedAt: new Date(t(16)).toISOString() });
+    // Clearing the reply: public, replyAt cleared.
+    updateBugReportTriage(d, id, { status: "triaged", rootCause: "", reason: "", reply: "" }, "admin", t(17));
+    expect(status()).toMatchObject({ reply: null, replyAt: null, updatedAt: new Date(t(17)).toISOString() });
+  });
+
+  it("rejects an over-long reply and a malformed or over-long fixedIn", async () => {
+    const d = dir();
+    const { id } = await submit(d);
+    const base = { status: "triaged", rootCause: "", reason: "" };
+    expect(updateBugReportTriage(d, id, { ...base, reply: "x".repeat(REPLY_CAP + 1) }, "admin").status).toBe(400);
+    expect(updateBugReportTriage(d, id, { ...base, reply: 5 }, "admin").status).toBe(400);
+    for (const fixedIn of ["latest", "1", "1.0.307 beta", "../1.0", "1.0.307" + "a".repeat(FIXED_IN_CAP), 1.0])
+      expect(updateBugReportTriage(d, id, { ...base, fixedIn }, "admin").status).toBe(400);
+    expect(updateBugReportTriage(d, id, { ...base, reply: "x".repeat(REPLY_CAP), fixedIn: "1.0.307-rc1" }, "admin").status).toBe(200);
+  });
+
+  it("deleting or pruning the report removes the hash with it", async () => {
+    const d = dir();
+    const { id, receipt } = await submit(d, Date.UTC(2025, 0, 1));
+    expect(pruneBugReports(d, Date.UTC(2026, 10, 4))).toEqual([id]);
+    expect(existsSync(join(d, id))).toBe(false);
+    expect(lookupBugReportStatuses(d, [{ id, receipt }])).toEqual([]);
   });
 });
