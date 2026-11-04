@@ -139,13 +139,15 @@ const TRIGGER_NOTE: Record<"period-end" | "schedule" | "games", string> = {
 
 /** The board of a ladder's redraft (in place: the ladder is the source and receives the lists; ladderRedraft.ts). */
 function ladderBoardView(league: LeagueRecord, ladder: SeasonRecord, competitions: readonly SeasonRecord[], now: Date, ladders: Array<{ id: string; name: string }>): RedraftBoardView {
-  const st = ladder.redraft;
+  // A closed ladder redraft is no active redraft: the board offers a new one (Confirm sends the closed one's revision, which
+  // the server checks; the new redraft continues from it).
+  const st = ladder.redraft && !ladder.redraft.closedAt ? ladder.redraft : undefined;
   const rules = st ? stateRules(st) : rulesFor(league, ladder);
   const trig = settingsOf(ladder.ladder).redraft;
   const { teams: _t, ...meta } = st ?? ({} as RedraftState);
   const w = st ? windowView(st, now) : null;
   return {
-    leagueId: league.id, leagueName: league.name, timeZone: leagueTimeZone(league), revision: st?.revision ?? 0,
+    leagueId: league.id, leagueName: league.name, timeZone: leagueTimeZone(league), revision: ladder.redraft?.revision ?? 0,
     source: { id: ladder.id, name: ladder.name, number: ladder.number, ruleset: ladder.ruleset },
     target: { id: ladder.id, name: ladder.name }, sources: [], targets: [],
     state: st ? meta : null,

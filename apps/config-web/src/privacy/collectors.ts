@@ -13,6 +13,7 @@
  * only "nothing there" (ENOENT) counts as empty; any other read, parse or delete error fails the step so the journal
  * retries it. The export path is lenient (an unreadable unrelated file never blocks a download).
  */
+import { RESET_IDENTITY_KEYS } from "../leagues/ladderReset.js";
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, rmSync, rmdirSync, unlinkSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -1131,6 +1132,14 @@ function anonymiseSeason(an: Anonymiser, tx: TextReplacer, displays: ReadonlySet
     }
   }
   for (const a of objs(s.awards)) if (linked(a)) mark(LINKED_ROW(an, a));
+  // Tournament-style ladder reset snapshots (ladderReset.ts): players and roster only. A snapshot stored with coach identity
+  // (before that rule) loses it here, so a later reset can never bring a deleted coach's data back.
+  for (const m of objs(isObj(s.ladder) ? s.ladder.members : undefined)) {
+    const roster = isObj(m.reset) ? m.reset.roster : undefined;
+    if (!isObj(roster)) continue;
+    for (const k of RESET_IDENTITY_KEYS) if (k in roster) { delete roster[k]; changed = true; }
+    mark(anonymiseTeamRecords(an, tx, roster));
+  }
   // The podium record holds team refs only (its places are the awards above) plus who finished the season.
   if (isObj(s.podium)) mark(an.fields(s.podium, ["by"], []));
   for (const n of objs(s.news)) { mark(an.fields(n, ["by"], [])); mark(tx.texts(n, ["title", "body"])); }

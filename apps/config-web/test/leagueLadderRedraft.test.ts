@@ -198,6 +198,14 @@ describe("period-end trigger and the organiser board", () => {
     v = await read();
     expect((await h.call("POST", board, OLGA, { revision: v.revision, ladderId: id, action: "close" })).status).toBe(200);
     expect((await h.call("POST", `/api/leagues/${L}/ladders/${id}/challenges`, coach("Bob"), { challengerTeamId: bobTeam.id, defenderTeamId: amyTeam.id })).status).toBe(201);
+    // [review] A closed ladder redraft is no active redraft: the board offers a new one, and it can be confirmed.
+    const fresh = ((await h.call("GET", board, OLGA)).body as { redraft: { revision: number; state: unknown; active: Array<{ teamId: string; phase: string }> } }).redraft;
+    expect(fresh.state).toBeNull();
+    expect(fresh.active.every((r) => r.phase === "not-selected")).toBe(true);
+    const again = await h.call("POST", board, OLGA, { revision: fresh.revision, ladderId: id, action: "confirm", capEnabled: false, teams: fresh.active.map((r) => ({ teamId: r.teamId, selected: true })) });
+    expect(again.status, JSON.stringify(again.body)).toBe(200);
+    expect(h.ladderOf(id).redraft!.closedAt).toBeUndefined();
+    expect(h.ladderOf(id).redraft!.revision).toBeGreaterThan(fresh.revision);
   });
 
   it("organisers can start a ladder redraft from the board; the league's redraft window gate never moves it; a ladder in setup has no board", async () => {

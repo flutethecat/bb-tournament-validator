@@ -19,11 +19,11 @@ import { postWebhook as defaultPoster } from "../leagues/discord.js";
 import { simplePost } from "../discord/posts.js";
 import { postRaw, tournamentTarget } from "../discord/targets.js";
 import type { DiscordStateStore } from "../discord/store.js";
-import { canSeeTournament } from "./publication.js";
+import { canSeeTournament, selfRegistrationStatus } from "./publication.js";
 import { isTournamentManager, TournamentStoreError, type TournamentStore } from "./store.js";
 import type { TournamentRecord } from "./types.js";
 import {
-  GATE_ID, gateInstant, gateIsOpen, gateWallInstant, parseGateWall, storedGate, tournamentGateView, tournamentTimeZone, type TournamentGate,
+  GATE_ID, gateInstant, gateIsOpen, gateWhenText, gateWallInstant, parseGateWall, storedGate, tournamentGateView, tournamentTimeZone, type TournamentGate,
 } from "./registrationGate.js";
 
 export interface TournamentGateDeps {
@@ -140,17 +140,30 @@ async function announceOpening(deps: TournamentGateDeps, id: string, revision: n
     if (!claimed) return;
     t = claimed;
   } catch { return; }
+  // Announced as open only when registration really is open now (the gate AND the window: a gate that opens before the
+  // window's opensAt says so, and the Discord observer posts "Registration is open" when the window opens).
+  const round1 = deps.store.rounds(id).some((r) => r.number === 1);
+  const status = selfRegistrationStatus(t, round1, now);
+  const later = !status.open && status.reason === "not-yet-open" && t.registration?.opensAt ? t.registration.opensAt : undefined;
   try {
-    deps.notify?.managers(id, {
+    deps.notify?.managers(id, status.open ? {
       type: "registration", title: `Registration is open: ${t.name}`.slice(0, 120),
       body: `${t.name}: registration is open${t.registrationGate?.openedBy === "organiser" ? " (opened early by an organiser)" : ""}.`,
       link: `/app/tournaments/${encodeURIComponent(id)}/manage#tn-reg-h`,
+    } : {
+      type: "registration", title: `Registration gate opened: ${t.name}`.slice(0, 120),
+      body: `${t.name}: the registration gate is open. ${later ? `Registration itself opens ${gateWhenText(later, tournamentTimeZone(t))}.` : status.message}`,
+      link: `/app/tournaments/${encodeURIComponent(id)}/manage#tn-reg-h`,
     }, actor);
   } catch { /* fire-and-forget */ }
-  if (!deps.discord) return;
+  if (!deps.discord || !status.open) return;
   const target = tournamentTarget(deps.discord.state, t);
-  // The observer posts its own "Registration is open" when the window's opensAt passes: mark it, so one opening = one post.
-  if (t.registration?.opensAt) { try { deps.discord.state.mark(target.key, [`regopen:${t.registration.opensAt}`], now.toISOString()); } catch { /* best effort */ } }
+  // One opening = one post, whichever timer gets there first: the observer's own marker (the window's opensAt) when there is
+  // one, else this gate opening's. Posted only when this call is the one that claimed the marker.
+  const marker = t.registration?.opensAt ? `regopen:${t.registration.opensAt}` : `regopen:gate:${t.registrationGate?.revision ?? revision}`;
+  let fresh: string[] = [];
+  try { fresh = deps.discord.state.mark(target.key, [marker], now.toISOString()); } catch { return; }
+  if (!fresh.includes(marker)) return;
   const payload: DiscordPayload = simplePost(t.name, "registrationOpened", "Registration is open: register on the tournament page.", { test: t.test === true });
   try { await postRaw(target, payload, deps.discord.poster ?? defaultPoster); } catch { /* best effort */ }
 }

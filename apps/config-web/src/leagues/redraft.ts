@@ -30,6 +30,7 @@ import { DEFAULT_AMOUNTS, DEFAULT_REDRAFT_RULES, amountsOf } from "./redraftRule
 import { forkPlayLock } from "./forkTeam.js";
 import { computeTeamValue, refreshTeamValues } from "./teamValue.js";
 import { markCaptainVacancy } from "./captain.js";
+import { resetRosterOf } from "./ladderReset.js";
 
 export const REDRAFT_BASE = 1_000_000;
 export const PER_GAME = 20_000;
@@ -721,7 +722,8 @@ export function placeDraft(receiver: SeasonRecord, team: LeagueTeam, at: string)
   const m = receiver.ladder?.members.find((x) => x.teamId === team.id && !x.leftAt);
   if (!m) return;
   m.redraftedAt = at;
-  if (m.reset) m.reset = { roster: structuredClone(receiver.teams.find((t) => t.id === team.id) ?? team), after: at };
+  // Players and roster only: never the coach's identity (account deletion does not reach this copy).
+  if (m.reset) m.reset = { roster: resetRosterOf(receiver.teams.find((t) => t.id === team.id) ?? team), after: at };
 }
 
 /** Every player id of the league (for unique fresh ids). */

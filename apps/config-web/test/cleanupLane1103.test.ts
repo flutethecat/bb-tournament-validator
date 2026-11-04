@@ -12,7 +12,11 @@ import { DiscordStateStore } from "../src/discord/store.js";
 import { DiscordObserver } from "../src/discord/observer.js";
 import { requireSession } from "../src/auth/requireSession.js";
 import { isStateChangingApiRequest } from "../src/auth/csrf.js";
-import { parseSeasonRegistration, windowWalls, defaultSeasonRegistration } from "../src/leagues/seasonRegistration.js";
+import { parseSeasonRegistration, windowWalls, defaultSeasonRegistration, seasonRegistrationOf } from "../src/leagues/seasonRegistration.js";
+import { placeDraft } from "../src/leagues/redraft.js";
+import { PrivacyService } from "../src/privacy/service.js";
+import { depsFor, seed } from "./privacyFixture.js";
+import { readFileSync, writeFileSync } from "node:fs";
 import { leagueApi, type LeagueApiDeps, type LeagueApiIdentity } from "../src/leagues/api.js";
 import { LeagueStore } from "../src/leagues/store.js";
 import { PRIVACY_VERSION } from "../spa/src/privacy/version.js";
@@ -159,6 +163,45 @@ describe("tournament Registration gate", () => {
     expect(h.posts).toHaveLength(1);
   });
 
+  it("[review] whichever timer runs first, one opening gives one post (the job posts only when it claims the marker)", async () => {
+    const h = tournamentHarness();
+    const t = await h.create({ registration: { approval: "auto", waitlist: true, rosterLater: true, opensAt: "2026-11-11T09:00:00.000Z" } });
+    h.discord.setWebhook(`tournament:${t.id}`, HOOK);
+    h.discord.setConfig(`tournament:${t.id}`, { events: { registrationOpened: true } } as never);
+    await h.call("PUT", h.gatePath(t), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-12T19:00" });
+    const observer = new DiscordObserver({ leagues: new LeagueStore(tmp("bbtv-tgate-l-")), tournaments: h.store, state: h.discord, now: () => h.clock.now, poster: h.poster } as never);
+    await observer.tick(); // baseline
+    h.clock.now = new Date("2026-11-12T19:01:00.000Z");
+    await observer.tick(); // the gate's time passed: the observer posts first
+    expect(h.posts).toHaveLength(1);
+    await runTournamentGateJob({ store: h.store, notify: h.notifier, discord: { state: h.discord, poster: h.poster }, now: () => h.clock.now });
+    expect(h.posts).toHaveLength(1);
+  });
+
+  it("[review] a gate that opens before the window says so; the window's own opening posts once, when registration is open", async () => {
+    const h = tournamentHarness();
+    const t = await h.create({ registration: { approval: "auto", waitlist: true, rosterLater: true, opensAt: "2026-11-20T12:00:00.000Z" } });
+    h.discord.setWebhook(`tournament:${t.id}`, HOOK);
+    h.discord.setConfig(`tournament:${t.id}`, { events: { registrationOpened: true } } as never);
+    await h.call("PUT", h.gatePath(t), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-12T19:00" });
+    const observer = new DiscordObserver({ leagues: new LeagueStore(tmp("bbtv-tgate-l-")), tournaments: h.store, state: h.discord, now: () => h.clock.now, poster: h.poster } as never);
+    await observer.tick();
+    h.clock.now = new Date("2026-11-12T19:01:00.000Z");
+    await runTournamentGateJob({ store: h.store, notify: h.notifier, discord: { state: h.discord, poster: h.poster }, now: () => h.clock.now });
+    await observer.tick();
+    expect(h.posts).toHaveLength(0);
+    const note = h.sent.find((x) => x.input.title.startsWith("Registration gate opened"));
+    expect(note?.input.body).toContain("Registration itself opens Fri 20 Nov 2026, 12:00 (UTC)");
+    expect(h.sent.some((x) => x.input.title.startsWith("Registration is open"))).toBe(false);
+    expect((await h.register(t, "Alice"))?.status).toBe(409);
+    h.clock.now = new Date("2026-11-20T12:01:00.000Z");
+    await observer.tick();
+    await runTournamentGateJob({ store: h.store, notify: h.notifier, discord: { state: h.discord, poster: h.poster }, now: () => h.clock.now });
+    await observer.tick();
+    expect(h.posts).toHaveLength(1);
+    expect((await h.register(t, "Alice"))?.status).toBe(201);
+  });
+
   it("writes are CSRF-gated state changes; the gate read is public on the session gate; GETs never write", async () => {
     const h = tournamentHarness();
     const t = await h.create();
@@ -175,17 +218,32 @@ describe("tournament Registration gate", () => {
 });
 
 describe("registration Opens / Closes in the league's zone", () => {
-  it("a wall time is read in the league zone, kept with its zone, and shown back in the league zone", () => {
+  it("the instant is the only stored truth: a wall time is converted only when it changes, and shown in the league's current zone", () => {
     const base = defaultSeasonRegistration({ registrations: undefined });
     const reg = parseSeasonRegistration({ opensAtWall: "2026-11-05T19:00", closesAtWall: "2026-11-20T19:00" }, base, "America/New_York");
     expect(reg.opensAt).toBe("2026-11-06T00:00:00.000Z");
-    expect(reg).toMatchObject({ opensAtWall: "2026-11-05T19:00", closesAtWall: "2026-11-20T19:00", windowZone: "America/New_York" });
+    expect(reg.opensAtWall).toBeUndefined();
+    expect(reg.windowZone).toBeUndefined();
     expect(windowWalls(reg, "America/New_York")).toEqual({ opensAtWall: "2026-11-05T19:00", closesAtWall: "2026-11-20T19:00" });
-    // The league moved zone: the instant stays, the form shows it in the new zone.
+    // The league moved zone: the instant stays, the form shows it in the new zone; resaving the shown values changes nothing.
     expect(windowWalls(reg, "Europe/London").opensAtWall).toBe("2026-11-06T00:00");
-    // An ISO instant (templates) clears the typed wall; a cleared wall clears the time.
+    const resaved = parseSeasonRegistration({ ...windowWalls(reg, "Europe/London"), entryFee: "$5" }, reg, "Europe/London");
+    expect([resaved.opensAt, resaved.closesAt]).toEqual([reg.opensAt, reg.closesAt]);
+    // A save that doesn't touch the times leaves them exactly as stored (seconds included, across a DST change).
+    const exact = { ...base, opensAt: "2026-03-29T00:30:30.000Z" };
+    expect(parseSeasonRegistration({ entryFee: "x" }, exact, "Europe/London").opensAt).toBe("2026-03-29T00:30:30.000Z");
+    expect(parseSeasonRegistration({ opensAtWall: windowWalls(exact, "Europe/London").opensAtWall }, exact, "Europe/London").opensAt).toBe("2026-03-29T00:30:30.000Z");
+    // Only an edited field is converted.
+    const edited = parseSeasonRegistration({ ...windowWalls(reg, "America/New_York"), closesAtWall: "2026-11-21T19:00" }, reg, "America/New_York");
+    expect(edited.opensAt).toBe(reg.opensAt);
+    expect(edited.closesAt).toBe("2026-11-22T00:00:00.000Z");
+    // A wall value stored by an earlier build is never trusted (read or kept).
+    const legacy = { ...reg, opensAtWall: "1999-01-01T00:00", windowZone: "Asia/Tokyo" };
+    expect(seasonRegistrationOf({ registrations: undefined }, { registration: legacy } as never).opensAtWall).toBeUndefined();
+    expect(windowWalls(legacy, "America/New_York").opensAtWall).toBe("2026-11-05T19:00");
+    expect(parseSeasonRegistration({ entryFee: "y" }, legacy, "UTC").opensAtWall).toBeUndefined();
     const iso = parseSeasonRegistration({ opensAt: "2026-11-07T10:00:00.000Z" }, reg, "America/New_York");
-    expect(iso.opensAtWall).toBeUndefined();
+    expect(iso.opensAt).toBe("2026-11-07T10:00:00.000Z");
     expect(parseSeasonRegistration({ opensAtWall: "" }, reg, "UTC").opensAt).toBeUndefined();
     expect(() => parseSeasonRegistration({ opensAtWall: "2026-13-05T19:00" }, base, "UTC")).toThrow(/date and time/);
     expect(() => parseSeasonRegistration({ opensAtWall: "2026-11-20T19:00", closesAtWall: "2026-11-05T19:00" }, base, "UTC")).toThrow(/close after/);
@@ -213,5 +271,33 @@ describe("privacy notice version (Q1)", () => {
     expect(PRIVACY_VERSION).toBe("2026-11-03");
     expect(onboardingNeeded({ consent: { privacy: { acceptedVersion: "2026-10-31", at: "2026-10-31T00:00:00.000Z" } } } as never)).toBe(true);
     expect(onboardingNeeded({ consent: { privacy: { acceptedVersion: PRIVACY_VERSION, at: "2026-11-03T00:00:00.000Z" } } } as never)).toBe(false);
+  });
+});
+
+describe("[review] ladder reset snapshots hold no coach identity", () => {
+  it("a ladder redraft stores players and roster only; account deletion scrubs snapshots stored before that rule", async () => {
+    const team = { id: "t1", name: "Orcs", race: "Orc", coach: "Alice Smith", coachId: "Alice", nafUser: "AliceNaf", coachAssigned: { by: "Bob", at: "" }, players: [{ playerId: "p1", name: "Grub", stats: {} }], formerPlayers: [] };
+    const ladder = { id: "ladder-1", competition: "ladder", fixtures: [], participants: [], teams: [structuredClone(team)], ladder: { members: [{ teamId: "t1", joinedAt: "", via: "organiser", reset: { roster: {} } }] } };
+    placeDraft(ladder as never, team as never, "2026-11-10T00:00:00.000Z");
+    const roster = ladder.ladder.members[0]!.reset.roster as Record<string, unknown>;
+    expect(roster).not.toHaveProperty("coach");
+    expect(roster).not.toHaveProperty("coachId");
+    expect(roster).not.toHaveProperty("nafUser");
+    expect(roster).not.toHaveProperty("coachAssigned");
+    expect((roster.players as unknown[]).length).toBe(1);
+    // An old snapshot with Alice's identity in it: her deletion scrubs it.
+    const root = tmp("bbtv-privacy-reset-");
+    await seed(root);
+    const deps = depsFor(root);
+    const file = join(deps.stateDir, "leagues", "l1", "seasons", "ladder-1.json");
+    writeFileSync(file, JSON.stringify({
+      id: "ladder-1", leagueId: "l1", number: 9, name: "Ladder", competition: "ladder", teams: [], fixtures: [], participants: [], phases: [], honours: [], awards: [],
+      ladder: { members: [{ teamId: "green-orcs", joinedAt: "", via: "organiser", reset: { roster: { id: "green-orcs", name: "Green Orcs", coach: "Alice Smith", coachId: "Alice", nafUser: "AliceNaf", coachAssigned: { by: "Bob", at: "" }, players: [{ name: "Grub", injuries: [{ type: "dead", at: "", by: "Alice" }] }] } } }] },
+    }));
+    await new PrivacyService(deps).deleteCoach("Alice", "Alice", "self");
+    const after = JSON.parse(readFileSync(file, "utf8")) as { ladder: { members: Array<{ reset: { roster: Record<string, unknown> } }> } };
+    const r = after.ladder.members[0]!.reset.roster;
+    for (const k of ["coach", "coachId", "nafUser", "coachAssigned"]) expect(r).not.toHaveProperty(k);
+    expect(JSON.stringify(r)).not.toContain("Alice");
   });
 });
