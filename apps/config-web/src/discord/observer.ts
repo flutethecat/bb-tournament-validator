@@ -17,7 +17,7 @@
  * turning Discord on, publishing a draft or deploying this never replays history. Markers are written before the post
  * (best effort: a failed post is not retried, like every other Discord post here).
  */
-import { registrationGateShut, regopenMarker } from "../tournaments/registrationGate.js";
+import { registrationGateShut, regopenAnnounced, regopenMarker } from "../tournaments/registrationGate.js";
 import type { DiscordPayload, WebhookPoster } from "../leagues/discord.js";
 import { postWebhook as defaultPoster } from "../leagues/discord.js";
 import { isDraftLeague } from "../leagues/lifecycle.js";
@@ -139,7 +139,12 @@ export class DiscordObserver {
     const opens = t.registration?.opensAt;
     // While a Registration gate is shut nothing is open yet (its opening posts and marks this marker: src/tournaments/gates.ts).
     const regopen = regopenMarker(t);
-    if (opens && regopen && Date.parse(opens) <= now && !registrationGateShut(t, new Date(now))) out.push({ marker: regopen, key: "registrationOpened", payload: () => simplePost(name, "registrationOpened", "Registration is open.", { test }) });
+    if (opens && regopen && Date.parse(opens) <= now && !registrationGateShut(t, new Date(now))) {
+      // An opening already announced since the gate's last arming (any variant of the marker) is marked quietly, never posted
+      // again: switching a gate off, say, is not a new opening.
+      const announced = !this.deps.state.has(tournamentTarget(this.deps.state, t).key, regopen) && regopenAnnounced(this.deps.state.entry(tournamentTarget(this.deps.state, t).key)?.seen, t);
+      out.push({ marker: regopen, key: announced ? null : "registrationOpened", payload: () => simplePost(name, "registrationOpened", "Registration is open.", { test }) });
+    }
     for (const e of entrants) if (e.droppedAt === undefined) out.push({ marker: `entrant:${e.id}`, key: "newRegistration", payload: () => simplePost(name, "newRegistration", `${safe(label(e.id))} registered.`, { test }) });
     const close = t.deadlines?.registration ? Date.parse(t.deadlines.registration) : NaN;
     if (Number.isFinite(close) && close > now && close - now <= 24 * HOUR)

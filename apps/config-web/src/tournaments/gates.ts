@@ -23,14 +23,14 @@ import { canSeeTournament, selfRegistrationStatus } from "./publication.js";
 import { isTournamentManager, TournamentStoreError, type TournamentStore } from "./store.js";
 import type { TournamentRecord } from "./types.js";
 import {
-  GATE_ID, gateInstant, gateIsOpen, gateWhenText, regopenMarker, gateWallInstant, parseGateWall, storedGate, tournamentGateView, tournamentTimeZone, type TournamentGate,
+  GATE_ID, gateInstant, gateIsOpen, gateWhenText, regopenAnnounced, regopenMarker, gateWallInstant, parseGateWall, storedGate, tournamentGateView, tournamentTimeZone, type TournamentGate,
 } from "./registrationGate.js";
 
 export interface TournamentGateDeps {
   store: TournamentStore;
   notify?: { managers(tournamentId: string, input: NotificationInput, except?: string): void };
   /** The Discord state (webhooks, options and the observer's ledger) and the poster. Absent = no Discord post. */
-  discord?: { state: Pick<DiscordStateStore, "config" | "webhook" | "mark">; poster?: WebhookPoster };
+  discord?: { state: Pick<DiscordStateStore, "config" | "webhook" | "mark" | "entry">; poster?: WebhookPoster };
   ifMatch?: string;
 }
 
@@ -162,6 +162,8 @@ async function announceOpening(deps: TournamentGateDeps, id: string, revision: n
   // gate arming, regopenMarker). Posted only when this call is the one that claimed it; a re-armed gate has a new marker.
   const marker = regopenMarker(t);
   if (!marker) return;
+  // Already announced since the gate's last arming (by the observer or an earlier opening): no second post.
+  try { if (regopenAnnounced(deps.discord.state.entry(target.key)?.seen, t)) return; } catch { return; }
   let fresh: string[] = [];
   try { fresh = deps.discord.state.mark(target.key, [marker], now.toISOString()); } catch { return; }
   if (!fresh.includes(marker)) return;

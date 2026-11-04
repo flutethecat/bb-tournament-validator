@@ -123,6 +123,26 @@ export function regopenMarker(t: Pick<TournamentRecord, "registration" | "regist
   return suffix ? `regopen${suffix}` : undefined;
 }
 
+/**
+ * Was this registration opening already announced? Any "Registration is open" marker for the same opensAt (plain or with any
+ * gate suffix; without opensAt, any gate marker) claimed after the gate's last arming counts; with no gate, one claimed at any
+ * time does. Only a re-arm (an armedAt later than the last claim) allows a new post: switching a gate off never does, and an
+ * unreadable gate counts as no re-arm. `seen` is the competition's Discord ledger (marker -> when it was claimed).
+ */
+export function regopenAnnounced(seen: Readonly<Record<string, string>> | undefined, t: Pick<TournamentRecord, "registration" | "registrationGate">): boolean {
+  if (!seen) return false;
+  const opens = t.registration?.opensAt;
+  const prefix = opens ? `regopen:${opens}` : "regopen:gate:";
+  const g = storedGate(t);
+  const since = g && g !== "unreadable" ? Date.parse(g.armedAt) : -Infinity;
+  for (const [marker, at] of Object.entries(seen)) {
+    if (marker !== prefix && !marker.startsWith(opens ? `${prefix}:gate:` : prefix)) continue;
+    const claimed = Date.parse(at);
+    if (!Number.isFinite(since) || !(claimed < since)) return true;
+  }
+  return false;
+}
+
 /** The gate as the shared gate editor reads it (the league GateView shape; kind "registration", target "tournament"). */
 export interface TournamentGateView {
   id: string; kind: "registration"; target: "tournament"; targetName: string; label: string; title: string;

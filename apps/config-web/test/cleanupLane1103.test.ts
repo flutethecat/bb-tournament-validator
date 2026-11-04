@@ -7,7 +7,7 @@ import { TournamentStore } from "../src/tournaments/store.js";
 import { createTournamentNotifier, type NotificationInput } from "../src/notifications.js";
 import type { TournamentRecord, TournamentSubmission } from "../src/tournaments/types.js";
 import { runTournamentGateJob } from "../src/tournaments/gates.js";
-import { registrationGateShut, tournamentTimeZone } from "../src/tournaments/registrationGate.js";
+import { registrationGateShut, regopenMarker, tournamentTimeZone } from "../src/tournaments/registrationGate.js";
 import { DiscordStateStore } from "../src/discord/store.js";
 import { DiscordObserver } from "../src/discord/observer.js";
 import { requireSession } from "../src/auth/requireSession.js";
@@ -211,6 +211,36 @@ describe("tournament Registration gate", () => {
     await job();
     await observer.tick();
     expect(h.posts).toHaveLength(3);
+  });
+
+  it("[review 3] switching off an open gate is not a new opening (no second post); an ungated tournament keeps the old marker", async () => {
+    const h = tournamentHarness();
+    const t = await h.create({ registration: { approval: "auto", waitlist: true, rosterLater: true, opensAt: "2026-11-11T09:00:00.000Z" } });
+    expect(regopenMarker(h.store.tournament(t.id)!)).toBe("regopen:2026-11-11T09:00:00.000Z");
+    h.discord.setWebhook(`tournament:${t.id}`, HOOK);
+    h.discord.setConfig(`tournament:${t.id}`, { events: { registrationOpened: true } } as never);
+    await h.call("PUT", h.gatePath(t), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-12T19:00" });
+    const observer = new DiscordObserver({ leagues: new LeagueStore(tmp("bbtv-tgate-l-")), tournaments: h.store, state: h.discord, now: () => h.clock.now, poster: h.poster } as never);
+    const job = () => runTournamentGateJob({ store: h.store, notify: h.notifier, discord: { state: h.discord, poster: h.poster }, now: () => h.clock.now });
+    await observer.tick();
+    h.clock.now = new Date("2026-11-12T19:01:00.000Z");
+    await observer.tick();
+    await job();
+    expect(h.posts).toHaveLength(1);
+    // Off: the marker loses its gate suffix, but this is the same opening.
+    h.clock.now = new Date("2026-11-13T10:00:00.000Z");
+    expect((await h.call("PUT", h.gatePath(t), OWNER, { revision: h.store.tournament(t.id)!.registrationGate!.revision, mode: "off" }))?.status).toBe(200);
+    await observer.tick();
+    await job();
+    await observer.tick();
+    expect(h.posts).toHaveLength(1);
+    // Set again later (a real re-arm: armedAt after the last claim) and opened: one new post.
+    h.clock.now = new Date("2026-11-13T11:00:00.000Z");
+    await h.call("PUT", h.gatePath(t), OWNER, { revision: h.store.tournament(t.id)!.registrationGateRetired!, mode: "time", opensAt: "2026-11-14T19:00" });
+    h.clock.now = new Date("2026-11-14T19:01:00.000Z");
+    await observer.tick();
+    await job();
+    expect(h.posts).toHaveLength(2);
   });
 
   it("[review] a gate that opens before the window says so; the window's own opening posts once, when registration is open", async () => {
