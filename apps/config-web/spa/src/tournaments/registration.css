@@ -99,6 +99,9 @@
 .tr-qr-text .sf-btn { justify-self: start; }
 .tr-qr-url { overflow-wrap: anywhere; }
 .tr-qr-url code { font-size: 12px; color: var(--ui-muted); overflow-wrap: anywhere; word-break: break-all; }
+/* A loopback fallback (PUBLIC_BASE_URL unset): the organisers' note that phones can't open this code. */
+.tr-qr-warn { margin: 0; padding: 4px 8px; font-size: 13px; border-left: 3px solid var(--ui-warn); background: var(--ui-surface-2); color: var(--ui-text); max-width: 60ch; overflow-wrap: anywhere; }
+.tr-venue:fullscreen .tr-qr-warn { display: none; }
 .tr-scan { display: grid; gap: 12px; max-width: 640px; align-content: start; }
 .tr-scan-state { margin: 0; font-size: 17px; }
 .tr-scan[data-state="checked-in"] .tr-scan-state, .tr-scan[data-state="already"] .tr-scan-state { color: var(--ui-success); }

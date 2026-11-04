@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-04",
+    "title": "Check-in QR codes use the site's public address",
+    "body": "Personal and venue check-in QR codes, and the link shown under them, now always point at the site's public address, so phones can open them even when an organiser opened the page on the host computer. If the host has no public address set, the code uses the page's own address, and organisers on this computer see a note saying phones can't open it.",
+    "links": [
+      {
+        "label": "Tournaments",
+        "href": "/app/tournaments"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-04",
     "title": "League money defaults to the BB2025 rulebook",
     "body": "Leagues that never set their money rules now pay the BB2025 rulebook winnings: (half the fan attendance + touchdowns + 1 without stalling) x 10k, with the rulebook concession rule. Leagues that saved their own money rules keep them, games already played keep their numbers, and the old 10k per touchdown is a one-click Legacy preset. Also: the fixture summary's comparison no longer scrolls sideways on phones, and tournament organisers see an Override mark on check-ins made outside the check-in window.",
     "links": [

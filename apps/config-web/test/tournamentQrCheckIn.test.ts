@@ -8,6 +8,9 @@ import { sweepTournamentRegistrations, tournamentRegistrationService } from "../
 import { checkInPath, hashToken, issuePersonal, parseToken, personalToken, venueToken } from "../src/tournaments/checkInQr.js";
 import { isStateChangingApiRequest } from "../src/auth/csrf.js";
 import { spaPageHeaders } from "../src/spaRoutes.js";
+import { publicOriginOf } from "../src/publicOrigin.js";
+import { mailConfigFromEnv } from "../src/mail/config.js";
+import { checkInLink, isLoopbackOrigin, LOOPBACK_WARNING } from "../spa/src/tournaments/checkInUrl";
 import { overrideCheckInPrompt } from "../spa/src/tournaments/registration";
 import { scrubCheckInToken, tokenFreeCheckInPath } from "../spa/src/tournaments/checkInScan";
 import type { TournamentRecord, TournamentSubmission } from "../src/tournaments/types.js";
@@ -35,6 +38,8 @@ function harness(start = "2026-11-10T12:00:00.000Z") {
   roots.push(root);
   const store = new TournamentStore(root);
   const clock = { now: new Date(start) };
+  /** The validated PUBLIC_BASE_URL origin server.ts hands the API (undefined = unset or invalid). */
+  const site: { publicOrigin?: string } = {};
   const deps = (key: string | undefined = KEY): TournamentApiDeps => ({
     store,
     now: () => clock.now,
@@ -46,6 +51,7 @@ function harness(start = "2026-11-10T12:00:00.000Z") {
       validation: { ok: true, problems: [], checkedAt: at.toISOString(), packageName },
     }) as TournamentSubmission,
     ...(key ? { checkInKey: key } : {}),
+    ...(site.publicOrigin ? { publicOrigin: site.publicOrigin } : {}),
   });
   const call = (method: string, path: string, auth?: TournamentApiIdentity, body?: unknown, key?: string) =>
     tournamentApi(method, path, new URLSearchParams(), auth, body, deps(key ?? KEY));
@@ -69,7 +75,7 @@ function harness(start = "2026-11-10T12:00:00.000Z") {
     call("POST", `/api/tournaments/${t.id}/check-in/qr`, who, { token, ...(confirm ? { confirm: true } : {}) });
   /** The stored data, byte for byte (reads never write, the standings cache included: Sol follow-up 6). */
   const file = () => readFileSync(join(root, "tournaments.json"), "utf8");
-  return { root, store, clock, call, create, register, sweep, entry, myPath, tokenOf, scan, file };
+  return { root, store, clock, site, call, create, register, sweep, entry, myPath, tokenOf, scan, file };
 }
 
 /** A tournament with Alice and Bob in the field and Carol on the waitlist, codes issued, inside the check-in window. */
@@ -492,3 +498,59 @@ describe("manager-only entry fields on every entry-returning route (Sol 11-04 P2
   });
 });
 
+describe("QR codes use the public address (PUBLIC_BASE_URL)", () => {
+  it("publicOriginOf: an http(s) origin only; a path, query, hash, credentials or another scheme is ignored", () => {
+    expect(publicOriginOf("https://superfumbbl.example")).toBe("https://superfumbbl.example");
+    expect(publicOriginOf(" https://superfumbbl.example/ ")).toBe("https://superfumbbl.example");
+    expect(publicOriginOf("http://10.0.0.5:4310")).toBe("http://10.0.0.5:4310");
+    for (const bad of [undefined, "", "   ", "superfumbbl.example", "https://superfumbbl.example/app", "https://a.example/?x=1", "https://a.example/#x",
+      "https://user:pw@a.example", "ftp://a.example", "javascript:alert(1)", "https://"]) expect(publicOriginOf(bad)).toBeUndefined();
+    // the mail link base shares it (MAIL_LINK_BASE_URL, falling back to PUBLIC_BASE_URL)
+    expect(mailConfigFromEnv({ PUBLIC_BASE_URL: "https://superfumbbl.example/" }).linkBase).toBe("https://superfumbbl.example");
+    expect(mailConfigFromEnv({ PUBLIC_BASE_URL: "https://superfumbbl.example/path" }).linkBase).toBeUndefined();
+  });
+
+  it("server.ts hands the API the validated origin only (never the request's Host header)", () => {
+    const server = readFileSync(new URL("../src/server.ts", import.meta.url), "utf8");
+    expect(server).toContain("const origin = publicOriginOf(raw);");
+    expect(server).toContain("...(PUBLIC_BASE_ORIGIN ? { publicOrigin: PUBLIC_BASE_ORIGIN } : {}),");
+    expect(server).not.toMatch(/publicOrigin:\s*[^,]*headers/);
+  });
+
+  it("set: the coach's code and the venue code carry the public origin beside the path; the token stays in the path", async () => {
+    const { h, t } = await ready();
+    h.site.publicOrigin = "https://superfumbbl.example";
+    const me = ((await h.call("GET", `/api/tournaments/${t.id}`, coach("Alice")))!.body as { myRegistration: { checkInCode: { path: string; origin?: string } } }).myRegistration.checkInCode;
+    expect(me).toEqual({ path: expect.stringMatching(new RegExp(`^/app/tournaments/${t.id}/check-in/p[A-Za-z0-9_-]{44}$`)), origin: "https://superfumbbl.example" });
+    const venue = `/api/tournaments/${t.id}/check-in/venue`;
+    const on = await h.call("PUT", venue, CO, { enabled: true, revision: 0 });
+    expect(on!.body).toMatchObject({ origin: "https://superfumbbl.example", path: expect.stringMatching(/\/check-in\/v[A-Za-z0-9_-]{44}$/) });
+    expect((await h.call("GET", venue, CO))!.body).toMatchObject({ origin: "https://superfumbbl.example" });
+    expect((await h.call("POST", `${venue}/rotate`, CO, { revision: 1 }))!.body).toMatchObject({ origin: "https://superfumbbl.example" });
+    // the SPA builds the QR's URL from it, even when the page itself was opened as 127.0.0.1
+    expect(checkInLink(me.path, me.origin, "http://127.0.0.1:4310")).toEqual({ url: `https://superfumbbl.example${me.path}`, loopback: false });
+    // off: no path, so no origin either
+    const off = await h.call("PUT", venue, CO, { enabled: false, revision: 2 });
+    expect(off!.body).not.toHaveProperty("origin");
+  });
+
+  it("unset (or invalid, which server.ts drops at startup): no origin is sent; the SPA falls back to this page's origin", async () => {
+    const { h, t } = await ready();
+    const me = ((await h.call("GET", `/api/tournaments/${t.id}`, coach("Alice")))!.body as { myRegistration: { checkInCode: { path: string; origin?: string } } }).myRegistration.checkInCode;
+    expect(me).not.toHaveProperty("origin");
+    const on = await h.call("PUT", `/api/tournaments/${t.id}/check-in/venue`, CO, { enabled: true, revision: 0 });
+    expect(on!.body).not.toHaveProperty("origin");
+    expect(checkInLink(me.path, undefined, "https://league.example")).toEqual({ url: `https://league.example${me.path}`, loopback: false });
+    // a loopback fallback: the organisers' warning
+    for (const here of ["http://127.0.0.1:4310", "http://localhost:4310", "http://sfapp.localhost", "http://[::1]:4310"])
+      expect(checkInLink(me.path, undefined, here)).toEqual({ url: `${here}${me.path}`, loopback: true });
+    expect(LOOPBACK_WARNING).toBe("This code points at this computer; set PUBLIC_BASE_URL so phones can open it.");
+    // a bad origin in a response is ignored like an unset one
+    for (const bad of ["javascript:alert(1)", "https://a.example/path", "https://u:p@a.example", 42, ""])
+      expect(checkInLink(me.path, bad, "http://127.0.0.1:4310")).toEqual({ url: `http://127.0.0.1:4310${me.path}`, loopback: true });
+    expect(isLoopbackOrigin("http://127.12.0.1")).toBe(true);
+    expect(isLoopbackOrigin("http://192.168.1.4:4310")).toBe(false);
+    expect(isLoopbackOrigin("https://localhost.example")).toBe(false);
+    expect(checkInLink(undefined, "https://superfumbbl.example", "http://127.0.0.1")).toEqual({ url: "", loopback: false });
+  });
+});

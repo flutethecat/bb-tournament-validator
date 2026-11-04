@@ -410,6 +410,7 @@ import { leagueFixtureRef } from "./leagues/tabletopFixtures.js";
 import type { TournamentSubmission } from "./tournaments/types.js";
 import { checkTournamentSubmission, revalidateSubmission, type SubmissionCheckDeps } from "./tournaments/submissionCheck.js";
 import { applyHouseRulesToPackage, houseRuleValidatorRules } from "./competition/packageOverlay.js";
+import { publicOriginOf } from "./publicOrigin.js";
 
 /**
  * Endpoints reachable without ADMIN_PASSWORD even when it's set, AND always sent
@@ -906,17 +907,13 @@ async function handleScheduleRequest(req: IncomingMessage, res: ServerResponse, 
 }
 // ---- end game-time proposals ----------------------------------------------------------------------------------------
 
-/** PUBLIC_BASE_URL, validated once at startup (http/https origin, no userinfo / path); unset or invalid = none. */
+/** PUBLIC_BASE_URL, validated once at startup (src/publicOrigin.ts: http/https origin, no userinfo / path); unset or invalid = none. */
 const PUBLIC_BASE_ORIGIN = ((): string | undefined => {
   const raw = process.env.PUBLIC_BASE_URL?.trim();
   if (!raw) return undefined;
-  try {
-    const u = new URL(raw);
-    if ((u.protocol === "https:" || u.protocol === "http:") && !u.username && !u.password && (u.pathname === "/" || u.pathname === "")
-      && !u.search && !u.hash) return u.origin;
-  } catch { /* fall through */ }
-  console.error("[lobby] PUBLIC_BASE_URL must be an http(s) origin without credentials or a path; ignoring it.");
-  return undefined;
+  const origin = publicOriginOf(raw);
+  if (!origin) console.error("[lobby] PUBLIC_BASE_URL must be an http(s) origin without credentials or a path; ignoring it.");
+  return origin;
 })();
 
 /** 409 body for a client challenge held by an in-flight / uncertain pairing: the lobby to resolve it in, if any.
@@ -2962,6 +2959,8 @@ async function handleApi(
       // The Registration gate's opening post (src/tournaments/gates.ts): the cleaned sender, drafts never post.
       discord: { state: discordState },
       ...(checkInKey() ? { checkInKey: checkInKey()! } : {}),
+      // QR check-in links use the validated PUBLIC_BASE_URL origin (never the request Host); unset = the SPA falls back.
+      ...(PUBLIC_BASE_ORIGIN ? { publicOrigin: PUBLIC_BASE_ORIGIN } : {}),
       ifMatch: typeof req.headers["if-match"] === "string" ? req.headers["if-match"] : undefined,
       // a fixture lobby that has not STARTed holds the online launch (src/fixtureLobby/tournament.ts)
       fixtureLobby: (matchId) => { const rec = fixtureLobbyStore.get(tournamentLobbyKey(matchId)); return rec ? { started: Boolean(rec.started) } : undefined; },

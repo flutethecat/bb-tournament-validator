@@ -265,7 +265,8 @@ export interface TournamentCheckIn { opensAt: string; closesAt?: string; self: b
 export interface TournamentMyRegistration extends TournamentEntrant {
   state: EntryState; position?: number; reason?: string;
   /** The coach's personal check-in QR: the SPA path it encodes (accepted, not checked in yet). */
-  checkInCode?: { path: string };
+  /** origin = the site's public origin (PUBLIC_BASE_URL) the QR points at; absent = this page's origin. */
+  checkInCode?: { path: string; origin?: string };
 }
 
 /** What a scanned check-in code does (POST /api/tournaments/:id/check-in/qr). */
@@ -278,7 +279,7 @@ export interface CheckInScanResult {
 }
 
 /** The venue check-in code as the organisers see it (GET /api/tournaments/:id/check-in/venue). */
-export interface VenueCheckInView { enabled: boolean; revision: number; path?: string; updatedAt?: string; checkIn: TournamentCheckIn | null }
+export interface VenueCheckInView { enabled: boolean; revision: number; path?: string; origin?: string; updatedAt?: string; checkIn: TournamentCheckIn | null }
 
 /** One row of the organisers' Registrations panel (GET /api/tournaments/:id/registrations). */
 export interface TournamentRegistrationRow extends Partial<TournamentEntrant> {

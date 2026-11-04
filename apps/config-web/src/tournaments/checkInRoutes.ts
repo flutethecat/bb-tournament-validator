@@ -28,6 +28,8 @@ export interface CheckInRouteDeps {
   store: TournamentStore;
   /** The host key the codes are signed with (server: checkin.key next to the tournament data). Absent = QR check-in off. */
   checkInKey?: string;
+  /** The site's validated public origin (PUBLIC_BASE_URL): sent beside each code's path so the QR points at it. */
+  publicOrigin?: string;
   ifMatch?: string;
 }
 
@@ -55,14 +57,14 @@ function revisionOf(input: Record<string, unknown>, ifMatch: string | undefined)
 }
 
 /** The managers' view of the venue code. */
-function venueView(store: TournamentStore, key: string, t: TournamentRecord, now: Date) {
+function venueView(store: TournamentStore, key: string, t: TournamentRecord, now: Date, origin: string | undefined) {
   const v = t.venueCheckIn;
   const round1 = store.rounds(t.id).some((r) => r.number === 1);
   const on = Boolean(v?.enabled && v.nonce);
   return {
     enabled: on,
     revision: v?.revision ?? 0,
-    ...(on ? { path: checkInPath(t.id, venueToken(key, t.id, v!.nonce!)) } : {}),
+    ...(on ? { path: checkInPath(t.id, venueToken(key, t.id, v!.nonce!)), ...(origin ? { origin } : {}) } : {}),
     ...(v?.updatedAt ? { updatedAt: v.updatedAt } : {}),
     checkIn: checkInView(t, round1, now) ?? null,
   };
@@ -96,7 +98,7 @@ export async function checkInRoutes(method: string, path: string, auth: Who | un
 
   // ---- venue code (managers) ----
   if (!manages(tournament, auth)) return fail(403, "not-organiser", "You are not this tournament's organizer.");
-  if (read) return res(200, venueView(deps.store, key, tournament, now));
+  if (read) return res(200, venueView(deps.store, key, tournament, now, deps.publicOrigin));
   if (tournament.status === "completed" || tournament.status === "cancelled") return fail(409, "finished", `${tournament.name} is finished.`);
   const asked = revisionOf(input, deps.ifMatch);
   if (asked === "bad") return fail(400, "bad-request", "revision must be a whole number.");
@@ -116,7 +118,7 @@ export async function checkInRoutes(method: string, path: string, auth: Who | un
     return undefined;
   }, now);
   if (outcome) return outcome;
-  return res(200, venueView(deps.store, key, deps.store.tournament(id)!, now));
+  return res(200, venueView(deps.store, key, deps.store.tournament(id)!, now, deps.publicOrigin));
 }
 
 /** POST /check-in/qr: what the code does (preview) or the check-in itself (confirm: true). */
@@ -163,9 +165,10 @@ function venueEntry(store: TournamentStore, key: string, t: TournamentRecord, to
 }
 
 /** The coach's own check-in code path for their registration panel (a read: the code was issued by a write earlier). The
- *  token is recomputed from the stored nonce under the key; the stored hash is only ever compared. */
-export function myCheckInCode(key: string | undefined, t: TournamentRecord, entrant: TournamentEntrantRecord | undefined): { path: string } | undefined {
+ *  token is recomputed from the stored nonce under the key; the stored hash is only ever compared. `origin` = the site's
+ *  validated public origin (PUBLIC_BASE_URL) the SPA puts in front of the path; absent = the SPA uses its own. */
+export function myCheckInCode(key: string | undefined, t: TournamentRecord, entrant: TournamentEntrantRecord | undefined, origin?: string): { path: string; origin?: string } | undefined {
   if (!key || !entrant || entrant.droppedAt !== undefined || entrant.flags?.checkedIn || !entrant.checkInQr || entrant.checkInQr.usedAt) return undefined;
   if (t.status === "completed" || t.status === "cancelled") return undefined;
-  return { path: checkInPath(t.id, personalToken(key, t.id, entrant.id, entrant.checkInQr.nonce)) };
+  return { path: checkInPath(t.id, personalToken(key, t.id, entrant.id, entrant.checkInQr.nonce)), ...(origin ? { origin } : {}) };
 }

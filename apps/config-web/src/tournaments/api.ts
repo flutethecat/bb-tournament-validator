@@ -105,6 +105,9 @@ export interface TournamentApiDeps {
   discord?: TournamentGateDeps["discord"];
   /** The host key QR check-in codes are signed with (src/tournaments/checkInQr.ts). Absent = QR check-in off. */
   checkInKey?: string;
+  /** The site's validated public origin (PUBLIC_BASE_URL, src/publicOrigin.ts) the QR check-in links point at. Absent =
+   *  the SPA uses its own origin. Never derived from the request. */
+  publicOrigin?: string;
   now?: () => Date;
 }
 
@@ -1348,7 +1351,7 @@ export async function tournamentApi(
     // onboarding 428 gate run in server.ts ahead of every /api write; GETs below never change state.
     // QR check-in (src/tournaments/checkInRoutes.ts): a personal or venue code, POSTed from the scan page; never a GET write.
     const qr = await checkInRoutes(method, path, auth ? { coach: auth.coach, admin: auth.admin } : undefined, body, {
-      store: deps.store, ...(deps.checkInKey ? { checkInKey: deps.checkInKey } : {}), ...(deps.ifMatch !== undefined ? { ifMatch: deps.ifMatch } : {}),
+      store: deps.store, ...(deps.checkInKey ? { checkInKey: deps.checkInKey } : {}), ...(deps.publicOrigin ? { publicOrigin: deps.publicOrigin } : {}), ...(deps.ifMatch !== undefined ? { ifMatch: deps.ifMatch } : {}),
     }, now);
     if (qr) return qr;
     const registration = await registrationRoutes(method, path, auth, body, deps, now);
@@ -2114,7 +2117,7 @@ function myRegistrationView(deps: TournamentApiDeps, tournament: TournamentRecor
   const profile = live && tournament.nafSanctioned ? profileNaf(deps, mine.coach.ffbCoachId) : undefined;
   const view = clientEntrant(mine, deps, live, undefined, tournament, profile, live ? referenceCodes(all).get(mine.id) : undefined, manager);
   // The coach's personal check-in QR (issued by a write: the minute sweep or "New code"; this read only shows it).
-  const code = state === "accepted" ? myCheckInCode(deps.checkInKey, tournament, mine) : undefined;
+  const code = state === "accepted" ? myCheckInCode(deps.checkInKey, tournament, mine, deps.publicOrigin) : undefined;
   return {
     ...view,
     state,

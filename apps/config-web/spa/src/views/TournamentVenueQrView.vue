@@ -9,6 +9,7 @@ import { API_KEY } from "../app";
 import QrCode from "../components/QrCode.vue";
 import { ApiError, type VenueCheckInView } from "../shared/api";
 import { localWhen } from "../shared/localTime";
+import { checkInLink, LOOPBACK_WARNING } from "../tournaments/checkInUrl";
 import "../tournaments/registration.css";
 
 const props = defineProps<{ id: string }>();
@@ -20,7 +21,10 @@ const notice = ref("");
 const busy = ref("");
 const box = ref<HTMLElement | null>(null);
 const base = computed(() => `/api/tournaments/${encodeURIComponent(props.id)}/check-in/venue`);
-const url = computed(() => (view.value?.path ? `${typeof window !== "undefined" ? window.location.origin : ""}${view.value.path}` : ""));
+// The public origin the server sent (PUBLIC_BASE_URL); this page's own origin only when it sent none (then a loopback
+// origin gets the organisers' warning: phones can't open it).
+const link = computed(() => checkInLink(view.value?.path, view.value?.origin));
+const url = computed(() => link.value.url);
 
 async function load(): Promise<void> {
   try { view.value = await fetcher<VenueCheckInView>(base.value); loadError.value = ""; } catch (e) { loadError.value = e instanceof Error && e.message ? e.message : "Can't load the venue code."; }
@@ -72,6 +76,7 @@ const windowLine = computed(() => {
           <p class="tr-scan-state">Scan to check in. Sign in as the coach who entered.</p>
           <QrCode class="tr-venue-qr" :text="url" label="Venue check-in QR code" size="min(calc(48vh / var(--sf-zoom, 1)), calc(88vw / var(--sf-zoom, 1)))" />
           <p class="tr-qr-url"><code data-venue-url>{{ url }}</code></p>
+          <p v-if="link.loopback" class="tr-qr-warn" role="note" data-qr-loopback>{{ LOOPBACK_WARNING }}</p>
           <p class="muted">{{ windowLine }}</p>
         </div>
         <p v-else class="hm-empty">The venue code is off. Switch it on to show a QR code coaches scan to check themselves in while check-in is open.</p>

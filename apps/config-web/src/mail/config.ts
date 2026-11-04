@@ -11,6 +11,8 @@
 //                            (league messages still reach the in-portal notifications).
 //   POSTMARK_WEBHOOK_SECRET  Basic-auth password Postmark sends to POST /api/mail/postmark/webhook. Unset = 503.
 
+import { publicOriginOf } from "../publicOrigin.js";
+
 export const MAIL_FROM_NAME = "Super FUMBBL";
 
 export interface MailConfig {
@@ -33,16 +35,7 @@ export function isEmailAddress(value: unknown): value is string {
   return typeof value === "string" && value.length <= 254 && ADDRESS.test(value);
 }
 
-function origin(raw: string | undefined): string | undefined {
-  const text = raw?.trim();
-  if (!text) return undefined;
-  try {
-    const u = new URL(text);
-    if ((u.protocol === "https:" || u.protocol === "http:") && !u.username && !u.password && (u.pathname === "/" || u.pathname === "") && !u.search && !u.hash)
-      return u.origin;
-  } catch { /* invalid */ }
-  return undefined;
-}
+const origin = publicOriginOf;
 
 export function mailConfigFromEnv(env: Record<string, string | undefined> = process.env): MailConfig {
   const token = env.POSTMARK_SERVER_TOKEN?.trim() || undefined;

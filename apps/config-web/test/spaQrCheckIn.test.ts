@@ -273,6 +273,38 @@ describe("QR check-in views (server-rendered against a mocked API)", () => {
     expect(off.html).not.toContain("data-venue-qr");
   });
 
+  it("public address: the QR and the link use the origin the server sent; no origin = this page's, a loopback one warns organisers", async () => {
+    const path = `/app/tournaments/t1/check-in/${TOKEN}`;
+    const vpath = `/app/tournaments/t1/check-in/${VENUE}`;
+    const W = "This code points at this computer; set PUBLIC_BASE_URL so phones can open it.";
+    const mine = (origin?: string, manage = false) => body({ capabilities: { manage, assignRoles: false }, myRegistration: { ...entrant(), state: "accepted", checkInCode: { path, ...(origin ? { origin } : {}) } } });
+    const set = await render("/tournaments/t1", { ...AS("Alice"), "/api/tournaments/t1": mine("https://superfumbbl.example") });
+    expect(set.html).toContain(`data-check-in-url>https://superfumbbl.example${path}</code>`);
+    expect(set.html).not.toContain("data-qr-loopback");
+    const venue = await render("/tournaments/t1/venue-qr", { ...AS("Veers"), "/api/tournaments/t1/check-in/venue": { enabled: true, revision: 2, path: vpath, origin: "https://superfumbbl.example", checkIn: CI } }, { detail: false });
+    expect(venue.html).toContain(`data-venue-url>https://superfumbbl.example${vpath}</code>`);
+    expect(venue.html).not.toContain("data-qr-loopback");
+    // the fallback, opened as 127.0.0.1: the organisers (venue page, a managing coach's own card) see the warning; a coach doesn't
+    const g = globalThis as { window?: unknown };
+    const had = "window" in g;
+    const prev = g.window;
+    g.window = { location: { origin: "http://127.0.0.1:4310" } };
+    try {
+      const loopVenue = await render("/tournaments/t1/venue-qr", { ...AS("Veers"), "/api/tournaments/t1/check-in/venue": { enabled: true, revision: 2, path: vpath, checkIn: CI } }, { detail: false });
+      expect(loopVenue.html).toContain(`data-venue-url>http://127.0.0.1:4310${vpath}</code>`);
+      expect(loopVenue.html).toContain(`data-qr-loopback>${W}</p>`);
+      const org = await render("/tournaments/t1", { ...AS("Piett"), "/api/tournaments/t1": mine(undefined, true) });
+      expect(org.html).toContain(`data-check-in-url>http://127.0.0.1:4310${path}</code>`);
+      expect(org.html).toContain("data-qr-loopback");
+      const plain = await render("/tournaments/t1", { ...AS("Alice"), "/api/tournaments/t1": mine() });
+      expect(plain.html).not.toContain("data-qr-loopback");
+      // an invalid origin from the server is ignored like an unset one
+      const bad = await render("/tournaments/t1/venue-qr", { ...AS("Veers"), "/api/tournaments/t1/check-in/venue": { enabled: true, revision: 2, path: vpath, origin: "javascript:alert(1)", checkIn: CI } }, { detail: false });
+      expect(bad.html).toContain(`data-venue-url>http://127.0.0.1:4310${vpath}</code>`);
+      expect(bad.html).toContain("data-qr-loopback");
+    } finally { if (had) g.window = prev; else delete g.window; }
+  });
+
   it("styles: tokens only (the QR's black and white are root tokens, the same in both themes); the router keeps the token in the path only", () => {
     const css = readFileSync(new URL("../spa/src/tournaments/registration.css", import.meta.url), "utf8");
     const qr = readFileSync(new URL("../spa/src/components/QrCode.vue", import.meta.url), "utf8");
