@@ -24,7 +24,7 @@ export interface PreviewSeason {
 
 /** A re-import difference kept local by default (tourplayMerge.ts); the organiser may pick the export per row. */
 /** Pairings ("possible correction" / "possible rename") carry keepBothId: `id` = the same row, keepBothId = keep both. */
-export interface MergeConflict { id: string; kind: "fixture" | "result" | "roster" | "team" | "pairing" | "rename" | "ambiguous"; label: string; reason: string; local: string; export: string; keepBothId?: string }
+export interface MergeConflict { id: string; kind: "fixture" | "result" | "roster" | "team" | "pairing" | "rename" | "ambiguous"; label: string; reason: string; local: string; export: string; keepBothId?: string; options?: Array<{ id: string; label: string }> }
 
 export interface PreviewCoach {
   id: string; name: string; nafUser?: string; hasNafNumber: boolean; teams: string[]; seasons: number[];
@@ -146,9 +146,10 @@ export function createTourplayImport(opts: { api: Fetcher }) {
     await preview();
   }
   /** A pairing: "match" (same game / team), "both" (different) or "" (undecided: nothing is added). */
-  async function pair(c: { id: string; keepBothId?: string }, pick: "match" | "both" | ""): Promise<void> {
-    const drop = new Set([c.id, c.keepBothId ?? ""]);
-    state.choices = [...state.choices.filter((x) => !drop.has(x)), ...(pick === "match" ? [c.id] : pick === "both" && c.keepBothId ? [c.keepBothId] : [])];
+  async function pair(c: { id: string; keepBothId?: string; options?: Array<{ id: string }> }, pick: "match" | "both" | "", optionId?: string): Promise<void> {
+    const drop = new Set([c.id, c.keepBothId ?? "", ...(c.options ?? []).map((o) => o.id)]);
+    const matchId = optionId ?? c.id;
+    state.choices = [...state.choices.filter((x) => !drop.has(x)), ...(pick === "match" ? [matchId] : pick === "both" && c.keepBothId ? [c.keepBothId] : [])];
     await preview();
   }
   async function apply(): Promise<boolean> {

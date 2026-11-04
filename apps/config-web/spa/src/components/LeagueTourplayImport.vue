@@ -118,8 +118,11 @@ const when = (iso: string): string => iso.slice(0, 16).replace("T", " ");
               <div v-if="cf.keepBothId" class="tpi-conflict" data-pairing>
                 <span><strong>{{ cf.label }}</strong> <span class="tpi-muted">{{ cf.reason }} · here: {{ cf.local }} · export: {{ cf.export }}</span></span>
                 <span class="sf-btn-row">
-                  <button class="sf-btn small" type="button" :aria-pressed="state.choices.includes(cf.id)" :disabled="busy" @click="ctl.pair(cf, state.choices.includes(cf.id) ? '' : 'match')">{{ cf.kind === "rename" ? "Same team" : "Same game" }}</button>
-                  <button class="sf-btn small" type="button" :aria-pressed="state.choices.includes(cf.keepBothId)" :disabled="busy" @click="ctl.pair(cf, state.choices.includes(cf.keepBothId) ? '' : 'both')">Keep both</button>
+                  <template v-if="cf.options?.length">
+                    <button v-for="o in cf.options" :key="o.id" class="sf-btn small" type="button" :aria-pressed="state.choices.includes(o.id)" :disabled="busy" @click="ctl.pair(cf, state.choices.includes(o.id) ? '' : 'match', o.id)">Same game as {{ o.label }}</button>
+                  </template>
+                  <button v-else class="sf-btn small" type="button" :aria-pressed="state.choices.includes(cf.id)" :disabled="busy" @click="ctl.pair(cf, state.choices.includes(cf.id) ? '' : 'match')">{{ cf.kind === "rename" ? "Same team" : "Same game" }}</button>
+                  <button class="sf-btn small" type="button" :aria-pressed="state.choices.includes(cf.keepBothId)" :disabled="busy" @click="ctl.pair(cf, state.choices.includes(cf.keepBothId) ? '' : 'both')">{{ cf.kind === "rename" ? "Keep both" : "New game" }}</button>
                 </span>
               </div>
               <label v-else class="sf-check tpi-conflict">

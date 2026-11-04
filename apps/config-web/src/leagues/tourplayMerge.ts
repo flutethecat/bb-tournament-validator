@@ -54,8 +54,10 @@ export interface MergeConflict {
   reason: string;
   local: string;
   export: string;
-  /** Pairings: the id that keeps both rows ("match" is `id`). */
+  /** Pairings: the id that keeps the export row as a new game ("match" is `id`, the first of `options`). */
   keepBothId?: string;
+  /** Pairings: each fixture here the export row may correct, by its match id. */
+  options?: Array<{ id: string; label: string }>;
 }
 
 export interface MergeResult {
@@ -154,6 +156,23 @@ const resultText = (v: FixtureValues): string => (v.home.score === null && v.awa
 export const localLife = (f: LeagueFixture): string | undefined =>
   f.fork ? "played or set up on Super FUMBBL" : f.tabletop ? "recorded with the match recorder" : f.resultEdit ? "result set by an organiser" : f.forfeit ? "forfeited here"
     : f.deadlineOutcome ? "decided at its deadline" : f.inactiveDecision ? "decided for an inactive team" : undefined;
+/**
+ * "Same game": the local fixture takes the export's side assignment (teams, ids, coaches, races), swapping sides when the
+ * export has them the other way round. A fixture with Super FUMBBL or recorder links can't change sides (refused, with
+ * the reason); otherwise the local result's forfeit and decisions no longer fit and are dropped, like a result pick.
+ */
+function assignSides(local: LeagueFixture, ef: LeagueFixture): string | undefined {
+  const sameTeam = (a: LeagueFixture["home"], b: LeagueFixture["home"]): boolean => (a.teamId && b.teamId ? a.teamId === b.teamId : nameKey(a.team) === nameKey(b.team));
+  if (sameTeam(local.home, ef.home) && sameTeam(local.away, ef.away)) return undefined;
+  if (local.fork || local.tabletop) return "its sides would change and it has Super FUMBBL or match recorder links";
+  if (sameTeam(local.home, ef.away) && sameTeam(local.away, ef.home)) {
+    [local.home, local.away] = [local.away, local.home];
+  } else {
+    for (const s of ["home", "away"] as const) if (!sameTeam(local[s], ef[s])) local[s] = structuredClone(ef[s]);
+  }
+  detachLocalResult(local);
+  return undefined;
+}
 const hasLocalState = (f: LeagueFixture): boolean => Boolean(localLife(f)) || f.home.score !== null || f.away.score !== null;
 
 type Path = [string, (v: FixtureValues) => unknown, (f: LeagueFixture, x: unknown) => void];
@@ -345,19 +364,38 @@ export function mergeSeason(prior: SeasonRecord, builtIn: SeasonRecord, base: Ex
     .filter((e) => !usedBase.has(e) && !e.deleted)
     .map((e) => ({ e, local: season.fixtures.find((f) => f.id === e.id) }))
     .filter((x): x is { e: SnapFixture; local: LeagueFixture } => Boolean(x.local && !matchedLocal.has(x.local.id) && hasLocalState(x.local)));
-  const pairedOrphans = new Set<string>();
-  for (const { key, ef } of fresh) {
+  // Every possible pairing is offered (never assigned greedily): one decision per export row, listing each orphan it may
+  // correct; an orphan may be listed under several rows. A row with candidates is added only when the organiser says it
+  // is a new game; it matches only the orphan the organiser picks (and only one row may take an orphan).
+  const score = (f: LeagueFixture, ef: LeagueFixture): number => {
     const teams = new Set([ef.home.teamId, ef.away.teamId].filter(Boolean));
-    const score = (f: LeagueFixture): number => [f.home.teamId, f.away.teamId].filter((t) => t && teams.has(t)).length * 2 + (f.round === ef.round ? 1 : 0);
-    const cand = orphans.filter((o) => !pairedOrphans.has(o.local.id) && score(o.local) > 0).sort((a, b) => score(b.local) - score(a.local))[0];
-    if (cand) {
-      pairedOrphans.add(cand.local.id);
-      const match = cid("pairing", `${cand.e.id}>${key}`);
-      const both = cid("pairing-both", `${cand.e.id}>${key}`);
-      if (choices.has(match)) { usedBase.add(cand.e); mergeInto(key, ef, cand.local, cand.e); continue; }
-      if (!choices.has(both)) {
+    return [f.home.teamId, f.away.teamId].filter((t) => t && teams.has(t)).length * 2 + (f.round === ef.round ? 1 : 0);
+  };
+  const takenOrphans = new Set<string>();
+  for (const { key, ef } of fresh) {
+    const cands = orphans.filter((o) => score(o.local, ef) > 0).sort((a, b) => score(b.local, ef) - score(a.local, ef) || a.local.id.localeCompare(b.local.id));
+    if (cands.length) {
+      const both = cid("pairing-new", key);
+      const options = cands.map((o) => ({ id: cid("pairing", `${o.e.id}>${key}`), label: label(o.local), orphan: o }));
+      const picked = options.filter((o) => choices.has(o.id));
+      let reason = "";
+      if (picked.length === 1 && !choices.has(both)) {
+        const o = picked[0]!.orphan;
+        if (takenOrphans.has(o.local.id)) reason = `${label(o.local)} is already matched to another export row`;
+        else {
+          const refused = assignSides(o.local, ef);
+          if (!refused) { takenOrphans.add(o.local.id); usedBase.add(o.e); mergeInto(key, ef, o.local, o.e); continue; }
+          reason = `Can't match ${label(o.local)}: ${refused}`;
+        }
+      } else if (picked.length > 1) reason = "Pick one fixture to match, or keep it as a new game";
+      if (!picked.length && choices.has(both)) { /* a new game: added below */ } else {
         counts.kept += 1;
-        conflicts.push({ id: match, keepBothId: both, kind: "pairing", label: label(ef), reason: `Possible correction of ${label(cand.local)}`, local: resultText(fixtureValues(cand.local)), export: resultText(fixtureValues(ef)) });
+        conflicts.push({
+          id: options[0]!.id, keepBothId: both, kind: "pairing", label: label(ef),
+          reason: reason || (options.length === 1 ? `Possible correction of ${options[0]!.label}` : `Possible correction of one of: ${options.map((o) => o.label).join("; ")}`),
+          local: options.map((o) => `${o.label}: ${resultText(fixtureValues(o.orphan.local))}`).join("; "), export: resultText(fixtureValues(ef)),
+          options: options.map((o) => ({ id: o.id, label: o.label })),
+        });
         continue;
       }
     }

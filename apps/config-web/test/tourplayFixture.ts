@@ -15,10 +15,12 @@ export const NAF_NUMBERS = { morgan: "70001", quinn: "70002", riley: "70003" } a
 
 export const SLUG = "valley-bowl-season-1-0001";
 
-export function seasonFiles(slug = SLUG, opts: { quinnTeam?: string; extraRound?: boolean; round3?: "unplayed" | "1-0"; round1Score?: string; noRosters?: boolean; extraParticipant?: boolean; round1Table?: number; rosterRename?: boolean; tds?: number; round1Round?: number; twinPhases?: boolean; twinSame?: boolean; reverse?: boolean; dropRound2Table2?: boolean } = {}): Record<string, string> {
+export function seasonFiles(slug = SLUG, opts: { quinnTeam?: string; extraRound?: boolean; round3?: "unplayed" | "1-0"; round1Score?: string; noRosters?: boolean; extraParticipant?: boolean; round1Table?: number; rosterRename?: boolean; tds?: number; round1Round?: number; twinPhases?: boolean; twinSame?: boolean; reverse?: boolean; dropRound2Table2?: boolean; round1Swap?: boolean } = {}): Record<string, string> {
   const quinnTeam = opts.quinnTeam ?? "Quarry Quakers";
   const rows = [
-    `Season;Regular;;${opts.round1Round ?? 1};${opts.round1Table ?? 1};Moss Marauders;${quinnTeam};Morgan Example;Quinn Sample;Orc;Dwarf;morganx;quinns;${opts.round1Score ?? "2;1"};1;0;;;;2026-09-01T18:00:00Z;2026-09-01T20:00:00Z`,
+    opts.round1Swap
+      ? `Season;Regular;;${opts.round1Round ?? 1};${opts.round1Table ?? 1};${quinnTeam};Moss Marauders;Quinn Sample;Morgan Example;Dwarf;Orc;quinns;morganx;1;2;0;1;;;;2026-09-01T18:00:00Z;2026-09-01T20:00:00Z`
+      : `Season;Regular;;${opts.round1Round ?? 1};${opts.round1Table ?? 1};Moss Marauders;${quinnTeam};Morgan Example;Quinn Sample;Orc;Dwarf;morganx;quinns;${opts.round1Score ?? "2;1"};1;0;;;;2026-09-01T18:00:00Z;2026-09-01T20:00:00Z`,
     "Season;Regular;;1;2;Rapid Rascals;Cobble Crushers;Riley Test;Casey Demo;Skaven;Human;rileyt;caseyd;1;1;0;2;;;;2026-09-01T18:00:00Z;2026-09-01T20:00:00Z",
     `Season;Regular;;2;1;Moss Marauders;Rapid Rascals;Morgan Example;Riley Test;Orc;Skaven;morganx;rileyt;0;0;0;0;True;;;2026-09-08T18:00:00Z;2026-09-08T18:00:00Z`,
     ...(opts.dropRound2Table2 ? [] : [`Season;Regular;;2;2;Cobble Crushers;Ashen Avengers;Casey Demo;Avery Placeholder;Human;Undead;caseyd;;3;0;0;1;;;;2026-09-08T18:00:00Z;2026-09-08T20:00:00Z`]),

@@ -568,6 +568,62 @@ describe("TourPlay import upload", () => {
     });
   });
 
+  describe("re-import pairings (review round 4)", () => {
+    const zipOf = (files: Record<string, string>) => exportZip("valley-bowl-export", files).toString("base64");
+    const season = () => store.season("vbl", "season-1")!;
+
+    it("'Same game' on a home/away swap takes the export's sides: A-B 2-1 becomes B-A 1-2; links refuse the swap", async () => {
+      await call("POST", "/tourplay/apply", ORG, upload());
+      const f0 = season().fixtures.find((f) => f.round === 1 && f.home.team === "Moss Marauders")!;
+      const swapped = { zip: zipOf(seasonFiles(SLUG, { round1Swap: true })) };
+      const pair = json(await call("POST", "/tourplay/preview", ORG, swapped)).seasons[0].conflicts.find((c: { kind: string }) => c.kind === "pairing");
+      expect(pair.options).toEqual([expect.objectContaining({ id: pair.id })]);
+      // a recorder link: refused, nothing changes and nothing is added
+      let s = season();
+      s.fixtures.find((f) => f.id === f0.id)!.tabletop = { revision: 1 };
+      store.putSeason(s);
+      const refused = json(await call("POST", "/tourplay/preview", ORG, { ...swapped, choices: [pair.id] })).seasons[0].conflicts.find((c: { kind: string }) => c.kind === "pairing");
+      expect(refused.reason).toMatch(/^Can't match .*recorder/);
+      await call("POST", "/tourplay/apply", ORG, { ...swapped, choices: [pair.id] });
+      expect(season().fixtures).toHaveLength(4);
+      expect(season().fixtures.find((f) => f.id === f0.id)).toMatchObject({ home: { team: "Moss Marauders", score: 2 }, away: { team: "Quarry Quakers", score: 1 } });
+      // without links: the sides swap with their ids and coaches
+      s = season();
+      delete s.fixtures.find((f) => f.id === f0.id)!.tabletop;
+      store.putSeason(s);
+      expect((await call("POST", "/tourplay/apply", ORG, { ...swapped, choices: [pair.id] })).status).toBe(200);
+      expect(season().fixtures).toHaveLength(4);
+      expect(season().fixtures.find((f) => f.id === f0.id)).toMatchObject({
+        home: { team: "Quarry Quakers", teamId: "quarry-quakers", coach: "Quinn Sample", race: "Dwarf", score: 1 },
+        away: { team: "Moss Marauders", teamId: "moss-marauders", coach: "Morgan Example", race: "Orc", score: 2 },
+      });
+    });
+
+    it("every possible pairing is offered, none taken greedily: a round-3 row sharing a team does not swallow the orphan, and the real correction is never added silently", async () => {
+      await call("POST", "/tourplay/apply", ORG, upload());
+      const f0 = season().fixtures.find((f) => f.round === 1 && f.home.team === "Moss Marauders")!;
+      // the round-3 Quarry v Ashen row comes first (reverse) and shares Quarry with the orphan; round 1 became round 9
+      const next = { zip: zipOf(seasonFiles(SLUG, { round1Round: 9, extraRound: true, reverse: true })) };
+      const pairs = json(await call("POST", "/tourplay/preview", ORG, next)).seasons[0].conflicts.filter((c: { kind: string }) => c.kind === "pairing");
+      expect(pairs).toHaveLength(2);
+      const r9 = pairs.find((c: { label: string }) => /round 9/.test(c.label));
+      const r3 = pairs.find((c: { label: string }) => /round 3/.test(c.label));
+      expect(r9.options.map((o: { label: string }) => o.label)).toEqual([expect.stringMatching(/round 1\)/)]);
+      expect(r3.options.map((o: { label: string }) => o.label)).toEqual([expect.stringMatching(/round 1\)/)]);
+      // undecided: nothing is added
+      await call("POST", "/tourplay/apply", ORG, next);
+      expect(season().fixtures).toHaveLength(4);
+      // both rows picking the same fixture: only one may take it
+      const clash = json(await call("POST", "/tourplay/preview", ORG, { ...next, choices: [r9.options[0].id, r3.options[0].id] })).seasons[0].conflicts.filter((c: { kind: string }) => c.kind === "pairing");
+      expect(clash.some((c: { reason: string }) => /already matched/.test(c.reason))).toBe(true);
+      // the organiser matches round 9 and says round 3 is a new game
+      expect((await call("POST", "/tourplay/apply", ORG, { ...next, choices: [r9.options[0].id, r3.keepBothId] })).status).toBe(200);
+      expect(season().fixtures).toHaveLength(5);
+      expect(season().fixtures.find((f) => f.id === f0.id)).toMatchObject({ round: 9, home: { score: 2 }, away: { score: 1 } });
+      expect(season().fixtures.filter((f) => f.round === 9)).toHaveLength(1);
+    });
+  });
+
   describe("NAF numbers stay private", () => {
     it("never on a season, league, stats or export read, nor in the season files; Payment and Observations dropped", async () => {
       await call("POST", "/tourplay/apply", ORG, upload({ decisions: await confirmAll() }));
