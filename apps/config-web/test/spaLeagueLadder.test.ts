@@ -139,7 +139,7 @@ describe("Ladder tab: server-rendered", () => {
     me: { teams: ["t-dan"], targets: { "t-dan": { "t-amy": "", "t-bob": "These two teams already have a challenge open." } } },
   });
 
-  async function render(ranking: "position" | "rating" | "points"): Promise<string> {
+  async function render(ranking: "position" | "rating" | "points", opts: { provideLadders?: boolean; path?: string } = {}): Promise<string> {
     const f = mockFetcher({
       "/api/auth/session": { authenticated: true, coach: "Dan", info: { coach: "Dan", admin: false } },
       "/api/leagues/lg": { league, seasons: [s1] },
@@ -154,13 +154,15 @@ describe("Ladder tab: server-rendered", () => {
     const d = mods.league.createLeagueDetail({ api: f });
     await d.load("lg");
     expect(d.state.ladders).toHaveLength(2);
-    const l = mods.ladder.createLadders({ api: f });
-    await l.loadList("lg");
-    await l.open("ladder-1");
-    await l.loadJoin();
     spa.app.provide(mods.league.LEAGUE_DETAIL_KEY, d);
-    spa.app.provide(mods.ladder.LADDERS_KEY, l);
-    await spa.router.push("/leagues/lg?tab=ladder");
+    if (opts.provideLadders !== false) {
+      const l = mods.ladder.createLadders({ api: f });
+      await l.loadList("lg");
+      await l.open("ladder-1");
+      await l.loadJoin();
+      spa.app.provide(mods.ladder.LADDERS_KEY, l);
+    }
+    await spa.router.push(opts.path ?? "/leagues/lg?tab=ladder");
     await spa.router.isReady();
     return (await mods.renderer.renderToString(spa.app)) as string;
   }
@@ -176,6 +178,13 @@ describe("Ladder tab: server-rendered", () => {
     expect(html).toContain("Amy&#39;s Team");
     expect(html).toContain("Challenge up to 3 places above.");
     expect(html).toContain("On the ladder: Dan&#39;s Team");
+  });
+
+  it("review P1: the real tree (no controller provided from outside) opens the Join sheet without crashing; it reads the tab's controller", async () => {
+    const html = await render("position", { provideLadders: false, path: "/leagues/lg?tab=ladder&join=1" });
+    expect(html).toContain('id="ld-join-h"');
+    expect(html).toContain("Join: Spring Ladder");
+    expect(html).toContain('data-ranking="position"'); // the tab rendered its own read (server prefetch)
   });
 
   it("challenge buttons follow the server's targets: allowed is enabled; refused is disabled with the reason as its title; own row says You", async () => {

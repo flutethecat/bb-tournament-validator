@@ -4,7 +4,7 @@
 // the recent results, the scheduled rounds and the ladder's rules. A coach with a team in the ladder challenges from the
 // ranking (the server's targets say who and why not); the challenged coach accepts or declines; an accepted challenge
 // opens Propose a time straight away (the Schedule's dialog). Everything shown is what the server sent.
-import { computed, inject, onMounted, ref, watch } from "vue";
+import { computed, inject, onMounted, onServerPrefetch, provide, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { API_KEY } from "../app";
 import { SESSION_KEY, writesAllowed } from "../session";
@@ -24,6 +24,8 @@ const session = inject(SESSION_KEY)!;
 const route = useRoute();
 const router = useRouter();
 const ladders = inject(LADDERS_KEY, null) ?? createLadders({ api: fetcher });
+// The dialogs below (Join) read the same controller: provide it whether it came from a parent or was made here.
+provide(LADDERS_KEY, ladders);
 const { state } = ladders;
 const now = ref(Date.now());
 
@@ -41,6 +43,13 @@ onMounted(async () => {
   if (!state.loaded || state.leagueId !== props.leagueId) await ladders.loadList(props.leagueId);
 });
 watch(() => current.value?.id, (id) => { if (id) { void ladders.open(id); if (session.coach()) void ladders.loadJoin(); } }, { immediate: true });
+// Server rendering reads the list, the picked ladder and the viewer's join facts before it renders.
+onServerPrefetch(async () => {
+  if (!state.loaded || state.leagueId !== props.leagueId) await ladders.loadList(props.leagueId);
+  const id = current.value?.id;
+  if (id) await ladders.open(id);
+  if (id) await ladders.loadJoin();
+});
 
 // ---- challenge dialogs
 const issueTo = ref<LadderRankRow | null>(null);
@@ -89,7 +98,8 @@ async function propose(slots: number[]): Promise<void> {
 }
 
 // ---- join
-const joining = ref(false);
+/** ?join=1 (a link from a notice or the league page) opens the join sheet. */
+const joining = ref(route.query.join === "1");
 const mine = computed(() => state.join?.mine);
 const ENTRY_TEXT: Record<string, string> = { pending: "Waiting for the organisers", accepted: "On the ladder", declined: "Declined", withdrawn: "Withdrawn", dropped: "Removed", waitlisted: "Waitlisted" };
 const tvK = (v: number | null): string => (typeof v === "number" ? `${Math.round(v / 1000)}k` : "–");
