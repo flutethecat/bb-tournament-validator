@@ -7,6 +7,8 @@ import { computed, inject, reactive, ref, watch } from "vue";
 import { fromLocalInput, safeBannerUrl, toLocalInput, TOURNAMENT_DETAIL_KEY, type TournamentSettingsPatch } from "../tournaments/detail";
 import { SESSION_KEY, writesAllowed } from "../session";
 import { normalisePayPal, normaliseVenmo, PAY_NOTE, payPalProblem, venmoProblem } from "../shared/payLinks";
+import { regionFromForm } from "../../../src/competition/region";
+import RegionField from "./RegionField.vue";
 
 const SUMMARY_MAX = 4000;
 const NOTES_MAX = 2000;
@@ -22,13 +24,15 @@ const busy = computed(() => Boolean(state.busy));
 const mine = computed(() => state.lastAction === "page" || state.lastAction === "banner");
 
 interface Form {
-  venue: string; address: string; mapUrl: string; startTime: string; entryFee: string; payPal: string; venmo: string;
+  venue: string; address: string; mapUrl: string; regionCountry: string; regionText: string; startTime: string; entryFee: string; payPal: string; venmo: string;
   registration: string; checkIn: string; summary: string; notes: string;
 }
 const fromRecord = (): Form => ({
   venue: t.value.location?.venue ?? "",
   address: t.value.location?.address ?? "",
   mapUrl: t.value.location?.mapUrl ?? "",
+  regionCountry: t.value.region?.country ?? "",
+  regionText: t.value.region?.text ?? "",
   startTime: t.value.startTime ?? "",
   entryFee: t.value.entryFee ?? "",
   payPal: t.value.payPal ?? "",
@@ -48,6 +52,7 @@ const patch = computed<TournamentSettingsPatch>(() => {
     out.location = form.venue.trim() || form.address.trim() || form.mapUrl.trim()
       ? { venue: form.venue.trim(), address: form.address.trim(), mapUrl: form.mapUrl.trim() }
       : null;
+  if (form.regionCountry !== before.regionCountry || form.regionText.trim() !== before.regionText) out.region = regionFromForm(form.regionCountry, form.regionText);
   if (form.startTime !== before.startTime) out.startTime = form.startTime || null;
   if (form.entryFee !== before.entryFee) out.entryFee = form.entryFee.trim() || null;
   if (form.payPal !== before.payPal) { const p = normalisePayPal(form.payPal); out.payPal = (p.ok ? p.value : form.payPal.trim()) || null; }
@@ -107,6 +112,7 @@ async function upload() {
       <label class="tn-field sf-field"><span class="tn-fact-k">Venue</span><input v-model="form.venue" type="text" maxlength="120" autocomplete="off" /></label>
       <label class="tn-field sf-field"><span class="tn-fact-k">Address</span><input v-model="form.address" type="text" maxlength="200" autocomplete="off" /></label>
       <label class="tn-field sf-field"><span class="tn-fact-k">Map link</span><input v-model="form.mapUrl" type="url" maxlength="500" placeholder="https://" autocomplete="off" /></label>
+      <RegionField v-model:country="form.regionCountry" v-model:text="form.regionText" id-prefix="tn-page" field-class="tn-field sf-field" caption-class="tn-fact-k" />
       <label class="tn-field sf-field"><span class="tn-fact-k">Start time</span><input v-model="form.startTime" type="time" /></label>
       <label class="tn-field sf-field"><span class="tn-fact-k">Entry fee</span><input v-model="form.entryFee" type="text" maxlength="40" placeholder="e.g. 15 GBP or Free" autocomplete="off" /></label>
       <label class="tn-field sf-field" :data-invalid="payErrors.payPal ? 'true' : undefined">

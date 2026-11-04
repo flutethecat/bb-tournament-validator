@@ -63,6 +63,8 @@ export const routes: RouteRecordRaw[] = [
   { path: "/", redirect: "/lobby" },
   { path: "/home", name: "home", component: HomeView, meta: { requiresAuth: true, title: "Coach page" } },
   { path: "/leaderboards", name: "leaderboards", component: LeaderboardsView, meta: { title: "Leaderboards" } },
+  // Global site search (owner 11-04): the full results page behind the header search bar.
+  { path: "/search", name: "search", component: () => import("./views/SearchView.vue"), meta: { title: "Search" } },
   { path: "/help", name: "help", component: HelpView, meta: { title: "Help" } },
   { path: "/privacy", name: "privacy", component: PrivacyView, meta: { title: "Privacy" } },
   { path: "/whats-new", name: "whats-new", component: WhatsNewView, meta: { title: "What's new" } },

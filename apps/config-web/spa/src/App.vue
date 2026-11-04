@@ -9,6 +9,7 @@ import BellPopover from "./components/BellPopover.vue";
 import ShellNav from "./components/ShellNav.vue";
 import LandingWelcome from "./components/LandingWelcome.vue";
 import RecentGames from "./components/RecentGames.vue";
+import SiteSearch from "./components/SiteSearch.vue";
 import SignInPrompt from "./components/SignInPrompt.vue";
 import TestSignInCard from "./components/TestSignInCard.vue";
 import OnboardingDialog from "./components/OnboardingDialog.vue";
@@ -177,6 +178,8 @@ async function signOut(): Promise<void> {
     </div>
     <!-- a page's own header controls (Teleport target; empty on every page but the Tournament Builder, owner 10-31) -->
     <div id="sf-header-slot" class="sf-header-slot"></div>
+    <!-- global site search (owner 11-04): next to the account control; an icon opening a sheet on phones -->
+    <SiteSearch />
     <div class="shell-who" aria-live="polite">
       <template v-if="session.signedIn()">
         <BellPopover />

@@ -163,6 +163,7 @@ import {
   upsertIdentity,
   withConnections,
   onIdentitiesWritten,
+  readIdentitiesStrict,
   type CoachIdentities,
   type CoachIdentityRecord,
   type CoachLevel,
@@ -387,6 +388,7 @@ import { tournamentTarget } from "./discord/targets.js";
 import { isTemplatesApiPath, seasonTemplateFor, templatesApi, type TemplatesDeps } from "./templates/api.js";
 import { TemplateStore } from "./templates/store.js";
 import { clubsApi, createClubsLimiters, isClubsApiPath, type ClubsApiDeps } from "./clubs/api.js";
+import { buildSearchDocs, SEARCH_PATH, SEARCH_RATE, SEARCH_SOURCE_PATH, SearchIndex, searchApi } from "./search/index.js";
 import { ClubObserver, CLUB_OBSERVER_TICK_MS } from "./clubs/observer.js";
 import { setClubDirectory } from "./clubs/pick.js";
 import { clubHasHistory, clubLedger, type ClubLedger } from "./clubs/stats.js";
@@ -1073,6 +1075,14 @@ setInterval(discordTick, OBSERVER_TICK_MS).unref();
 // <FORK_STATE_DIR>/clubs (clubs, webhooks, crests) and /boards (club boards). The club pick at join reads memberships
 // through the pick hook; club stats read the competitions (authorised, published, non-test) through one cached ledger.
 const clubStore = new ClubStore(FORK_STATE_DIR);
+// Global site search (src/search/index.ts): an in-memory index, rebuilt on the first query after any successful write
+// request or identities write in this process, and at most 30 s old otherwise. Reads only.
+const searchIndex = new SearchIndex(() => buildSearchDocs({
+  leagues: leagueStore, tournaments: tournamentStore, clubs: clubStore, identities: readIdentitiesStrict,
+  avatarFor: (coach) => coachAvatars.avatarFor(coach), isFenced: (coach) => isCoachFenced(coach),
+}));
+const searchLimiter = new RateLimiter({ maxRequests: SEARCH_RATE.maxRequests, maxChars: Number.MAX_SAFE_INTEGER, windowMs: SEARCH_RATE.windowMs, maxKeys: 10_000 });
+onIdentitiesWritten(() => searchIndex.invalidate());
 const boardStore = new BoardStore(FORK_STATE_DIR);
 setClubDirectory({
   membershipsOf: (coach) => { try { return clubStore.membershipsOf(coach).map((c) => ({ id: c.id, name: c.name })); } catch { return []; } },
@@ -2047,6 +2057,7 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
   if (leaguePath(pathname) !== undefined) return true;
   if (seriesPath(pathname) !== undefined) return true; // Tournament Series: public reads, writes gated in-handler
   if (isClubsApiPath(pathname)) return true; // Clubs: public reads (directory, page, stats, crest), writes gated in-handler
+  if ((req.method === "GET" || req.method === "HEAD") && pathname === SEARCH_PATH) return true; // site search: public read, viewer-aware in-handler
   // Dynamic coach-scoped route: bypass legacy Basic auth, then enforce the proven session in-handler.
   if (tournamentInstructionsGameId(pathname)) return true;
   if (tournamentResultGameId(pathname)) return true;
@@ -3399,6 +3410,13 @@ async function handleApi(
       }
       return sendJson(res, 400, { error: (error as Error).message });
     }
+  }
+
+  // Global site search (src/search/index.ts): public read; drafts only for their organisers and admins. Never writes.
+  if (path === SEARCH_PATH) {
+    const result = searchApi(method, query, auth ? { coach: auth.coach, admin: auth.admin } : undefined, { index: searchIndex, limiter: searchLimiter, ip: clientIp(req) });
+    for (const [name, value] of Object.entries(result.headers ?? {})) res.setHeader(name, value);
+    return sendJson(res, result.status, result.body);
   }
 
   if (path === "/api/build-log" && (method === "GET" || method === "HEAD")) {
@@ -5511,6 +5529,9 @@ export const server = createServer((req, res) => {
   void (async () => {
     try {
       const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+      // A successful write to anything the site search lists (leagues, tournaments, clubs, accounts) rebuilds its index on
+      // the next query; other writes (lobby, chat, notifications) leave it, and the 30 s TTL catches the rest.
+      if (WRITE_METHODS.has(req.method ?? "GET") && SEARCH_SOURCE_PATH.test(url.pathname)) res.once("finish", () => { if (res.statusCode < 400) searchIndex.invalidate(); });
       // The fork calls these machine-to-machine (a Java HTTP client, no Basic-auth) — dispatch BEFORE
       // authorized() so an ADMIN_PASSWORD'd host doesn't 401 the fork. Returns false for non-xml paths.
       if (siteBackend && (await siteBackend.handle(req, res, url.pathname, url.searchParams))) return;

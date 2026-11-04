@@ -4,6 +4,7 @@
 
 import { reactive, type InjectionKey } from "vue";
 import { ApiError } from "../shared/api";
+import { regionFromForm } from "../../../src/competition/region";
 import type { Fetcher } from "../session";
 import type { LeagueCountry, LeagueSettingsView, LeagueSummary, PodiumProposal, PodiumSlot, SeasonSummary, TeamBuildingRosterRule } from "./types";
 
@@ -57,12 +58,15 @@ export const DISCORD_EVENT_LABEL: Record<string, string> = {
 export function informationPayload(f: {
   name: string; fullName: string; description: string; ruleset: string; rulesetPackage: string; playOnFork: boolean; timeZone: string;
   country: LeagueCountry; region: string; postcode: string; locality: string; street: string;
+  /** The site search region (country code + free text); absent = not sent. */
+  areaCountry?: string; areaText?: string;
 }): Record<string, unknown> {
   const hasAddress = Boolean(f.region || f.postcode.trim() || f.locality.trim() || f.street.trim());
   return {
     name: f.name, fullName: f.fullName, description: f.description, ruleset: f.ruleset, mode: "individual",
     rulesetPackage: f.rulesetPackage || null, playOnFork: f.playOnFork, timeZone: f.timeZone,
     address: hasAddress ? { country: f.country, region: f.region, postcode: f.postcode, locality: f.locality, street: f.street } : null,
+    ...(f.areaCountry !== undefined || f.areaText !== undefined ? { region: regionFromForm(f.areaCountry ?? "", f.areaText ?? "") } : {}),
   };
 }
 

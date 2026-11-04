@@ -4,6 +4,8 @@
 
 import { seasonDates } from "./league";
 import type { LeagueBrowseStatus, LeagueSummary } from "./types";
+import { emptyCompetitionFilters, passesCompetitionFilters, PLAYED_ON_LABEL as SHARED_PLAYED_ON_LABEL, type CompetitionFacets, type PlayedOn as SharedPlayedOn } from "../../../src/search/filters";
+import { fold as sharedFold, foldQuery as sharedFoldQuery } from "../../../src/search/text";
 
 export const BROWSE_STATUSES: readonly LeagueBrowseStatus[] = ["in-progress", "registration", "finished", "off-season"];
 export const BROWSE_STATUS_LABEL: Readonly<Record<LeagueBrowseStatus, string>> = {
@@ -13,8 +15,10 @@ export const BROWSE_STATUS_TONE: Readonly<Record<LeagueBrowseStatus, string>> = 
   "in-progress": "soon", registration: "ok", finished: "info", "off-season": "muted",
 };
 
-export type PlayedOn = "tabletop" | "fork";
-export const PLAYED_ON_LABEL: Readonly<Record<PlayedOn, string>> = { tabletop: "Tabletop", fork: "Super FUMBBL" };
+// Played on and Registration open are the site search's shared competition filters (src/search/filters.ts): one
+// implementation for Browse leagues and the Search page.
+export type PlayedOn = SharedPlayedOn;
+export const PLAYED_ON_LABEL: Readonly<Record<PlayedOn, string>> = SHARED_PLAYED_ON_LABEL;
 
 /** The league's status: the server's browse status, else derived from the newest season's stage (older servers). */
 export function browseStatus(l: Pick<LeagueSummary, "browse" | "currentSeason">): LeagueBrowseStatus {
@@ -44,22 +48,10 @@ export const dateText = (l: Pick<LeagueSummary, "currentSeason">): string => (l.
 
 // ---- search ----
 
-/** Case- and accent-folded text plus, for each folded character, the index of the original character it came from. */
-export function fold(text: string): { text: string; map: number[]; ends: number[] } {
-  let out = "";
-  const map: number[] = [];
-  const ends: number[] = [];
-  let i = 0;
-  for (const ch of text) {
-    const f = ch.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();
-    for (let k = 0; k < f.length; k++) { map.push(i); ends.push(i + ch.length); }
-    out += f;
-    i += ch.length;
-  }
-  return { text: out, map, ends };
-}
-
-export const foldQuery = (q: string): string => fold(q.trim().replace(/\s+/g, " ")).text;
+/** Case- and accent-folded text plus, for each folded character, the index of the original character it came from
+ *  (the site search's folding, src/search/text.ts). */
+export const fold = sharedFold;
+export const foldQuery = sharedFoldQuery;
 
 export interface SearchField { field: string; label: string; value: string }
 export interface SearchHit extends SearchField { start: number; end: number }
@@ -133,11 +125,15 @@ export interface BrowseFilters { statuses: LeagueBrowseStatus[]; playedOn: Playe
 export const emptyFilters = (): BrowseFilters => ({ statuses: [], playedOn: [], registrationOpen: false });
 export const filtersActive = (f: BrowseFilters): boolean => f.statuses.length > 0 || f.playedOn.length > 0 || f.registrationOpen;
 
+/** A list row as the shared competition filters see it (Played on and Registration open are what Browse leagues sets). */
+export function leagueFacets(l: LeagueSummary): CompetitionFacets {
+  const ruleset = [l.rulesetPackage, l.currentSeason?.ruleset].filter((r): r is string => typeof r === "string" && r !== "");
+  return { rulesets: ruleset, formats: ["season"], playedOn: playedOn(l), registrationOpen: l.browse?.registrationOpen === true, ...(leagueRegion(l) ? { regionText: leagueRegion(l) } : {}) };
+}
+
 export function passesFilters(l: LeagueSummary, f: BrowseFilters): boolean {
   if (f.statuses.length && !f.statuses.includes(browseStatus(l))) return false;
-  if (f.playedOn.length && !f.playedOn.includes(playedOn(l))) return false;
-  if (f.registrationOpen && l.browse?.registrationOpen !== true) return false;
-  return true;
+  return passesCompetitionFilters(leagueFacets(l), { ...emptyCompetitionFilters(), playedOn: f.playedOn, registrationOpen: f.registrationOpen });
 }
 
 export interface BrowseRow { l: LeagueSummary; hit: SearchHit | null }

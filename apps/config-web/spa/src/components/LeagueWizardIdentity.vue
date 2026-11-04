@@ -7,6 +7,7 @@ import { computed, inject, watch } from "vue";
 import { DESCRIPTION_MAX, FULL_NAME_MAX, LEAGUE_WIZARD_KEY, NAME_MAX, slugify } from "../leagues/wizard";
 import PlayedOnToggle from "./PlayedOnToggle.vue";
 import LeagueTourplayImport from "./LeagueTourplayImport.vue";
+import RegionField from "./RegionField.vue";
 import { timeZones } from "../shared/timeZone";
 
 const wizard = inject(LEAGUE_WIZARD_KEY)!;
@@ -62,6 +63,11 @@ const zones = computed(() => timeZones(f.value.timeZone));
           <small v-if="state.errors.timeZone" class="sf-error">{{ state.errors.timeZone }}</small>
         </label>
         <p class="lw-help">Deadlines, the Weekly Digest and other schedules use this zone. It starts as your own.</p>
+      </fieldset>
+      <fieldset class="lw-group" data-group="region">
+        <legend class="sf-k">Region</legend>
+        <RegionField v-model:country="f.regionCountry" v-model:text="f.regionText" id-prefix="lw" />
+        <p class="lw-help">Optional. Helps coaches find the league in the site search.</p>
       </fieldset>
       <fieldset class="lw-group">
         <legend class="sf-k">Artwork</legend>

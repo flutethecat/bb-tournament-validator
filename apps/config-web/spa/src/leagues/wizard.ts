@@ -5,6 +5,7 @@
 // server validates with the League settings parsers, so the messages here only mirror what it will say. No DOM.
 
 import { browserTimeZone } from "../shared/timeZone";
+import { regionFromForm, regionLabel } from "../../../src/competition/region";
 import { reactive, toRaw, type InjectionKey } from "vue";
 import { ApiError } from "../shared/api";
 import { normalisePayPal, normaliseVenmo, payPalProblem, venmoProblem } from "../shared/payLinks";
@@ -36,7 +37,7 @@ export interface WizardDraft {
   step: number;
   completedAt?: string;
   test: boolean;
-  identity: { name: string; fullName: string; slug: string; description: string; address: LeagueAddress | null; logoUrl?: string; bannerUrl?: string; playOnFork?: boolean; timeZone?: string | null };
+  identity: { name: string; fullName: string; slug: string; description: string; address: LeagueAddress | null; region?: import("../../../src/competition/region").CompetitionRegion | null; logoUrl?: string; bannerUrl?: string; playOnFork?: boolean; timeZone?: string | null };
   rules: {
     ruleset: "BB2020" | "BB2025";
     rulesetPackage?: string | null;
@@ -67,6 +68,11 @@ export interface WizardForm {
     playOnFork: boolean;
     /** IANA time zone (owner 11-02): the organiser's browser zone until changed. */
     timeZone: string;
+    /** Site search region (owner 11-04): country code and free text, "" = not set. */
+    regionCountry: string;
+    regionText: string;
+    /** The draft already has a region (an emptied pair then clears it). */
+    regionSaved?: boolean;
   };
   rules: {
     ruleset: "BB2020" | "BB2025"; official: boolean; nafApproved: boolean; unofficial: boolean; maxRegistrations: string; maxPerRace: string; rosters: TeamBuildingRosterRule[];
@@ -100,7 +106,7 @@ export function slugify(name: string): string {
 
 export function emptyForm(): WizardForm {
   return {
-    identity: { name: "", fullName: "", slug: "", slugEdited: false, description: "", playOnFork: false, timeZone: browserTimeZone() },
+    identity: { name: "", fullName: "", slug: "", slugEdited: false, description: "", playOnFork: false, timeZone: browserTimeZone(), regionCountry: "", regionText: "" },
     rules: {
       ruleset: "BB2025", official: true, nafApproved: true, unofficial: false, maxRegistrations: "", maxPerRace: "", rosters: [],
       rulesetPackage: "", houseRules: defaultHouseRules("league"),
@@ -139,7 +145,7 @@ export function formFromDraft(d: WizardDraft): WizardForm {
   const f = emptyForm();
   // Older servers sent Played on under connections only.
   const played = d.identity.playOnFork ?? d.connections.playOnFork;
-  f.identity = { name: d.identity.name, fullName: d.identity.fullName, slug: d.identity.slug, slugEdited: true, description: d.identity.description, playOnFork: played === true, timeZone: d.identity.timeZone || browserTimeZone() };
+  f.identity = { name: d.identity.name, fullName: d.identity.fullName, slug: d.identity.slug, slugEdited: true, description: d.identity.description, playOnFork: played === true, timeZone: d.identity.timeZone || browserTimeZone(), regionCountry: d.identity.region?.country ?? "", regionText: d.identity.region?.text ?? "", regionSaved: Boolean(d.identity.region) };
   f.rules = {
     ruleset: d.rules.ruleset, ...d.rules.allowedRosters,
     maxRegistrations: d.rules.maxRegistrations === null ? "" : String(d.rules.maxRegistrations),
@@ -234,11 +240,17 @@ export function stepErrors(step: WizardStepId, f: WizardForm, created: boolean):
   return {};
 }
 
+/** The region part of the General payload: sent when set, or as null to clear one the draft had. */
+function identityRegion(i: WizardForm["identity"]): { region?: ReturnType<typeof regionFromForm> } {
+  const region = regionFromForm(i.regionCountry ?? "", i.regionText ?? "");
+  return region || i.regionSaved ? { region } : {};
+}
+
 /** The PATCH /draft section a step saves (the identity also goes to POST /api/leagues on the first Next). */
 export function stepPayload(step: WizardStepId, f: WizardForm): Record<string, unknown> {
   if (step === "identity") {
     const i = f.identity;
-    return { identity: { name: i.name.trim(), fullName: i.fullName.trim(), description: i.description.trim(), playOnFork: i.playOnFork, timeZone: i.timeZone } };
+    return { identity: { name: i.name.trim(), fullName: i.fullName.trim(), description: i.description.trim(), playOnFork: i.playOnFork, timeZone: i.timeZone, ...identityRegion(i) } };
   }
   if (step === "rules") {
     const r = f.rules;
@@ -298,6 +310,7 @@ export function summaryGroups(f: WizardForm, draft: WizardDraft | null): Summary
       { k: "Address", v: `/leagues/${draft?.id ?? (i.slug.trim() || slugify(i.name) || "...")}` },
       { k: "Played on", v: i.playOnFork ? "Super FUMBBL" : "Tabletop" },
       { k: "Time zone", v: i.timeZone || "UTC" },
+      ...(regionLabel(regionFromForm(i.regionCountry, i.regionText)) ? [{ k: "Region", v: regionLabel(regionFromForm(i.regionCountry, i.regionText)) }] : []),
     ] },
     { step: "rules", title: "Rules", rows: [
       { k: "Ruleset", v: rulesetLabel(r.rulesetPackage, r.ruleset) },

@@ -977,6 +977,7 @@ function patchSettings(league: LeagueRecord, who: LeagueApiIdentity, input: Reco
       if (info.ruleset !== undefined) l.ruleset = info.ruleset;
       if (info.mode !== undefined) l.mode = info.mode;
       if (info.address !== undefined) { if (info.address === null) delete l.address; else l.address = info.address; }
+      if (info.region !== undefined) { if (info.region === null) delete l.region; else l.region = info.region; }
       if (info.playOnFork !== undefined) l.playOnFork = info.playOnFork;
       if (info.timeZone !== undefined) { if (info.timeZone === null) delete l.timeZone; else l.timeZone = info.timeZone; }
       if (info.rulesetPackage !== undefined) { if (info.rulesetPackage === null) delete l.rulesetPackage; else { l.rulesetPackage = info.rulesetPackage; l.ruleset = "BB2025"; } }

@@ -10,6 +10,7 @@
 import { isDiscordWebhook } from "../shared/discord";
 import { reactive, toRaw, type InjectionKey } from "vue";
 import { ApiError } from "../shared/api";
+import { regionFromForm, regionLabel, type CompetitionRegion } from "../../../src/competition/region";
 import type { Fetcher } from "../session";
 import { createBody, type CreateTournamentBody, type TournamentFormat } from "./create";
 import { fromLocalInput, PAIRING_LABEL, SEEDING_LABEL, toLocalInput, type TournamentPrimaryTiebreaker } from "./detail";
@@ -54,6 +55,9 @@ export interface WizardForm {
   address: string;
   mapUrl: string;
   startTime: string;
+  /** Site search region (owner 11-04): country code and free text, "" = not set. */
+  regionCountry: string;
+  regionText: string;
   format: TournamentFormat;
   roundCount: number | "";
   /** "" = the default (Dutch, or the series' seeding). */
@@ -90,7 +94,7 @@ export interface WizardForm {
 export function blankWizardForm(): WizardForm {
   return {
     // BB2025 is preselected (owner 11-02); the wizard clears it if this server has no such package.
-    packageName: DEFAULT_RULESET_PACKAGE, name: "", seriesId: "", startsAt: "", endsAt: "", playOnFork: false, venue: "", address: "", mapUrl: "", startTime: "",
+    packageName: DEFAULT_RULESET_PACKAGE, name: "", seriesId: "", startsAt: "", endsAt: "", playOnFork: false, venue: "", address: "", mapUrl: "", startTime: "", regionCountry: "", regionText: "",
     format: "swiss", roundCount: "", pairingSystem: "", seedingMode: "elo", primaryTiebreaker: "buchholz", turnTimer: "optional", summary: "",
     points: { ...DEFAULT_POINTS }, tiebreakerChain: [...DEFAULT_TIEBREAKER_CHAIN], pairingAvoid: "none", regions: [], houseRules: defaultHouseRules("tournament"),
     opensAt: "", closesAt: "", maxPlayers: 16, waitlist: true, approval: "auto", rosterLater: true, rosterBy: "", selfCheckIn: true,
@@ -107,6 +111,7 @@ export interface WizardBody extends CreateTournamentBody {
   seedingMode: TournamentSeedingMode;
   turnTimer: { enforced: TurnTimerMode };
   location?: { venue?: string; address?: string; mapUrl?: string };
+  region?: CompetitionRegion;
   startTime?: string;
   entryFee?: string;
   payPal?: string;
@@ -141,6 +146,7 @@ export function wizardBody(form: WizardForm, publish: boolean): WizardBody {
     ...(form.address.trim() ? { address: form.address.trim() } : {}),
     ...(form.mapUrl.trim() ? { mapUrl: form.mapUrl.trim() } : {}),
   } : {};
+  const region = regionFromForm(form.regionCountry, form.regionText);
   const registration = iso(form.closesAt);
   const checkIn = form.selfCheckIn ? iso(form.checkInClosesAt) : "";
   const deadlines = { ...(registration ? { registration } : {}), ...(checkIn ? { checkIn } : {}) };
@@ -159,6 +165,7 @@ export function wizardBody(form: WizardForm, publish: boolean): WizardBody {
     seedingMode: form.seedingMode,
     turnTimer: { enforced: form.turnTimer },
     ...(Object.keys(location).length ? { location } : {}),
+    ...(region ? { region } : {}),
     ...(tabletop && form.startTime ? { startTime: form.startTime } : {}),
     ...(form.entryFee.trim() ? { entryFee: form.entryFee.trim() } : {}),
     ...(form.payPal.trim() ? { payPal: payPal.ok ? payPal.value : form.payPal.trim() } : {}),
@@ -270,6 +277,7 @@ export function summaryRows(form: WizardForm, series: readonly WizardSeries[]): 
       ["Venue", !form.playOnFork && form.venue.trim()],
       ["Address", !form.playOnFork && form.address.trim()],
       ["Local start", !form.playOnFork && form.startTime],
+      ["Region", regionLabel(regionFromForm(form.regionCountry, form.regionText))],
     ]),
     format: rows([
       ["Format", FORMAT_LABEL[form.format]],

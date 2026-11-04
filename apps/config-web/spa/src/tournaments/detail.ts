@@ -159,6 +159,8 @@ export interface TournamentSettingsPatch {
   confirmAfterStart?: boolean;
   /** Tournament page fields: null clears (location / deadlines replace as a whole). */
   location?: TournamentLocation | null;
+  /** Site search region (owner 11-04): a country and free text; null clears. */
+  region?: import("../../../src/competition/region").CompetitionRegion | null;
   startTime?: string | null;
   entryFee?: string | null;
   payPal?: string | null;

@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-04",
+    "title": "Search the whole site",
+    "body": "A search bar at the top right finds leagues, ladders, tournaments, clubs, coaches and teams as you type (press / to jump to it; on phones tap the magnifier). See all results opens the Search page, with filters for ruleset, country and region, format, played on and open for registration. Leagues and tournaments can now set an optional region (a country plus a description) in their settings and creation wizards.",
+    "links": [
+      {
+        "label": "Search",
+        "href": "/app/search"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-04",
     "title": "League money rules",
     "body": "League settings has a Money card: the winnings formula (per touchdown, fan attendance, a no-stalling bonus, win and draw bonuses and the BB2025 concession rule, with the rulebook formula one click away), petty cash, the inducement budget rule and an optional treasury cap, per league with an optional override per season or ladder. The defaults keep today's numbers. Changes apply from the next fixture, every change is logged and the other organisers are told, and the league page's house rules panel shows the money rules to coaches.",
     "links": [

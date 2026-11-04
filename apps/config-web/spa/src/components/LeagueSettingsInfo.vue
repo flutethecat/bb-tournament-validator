@@ -13,6 +13,7 @@ import { cardKey, rulesetCards, type PackageListItem } from "../shared/competiti
 import LeagueSettingsHouseRules from "./LeagueSettingsHouseRules.vue";
 import PlayedOnToggle from "./PlayedOnToggle.vue";
 import RulesChangeDialog from "./RulesChangeDialog.vue";
+import RegionField from "./RegionField.vue";
 import { browserTimeZone, TIME_ZONE_NOTE, timeZones } from "../shared/timeZone";
 
 const settings = inject(LEAGUE_SETTINGS_KEY)!;
@@ -53,6 +54,7 @@ const fromView = () => {
     rulesetPackage: i.rulesetPackage ?? "", playOnFork: (i.playOnFork ?? view.value.connections.playOnFork) === true,
     country: (i.address?.country ?? "US") as LeagueCountry, region: i.address?.region ?? "", postcode: i.address?.postcode ?? "",
     locality: i.address?.locality ?? "", street: i.address?.street ?? "",
+    areaCountry: i.region?.country ?? "", areaText: i.region?.text ?? "",
     // not set yet: the browser zone is preselected (saved only with Save information)
     timeZone: i.timeZone || browserTimeZone(),
   };
@@ -121,6 +123,14 @@ function resend(message: string, confirmAfterStart: boolean): void {
             <p v-if="zoneUnset" class="ls-tz-note" role="note" data-tz-note>{{ TIME_ZONE_NOTE }}</p>
             <small v-else class="hm-small hm-empty">Deadlines, the Weekly Digest and other schedules use this zone.</small>
           </div>
+        </div>
+      </section>
+
+      <section class="hm-panel" aria-labelledby="ls-region-h" data-panel="region">
+        <header class="hm-band"><h2 id="ls-region-h">Region</h2><span class="hm-cap">Site search</span></header>
+        <div class="ls-grid">
+          <RegionField v-model:country="form.areaCountry" v-model:text="form.areaText" id-prefix="ls" field-class="ls-field" caption-class="" />
+          <small class="hm-small hm-empty ls-wide">Optional. Coaches can filter the site search by country and region.</small>
         </div>
       </section>
 

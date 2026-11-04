@@ -17,6 +17,7 @@
 import { bb2025 } from "@bb/validator/dataset";
 import { parsePayField } from "../payments/links.js";
 import { FormatError, parseRegions } from "../competition/format.js";
+import { parseCompetitionRegion, RegionError, storedRegion, type CompetitionRegion } from "../competition/region.js";
 import { HouseRulesError, houseRulesOf, parseHouseRules, type HouseRules } from "../competition/houseRules.js";
 import { discordEvents, isDiscordWebhookUrl, maskWebhookUrl } from "./discord.js";
 import { moneyRulesView, type MoneyRulesView } from "./moneyRules.js";
@@ -165,6 +166,8 @@ export interface InformationPatch {
   ruleset?: LeagueRuleset;
   mode?: "individual";
   address?: LeagueAddress | null;
+  /** Site search region (src/competition/region.ts): a country and free text; null clears. */
+  region?: CompetitionRegion | null;
   /** Played on (creation wizards v2: a General setting): true = Super FUMBBL, false = tabletop. */
   playOnFork?: boolean;
   /** The ruleset card: a saved package name, or null = the plain base ruleset. Existence is checked by the caller. */
@@ -206,6 +209,12 @@ export function parseInformation(raw: unknown): InformationPatch {
     out.mode = "individual";
   }
   if (i.address !== undefined) out.address = i.address === null ? null : parseAddress(i.address) ?? null;
+  if (i.region !== undefined) {
+    try { out.region = parseCompetitionRegion(i.region); } catch (e) {
+      if (e instanceof RegionError) throw new SettingsError(400, e.message, e.field);
+      throw e;
+    }
+  }
   if (i.playOnFork !== undefined) out.playOnFork = bool(i.playOnFork, "playOnFork");
   if (i.rulesetPackage !== undefined) {
     if (i.rulesetPackage === null || i.rulesetPackage === "") out.rulesetPackage = null;
@@ -324,6 +333,8 @@ export interface LeagueSettingsView {
   revision: number;
   information: {
     name: string; fullName: string; description: string; ruleset: LeagueRuleset; mode: "individual"; address: LeagueAddress | null;
+    /** Site search region (country + free text); null = not set. */
+    region: CompetitionRegion | null;
     /** Played on (a General setting since creation wizards v2). */
     playOnFork: boolean;
     rulesetPackage: string | null;
@@ -370,7 +381,7 @@ export function settingsView(
     revision: league.revision ?? 0,
     information: {
       name: league.name, fullName: league.fullName, description: league.description,
-      ruleset: league.ruleset ?? "BB2025", mode: "individual", address: league.address ?? null,
+      ruleset: league.ruleset ?? "BB2025", mode: "individual", address: league.address ?? null, region: storedRegion(league.region) ?? null,
       playOnFork: league.playOnFork === true, rulesetPackage: league.rulesetPackage ?? null,
       timeZone: leagueTimeZoneSet(league) ? leagueTimeZone(league) : null,
     },

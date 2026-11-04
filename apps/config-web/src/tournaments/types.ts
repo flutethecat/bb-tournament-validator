@@ -138,6 +138,9 @@ export interface TournamentRecord {
   pairingAvoid?: PairingAvoid;
   /** The organiser's regions; coaches pick one when they join (a later lane). Absent = none. */
   regions?: string[];
+  /** Where the tournament is, for the site search (owner 11-04): a country and free text (src/competition/region.ts). A page
+   *  field (Manage -> Page and the wizard's General step). Absent = not set. */
+  region?: import("../competition/region.js").CompetitionRegion;
   /** Site-authorised event (owner round 3: every event run on the site is authorised for now). Absent = true (records
    *  written before the flag existed); the read model always carries the derived boolean. */
   authorised?: boolean;

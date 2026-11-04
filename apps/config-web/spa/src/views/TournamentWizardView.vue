@@ -23,6 +23,7 @@ import type { TemplateView, TournamentTemplateContent } from "../shared/template
 import CompetitionFormatFields from "../components/CompetitionFormatFields.vue";
 import HouseRulesFields from "../components/HouseRulesFields.vue";
 import PlayedOnToggle from "../components/PlayedOnToggle.vue";
+import RegionField from "../components/RegionField.vue";
 import RulesetCardPicker from "../components/RulesetCardPicker.vue";
 import { PAY_NOTE, payPalProblem, venmoProblem } from "../shared/payLinks";
 import { isDiscordWebhook } from "../shared/discord";
@@ -195,6 +196,12 @@ async function saveTemplate(input: { name: string; description: string; includeP
                 <label class="sf-field"><span class="sf-k">Local start time</span><input v-model="state.form.startTime" type="time" /></label>
               </template>
               <p v-else class="tw-help tw-wide">Fixtures are played online: the fixture lobby launches each game.</p>
+            </fieldset>
+
+            <fieldset class="tw-group" data-group="region">
+              <legend class="tw-legend">Region</legend>
+              <RegionField v-model:country="state.form.regionCountry" v-model:text="state.form.regionText" id-prefix="tw" />
+              <p class="tw-help tw-wide">Optional. Coaches can filter the site search by country and region.</p>
             </fieldset>
             <p v-if="state.template && !state.form.startsAt" class="tw-help tw-wide" data-template-times>Set Starts and the template's registration and check-in times fill in relative to it.</p>
           </div>

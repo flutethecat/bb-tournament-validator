@@ -553,7 +553,7 @@ function applyTournamentUpdate(data: TournamentDataFileV4, tournamentId: string,
 function applyPagePatch(data: TournamentDataFileV4, tournamentId: string, patch: TournamentPagePatch, now: Date): TournamentRecord {
   const tournament = data.tournaments[tournamentId];
   if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
-  for (const field of ["location", "startTime", "entryFee", "payPal", "venmo", "summary", "notes", "deadlines"] as const) {
+  for (const field of ["location", "region", "startTime", "entryFee", "payPal", "venmo", "summary", "notes", "deadlines"] as const) {
     const value = patch[field];
     if (value === undefined) continue;
     if (value === null) delete tournament[field];

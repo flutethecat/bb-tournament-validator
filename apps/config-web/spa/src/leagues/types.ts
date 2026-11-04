@@ -530,6 +530,8 @@ export interface LeagueSettingsView {
   revision: number;
   information: {
     name: string; fullName: string; description: string; ruleset: LeagueRuleset; mode: "individual"; address: LeagueAddress | null;
+    /** Site search region (owner 11-04; absent on older servers): a country code and free text. */
+    region?: import("../../../src/competition/region").CompetitionRegion | null;
     /** Creation wizards v2 (absent on older servers): Played on, and the ruleset card's package. */
     playOnFork?: boolean;
     rulesetPackage?: string | null;

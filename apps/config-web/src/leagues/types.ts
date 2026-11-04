@@ -71,6 +71,8 @@ export interface LeagueRecord {
   rulesetPackage?: string;
   /** The organiser's regions (Season step); coaches pick one at join (a later lane). */
   regions?: string[];
+  /** Where the league is, for the site search (owner 11-04): a country and free text (src/competition/region.ts). No venue. */
+  region?: import("../competition/region.js").CompetitionRegion;
   /** Site-authorised (owner round 3: every competition run on the site is, for now). Absent = true. */
   authorised?: boolean;
   /** Written only by scripts/seed-demo-leagues.ts (demo data): which script and run created it. --remove needs it. Never in a read model. */

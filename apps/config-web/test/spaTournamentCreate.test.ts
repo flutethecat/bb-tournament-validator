@@ -374,7 +374,7 @@ describe("create views (server-rendered against a mocked API)", () => {
   it("wizard, step 2: details in grouped panels; tabletop shows the venue fields, Super FUMBBL hides them; only the coach's own series", async () => {
     const tabletop = await renderWizard((w) => { w.pickPackage("nut-cup"); w.go("general"); });
     expect(tabletop.html).toMatch(/<h2 id="tw-step-h">General<\/h2><span class="hm-cap">Step 2 of 5<\/span>/);
-    expect(captions(tabletop.html)).toEqual(["Name", "Series", "Starts (UTC)", "Ends (UTC)", "Summary", "Venue", "Address", "Map link", "Local start time"]);
+    expect(captions(tabletop.html)).toEqual(["Name", "Series", "Starts (UTC)", "Ends (UTC)", "Summary", "Venue", "Address", "Map link", "Local start time", "Country", "Region"]);
     expect(tabletop.html).toContain("data-played-on");
     expect(tabletop.html).toContain('<option value="s1">Valley Series</option>');
     expect(tabletop.html).not.toContain("Other Series");

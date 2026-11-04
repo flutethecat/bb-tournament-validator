@@ -13,6 +13,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { promises as fsp } from "node:fs";
 import { join } from "node:path";
 import { parsePayField } from "../payments/links.js";
+import { parseCompetitionRegion, RegionError, type CompetitionRegion } from "../competition/region.js";
 import { AVATAR_CONTENT_TYPE, avatarRateLimit, sniffImage, type AvatarExt, type SniffedImage } from "../teamAvatars.js";
 import { isTournamentManager, TournamentStore, TournamentStoreError } from "./store.js";
 import type { TournamentDeadlines, TournamentLocation, TournamentNewsPost, TournamentRecord } from "./types.js";
@@ -72,6 +73,8 @@ function plainObject(value: unknown, field: string): Record<string, unknown> {
 /** The page fields of a PATCH body. A value of null clears the field (location / deadlines replace as a whole). */
 export interface TournamentPagePatch {
   location?: TournamentLocation | null;
+  /** Site search region (src/competition/region.ts): a country and free text; null clears. */
+  region?: CompetitionRegion | null;
   startTime?: string | null;
   entryFee?: string | null;
   /** Payment links (src/payments/links.ts): null clears. */
@@ -82,7 +85,7 @@ export interface TournamentPagePatch {
   deadlines?: TournamentDeadlines | null;
 }
 
-export const PAGE_FIELDS = ["location", "startTime", "entryFee", "payPal", "venmo", "summary", "notes", "deadlines"] as const;
+export const PAGE_FIELDS = ["location", "region", "startTime", "entryFee", "payPal", "venmo", "summary", "notes", "deadlines"] as const;
 
 export function parsePagePatch(input: Record<string, unknown>): TournamentPagePatch {
   const out: TournamentPagePatch = {};
@@ -100,6 +103,12 @@ export function parsePagePatch(input: Record<string, unknown>): TournamentPagePa
         ...(mapUrl ? { mapUrl } : {}),
       };
       out.location = Object.keys(location).length ? location : null;
+    }
+  }
+  if (input.region !== undefined) {
+    try { out.region = parseCompetitionRegion(input.region); } catch (e) {
+      if (e instanceof RegionError) bad(e.message);
+      throw e;
     }
   }
   if (input.startTime !== undefined) {

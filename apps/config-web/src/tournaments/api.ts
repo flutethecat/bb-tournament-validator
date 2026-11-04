@@ -453,7 +453,7 @@ export const PUBLIC_TOURNAMENT_FIELDS = [
   "id", "name", "status", "test", "publishedAt", "unpublished", "registration", "format", "packageName", "maxPlayers",
   "roundCount", "roundCountExplicit", "currentRound", "tiebreakers", "points", "turnTimer", "inducementOptIns",
   "organizerCoachId", "ownerCoachId", "organizerCoachIds", "pairingSystem", "seedingMode", "rostersLockedAt", "startedAt",
-  "seriesId", "location", "startTime", "entryFee", "payPal", "venmo", "summary", "notes", "deadlines", "nafSanctioned",
+  "seriesId", "location", "region", "startTime", "entryFee", "payPal", "venmo", "summary", "notes", "deadlines", "nafSanctioned",
   "playOnFork", "awards", "awardsRevision", "houseRules", "pairingAvoid", "regions", "authorised", "createdAt", "updatedAt",
 ] as const satisfies ReadonlyArray<keyof TournamentRecord>;
 

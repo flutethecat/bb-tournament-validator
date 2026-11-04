@@ -150,6 +150,8 @@ export interface TournamentSummary {
   seriesId?: string;
   bannerUrl?: string;
   location?: TournamentLocation;
+  /** Site search region (owner 11-04): a country and free text. */
+  region?: import("../../../src/competition/region").CompetitionRegion;
   startTime?: string;
   entryFee?: string;
   /** Payment links as stored (the organiser forms) and as the page may show them (server re-checked). */
