@@ -369,8 +369,25 @@ export function seasonStartRefusal(store: LeagueStore, leagueId: string, seasonI
   if (isLadderId(seasonId)) return undefined;
   const league = store.league(leagueId);
   if (!league) return undefined;
+  // Only before the season starts (setup / registration): a gate on a season that has since started counts as done.
+  if (!seasonNotStarted(store, leagueId, seasonId)) return undefined;
   const r = gateRefusal(store, league, "season-start", seasonId, now);
   return r ? { message: r.gate ? `${r.message} No games until then.` : r.message, gate: r.gate } : undefined;
+}
+
+/** The season is still in setup or registration (the only time its start gate means anything). */
+export function seasonNotStarted(store: LeagueStore, leagueId: string, seasonId: string): boolean {
+  const s = store.season(leagueId, seasonId);
+  if (!s || isLadder(s)) return false;
+  const st = seasonStage(s);
+  return st === "setup" || st === "registration";
+}
+
+/** The league's open redraft has a window that has already opened (a window gate can no longer shut it). */
+export function redraftWindowOpened(store: LeagueStore, leagueId: string): boolean {
+  const source = redraftSource(store.seasons(leagueId));
+  const st = source?.redraft;
+  return Boolean(st && !st.closedAt && st.window?.openNotifiedAt);
 }
 
 // ---- opening: actions (start, reveal, announce), each retried until done ------------------------------------------------------
@@ -552,7 +569,10 @@ export async function runGateJob(deps: GateJobDeps): Promise<{ opened: string[];
     const due = file.gates.filter((g) => isGateKind(g.kind) && g.state !== "open" && (() => { const at = gateTime(g, w.events, w.zone); return at !== undefined && at <= now.getTime(); })());
     if (due.length) {
       const iso = now.toISOString();
-      for (const g of due) markOpen(g, "schedule", iso);
+      for (const g of due) {
+        markOpen(g, "schedule", iso);
+        if ((g.kind === "season-start" && !seasonNotStarted(deps.store, league.id, g.target)) || (g.kind === "redraft-window" && redraftWindowOpened(deps.store, league.id))) g.actions = {};
+      }
       file.revision += 1;
       try { deps.store.putLeagueGates(league.id, file); } catch { out.failed.push(league.id); continue; } // not written: nobody is told
       for (const g of due) out.opened.push(`${league.id}/${g.id}`);
@@ -656,6 +676,11 @@ export async function leagueGateRoutes(
   const at = (deps.now?.() ?? new Date());
   const problem = targetProblem(deps.store, lg.id, kind, target);
   if (problem) return fail(400, problem, { field: "target" });
+  // A step that already happened can't be gated again (a stale tab saving after another organiser acted): refused.
+  if (!open && input.mode !== "off") {
+    if (kind === "season-start" && !seasonNotStarted(deps.store, lg.id, target)) return fail(409, "This season already started: a season start gate no longer applies.", { field: "target", code: "season-started" });
+    if (kind === "redraft-window" && redraftWindowOpened(deps.store, lg.id)) return fail(409, "The redraft window is already open: a window gate can't shut it again.", { field: "target", code: "window-open" });
+  }
   let w: GateWorld;
   try { w = world(deps.store, lg); } catch { return fail(500, "The league's gates could not be read."); }
   let file: LeagueGatesFile;

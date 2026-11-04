@@ -673,3 +673,50 @@ describe("review fixes", () => {
     expect((await call("PUT", `${G}/registration/season-7`, JAY, { revision: 1, mode: "off" })).status).toBe(409);
   });
 });
+
+describe("review round 2: a step that already happened can't be gated again", () => {
+  it("a season start gate can't be saved on a season that started; an older one never blocks a running season's play", async () => {
+    // Another organiser starts Season 7 while this tab still shows it in registration.
+    await setGate("season-start", "season-7", { mode: "time", opensAt: "2026-11-04T19:00" });
+    expect((await openNow("season-start", "season-7")).status).toBe(200);
+    expect((await call("POST", "/api/leagues/tabbl/seasons/season-7/stage", JAY, { stage: "active" })).status).toBe(200);
+    const g = await gateOf("season-start:season-7");
+    const stale = await call("PUT", `${G}/season-start/season-7`, JAY, { revision: g!.revision, mode: "time", opensAt: "2026-11-09T19:00" });
+    expect(stale.status).toBe(409);
+    expect(stale.body).toMatchObject({ code: "season-started" });
+    // Switching it off is still allowed.
+    expect((await call("PUT", `${G}/season-start/season-7`, JAY, { revision: g!.revision, mode: "off" })).status).toBe(200);
+    // A gate already in the file (written before the season started) never blocks play once it runs.
+    const s7 = store.season("tabbl", "season-7")!;
+    s7.fixtures.push({
+      ...fx("g2", "Elves", "Dwarfs", null, null),
+      home: { team: "Elves", teamId: "elves", coach: "Bob", coachId: "Bob", race: "Wood Elf", score: null, cas: null, conceded: false },
+      away: { team: "Dwarfs", teamId: "dwarfs", coach: "Dee", coachId: "Dee", race: "Dwarf", score: null, cas: null, conceded: false },
+    });
+    store.putSeason(s7);
+    const file = store.leagueGates("tabbl");
+    file.gates.push({ id: "season-start:season-7", kind: "season-start", target: "season-7", opensAt: "2026-11-09T19:00", armedAt: now.toISOString(), state: "shut", revision: 9, createdAt: "", updatedAt: "" });
+    store.putLeagueGates("tabbl", file);
+    const ref = leagueFixtureRef("tabbl", "season-7", "g2");
+    expect(leagueFixtureView(store, ref, now)?.shut).toBeUndefined();
+    expect((await call("PATCH", "/api/leagues/tabbl/seasons/season-7/fixtures/g2", JAY, { result: { home: 2, away: 1 } })).status).toBe(200);
+    // When it comes due, it counts as done: nothing to start, nothing announced.
+    now = new Date("2026-11-09T19:00:00.000Z");
+    posts = [];
+    await job();
+    expect(titles()).toEqual([]);
+  });
+
+  it("a redraft window gate can't shut a window that already opened; an older one stops blocking rest rolls once it opened", async () => {
+    expect((await confirmRedraft()).status).toBe(200); // the window opens now
+    const stale = await setGate("redraft-window", "league", { mode: "time", opensAt: "2026-11-05T19:00" });
+    expect(stale.status).toBe(409);
+    expect(stale.body).toMatchObject({ code: "window-open" });
+    // A gate written into the file anyway (a race) does not shut the open window.
+    const file = store.leagueGates("tabbl");
+    file.gates.push({ id: "redraft-window:league", kind: "redraft-window", target: "league", opensAt: "2026-11-05T19:00", armedAt: now.toISOString(), state: "shut", revision: 1, createdAt: "", updatedAt: "" });
+    store.putLeagueGates("tabbl", file);
+    const rest = await call("POST", "/api/leagues/tabbl/redraft/teams/orcs/rest", ANN, { revision: store.season("tabbl", "season-6")!.redraft!.revision, mode: "site" });
+    expect(rest.status, JSON.stringify(rest.body)).toBe(200);
+  });
+});

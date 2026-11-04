@@ -231,7 +231,8 @@ export async function redraftRoutes(
     }
     const zone = leagueTimeZone(lg);
     // The redraft window gate, read directly (never only through the window it projects): shut = the window is not open.
-    const windowShut = gateBlock(deps.store, lg, "redraft-window", "league", nowDate);
+    // Only until the window has opened: a gate saved afterwards never shuts an open window again.
+    const windowShut = state.window?.openNotifiedAt ? undefined : gateBlock(deps.store, lg, "redraft-window", "league", nowDate);
     if (windowShut) return windowShut;
     if (windowBefore(state.window, nowDate)) {
       return fail(409, `The redraft opens at ${whenText(state.window!.opensAt, zone)}.`, {

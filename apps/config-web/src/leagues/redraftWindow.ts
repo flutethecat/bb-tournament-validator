@@ -219,6 +219,7 @@ export function runRedraftWindowJob(deps: RedraftWindowDeps): RedraftWindowOutco
     // Gates (gates.ts), read directly: the window opens only once its gate is open, and the close (with its automatic rest rolls
     // and rebuilds) waits while the rest-roll or submission gate is still shut. Unreadable gates count as shut (fail closed).
     const shut = (k: "redraft-window" | "redraft-rest" | "redraft-submit"): boolean => Boolean(gateRefusal(deps.store, league, k, "league", now));
+    // (The window gate is read only before the window opens: the open step below is the only place it is asked.)
     const notices: Array<{ coach: string; input: NotificationInput }> = [];
     const pending = state.teams.filter((x) => x.selected && x.status === "pending");
     const coachNote = (coach: string | undefined, teamId: string, title: string, body: string): void => {
