@@ -74,16 +74,16 @@ describe("tournament Registration gate", () => {
     expect((await read()).gates).toEqual([]);
     expect((await read()).timeZone).toBe("UTC");
     // Only managers write; anonymous 401, another organiser 403; a missing revision 428, a stale one 409.
-    expect((await h.call("PUT", h.gatePath(t), undefined, { revision: 0, mode: "time", opensAt: "2026-11-12T19:00" }))?.status).toBe(401);
-    expect((await h.call("PUT", h.gatePath(t), OTHER, { revision: 0, mode: "time", opensAt: "2026-11-12T19:00" }))?.status).toBe(403);
-    expect((await h.call("PUT", h.gatePath(t), OWNER, { mode: "time", opensAt: "2026-11-12T19:00" }))?.status).toBe(428);
-    expect((await h.call("PUT", h.gatePath(t), OWNER, { revision: 3, mode: "time", opensAt: "2026-11-12T19:00" }))?.status).toBe(409);
-    expect((await h.call("PUT", h.gatePath(t), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-01T19:00" }))?.status).toBe(400);
+    expect((await h.call("PUT", h.gatePath(t), undefined, { revision: 0, mode: "time", opensAt: "2026-11-12T19:00:00.000Z" }))?.status).toBe(401);
+    expect((await h.call("PUT", h.gatePath(t), OTHER, { revision: 0, mode: "time", opensAt: "2026-11-12T19:00:00.000Z" }))?.status).toBe(403);
+    expect((await h.call("PUT", h.gatePath(t), OWNER, { mode: "time", opensAt: "2026-11-12T19:00:00.000Z" }))?.status).toBe(428);
+    expect((await h.call("PUT", h.gatePath(t), OWNER, { revision: 3, mode: "time", opensAt: "2026-11-12T19:00:00.000Z" }))?.status).toBe(409);
+    expect((await h.call("PUT", h.gatePath(t), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-01T19:00:00.000Z" }))?.status).toBe(400);
     expect((await h.call("PUT", h.gatePath(t), OWNER, { revision: 0, mode: "event", eventId: "x" }))?.status).toBe(400);
-    const set = await h.call("PUT", h.gatePath(t), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-12T19:00" });
+    const set = await h.call("PUT", h.gatePath(t), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-12T19:00:00.000Z" });
     expect(set?.status).toBe(201);
     const g = (await read(coach("Alice"))).gates[0]!;
-    // Owner 11-04: an instant (a bare wall time from an older page reads as the UTC its field said); no wall in the view.
+    // Owner 11-04: an instant; no wall in the view.
     expect(g).toMatchObject({ state: "shut", opensAt: "2026-11-12T19:00:00.000Z", revision: 1, secondsLeft: 2 * 86_400 + 7 * 3600 });
     expect(g.wall).toBeUndefined();
     // The server refuses the entry (409 not-yet-open) and says when; the public registration status agrees.
@@ -98,8 +98,8 @@ describe("tournament Registration gate", () => {
     expect(((await h.call("PUT", h.gatePath(t), OWNER, { revision: 1, mode: "off" }))!.body as { revision: number }).revision).toBe(1);
     expect((await read(OWNER)).retired).toEqual({ "registration:tournament": 1 });
     expect((await h.register(t, "Carol"))?.status).toBe(201);
-    expect((await h.call("PUT", h.gatePath(t), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-12T19:00" }))?.status).toBe(409);
-    expect((await h.call("PUT", h.gatePath(t), OWNER, { revision: 1, mode: "time", opensAt: "2026-11-12T19:00" }))?.status).toBe(201);
+    expect((await h.call("PUT", h.gatePath(t), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-12T19:00:00.000Z" }))?.status).toBe(409);
+    expect((await h.call("PUT", h.gatePath(t), OWNER, { revision: 1, mode: "time", opensAt: "2026-11-12T19:00:00.000Z" }))?.status).toBe(201);
     expect((await read()).gates[0]!.revision).toBe(2);
     expect((await h.call("POST", `${h.gatePath(t)}/open`, OWNER, { revision: 1 }))?.status).toBe(409);
   });
@@ -108,7 +108,7 @@ describe("tournament Registration gate", () => {
     const h = tournamentHarness();
     const t = await h.create();
     h.discord.setWebhook(`tournament:${t.id}`, HOOK);
-    await h.call("PUT", h.gatePath(t), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-12T19:00" });
+    await h.call("PUT", h.gatePath(t), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-12T19:00:00.000Z" });
     await runTournamentGateJob({ store: h.store, notify: h.notifier, discord: { state: h.discord, poster: h.poster }, now: () => h.clock.now });
     expect(h.posts).toHaveLength(0);
     h.clock.now = new Date("2026-11-12T19:00:30.000Z");
@@ -129,7 +129,7 @@ describe("tournament Registration gate", () => {
     const h = tournamentHarness();
     const t = await h.create();
     h.discord.setWebhook(`tournament:${t.id}`, HOOK);
-    await h.call("PUT", h.gatePath(t), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-20T19:00" });
+    await h.call("PUT", h.gatePath(t), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-20T19:00:00.000Z" });
     const opened = await h.call("POST", `${h.gatePath(t)}/open`, OWNER, { revision: 1 });
     expect(opened?.status).toBe(200);
     expect(h.posts).toHaveLength(1);
@@ -138,7 +138,7 @@ describe("tournament Registration gate", () => {
     // A draft: opening posts nothing.
     const d = await h.create({ publish: false, name: "Hidden Cup" });
     h.discord.setWebhook(`tournament:${d.id}`, HOOK);
-    await h.call("PUT", h.gatePath(d), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-20T19:00" });
+    await h.call("PUT", h.gatePath(d), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-20T19:00:00.000Z" });
     await h.call("POST", `${h.gatePath(d)}/open`, OWNER, { revision: 1 });
     expect(h.posts).toHaveLength(1);
     // A corrupt gate record refuses registration (fail closed).
@@ -152,7 +152,7 @@ describe("tournament Registration gate", () => {
     const t = await h.create({ registration: { approval: "auto", waitlist: true, rosterLater: true, opensAt: "2026-11-11T09:00:00.000Z" } });
     h.discord.setWebhook(`tournament:${t.id}`, HOOK);
     h.discord.setConfig(`tournament:${t.id}`, { events: { registrationOpened: true } } as never);
-    await h.call("PUT", h.gatePath(t), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-12T19:00" });
+    await h.call("PUT", h.gatePath(t), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-12T19:00:00.000Z" });
     const leagues = new LeagueStore(tmp("bbtv-tgate-l-"));
     const observer = new DiscordObserver({ leagues, tournaments: h.store, state: h.discord, now: () => h.clock.now, poster: h.poster } as never);
     await observer.tick(); // baseline
@@ -170,7 +170,7 @@ describe("tournament Registration gate", () => {
     const t = await h.create({ registration: { approval: "auto", waitlist: true, rosterLater: true, opensAt: "2026-11-11T09:00:00.000Z" } });
     h.discord.setWebhook(`tournament:${t.id}`, HOOK);
     h.discord.setConfig(`tournament:${t.id}`, { events: { registrationOpened: true } } as never);
-    await h.call("PUT", h.gatePath(t), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-12T19:00" });
+    await h.call("PUT", h.gatePath(t), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-12T19:00:00.000Z" });
     const observer = new DiscordObserver({ leagues: new LeagueStore(tmp("bbtv-tgate-l-")), tournaments: h.store, state: h.discord, now: () => h.clock.now, poster: h.poster } as never);
     await observer.tick(); // baseline
     h.clock.now = new Date("2026-11-12T19:01:00.000Z");
@@ -185,7 +185,7 @@ describe("tournament Registration gate", () => {
     const t = await h.create({ registration: { approval: "auto", waitlist: true, rosterLater: true, opensAt: "2026-11-11T09:00:00.000Z" } });
     h.discord.setWebhook(`tournament:${t.id}`, HOOK);
     h.discord.setConfig(`tournament:${t.id}`, { events: { registrationOpened: true } } as never);
-    await h.call("PUT", h.gatePath(t), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-12T19:00" });
+    await h.call("PUT", h.gatePath(t), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-12T19:00:00.000Z" });
     const observer = new DiscordObserver({ leagues: new LeagueStore(tmp("bbtv-tgate-l-")), tournaments: h.store, state: h.discord, now: () => h.clock.now, poster: h.poster } as never);
     const job = () => runTournamentGateJob({ store: h.store, notify: h.notifier, discord: { state: h.discord, poster: h.poster }, now: () => h.clock.now });
     await observer.tick();
@@ -196,7 +196,7 @@ describe("tournament Registration gate", () => {
     // Shut again (re-armed for the 14th) and reopened: one new post (job first), never a third.
     h.clock.now = new Date("2026-11-13T10:00:00.000Z");
     const rev = h.store.tournament(t.id)!.registrationGate!.revision;
-    expect((await h.call("PUT", h.gatePath(t), OWNER, { revision: rev, mode: "time", opensAt: "2026-11-14T19:00" }))?.status).toBe(200);
+    expect((await h.call("PUT", h.gatePath(t), OWNER, { revision: rev, mode: "time", opensAt: "2026-11-14T19:00:00.000Z" }))?.status).toBe(200);
     await observer.tick();
     expect(h.posts).toHaveLength(1);
     h.clock.now = new Date("2026-11-14T19:01:00.000Z");
@@ -207,7 +207,7 @@ describe("tournament Registration gate", () => {
     expect(h.store.tournament(t.id)!.registrationGate!.announce).toBe("done");
     // Re-armed again and reopened with the observer first: still exactly one more.
     h.clock.now = new Date("2026-11-15T10:00:00.000Z");
-    await h.call("PUT", h.gatePath(t), OWNER, { revision: h.store.tournament(t.id)!.registrationGate!.revision, mode: "time", opensAt: "2026-11-16T19:00" });
+    await h.call("PUT", h.gatePath(t), OWNER, { revision: h.store.tournament(t.id)!.registrationGate!.revision, mode: "time", opensAt: "2026-11-16T19:00:00.000Z" });
     h.clock.now = new Date("2026-11-16T19:01:00.000Z");
     await observer.tick();
     await job();
@@ -221,7 +221,7 @@ describe("tournament Registration gate", () => {
     expect(regopenMarker(h.store.tournament(t.id)!)).toBe("regopen:2026-11-11T09:00:00.000Z");
     h.discord.setWebhook(`tournament:${t.id}`, HOOK);
     h.discord.setConfig(`tournament:${t.id}`, { events: { registrationOpened: true } } as never);
-    await h.call("PUT", h.gatePath(t), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-12T19:00" });
+    await h.call("PUT", h.gatePath(t), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-12T19:00:00.000Z" });
     const observer = new DiscordObserver({ leagues: new LeagueStore(tmp("bbtv-tgate-l-")), tournaments: h.store, state: h.discord, now: () => h.clock.now, poster: h.poster } as never);
     const job = () => runTournamentGateJob({ store: h.store, notify: h.notifier, discord: { state: h.discord, poster: h.poster }, now: () => h.clock.now });
     await observer.tick();
@@ -238,7 +238,7 @@ describe("tournament Registration gate", () => {
     expect(h.posts).toHaveLength(1);
     // Set again later (a real re-arm: armedAt after the last claim) and opened: one new post.
     h.clock.now = new Date("2026-11-13T11:00:00.000Z");
-    await h.call("PUT", h.gatePath(t), OWNER, { revision: h.store.tournament(t.id)!.registrationGateRetired!, mode: "time", opensAt: "2026-11-14T19:00" });
+    await h.call("PUT", h.gatePath(t), OWNER, { revision: h.store.tournament(t.id)!.registrationGateRetired!, mode: "time", opensAt: "2026-11-14T19:00:00.000Z" });
     h.clock.now = new Date("2026-11-14T19:01:00.000Z");
     await observer.tick();
     await job();
@@ -250,7 +250,7 @@ describe("tournament Registration gate", () => {
     const t = await h.create({ publish: false, name: "Draft Cup", registration: { approval: "auto", waitlist: true, rosterLater: true, opensAt: "2026-11-11T09:00:00.000Z" } });
     h.discord.setWebhook(`tournament:${t.id}`, HOOK);
     h.discord.setConfig(`tournament:${t.id}`, { events: { registrationOpened: true } } as never);
-    await h.call("PUT", h.gatePath(t), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-12T19:00" });
+    await h.call("PUT", h.gatePath(t), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-12T19:00:00.000Z" });
     const observer = new DiscordObserver({ leagues: new LeagueStore(tmp("bbtv-tgate-l-")), tournaments: h.store, state: h.discord, now: () => h.clock.now, poster: h.poster } as never);
     const job = () => runTournamentGateJob({ store: h.store, notify: h.notifier, discord: { state: h.discord, poster: h.poster }, now: () => h.clock.now });
     await observer.tick();
@@ -262,7 +262,7 @@ describe("tournament Registration gate", () => {
     expect((await h.call("POST", `/api/tournaments/${t.id}/publish`, OWNER, {}))?.status).toBe(200);
     // Re-armed (still shut), then switched off: registration is open now and is announced once.
     h.clock.now = new Date("2026-11-13T10:00:00.000Z");
-    await h.call("PUT", h.gatePath(t), OWNER, { revision: h.store.tournament(t.id)!.registrationGate!.revision, mode: "time", opensAt: "2026-11-15T19:00" });
+    await h.call("PUT", h.gatePath(t), OWNER, { revision: h.store.tournament(t.id)!.registrationGate!.revision, mode: "time", opensAt: "2026-11-15T19:00:00.000Z" });
     h.clock.now = new Date("2026-11-13T11:00:00.000Z");
     expect((await h.call("PUT", h.gatePath(t), OWNER, { revision: h.store.tournament(t.id)!.registrationGate!.revision, mode: "off" }))?.status).toBe(200);
     expect(h.store.tournament(t.id)!.registrationGateRetiredArmedAt).toBe("2026-11-13T10:00:00.000Z");
@@ -279,7 +279,7 @@ describe("tournament Registration gate", () => {
     const t = await h.create({ registration: { approval: "auto", waitlist: true, rosterLater: true, opensAt: "2026-11-20T12:00:00.000Z" } });
     h.discord.setWebhook(`tournament:${t.id}`, HOOK);
     h.discord.setConfig(`tournament:${t.id}`, { events: { registrationOpened: true } } as never);
-    await h.call("PUT", h.gatePath(t), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-12T19:00" });
+    await h.call("PUT", h.gatePath(t), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-12T19:00:00.000Z" });
     const observer = new DiscordObserver({ leagues: new LeagueStore(tmp("bbtv-tgate-l-")), tournaments: h.store, state: h.discord, now: () => h.clock.now, poster: h.poster } as never);
     await observer.tick();
     h.clock.now = new Date("2026-11-12T19:01:00.000Z");

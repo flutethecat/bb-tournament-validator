@@ -111,16 +111,23 @@ describe("server: instants, UTC-labelled text, Discord timestamps", () => {
     expect(parseInstant("2026-11-12T19:00Z")).toBe(Date.parse("2026-11-12T19:00:00.000Z"));
   });
 
-  it("P2-4: a wall time from a previous-build gate editor is read in the tournament's stored zone, else UTC", async () => {
+  it("P2-4 / round 2: a bare wall time (an editor from before 11-04) is refused with 409 reload, never guessed into a zone", async () => {
     const h = harness();
     const make = async (name: string) => (((await h.call("POST", "/api/tournaments", OWNER, { name, packageName: "Spike 2026", maxPlayers: 4, format: "swiss", publish: true }))!.body) as { tournament: TournamentRecord }).tournament;
     const paris = await make("Paris Open");
     h.store.updateTournamentRecord(paris.id, (t) => { t.timeZone = "Europe/Paris"; });
-    expect((await h.call("PUT", gatePath(paris), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-12T19:00" }))?.status).toBe(201);
-    expect(h.store.tournament(paris.id)!.registrationGate!.opensAt).toBe("2026-11-12T18:00:00.000Z");
     const plain = await make("Plain Open");
-    await h.call("PUT", gatePath(plain), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-12T19:00" });
-    expect(h.store.tournament(plain.id)!.registrationGate!.opensAt).toBe("2026-11-12T19:00:00.000Z");
+    for (const t of [paris, plain]) {
+      const res = await h.call("PUT", gatePath(t), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-12T19:01" });
+      expect(res).toMatchObject({ status: 409, body: { code: "reload", error: "This page is out of date. Reload to edit the gate." } });
+      expect(h.store.tournament(t.id)!.registrationGate).toBeUndefined();
+    }
+    // the same moment as an instant is taken exactly
+    expect((await h.call("PUT", gatePath(paris), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-12T19:01:00.000+01:00" }))?.status).toBe(201);
+    expect(h.store.tournament(paris.id)!.registrationGate!.opensAt).toBe("2026-11-12T18:01:00.000Z");
+    // anything else unreadable stays a 400
+    expect((await h.call("PUT", gatePath(plain), OWNER, { revision: 0, mode: "time", opensAt: "soon" }))?.status).toBe(400);
+    // a gate already stored as a wall time by an earlier build still reads in its zone
     expect(gateWallInstant("2026-11-12T19:00", tournamentTimeZone({ timeZone: "Europe/Paris" }))).toBe(Date.parse("2026-11-12T18:00:00.000Z"));
   });
 

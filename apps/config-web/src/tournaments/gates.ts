@@ -5,7 +5,7 @@
  *   GET  /api/tournaments/:id/gates                                 everyone who can see the tournament: the gate and its countdown
  *   PUT  /api/tournaments/:id/gates/registration/tournament         managers: { revision, mode: "off" | "time", opensAt? (an ISO instant;
  *                                                                   the page converts the organiser's local time. A bare wall time
- *                                                                   from an older page is read in tournamentTimeZone()) }
+ *                                                                   from an older page answers 409 { code: "reload" }) }
  *   POST /api/tournaments/:id/gates/registration/tournament/open    managers: { revision } ("Open now")
  *
  * Writes are revision-checked (428 missing, 409 stale) and judged against the tournament as it is now; GETs change nothing.
@@ -112,10 +112,10 @@ export async function tournamentGateRoutes(method: string, path: string, auth: W
         return { result: res(200, { gate: null, removed: true, revision: last }) };
       }
       if (input.mode !== "time") return { result: fail(400, 'mode must be "off" or "time".', { field: "mode" }) };
-      // An instant (this page); a bare wall time only from an editor of the previous build, which typed it in the zone it
-      // showed: the tournament's stored zone if it has one, else UTC (tournamentTimeZone, Sol P2-4).
-      const wall = parseInstant(input.opensAt) === undefined ? parseGateWall(input.opensAt) : undefined;
-      const at = parseInstant(input.opensAt) ?? (wall ? gateWallInstant(wall, zone) : undefined);
+      // An instant only. A bare wall time comes from an editor of the previous build, whose zone can't be known (it showed
+      // UTC or the tournament's zone depending on when it loaded): refused, never guessed (Sol round 2).
+      if (parseInstant(input.opensAt) === undefined && parseGateWall(input.opensAt)) return { result: fail(409, "This page is out of date. Reload to edit the gate.", { code: "reload" }) };
+      const at = parseInstant(input.opensAt);
       if (at === undefined) return { result: fail(400, "Opens at must be a date and time.", { field: "opensAt" }) };
       if (at < now.getTime() - 60_000) return { result: fail(400, "Pick a time still to come, or use Open now.", { field: "opensAt" }) };
       if (at > now.getTime() + 366 * 86_400_000) return { result: fail(400, "Opens at must be within a year.", { field: "opensAt" }) };
