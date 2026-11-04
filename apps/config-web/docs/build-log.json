@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-03",
+    "title": "League ladders: challenge ladders beside your seasons",
+    "body": "Organisers can start one or more ladders from League management, Ladders: pick rating, points or position swap, league or tournament style, and the challenge rules. Coaches join with a team built for the ladder (straight in when validated) or move a league team in with its progression, then challenge each other from the new Ladder tab; an accepted challenge goes straight to Propose a time. Organisers can also schedule rounds, and the ladder posts results and rank changes to its own Discord webhook.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-03",
     "title": "Swap a league team, and teams available for takeover",
     "body": "Organisers can swap the team behind a league entry from the team page cog, picking from that coach's saved teams and league teams (teams that don't fit the season are greyed with the reason); a team the coach hasn't shared needs the coach's OK. The entry keeps its standings and fixtures and lists both teams. A team can be marked Available for Takeover on the league overview, where any coach can apply with a saved team or league team, or to take the team over. Coaches can turn on Permit league transfer for a team so it can move to another league with its record. Records follow the coach of each game, so a new coach never inherits past results.",
     "links": [
