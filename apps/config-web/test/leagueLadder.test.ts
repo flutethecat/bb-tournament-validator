@@ -350,6 +350,9 @@ describe("joining through the ladder adapter", () => {
     expect((await h.call("POST", `${base}/registrations`, coach("Eve"), { teamRef: "save:new-human", share: [], acknowledged: true })).status).toBe(201);
     const lad = h.ladderOf(id);
     expect(lad.ladder!.members.every((m) => m.reset)).toBe(true);
+    // The snapshot carries no coach data (account deletion anonymises the team rows, not this copy).
+    const snap = JSON.stringify(lad.ladder!.members.map((m) => m.reset));
+    for (const k of ['"coach"', '"coachId"', '"coachAssigned"', '"history"']) expect(snap).not.toContain(k);
     // A game: the roster gains SPP and a skill; the job puts the joined roster back but keeps the counters.
     const t = lad.teams[0]!;
     t.players[0]!.availableSpp = 8; t.players[0]!.skills = ["Dodge"]; t.players[0]!.stats.td = 2; t.treasury = 999_999;
