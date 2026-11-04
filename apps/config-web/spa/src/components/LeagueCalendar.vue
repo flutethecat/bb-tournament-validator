@@ -5,8 +5,12 @@
 // next / Today step through it; every day and time is the league's time zone, named in the band. Each item is a real
 // link to its related page (leagues/seasonCalendar.ts fixtureLink). Phones get the Month and Week as a day agenda.
 // League Events (league-wide; leagues/leagueEvents.ts) show in every view with their own chip style and open the event
-// dialog (a button, not a link); ?event=<id> opens it directly. Gates have a typed source that is empty until they exist.
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+// dialog (a button, not a link); ?event=<id> opens it directly. Gates (lane 8c: "Opens at" on an online step) show at their
+// opening time with a gold chip; a gate opens a small dialog with its countdown.
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { API_KEY } from "../app";
+import { api as defaultApi } from "../shared/api";
+import { calendarGates, countdownText, gateWhen, useLeagueGates, type GateView as LeagueGate } from "../leagues/gates";
 import { RouterLink, useRouter } from "vue-router";
 import LeagueDialog from "./LeagueDialog.vue";
 import LeagueEventDialog from "./LeagueEventDialog.vue";
@@ -32,9 +36,12 @@ const zone = computed(() => (validZone(props.zone) ? props.zone : "UTC"));
 // Without a season (a league with none yet) the calendar still shows its League Events.
 const fixtures = computed(() => props.season?.fixtures ?? []);
 const ctx = computed<CalendarContext>(() => ({ leagueId: props.leagueId, seasonId: props.season?.id ?? "", zone: zone.value }));
-// The calendar's sources (type field): the season's fixtures, the league's events, and gates (an empty typed source until
-// gates exist: give gateItems the gates read). Deadlines can join the same way.
-const sources = computed<CalendarSource[]>(() => [(c) => fixtureItems(fixtures.value, c), (c) => ladderFixtureItems(props.ladders ?? [], c), (c) => leagueEventItems(props.events ?? [], c), gateItems()]);
+// The calendar's sources (type field): the season's fixtures, the league's events, and the league's gates that have not
+// opened yet (GET .../gates, public). Deadlines can join the same way.
+const gateStore = useLeagueGates(inject(API_KEY, null) ?? defaultApi, props.leagueId);
+onMounted(() => { void gateStore.ensure(); });
+const gateList = computed<LeagueGate[]>(() => gateStore.state.read?.gates ?? []);
+const sources = computed<CalendarSource[]>(() => [(c) => fixtureItems(fixtures.value, c), (c) => ladderFixtureItems(props.ladders ?? [], c), (c) => leagueEventItems(props.events ?? [], c), gateItems(calendarGates(gateList.value))]);
 const items = computed(() => calendarItems(sources.value, ctx.value));
 const byDay = computed(() => itemsByDay(items.value));
 const undated = computed(() => fixtures.value.length - items.value.filter((i) => i.type === "fixture").length);
@@ -132,7 +139,13 @@ const rowChip = (i: CalendarItem): { tone: string; text: string } => (i.type ===
 const itemTag = (i: CalendarItem) => (i.target === "dialog" ? "button" : RouterLink);
 const itemProps = (i: CalendarItem): Record<string, unknown> => (i.target === "dialog" ? { type: "button", onClick: () => openItem(i) } : { to: i.to });
 const viewing = ref<{ event: LeagueEventView; occurrence?: string } | null>(null);
+const gateOpen = ref<LeagueGate | null>(null);
 function openItem(i: CalendarItem): void {
+  if (i.type === "gate") {
+    dayOpen.value = "";
+    gateOpen.value = gateList.value.find((g) => `gate:${g.id}` === i.key) ?? null;
+    return;
+  }
   const ev = props.events?.find((e) => e.id === i.eventId);
   if (!ev) return;
   dayOpen.value = "";
@@ -310,6 +323,14 @@ const editEvent = (): void => {
           <small class="muted">{{ i.detail }}</small>
         </li>
       </ul>
+    </LeagueDialog>
+    <LeagueDialog v-if="gateOpen" id="lgc-gate-h" :title="gateOpen.title" cap="Gate" @close="gateOpen = null">
+      <dl class="lev-kv" data-gate-dialog>
+        <div><dt>Opens</dt><dd>{{ gateOpen.opensAt ? `${gateWhen(gateOpen.opensAt, zone)} (${zoneText})` : "When the organisers open it" }}</dd></div>
+        <div v-if="gateOpen.opensAt && Date.parse(gateOpen.opensAt) > clock"><dt>In</dt><dd>{{ countdownText(Date.parse(gateOpen.opensAt) - clock) }}</dd></div>
+        <div v-if="gateOpen.eventTitle"><dt>With</dt><dd>{{ gateOpen.eventTitle }}</dd></div>
+        <div><dt>Step</dt><dd>{{ gateOpen.label }}{{ gateOpen.target !== "league" ? ` · ${gateOpen.targetName}` : "" }}</dd></div>
+      </dl>
     </LeagueDialog>
     <LeagueEventDialog
       v-if="viewing" :event="viewing.event" :occurrence="viewing.occurrence" :zone="zone" :league-id="leagueId" :manage="manage" :now="now"

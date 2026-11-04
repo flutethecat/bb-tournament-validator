@@ -31,6 +31,7 @@ import LeagueTakeoverPanel from "../components/LeagueTakeoverPanel.vue";
 import LeagueClaimPrompt from "../components/LeagueClaimPrompt.vue";
 import { createLeagueJoin, LEAGUE_JOIN_KEY } from "../leagues/registration";
 import LeagueDraftNotice from "../components/LeagueDraftNotice.vue";
+import LeagueGateBanner from "../components/LeagueGateBanner.vue";
 import { SEASON_STAGE_LABEL, seasonStageOf, STAGE_TONE } from "../leagues/lifecycle";
 import {
   canManageLeague, createLeagueDetail, LEAGUE_DETAIL_KEY, pickSeason, playerByRef, RULESET_TONE, seasonDates, seasonRowScroll, teamByRef,
@@ -162,6 +163,8 @@ usePageTitle(() => state.league?.name);
            middle, the season facts and side panels on the right; at 1920x1080 each column scrolls on its own -->
       <div v-if="tab === 'overview'" class="lg-ov">
         <div class="lg-ov-main">
+        <!-- gates (lane 8c): registration, season start and the league's redraft steps count down while shut -->
+        <LeagueGateBanner :league-id="id" :kinds="['registration', 'season-start', 'redraft-window', 'redraft-rest', 'redraft-submit']" />
         <LeagueFront :league="state.league" :seasons="state.seasons" />
         <section class="hm-panel lg-seasons" aria-labelledby="lg-season-h">
           <header class="hm-band"><h2 id="lg-season-h">Season</h2><span v-if="current" class="hm-cap">{{ seasonDates(current) }}</span></header>

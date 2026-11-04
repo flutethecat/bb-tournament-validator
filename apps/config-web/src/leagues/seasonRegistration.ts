@@ -19,6 +19,7 @@ import { normalisePayPal, parsePayField, venmoUrl } from "../payments/links.js";
 import { isDraftLeague, seasonStage } from "./lifecycle.js";
 import { DEFAULT_REGISTRATIONS, parseRegistrations, registrationsOf, SettingsError } from "./settings.js";
 import { leagueOwner } from "./store.js";
+import { leagueTimeZone } from "./timeZone.js";
 import type { LeagueRecord, LeagueRegistrations, SeasonRecord } from "./types.js";
 
 export interface SeasonRegistration extends LeagueRegistrations {
@@ -160,6 +161,13 @@ export function seasonSnapshot(league: LeagueRecord, season: SeasonRecord): Comp
   };
 }
 
+/** "Thu 5 Nov 2026, 19:00 (Europe London)": a gate's opening in the league zone. */
+export function gateWhen(iso: string, zone: string): string {
+  const p = new Intl.DateTimeFormat("en-GB", { timeZone: zone, weekday: "short", day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(iso));
+  const g = (k: string) => p.find((x) => x.type === k)?.value ?? "";
+  return `${g("weekday")} ${g("day")} ${g("month")} ${g("year")}, ${g("hour")}:${g("minute")} (${zone.replace(/_/g, " ")})`;
+}
+
 const NOT_OPEN: WindowStatus = { open: false, reason: "not-yet-open", message: "Registration is not open yet." };
 
 /**
@@ -169,6 +177,9 @@ const NOT_OPEN: WindowStatus = { open: false, reason: "not-yet-open", message: "
 export function seasonWindowStatus(league: LeagueRecord, season: SeasonRecord, now: Date): WindowStatus {
   const core = windowStatus(seasonSnapshot(league, season), now);
   if (!core.open) return core;
+  // The Registration gate (gates.ts) while shut: joins are refused until it opens, whatever the window's own dates say.
+  const gate = season.gates?.registration;
+  if (gate && (!gate.opensAt || now.getTime() < Date.parse(gate.opensAt))) return { open: false, reason: "not-yet-open", message: gate.opensAt ? `Registration opens ${gateWhen(gate.opensAt, leagueTimeZone(league))}.` : "Registration opens when the organisers open it." };
   if (seasonStage(season) === "setup" || !seasonRegistrationOf(league, season).allowRegistration) return NOT_OPEN;
   return core;
 }

@@ -292,6 +292,8 @@ export interface LeagueSecrets {
   discordWebhookUrl?: string;
   /** Per-competition webhooks of this league: "season:<seasonId>" (and later "ladder:<ladderId>"). Blank = the league's. */
   competitionWebhooks?: Record<string, string>;
+  /** The live "Redraft rolls" page link token (gates.ts): organiser-generated, revocable; never in a read model but the organisers'. */
+  redraftRollsToken?: string;
 }
 
 /**
@@ -1125,6 +1127,9 @@ export interface SeasonRecord {
    *  season. LeagueStore.seasons() leaves ladders out; ladders() / competitions() read them. */
   competition?: "ladder";
   ladder?: import("./ladderTypes.js").LadderRecord;
+  /** Gates (lane 8c, gates.ts): the projection of this competition's shut "Registration" gate, kept by syncGateTargets so every
+   *  registration check (seasonWindowStatus) refuses joins until it opens. opensAt absent = shut with no time yet. */
+  gates?: { registration?: { opensAt?: string } };
 }
 
 /** What the league page's "Pay entry fee" block shows (api.ts seasonForViewer). */

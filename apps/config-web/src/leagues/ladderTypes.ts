@@ -159,8 +159,13 @@ export interface LadderRecord {
   wizard?: { step: number; completedAt?: string };
   startedAt?: string;
   closedAt?: string;
-  /** Gates (lane 8c): "Opens at" for ladder challenges after a redraft / period end. Off (absent) by default; no UI yet. */
-  gates?: { challenges?: { opensAt: string; eventId?: string } };
+  /** Gates (lane 8c, gates.ts): "Opens at" for ladder challenges after a redraft / period end, and the honours reveal. Off (absent) by default. */
+  gates?: {
+    /** opensAt absent = shut with no time yet; source "gate" = kept by syncGateTargets from the league's gates file. */
+    challenges?: { opensAt?: string; eventId?: string; source?: "gate" };
+    /** The honours-reveal gate while shut: period honours of periods ending at or after `from` are held back (not written). */
+    honours?: { from: string; opensAt?: string };
+  };
   /** Titles (ladderTitles.ts): a mirror of the current champion the job keeps (the title replay is the authority). */
   belt?: { holderTeamId: string; since: string; defences: number; interim?: boolean };
   /** Titles: stored decisions (crowned / vacated / inactive / returned...), the title games set up, the title-shot contracts and

@@ -39,6 +39,7 @@ import {
 } from "./settings.js";
 import { LEAGUE_ID, leagueOwner, LeagueStoreError } from "./store.js";
 import { NEW_LEAGUE_REDRAFT_RULES } from "./redraftRules.js";
+import { gateBlock } from "./gates.js";
 import type { LeaguePhase, LeagueRecord, LeagueRegistrations, SeasonRecord } from "./types.js";
 
 export const WIZARD_STEPS = 5;
@@ -410,6 +411,11 @@ function moveStage(league: LeagueRecord, seasonId: string, input: Record<string,
   if (!canMoveStage(from, to)) return fail(409, `${STAGE_ACTION_LABEL[to]} is not possible: ${season.name} is ${SEASON_STAGE_LABEL[from].toLowerCase()}.`, "stage");
   if (to === "active" && season.teams.length < MIN_TEAMS_TO_START)
     return fail(409, `Start season needs at least ${MIN_TEAMS_TO_START} teams; ${season.name} has ${season.teams.length}.`, "stage");
+  // The season start gate (gates.ts): Start season (and so the fixtures) waits for its "Opens at"; Open now lifts it early.
+  if (to === "active") {
+    const shut = gateBlock(deps.store, league, "season-start", season.id, deps.now?.() ?? new Date());
+    if (shut) return shut;
+  }
   if (from === "active" && season.fixtures.some(fixturePlayed))
     return fail(409, `${season.name} already has results: registration can't reopen. Turn on joining mid-season instead.`, "stage");
   season.stage = to;

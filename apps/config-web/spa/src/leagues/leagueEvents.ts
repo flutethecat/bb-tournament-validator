@@ -114,9 +114,9 @@ export function leagueEventItems(events: readonly LeagueEventView[], ctx: Calend
 }
 
 /**
- * GATES EXTENSION POINT (league ladder spec, Gates; lane 8c): the league's gates ("Opens at" on an online step) as calendar
- * items of type "gate", each at its opening instant (a gate tied to a League Event takes that occurrence's time). No gate
- * exists yet, so the source is empty; give it the gates read and map each one here.
+ * Gates (league ladder spec, Gates; lane 8c): the league's shut gates ("Opens at" on an online step) as calendar items of type
+ * "gate", each at its opening instant (the server already resolved a gate tied to a League Event to that occurrence). The
+ * calendar passes leagues/gates.ts calendarGates(GET .../gates); an item opens the gate dialog.
  */
 export interface GateView { id: string; title: string; opensAt: string; step: string; eventId?: string }
 export function gateItems(gates: readonly GateView[] = []): CalendarSource {

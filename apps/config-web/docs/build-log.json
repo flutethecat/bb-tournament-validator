@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-03",
+    "title": "Gates: open a step at a time or with a league night",
+    "body": "Organisers can keep an online step shut until a set time in the league's time zone, or until a League Event (and it moves with the event): the redraft window, rest rolls and submissions, season start, registration, ladder challenges and the period honours reveal. Coaches see a countdown, and when a gate opens they get a note and the league's Discord gets a post. A new live Redraft rolls page shows every Rest & Relaxation roll, large enough for a screen at the venue.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-03",
     "title": "Import your league from a TourPlay export",
     "body": "Organisers can upload the export they downloaded from TourPlay (a zip or its CSV files) in League management, TourPlay import, or from the league wizard, preview what comes in and apply it. Matches by NAF name or number and other likely matches are proposed for the organiser to confirm, a re-import keeps results and roster changes made here, and coaches can claim an imported name with \"Is this you?\" on the league page.",
     "links": [

@@ -258,7 +258,9 @@ describe("redraft mode helpers (owner 11-02)", () => {
     b.state.picked.orcs = true;
     b.state.opensAt = "2026-11-09T18:00";
     await b.confirm();
-    expect(f.calls.at(-1)!.body).toMatchObject({ windowDays: 5, opensAt: new Date("2026-11-09T18:00").toISOString() });
+    // Gates lane: the board sends the wall-clock time; the server reads it in the league zone (never the browser zone).
+    expect(f.calls.at(-1)!.body).toMatchObject({ windowDays: 5, opensAtWall: "2026-11-09T18:00" });
+    expect(f.calls.at(-1)!.body).not.toHaveProperty("opensAt");
     await b.lift("orcs");
     expect(f.calls.at(-1)!.body).toEqual({ revision: 1, action: "lift", teamId: "orcs" });
     await b.liftAll();
@@ -354,7 +356,9 @@ describe("redraft surfaces (server-rendered)", () => {
     expect(html).toContain("Redraft board");
     expect(html).toContain("Budget = initial treasury + treasury left + 20k per game played + 20k per win + 10k per draw.");
     for (const c of ["Team", "Coach", "Race", "GP", "W-D-L", "Treasury", "Earned", "Budget"]) expect(html).toContain(`>${c}</th>`);
-    expect(html).toContain(">Opens at</span>");
+    expect(html).toContain(">Opens at (UTC)</span>"); // gates lane: the league zone, named
+    expect(html).toContain("Redraft gates"); // the window / rest rolls / submissions gates beside the board
+    expect(html).toContain("Open the Redraft rolls page");
     expect(html).toContain(">Window (days)</span>");
     expect(html).toContain("Redraft budget"); // the formula panel
     expect(html).toContain("Lift teams to the budget");

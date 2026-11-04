@@ -64,6 +64,7 @@ import { canonicalRace, rosterAllowed } from "./leagueBuilder.js";
 import { managesLeague } from "./lifecycle.js";
 import { competitionIdOf, rowToEntry, snapshotFromRoster, type LeagueEntryData } from "./registration.js";
 import { defaultSeasonRegistration, seasonRegistrationOf, seasonWindowStatus } from "./seasonRegistration.js";
+import { gateBlock } from "./gates.js";
 import { LEAGUE_RULESETS, type LeagueFixture, type LeagueRecord, type LeagueRuleset, type LeagueTeam, type SeasonRecord } from "./types.js";
 import { leagueOwner, LeagueStoreError } from "./store.js";
 import { parseLeagueHouseRules, SettingsError } from "./settings.js";
@@ -556,6 +557,8 @@ async function join(league: LeagueRecord, ladderId: string, auth: LeagueApiIdent
   if (extra.length) return fail(400, `Unknown field: ${extra[0]!.slice(0, 40)}.`);
   if (ladderState(ladder) !== "active") return fail(409, ladderState(ladder) === "closed" ? "The ladder is closed." : "The ladder has not started yet.", { code: "closed" });
   if (!managesLeague(lg, auth)) {
+    const shut = gateBlock(deps.store, lg, "registration", ladder.id, now);
+    if (shut) return shut;
     const window = seasonWindowStatus(lg, ladder, now);
     if (!window.open) return fail(409, window.message, { code: window.reason });
   }
@@ -731,6 +734,9 @@ async function issueChallenge(league: LeagueRecord, ladderId: string, auth: Leag
   const defender = members.find((m) => m.team.id === input.defenderTeamId)?.team;
   if (!challenger || !defender) return fail(404, "Both teams must be in the ladder.");
   if (!ownsTeam(challenger, who.coach)) return fail(403, "Only the team's coach can issue its challenges.");
+  // The ladder challenge gate (gates.ts): refused with the countdown until it opens.
+  const shut = gateBlock(deps.store, lg, "ladder-challenges", ladder.id, now);
+  if (shut) return shut;
   const ranking = ladderRanking(ladder, now, comps);
   const refusal = challengeRefusal({ ladder, league: lg, challenger, defender, ranking, now });
   if (refusal) return fail(409, refusal, { code: "refused" });

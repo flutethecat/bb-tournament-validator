@@ -11,6 +11,7 @@ import { LEAGUE_SETTINGS_KEY } from "../leagues/settings";
 import type { SeasonRegistrationView } from "../leagues/lifecycle";
 import { fromLocalInput, toLocalInput } from "../leagues/wizard";
 import { normalisePayPal, normaliseVenmo, PAY_NOTE, payPalProblem, venmoProblem } from "../shared/payLinks";
+import LeagueGatesPanel from "./LeagueGatesPanel.vue";
 
 const fetcher = inject(API_KEY)!;
 const settings = inject(LEAGUE_SETTINGS_KEY)!;
@@ -175,5 +176,6 @@ async function save(): Promise<void> {
       <p v-else-if="notice" class="hm-notice" role="status">{{ notice }}</p>
     </div>
     <p v-else-if="error" class="sf-error" role="alert">{{ error }}</p>
+    <LeagueGatesPanel v-if="seasonId" :key="`reg-gate-${seasonId}`" :league-id="state.id" :title="`Registration gate`" :cap="seasons.find((s) => s.id === seasonId)?.name" :items="[{ kind: 'registration', target: seasonId }]" />
   </form>
 </template>

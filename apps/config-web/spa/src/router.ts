@@ -181,6 +181,10 @@ export const routes: RouteRecordRaw[] = [
   { path: "/leagues/:id([a-z0-9-]{1,64})/settings", name: "league-settings", component: LeagueSettingsView, props: true, meta: { requiresAuth: true, title: "League settings" } },
   // The management sub-panel keeps the League settings address; /manage (the tournament and series spelling) lands there.
   { path: "/leagues/:id([a-z0-9-]{1,64})/manage", redirect: (to) => ({ name: "league-settings", params: { id: String(to.params.id) }, query: to.query, hash: to.hash }) },
+  // The live "Redraft rolls" page (gates lane 8c): organisers here (and they make the venue-screen link); the link itself
+  // (/redraft-rolls/:token) is a public, read-only page. Before /redraft so the paths stay distinct.
+  { path: "/leagues/:id([a-z0-9-]{1,64})/redraft-rolls", name: "league-redraft-rolls", component: () => import("./views/LeagueRedraftRollsView.vue"), props: true, meta: { requiresAuth: true, title: "Redraft rolls" } },
+  { path: "/leagues/:id([a-z0-9-]{1,64})/redraft-rolls/:token([A-Za-z0-9_-]{20,64})", name: "league-redraft-rolls-shared", component: () => import("./views/LeagueRedraftRollsView.vue"), props: true, meta: { title: "Redraft rolls" } },
   // The old redraft page (owner 11-02): ?team= (the coach's notification link) opens that team's Redraft mode in the Roster
   // Builder; without it, the organiser board in League settings -> Redraft (a coach there sees their own redraft tasks).
   {

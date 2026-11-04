@@ -369,6 +369,7 @@ import { createDiscordSyncRunner } from "./leagues/leagueEventsDiscord.js";
 import { createGuildEventsClient } from "./discord/scheduledEvents.js";
 import { runRedraftWindowJob } from "./leagues/redraftWindow.js";
 import { runLadderJob } from "./leagues/ladderJob.js";
+import { runGateJob } from "./leagues/gates.js";
 import { createLeagueForkClient } from "./leagues/forkClient.js";
 import { syncLeagueForkResults } from "./leagues/forkPlay.js";
 import { CLEANUP_BASELINE_FILE, leagueForkCleanupRoute, runForkTeamCleanup } from "./leagues/forkCleanup.js";
@@ -774,6 +775,22 @@ const leagueLadderTick = (): void => {
 };
 setTimeout(leagueLadderTick, 8_000).unref();
 setInterval(leagueLadderTick, 60_000).unref();
+// Gates (src/leagues/gates.ts): projections follow moved League Events, and every gate that is due opens: written first,
+// then one inbox note and one Discord post (draft leagues post nothing). Every minute; never in a GET handler.
+let leagueGatesRunning = false;
+const leagueGateTick = (): void => {
+  if (leagueGatesRunning) return;
+  leagueGatesRunning = true;
+  void runGateJob({ store: leagueStore, notify: leagueNotify, isAdmin: (c) => isAdmin(c) })
+    .then((out) => {
+      if (out.opened.length) console.log(`[leagues] gates opened: ${out.opened.join(", ")}`);
+      if (out.failed.length) console.error(`[leagues] gate job could not read or write: ${out.failed.join(", ")}`);
+    })
+    .catch((e) => console.error(`[leagues] gate job failed: ${(e as Error).message}`))
+    .finally(() => { leagueGatesRunning = false; });
+};
+setTimeout(leagueGateTick, 9_500).unref();
+setInterval(leagueGateTick, 60_000).unref();
 setActiveNotifier(tournamentNotifier);
 // Tournament registration notices (lane L4, src/tournaments/registration.ts): check-in open (inbox + Discord DM through
 // the queue) and roster due, once per entry per window, recorded before anyone is told. Every minute; never from a GET.

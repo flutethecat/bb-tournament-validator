@@ -13,6 +13,7 @@ import { stampPlayedCoaches } from "./identity.js";
 import { applyTournamentResets } from "./ladder.js";
 import { recordLeagueExits } from "../auth/leagueSharing.js";
 import type { LeagueEventsFile, LeagueFixture, LeagueRecord, LeagueSecrets, LeagueTeam, SeasonRecord, TourplayImportFile } from "./types.js";
+import type { LeagueGatesFile } from "./gates.js";
 
 /** One player of a league fork game, public subset: the roster position, and from a full result the SPP the league banked and the server's injury names. */
 export interface LeagueGamePlayer { position?: string; spp?: number; injuries?: string[] }
@@ -358,6 +359,24 @@ export class LeagueStore {
   putTourplayImport(id: string, file: TourplayImportFile): void {
     if (!this.league(id)) throw new LeagueStoreError(404, "League not found.");
     this.write(join(this.leagueDir(id), "tourplay-import.json"), file);
+  }
+
+  /**
+   * Gates (gates.ts): <leagueDir>/gates.json, { revision, gates }. A missing file is no gates; a file that exists but cannot be
+   * read throws (fail closed: a write must never replace gates it could not read, and a gated step is refused).
+   */
+  leagueGates(id: string): LeagueGatesFile {
+    if (!LEAGUE_ID.test(id)) return { revision: 0, gates: [] };
+    const path = join(this.root, id, "gates.json");
+    if (!existsSync(path)) return { revision: 0, gates: [] };
+    const raw = this.readJson<LeagueGatesFile>(path);
+    if (!raw || typeof raw !== "object" || !Array.isArray(raw.gates)) throw new LeagueStoreError(500, "The league's gates could not be read.");
+    return { revision: Number.isSafeInteger(raw.revision) ? raw.revision : 0, gates: raw.gates };
+  }
+
+  putLeagueGates(id: string, file: LeagueGatesFile): void {
+    if (!this.league(id)) throw new LeagueStoreError(404, "League not found.");
+    this.write(join(this.leagueDir(id), "gates.json"), { revision: file.revision, gates: file.gates });
   }
 
   /** Every season of the league, newest first. A season stored before player ids existed is given the ids (and career links) the importer would assign.

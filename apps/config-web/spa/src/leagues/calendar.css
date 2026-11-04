@@ -38,6 +38,9 @@ button.lgc-chip, button.lgc-block, button.lg-cal-game { box-sizing: border-box; 
 button.lgc-block { width: auto; }
 button.lg-cal-game { padding: 0; font: inherit; background: none; border: 0; }
 .lg-cal-game[data-type="league-event"] > span:first-child { font-weight: 700; }
+/* Gates (lane 8c): a gold (--sf-gold) edge; they open the gate dialog. */
+.lgc-chip[data-type="gate"], .lgc-block[data-type="gate"] { border-left: 3px solid var(--sf-gold); background: color-mix(in srgb, var(--sf-gold) 16%, var(--ui-surface-2)); }
+.lg-cal-game[data-type="gate"] > span:first-child::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 6px; vertical-align: middle; background: var(--sf-gold); border-radius: 1px; }
 .lg-cal-game[data-type="league-event"] > span:first-child::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 6px; vertical-align: middle; background: var(--ui-info); border-radius: 1px; }
 .lgc-chip-t { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lgc-chip-r { flex: none; font: 700 12px/18px var(--font-heading); color: var(--sf-gold); }

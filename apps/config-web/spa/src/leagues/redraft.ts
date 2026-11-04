@@ -36,7 +36,8 @@ export function formulaText(r: Pick<RedraftRules, "base" | "perGame" | "perWin" 
   return `Budget = ${parts.join(" + ")}.`;
 }
 
-/** A datetime-local value ("2026-11-09T18:00") in the browser's timezone as an ISO instant ("" when empty or invalid). */
+/** A datetime-local value ("2026-11-09T18:00") in the browser's timezone as an ISO instant ("" when empty or invalid).
+ *  The board no longer uses it (gates lane: the window's Opens at is a wall-clock time in the league's zone, opensAtWall). */
 export function localToIso(local: string): string {
   if (!local) return "";
   const t = new Date(local).getTime();
@@ -89,7 +90,7 @@ export interface RedraftBoardState {
   /** Seasons may overlap: the finished season to redraft from and the season receiving the lists ("" = server default). */
   sourcePick: string;
   targetPick: string;
-  /** The window before confirmation: "Opens at" (datetime-local in the browser's timezone; "" = now) and its length. */
+  /** The window before confirmation: "Opens at" (datetime-local in the LEAGUE's time zone; "" = now) and its length. */
   opensAt: string;
   windowDays: number;
 }
@@ -178,7 +179,7 @@ export function createRedraftBoard(deps: { api: Fetcher }) {
     confirm: () => post("confirm", {
       action: "confirm", capEnabled: state.capEnabled, cap: state.cap, windowDays: state.windowDays,
       ...(state.view?.settingsRevision !== undefined ? { settingsRevision: state.view.settingsRevision } : {}),
-      ...(localToIso(state.opensAt) ? { opensAt: localToIso(state.opensAt) } : {}),
+      ...(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(state.opensAt) ? { opensAtWall: state.opensAt.slice(0, 16) } : {}),
       ...(state.sourcePick && state.view?.source ? { sourceSeasonId: state.view.source.id } : {}),
       ...(state.targetPick && state.view?.target ? { targetSeasonId: state.view.target.id } : {}),
       teams: [...(state.view?.active ?? []), ...(state.view?.inactive ?? [])].map((r) => {

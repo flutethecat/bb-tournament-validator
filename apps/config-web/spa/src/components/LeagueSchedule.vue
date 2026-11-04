@@ -12,6 +12,9 @@ import LeagueEventDialog from "./LeagueEventDialog.vue";
 import LeagueEventEditor from "./LeagueEventEditor.vue";
 import { createLeagueDetail, LEAGUE_DETAIL_KEY } from "../leagues/league";
 import { DISCORD_STATE_TEXT, leagueEventsApi, timelineDays, upcomingOf, type LeagueEventView, type ScheduleEntry } from "../leagues/leagueEvents";
+import { RouterLink } from "vue-router";
+import { gateWhen, useLeagueGates, type GateKind } from "../leagues/gates";
+import "../leagues/gates.css";
 
 const props = defineProps<{ leagueId: string; seasons: ReadonlyArray<{ id: string; name: string }>; now?: number }>();
 const api = inject(API_KEY, null) ?? defaultApi;
@@ -27,7 +30,17 @@ const error = ref("");
 const notice = ref("");
 const now = computed(() => props.now ?? Date.now());
 
+const gateStore = useLeagueGates(api, props.leagueId);
+const allGates = computed(() => gateStore.state.read?.gates ?? []);
+/** Where each gate's editor sits (owner: "each gate sits next to the step it gates"). */
+const GATE_TAB: Record<GateKind, string> = {
+  "redraft-window": "redraft", "redraft-rest": "redraft", "redraft-submit": "redraft", "season-start": "administration",
+  "ladder-challenges": "ladders", registration: "registrations", "honours-reveal": "ladders",
+};
+const gateQuery = (g: { kind: GateKind; target: string }): Record<string, string> =>
+  (g.target.startsWith("ladder-") ? { tab: "ladders", ladder: g.target } : { tab: GATE_TAB[g.kind] });
 async function load(): Promise<void> {
+  void gateStore.reload();
   try {
     const [list, sched] = await Promise.all([leagueEventsApi.list(api, props.leagueId), leagueEventsApi.schedule(api, props.leagueId)]);
     zone.value = list.timeZone || sched.timeZone || "UTC";
@@ -102,19 +115,20 @@ const STATE_TONE: Record<string, string> = { synced: "ok", pending: "info", fail
                   <span class="lev-entry-t">{{ e.title }}</span>
                   <small class="muted">{{ e.detail }}</small>
                 </button>
-                <div v-else class="lev-entry" :data-kind="e.kind">
+                <div v-else class="lev-entry" :data-kind="e.kind" :data-gate="e.gateId">
                   <span class="lev-time">{{ e.time }}</span>
                   <span class="lev-entry-t">{{ e.title }}</span>
-                  <span class="sf-chip" data-tone="muted">Gate</span>
+                  <span class="sf-chip" data-tone="soon">Gate</span>
                   <small class="muted">{{ e.detail }}</small>
                 </div>
               </li>
             </ul>
           </li>
         </ol>
-        <p class="hm-small muted lev-gates-note">Gates (opening times for redraft, registration and ladder steps) join this timeline when they are set up.</p>
       </template>
     </section>
+
+    <div class="lg-stack lev-side">
 
     <section class="hm-panel lev-list" aria-labelledby="lev-list-h">
       <header class="hm-band"><h2 id="lev-list-h">League events</h2><span class="hm-cap">{{ events.length }} {{ events.length === 1 ? "event" : "events" }} · {{ upcomingCount }} upcoming</span></header>
@@ -139,6 +153,20 @@ const STATE_TONE: Record<string, string> = { synced: "ok", pending: "info", fail
         </li>
       </ul>
     </section>
+
+    <section class="hm-panel lev-gates" aria-labelledby="lev-gates-h">
+      <header class="hm-band"><h2 id="lev-gates-h">Gates</h2><span class="hm-cap">{{ allGates.length }} {{ allGates.length === 1 ? "gate" : "gates" }}</span></header>
+      <p v-if="!allGates.length" class="hm-small muted">No gates. Set them beside each step: Redraft, Administration (season start), Registrations and Ladders.</p>
+      <ul v-else class="gt-sched" data-gate-list>
+        <li v-for="g in allGates" :key="g.id" :data-state="g.state">
+          <span class="gt-sched-t">{{ g.title }}</span>
+          <span class="sf-chip" :data-tone="g.state === 'open' ? 'ok' : g.opensAt ? 'soon' : 'urgent'">{{ g.state === "open" ? "Open" : g.opensAt ? "Shut" : "No time" }}</span>
+          <small class="muted">{{ g.opensAt ? gateWhen(g.opensAt, zone) : g.eventMissing ? "Its League Event was deleted" : "" }}{{ g.eventTitle ? ` · with ${g.eventTitle}` : "" }}</small>
+          <RouterLink class="sf-btn small" :to="{ name: 'league-settings', params: { id: leagueId }, query: gateQuery(g) }" :aria-label="`Edit ${g.title}`">Edit</RouterLink>
+        </li>
+      </ul>
+    </section>
+    </div>
 
     <LeagueEventDialog
       v-if="viewing" :event="viewing.event" :occurrence="viewing.occurrence" :zone="zone" :league-id="leagueId" manage :now="now"

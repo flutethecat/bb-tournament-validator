@@ -114,6 +114,7 @@ export function storeWithoutLeague<S extends object>(store: S, leagueId: string)
       if (prop === "secrets") return (id: string) => (id === leagueId ? {} : fn.call(target, id));
       if (prop === "leagueEvents") return (id: string) => (id === leagueId ? { events: [] } : fn.call(target, id));
       if (prop === "tourplayImport") return (id: string) => (id === leagueId ? { version: 1, coaches: {}, claims: [], imports: [] } : fn.call(target, id));
+      if (prop === "leagueGates") return (id: string) => (id === leagueId ? { revision: 0, gates: [] } : fn.call(target, id));
       if (prop === "list") return () => (fn.call(target) as Array<{ id: string }>).filter((l) => l.id !== leagueId);
       return fn.bind(target);
     },

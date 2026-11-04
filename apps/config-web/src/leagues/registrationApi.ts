@@ -37,6 +37,7 @@ import {
   seasonEntries, seasonRegistrationSettings, snapshotFromRoster, type LeagueEntryData, type LeagueRegistrationRow,
 } from "./registration.js";
 import { seasonRegistrationOf, seasonSnapshot, seasonWindowStatus, seasonWindow } from "./seasonRegistration.js";
+import { gateBlock } from "./gates.js";
 import { parseLeagueTeamRef, snapshotOfLeagueTeam, transferSource } from "./teamLibrary.js";
 import { leagueOwner } from "./store.js";
 import type { LeagueRecord, SeasonRecord } from "./types.js";
@@ -297,6 +298,9 @@ async function join(
   if (extra.length) return fail(400, `Unknown field: ${extra[0]}.`);
   const manager = managesLeague(lg, auth);
   if (!manager) {
+    // The registration gate (gates.ts): joins are refused with the countdown until it opens.
+    const shut = gateBlock(deps.store, lg, "registration", season.id, now);
+    if (shut) return shut;
     const window = seasonWindowStatus(lg, season, now);
     if (!window.open) return fail(409, window.message, { code: window.reason });
   }

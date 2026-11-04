@@ -8,6 +8,7 @@ import { computed, inject, onMounted, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { API_KEY } from "../app";
 import CompetitionDiscordPanel from "./CompetitionDiscordPanel.vue";
+import LeagueGatesPanel from "./LeagueGatesPanel.vue";
 import { createLadderAdmin, ladderPath, RANKING_LABEL, STATE_TONE, type LadderRanking, type LadderView } from "../leagues/ladder";
 import "../leagues/ladder.css";
 
@@ -141,6 +142,11 @@ async function move(teamId: string): Promise<void> {
               <button v-if="picked.state === 'active'" type="button" class="sf-btn small" :disabled="Boolean(state.busy)" @click="lifecycle('close')">Close ladder</button>
             </div>
           </section>
+
+          <LeagueGatesPanel
+            v-if="picked.state !== 'closed'" :key="`gates-${picked.id}`" :league-id="leagueId" :title="`Gates: ${picked.name}`"
+            :items="[{ kind: 'ladder-challenges', target: picked.id }, { kind: 'registration', target: picked.id, label: 'Joining opens', help: 'Coaches can ask to join the ladder from then.' }, { kind: 'honours-reveal', target: picked.id }]"
+          />
 
           <section v-if="picked.state === 'active'" class="hm-panel" aria-labelledby="ldm-round-h">
             <header class="hm-band"><h2 id="ldm-round-h">Scheduled round</h2><span class="hm-cap">Alongside challenges</span></header>

@@ -110,6 +110,7 @@ import { paymentLinksView } from "../payments/links.js";
 import { createLeagueRoute, leagueLifecycleRoutes } from "./wizard.js";
 import { tourplayImportRoutes } from "./tourplayImport.js";
 import { leagueCalendarEventRoutes, type LeagueEventsDeps } from "./leagueEvents.js";
+import { leagueGateRoutes } from "./gates.js";
 import { leagueEventsDiscordRoutes } from "./leagueEventsDiscord.js";
 import { leagueChampionsRoute, leagueLadderRoutes } from "./ladderApi.js";
 import { competitionPlaysOnFork, isLadder, isLadderId, ladderVisible } from "./ladder.js";
@@ -463,6 +464,10 @@ export async function leagueApi(
   if (eventsDiscord) return eventsDiscord;
   const calendarEvents = await leagueCalendarEventRoutes(method, route.rest, league, auth, deps);
   if (calendarEvents) return calendarEvents;
+  // Gates (gates.ts): GET .../gates, PUT .../gates/:kind/:target, POST .../gates/:kind/:target/open, and the live Redraft rolls
+  // page (.../redraft-rolls[/link|/:token]). Notes go through the draft-aware notifier above; site admins count as admins.
+  const gateRoutes = await leagueGateRoutes(method, route.rest, league, auth, { ...deps, isAdmin: (c: string) => siteAdmins(deps).some((a) => a.trim().toLowerCase() === c.trim().toLowerCase()) });
+  if (gateRoutes) return gateRoutes;
   // League ladders (ladderApi.ts).
   const ladders = await leagueLadderRoutes(method, route.rest, league, auth, deps);
   if (ladders) return ladders;

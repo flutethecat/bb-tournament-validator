@@ -38,6 +38,7 @@ import { readJsonObject, requestRevision, type BodyDeps } from "./http.js";
 import { isDraftLeague, managesLeague, publishedLeagues } from "./lifecycle.js";
 import { LeagueStoreError, type LeagueStore } from "./store.js";
 import { leagueTimeZone } from "./timeZone.js";
+import { gateTimeline, syncGateTargets } from "./gates.js";
 import {
   LEAGUE_EVENT_TYPES, type LeagueCalendarEvent, type LeagueEventsFile, type LeagueEventType, type LeagueRecord, type PendingDiscordDelete, type SeasonRecord,
 } from "./types.js";
@@ -477,8 +478,10 @@ export type ScheduleEntry =
 
 export interface ScheduleContext {
   league: LeagueRecord; seasons: readonly SeasonRecord[]; events: readonly LeagueCalendarEvent[]; zone: string; now: number;
-  /** The league's ladders (lane 8b): their challenge gates join the timeline. */
+  /** The league's ladders (lane 8b): a challenge gate stored before the gates editor joins the timeline. */
   ladders?: readonly SeasonRecord[];
+  /** The league's gates with a time still to come (gates.ts gateTimeline). */
+  gates?: ReadonlyArray<{ id: string; kind: string; title: string; detail: string; at: number; eventId?: string }>;
 }
 export type ScheduleSource = (ctx: ScheduleContext) => ScheduleEntry[];
 
@@ -489,21 +492,27 @@ export const leagueEventScheduleSource: ScheduleSource = (ctx) => ctx.events.fla
 })));
 
 /**
- * GATES EXTENSION POINT (league ladder spec, Gates; lane 8c): return every gate of the league (redraft window, rest rolls,
- * season start / fixture release, ladder challenges, registration opening, honours reveal) as "gate" entries, each at its
- * "Opens at" instant. A gate tied to a League Event reads its time from that event's occurrence (ctx.events) so it moves
- * with the event. Lane 8b's hook: a ladder's challenge gate (ladder.gates.challenges, "ladder challenges after a redraft /
- * period"; off by default, no editor yet) is listed here while it is still to open. Lane 8c adds the other steps and the editor.
+ * Gates (league ladder spec, Gates; lane 8c, gates.ts): every gate of the league (redraft window, rest rolls, submissions,
+ * season start, ladder challenges, registration, honours reveal) that has a time still to come, at its "Opens at" instant. A
+ * gate tied to a League Event takes that event's occurrence (gates.ts gateTime), so it moves with the event. A ladder challenge
+ * gate stored before the editor existed (ladder.gates.challenges without source "gate") is still listed.
  */
-export const gateScheduleSource: ScheduleSource = (ctx) => (ctx.ladders ?? []).flatMap((l) => {
-  const g = l.ladder?.gates?.challenges;
-  const at = g ? Date.parse(g.opensAt) : NaN;
-  if (!g || !Number.isFinite(at) || at <= ctx.now) return [];
-  return [{
-    kind: "gate" as const, key: `gate:ladder-challenges:${l.id}`, start: new Date(at).toISOString(), title: `${l.name}: challenges open`,
-    detail: "Ladder challenges", gateId: `ladder-challenges:${l.id}`, step: "ladder-challenges", ...(g.eventId ? { eventId: g.eventId } : {}),
-  }];
-});
+export const gateScheduleSource: ScheduleSource = (ctx) => {
+  const shared = (ctx.gates ?? []).map((g) => ({
+    kind: "gate" as const, key: `gate:${g.id}`, start: new Date(g.at).toISOString(), title: g.title, detail: g.detail, gateId: g.id, step: g.kind,
+    ...(g.eventId ? { eventId: g.eventId } : {}),
+  }));
+  const legacy = (ctx.ladders ?? []).flatMap((l) => {
+    const g = l.ladder?.gates?.challenges;
+    const at = g?.opensAt ? Date.parse(g.opensAt) : NaN;
+    if (!g || g.source === "gate" || !Number.isFinite(at) || at <= ctx.now || shared.some((x) => x.gateId === `ladder-challenges:${l.id}`)) return [];
+    return [{
+      kind: "gate" as const, key: `gate:ladder-challenges:${l.id}`, start: new Date(at).toISOString(), title: `${l.name}: challenges open`,
+      detail: "Ladder challenges", gateId: `ladder-challenges:${l.id}`, step: "ladder-challenges", ...(g.eventId ? { eventId: g.eventId } : {}),
+    }];
+  });
+  return [...shared, ...legacy];
+};
 
 export const SCHEDULE_SOURCES: readonly ScheduleSource[] = [leagueEventScheduleSource, gateScheduleSource];
 
@@ -544,6 +553,11 @@ function coverWindow(ev: LeagueCalendarEvent, zone: string, now: number): void {
   if (keys.length) ev.reminded = [...new Set([...(ev.reminded ?? []), ...keys])];
 }
 
+/** Gates tied to League Events move with them (gates.ts): their projections follow at once, the job does the rest. */
+function followGates(deps: Pick<LeagueEventRouteDeps, "store">, leagueId: string, now: Date): void {
+  try { syncGateTargets(deps.store, leagueId, now); } catch { /* the gate job re-syncs every minute */ }
+}
+
 export function kick(deps: Pick<LeagueEventRouteDeps, "leagueEvents">): void {
   try { deps.leagueEvents?.kick?.(); } catch { /* the job retries on its timer */ }
 }
@@ -561,7 +575,8 @@ export async function leagueCalendarEventRoutes(
     const zone = leagueTimeZone(league);
     let events: LeagueCalendarEvent[];
     try { events = readFile(deps.store, league!.id).events; } catch { return fail(500, "The league's events could not be read."); }
-    const entries = scheduleEntries({ league: league!, seasons: deps.store.seasons(league!.id), ladders: deps.store.ladders(league!.id), events, zone, now });
+    const gates = gateTimeline(deps.store, league!, events, now);
+    const entries = scheduleEntries({ league: league!, seasons: deps.store.seasons(league!.id), ladders: deps.store.ladders(league!.id), events, zone, now, gates });
     return res(200, { timeZone: zone, entries });
   }
   if (first !== "events" || more.length) return undefined;
@@ -644,6 +659,7 @@ export async function leagueCalendarEventRoutes(
       notices.drop(noticeKey(ev.id));
       deps.store.putLeagueEvents(lg.id, file);
       kick(deps);
+      followGates(deps, lg.id, now);
       if (tellCancel) tell(deps.notify, recipients(), { type: "league-broadcast", title: clip(`League event cancelled: ${ev.title}`, 120), body: noticeBody(lg, ev, zone, nowMs, "cancelled. "), link: `/app/leagues/${encodeURIComponent(lg.id)}?tab=calendar`, from: who.coach });
       return res(200, { deleted: ev.id });
     }
@@ -663,6 +679,7 @@ export async function leagueCalendarEventRoutes(
     markSync(ev, lg, iso);
     deps.store.putLeagueEvents(lg.id, file);
     kick(deps);
+    followGates(deps, lg.id, now);
     if (noteChange) {
       // Coalesced per event: the first change goes now, a burst within the window becomes one combined "updated" note.
       const snapshot = structuredClone(ev);

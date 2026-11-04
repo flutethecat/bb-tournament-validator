@@ -20,6 +20,7 @@ import {
 } from "../leagues/ladder";
 import { createScheduleStore, scheduleApi, validZone, type ScheduleFixture } from "../schedule/schedule";
 import "../leagues/ladder.css";
+import LeagueGateBanner from "./LeagueGateBanner.vue";
 
 const props = defineProps<{ leagueId: string; leagueName: string }>();
 const fetcher = inject(API_KEY)!;
@@ -145,6 +146,8 @@ const ord = (n: number): string => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" 
           @click="joining = true"
         >Join the ladder</button>
       </div>
+      <!-- gates (lane 8c): challenges, joining and the honours reveal count down while shut -->
+      <LeagueGateBanner v-if="current" :key="`gates-${current.id}`" :league-id="leagueId" :kinds="['ladder-challenges', 'registration', 'honours-reveal']" :target="current.id" />
       <p v-if="state.notice" class="sf-notice" role="status">{{ state.notice }}</p>
       <p v-if="state.actionError && !issueTo && !answering" class="sf-error" role="alert">{{ state.actionError }}</p>
       <p v-if="ladder?.paused && ladder.state === 'active'" class="sf-notice ld-paused" data-paused>{{ ladder.paused }}</p>

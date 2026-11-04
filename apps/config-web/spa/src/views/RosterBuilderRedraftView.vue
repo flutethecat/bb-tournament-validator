@@ -21,6 +21,7 @@ import type { RedraftPlayerQuote, StatLine } from "../leagues/types";
 import { usePageTitle } from "../shell/pageTitle";
 import { categoryClass } from "../teams/builder";
 
+import LeagueGateBanner from "../components/LeagueGateBanner.vue";
 const props = defineProps<{ leagueId: string; teamId: string }>();
 const fetcher = inject(API_KEY)!;
 const team = inject(REDRAFT_TEAM_KEY, null) ?? createRedraftTeam({ api: fetcher });
@@ -135,6 +136,8 @@ const budgetLines = computed(() => {
     <p v-else-if="state.error" class="sf-error" role="alert">{{ state.error }}</p>
     <p v-else-if="!view" class="hm-empty" role="status">Loading the redraft...</p>
     <template v-else>
+      <!-- gates (lane 8c): the redraft window, rest rolls and submissions count down while shut -->
+      <LeagueGateBanner :league-id="leagueId" :kinds="['redraft-window', 'redraft-rest', 'redraft-submit']" />
       <p class="tb-locked rd-locked">
         <span class="sf-chip" data-tone="info">Redraft</span>
         <span>{{ view.name }} · {{ view.race }} · from {{ view.sourceSeason.name }} · {{ view.targetSeason ? `into ${view.targetSeason.name}` : "kept until the next season starts" }}</span>

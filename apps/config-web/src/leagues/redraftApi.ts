@@ -37,6 +37,9 @@ import { applyingRebuild, commitDraft, newWindow, redraftBoardLink, redraftModeL
 import { isLeagueOrganiser, leagueOwner, type LeagueStore } from "./store.js";
 import type { LeagueRecord, RedraftBudget, RedraftLogEntry, RedraftRules, RedraftState, RedraftTeamTask, RedraftWindow, SeasonRecord } from "./types.js";
 import { isDraftLeague, publishedLeagues } from "./lifecycle.js";
+import { gateBlock, gateRefusal } from "./gates.js";
+import { parseWall, wallInstant } from "./leagueEvents.js";
+import { leagueTimeZone } from "./timeZone.js";
 
 export const REDRAFT_MAX_BYTES = 64 * 1024;
 const NO_STORE = { "cache-control": "no-store" };
@@ -55,6 +58,8 @@ const isManager = (league: LeagueRecord, auth: LeagueApiIdentity): boolean => au
 export interface RedraftBoardView {
   leagueId: string;
   leagueName: string;
+  /** The league's zone: the board shows and takes the window's Opens at in it (gates lane). */
+  timeZone: string;
   revision: number;
   source: { id: string; name: string; number: number; ruleset: string } | null;
   target: { id: string; name: string } | null;
@@ -84,7 +89,7 @@ function boardView(league: LeagueRecord, seasons: SeasonRecord[], picks: Redraft
   const sources = finishedSeasons(seasons).map((s) => ({ id: s.id, name: s.name }));
   if (!source) {
     return {
-      leagueId: league.id, leagueName: league.name, revision: 0, source: null, target: null, sources, targets: [], state: null, capEnabled: rules.capEnabled, cap: rules.cap,
+      leagueId: league.id, leagueName: league.name, timeZone: leagueTimeZone(league), revision: 0, source: null, target: null, sources, targets: [], state: null, capEnabled: rules.capEnabled, cap: rules.cap,
       rules, settingsRevision: league.revision ?? 0, window: null, active: [], inactive: [], note: "Finish a season first: a redraft runs between seasons.",
     };
   }
@@ -96,7 +101,7 @@ function boardView(league: LeagueRecord, seasons: SeasonRecord[], picks: Redraft
   const { teams: _t, ...meta } = state ?? ({} as RedraftState);
   const w = state ? windowView(state, now) : null;
   return {
-    leagueId: league.id, leagueName: league.name, revision: state?.revision ?? 0,
+    leagueId: league.id, leagueName: league.name, timeZone: leagueTimeZone(league), revision: state?.revision ?? 0,
     source: { id: source.id, name: source.name, number: source.number, ruleset: source.ruleset },
     target: target ? { id: target.id, name: target.name } : null,
     sources, targets,
@@ -224,7 +229,15 @@ export async function redraftRoutes(
         : ctx.task.status === "expired" ? `This redraft expired: ${ctx.task.expiredReason ?? "the next season moved on."}` : "This team was taken out of the redraft.";
       return fail(409, why);
     }
-    if (windowBefore(state.window, nowDate)) return fail(409, `The redraft opens at ${whenText(state.window!.opensAt)}.`);
+    const zone = leagueTimeZone(lg);
+    if (windowBefore(state.window, nowDate)) {
+      return fail(409, `The redraft opens at ${whenText(state.window!.opensAt, zone)}.`, {
+        code: "gate-shut", gate: { id: "redraft-window:league", kind: "redraft-window", target: "league", label: "Redraft window", opensAt: state.window!.opensAt, secondsLeft: Math.max(0, Math.ceil((Date.parse(state.window!.opensAt) - nowDate.getTime()) / 1000)) },
+      });
+    }
+    // Gates (gates.ts): rest rolls and submissions each wait for their own "Opens at" (a league night, say).
+    const shut = gateBlock(deps.store, lg, action === "rest" ? "redraft-rest" : "redraft-submit", "league", nowDate);
+    if (shut) return shut;
     const now = nowDate.toISOString();
 
     if (action === "rest") {
@@ -308,12 +321,26 @@ async function boardPost(lg: LeagueRecord, auth: LeagueApiIdentity, input: Recor
       throw new RedraftError(400, "cap must be a whole number of gold.", "cap");
     const cap = { enabled: input.capEnabled, cap: capAmount };
     let opensAt: string | undefined;
-    if (input.opensAt !== undefined && input.opensAt !== null && input.opensAt !== "") {
+    const zone = leagueTimeZone(lg);
+    if (input.opensAtWall !== undefined && input.opensAtWall !== null && input.opensAtWall !== "") {
+      // The board's "Opens at": a wall-clock time in the league's zone (never the organiser's browser zone).
+      const wall = parseWall(input.opensAtWall);
+      if (!wall) throw new RedraftError(400, "Opens at must be a date and time (2026-11-09T18:00).", "opensAtWall");
+      opensAt = new Date(wallInstant(wall, zone)).toISOString();
+    } else if (input.opensAt !== undefined && input.opensAt !== null && input.opensAt !== "") {
       opensAt = parseInstant(input.opensAt);
       if (!opensAt) throw new RedraftError(400, "Opens at must be a date and time with a timezone.", "opensAt");
+    }
+    if (opensAt) {
       if (Date.parse(opensAt) > nowDate.getTime() + 365 * 24 * 60 * 60 * 1000) throw new RedraftError(400, "Opens at must be within a year.", "opensAt");
       // A time in the past opens it now.
       if (Date.parse(opensAt) < nowDate.getTime()) opensAt = undefined;
+    }
+    // The redraft window gate (gates.ts), while shut, decides when the window opens (and moves it with its League Event).
+    const windowGate = gateRefusal(deps.store, lg, "redraft-window", "league", nowDate);
+    if (windowGate) {
+      if (!windowGate.gate?.opensAt) return fail(409, "The redraft window gate has no time yet: pick one (or open it) before you confirm.", { code: "gate-shut", gate: windowGate.gate });
+      opensAt = windowGate.gate.opensAt;
     }
     let days = settings.windowDays;
     if (input.windowDays !== undefined) {
@@ -346,7 +373,7 @@ async function boardPost(lg: LeagueRecord, auth: LeagueApiIdentity, input: Recor
       };
     });
     const window = newWindow(nowDate, opensAt, days);
-    const text = `${auth.coach} started the redraft from ${source.name}${targetPick && target ? ` into ${target.name}` : ""}: ${chosen} team${chosen === 1 ? "" : "s"} selected${cap.enabled ? `, budgets capped at ${gold(cap.cap)}` : ", no budget cap"}. The window runs from ${whenText(window.opensAt)} to ${whenText(window.closesAt)}.`;
+    const text = `${auth.coach} started the redraft from ${source.name}${targetPick && target ? ` into ${target.name}` : ""}: ${chosen} team${chosen === 1 ? "" : "s"} selected${cap.enabled ? `, budgets capped at ${gold(cap.cap)}` : ", no budget cap"}. The window runs from ${whenText(window.opensAt, zone)} to ${whenText(window.closesAt, zone)}.`;
     const state: RedraftState = {
       startedAt: now, byCoach: auth.coach, capEnabled: cap.enabled, cap: cap.cap, revision: 1, teams, log: [{ at: now, by: auth.coach, text }],
       // Every resolved target is bound now: starting another season later never redirects this redraft.
@@ -367,7 +394,7 @@ async function boardPost(lg: LeagueRecord, auth: LeagueApiIdentity, input: Recor
       notifyAll(deps, teams.filter((t) => t.selected && t.coachId).map((t) => ({
         coach: t.coachId!, input: {
           type: "league-broadcast" as const, title: "Redraft: build next season's roster",
-          body: `${lg.name}: ${t.name} is in the redraft with a budget of ${gold(spendable(t))}, until ${whenText(window.closesAt)}. Roll Rest & Relaxation, re-hire players and staff in the Roster Builder, then submit your draft list.`,
+          body: `${lg.name}: ${t.name} is in the redraft with a budget of ${gold(spendable(t))}, until ${whenText(window.closesAt, zone)}. Roll Rest & Relaxation, re-hire players and staff in the Roster Builder, then submit your draft list.`,
           link: redraftLink(lg.id, t.teamId), from: auth.coach, action: true,
         },
       })));

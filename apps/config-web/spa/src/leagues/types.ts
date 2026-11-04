@@ -603,6 +603,8 @@ export interface RedraftBoardRow {
 export interface RedraftBoardView {
   leagueId: string;
   leagueName: string;
+  /** The league's zone (the window's Opens at is shown and taken in it). Optional: older reads. */
+  timeZone?: string;
   revision: number;
   source: { id: string; name: string; number: number; ruleset: string } | null;
   target: { id: string; name: string } | null;

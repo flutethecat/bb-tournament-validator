@@ -7,6 +7,8 @@ import { API_KEY } from "../app";
 import { createRedraftBoard, REDRAFT_BOARD_KEY } from "../leagues/redraft";
 import LeagueRedraftBoard from "./LeagueRedraftBoard.vue";
 import LeagueSettingsRedraftRules from "./LeagueSettingsRedraftRules.vue";
+import LeagueGatesPanel from "./LeagueGatesPanel.vue";
+import { RouterLink } from "vue-router";
 
 const props = defineProps<{ leagueId: string }>();
 const fetcher = inject(API_KEY)!;
@@ -24,6 +26,18 @@ onMounted(() => { if (!state.loaded || state.id !== props.leagueId) void board.l
       <p v-else-if="!state.loaded || !state.view" class="hm-empty" role="status">Loading the redraft...</p>
       <LeagueRedraftBoard v-else />
     </div>
-    <LeagueSettingsRedraftRules class="rd-manage-rules" />
+    <div class="lg-stack rd-manage-rules">
+      <!-- gates (lane 8c) sit next to the step they gate: the board's window, its rest rolls and its submissions -->
+      <LeagueGatesPanel
+        :league-id="leagueId" title="Redraft gates"
+        :items="[{ kind: 'redraft-window', target: 'league' }, { kind: 'redraft-rest', target: 'league' }, { kind: 'redraft-submit', target: 'league' }]"
+      />
+      <section class="hm-panel" aria-labelledby="rd-live-h">
+        <header class="hm-band" data-tone="info"><h2 id="rd-live-h">Redraft rolls</h2><span class="hm-cap">Live page</span></header>
+        <p class="hm-small">Every Rest &amp; Relaxation roll, live and large, for a screen at the venue. Make a link there for the screen.</p>
+        <p><RouterLink class="sf-btn small" data-rolls-page :to="{ name: 'league-redraft-rolls', params: { id: leagueId } }">Open the Redraft rolls page</RouterLink></p>
+      </section>
+      <LeagueSettingsRedraftRules />
+    </div>
   </div>
 </template>

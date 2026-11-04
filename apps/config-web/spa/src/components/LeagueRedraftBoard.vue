@@ -5,7 +5,10 @@
 // all on the Active tab, the cap, the window (Opens at + days) and per-team overrides with a reason; Confirm redraft
 // creates the coaches' tasks. After: a status column (Not started / In progress / Submitted / Needs redraft), overrides,
 // Lift to budget per team and for all, Skip, the window, the redraft log and Close redraft.
-import { computed, inject, ref } from "vue";
+import { computed, inject, onMounted, ref } from "vue";
+import { API_KEY } from "../app";
+import { api as defaultApi } from "../shared/api";
+import { gateWhen, useLeagueGates } from "../leagues/gates";
 import { budgetNote, formulaText, goldK, PHASE_LABEL, PHASE_TONE, REDRAFT_BOARD_KEY, redraftPickers, seasonsTitle, type BoardTab } from "../leagues/redraft";
 import type { RedraftBoardRow, RedraftPhase } from "../leagues/types";
 
@@ -59,7 +62,17 @@ const confirmClose = ref(false);
 async function close(): Promise<void> { if (await board.close()) confirmClose.value = false; }
 const capK = computed({ get: () => Math.round(state.cap / 1000), set: (v: number) => { state.cap = Math.max(0, Math.round(Number(v) || 0)) * 1000; } });
 const fmtDate = (iso: string): string => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-const fmtWhen = (iso: string): string => new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+// Times are the league's (gates lane: never the organiser's browser zone).
+const zone = computed(() => view.value.timeZone || "UTC");
+const zoneText = computed(() => zone.value.replace(/_/g, " "));
+const fmtWhen = (iso: string): string => `${gateWhen(iso, zone.value)} (${zoneText.value})`;
+// The Redraft window gate (beside the board) decides the Opens at while it is shut.
+const gates = useLeagueGates(inject(API_KEY, null) ?? defaultApi, view.value.leagueId);
+onMounted(() => { void gates.ensure(); });
+const windowGate = computed(() => {
+  const g = gates.gate("redraft-window", "league");
+  return g && g.state === "shut" ? g : undefined;
+});
 const windowLine = computed(() => {
   const w = view.value.window;
   if (!w) return "";
@@ -105,9 +118,10 @@ const COLS = computed(() => (started.value ? 11 : 10));
           <span>k (the excess is lost)</span>
         </div>
         <div v-if="!started" class="ls-actions rd-window">
-          <label class="ls-field"><span>Opens at</span><input v-model="state.opensAt" type="datetime-local" aria-describedby="rd-window-help" /></label>
+          <p v-if="windowGate" class="hm-small rd-window-gate" data-window-gate>Opens with the Redraft window gate: {{ windowGate.opensAt ? fmtWhen(windowGate.opensAt) : "no time yet (set one, or open it)" }}.</p>
+          <label v-else class="ls-field"><span>Opens at ({{ zoneText }})</span><input v-model="state.opensAt" type="datetime-local" aria-describedby="rd-window-help" /></label>
           <label class="ls-field rd-cap-amount"><span>Window (days)</span><input v-model.number="state.windowDays" type="number" min="1" max="60" inputmode="numeric" /></label>
-          <p id="rd-window-help" class="hm-small">Empty = now, in your timezone. Teams in the redraft cannot play while the window is open.</p>
+          <p id="rd-window-help" class="hm-small">Empty = now. Times are the league's ({{ zoneText }}). Teams in the redraft cannot play while the window is open.</p>
         </div>
         <template v-else>
           <p class="hm-small" role="status">

@@ -19,6 +19,7 @@ import {
 } from "./redraft.js";
 import { leagueOwner, type LeagueStore } from "./store.js";
 import { assignSeasonsPlayed } from "./playerIds.js";
+import { leagueTimeZone } from "./timeZone.js";
 import type { LeagueRecord, RedraftState, RedraftTeamTask, RedraftWindow, SeasonRecord } from "./types.js";
 
 /**
@@ -39,10 +40,12 @@ export const redraftModeLink = (leagueId: string, teamId: string): string =>
   `/app/tournament-team-builder/redraft/${encodeURIComponent(leagueId)}?team=${encodeURIComponent(teamId)}`;
 export const redraftBoardLink = (leagueId: string): string => `/app/leagues/${encodeURIComponent(leagueId)}/settings?tab=redraft`;
 
-/** "Nov 9, 2026, 18:00 UTC" (server text; pages show the instant in the viewer's timezone). */
-export const whenText = (iso: string): string => {
+/** "Nov 9, 2026, 18:00 UTC", or in the league's zone ("Nov 9, 2026, 19:00 Europe/London"; gates lane: the redraft window
+ *  reads the league time zone, never the organiser's browser). */
+export const whenText = (iso: string, zone = "UTC"): string => {
   const d = new Date(iso);
-  return `${d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}, ${d.toISOString().slice(11, 16)} UTC`;
+  const clock = new Intl.DateTimeFormat("en-GB", { timeZone: zone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(d);
+  return `${d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: zone })}, ${clock} ${zone === "UTC" ? "UTC" : zone.replace(/_/g, " ")}`;
 };
 
 /** The window of a redraft confirmed now: opensAt (default now) for `days` days. */
@@ -118,7 +121,7 @@ export function currentRosterInput(ctx: DraftContext): DraftInput {
  * Why this team may not play right now ("" = it may): its league redraft window is open (every team in the redraft), or
  * the window closed and the team still needs to redraft. Teams are matched by id (fixture sides carry it), else by name.
  */
-export function redraftPlayBlock(seasons: SeasonRecord[], team: { teamId?: string; team?: string }, now: Date): string {
+export function redraftPlayBlock(seasons: SeasonRecord[], team: { teamId?: string; team?: string }, now: Date, zone = "UTC"): string {
   const named = (team.team ?? "").trim().toLowerCase();
   for (const s of seasons) {
     const state = s.redraft;
@@ -131,7 +134,7 @@ export function redraftPlayBlock(seasons: SeasonRecord[], team: { teamId?: strin
       // result can reach the team before its new roster is durable.
       if (applyingRebuild(state, task)) return `${task.name}'s rebuilt roster is still being written into the next season: no games until then.`;
       if (state.closedAt) continue;
-      if (windowOpen(state.window, now)) return `${task.name} is redrafting until ${whenText(state.window.closesAt)}: no games while the redraft window is open.`;
+      if (windowOpen(state.window, now)) return `${task.name} is redrafting until ${whenText(state.window.closesAt, zone)}: no games while the redraft window is open.`;
       if (task.status !== "pending") continue;
       if (task.needsRedraft) return `${task.name} needs to finish its redraft before it can play.`;
       // Past the close but not processed yet (the job runs each minute): still blocked until it is rebuilt or marked.
@@ -147,8 +150,8 @@ export function applyingRebuild(state: Pick<RedraftState, "window">, task: Pick<
 }
 
 /** The block for either side of a fixture ("" = both may play). */
-export function fixtureRedraftBlock(seasons: SeasonRecord[], f: { home: { teamId?: string; team: string }; away: { teamId?: string; team: string } }, now: Date): string {
-  return redraftPlayBlock(seasons, f.home, now) || redraftPlayBlock(seasons, f.away, now);
+export function fixtureRedraftBlock(seasons: SeasonRecord[], f: { home: { teamId?: string; team: string }; away: { teamId?: string; team: string } }, now: Date, zone = "UTC"): string {
+  return redraftPlayBlock(seasons, f.home, now, zone) || redraftPlayBlock(seasons, f.away, now, zone);
 }
 
 // ---- the job ----
@@ -211,6 +214,7 @@ export function runRedraftWindowJob(deps: RedraftWindowDeps): RedraftWindowOutco
     if (!source) continue;
     const state = source.redraft!;
     const w = state.window!;
+    const zone = leagueTimeZone(league);
     const notices: Array<{ coach: string; input: NotificationInput }> = [];
     const pending = state.teams.filter((x) => x.selected && x.status === "pending");
     const coachNote = (coach: string | undefined, teamId: string, title: string, body: string): void => {
@@ -223,13 +227,13 @@ export function runRedraftWindowJob(deps: RedraftWindowDeps): RedraftWindowOutco
       if (live && !w.openNotifiedAt && ms >= t(w.opensAt)) {
         w.openNotifiedAt = iso;
         changed = true;
-        for (const x of pending) coachNote(x.coachId, x.teamId, "Redraft open", `the redraft for ${x.name} is open until ${whenText(w.closesAt)}. Roll Rest & Relaxation, then build next season's roster in the Roster Builder.`);
+        for (const x of pending) coachNote(x.coachId, x.teamId, "Redraft open", `the redraft for ${x.name} is open until ${whenText(w.closesAt, zone)}. Roll Rest & Relaxation, then build next season's roster in the Roster Builder.`);
         out.opened.push(`${league.id}/${source.id}`);
       }
       if (live && !w.reminderAt && ms >= t(w.closesAt) - REMINDER_MS && ms < t(w.closesAt)) {
         w.reminderAt = iso;
         changed = true;
-        for (const x of pending) coachNote(x.coachId, x.teamId, "Redraft closes in 24 hours", `${x.name}'s redraft closes at ${whenText(w.closesAt)}. Submit your draft list, or the team is rebuilt from its current roster if it fits the budget.`);
+        for (const x of pending) coachNote(x.coachId, x.teamId, "Redraft closes in 24 hours", `${x.name}'s redraft closes at ${whenText(w.closesAt, zone)}. Submit your draft list, or the team is rebuilt from its current roster if it fits the budget.`);
         out.reminded.push(`${league.id}/${source.id}`);
       }
       if (!w.processedAt && ms >= t(w.closesAt)) {

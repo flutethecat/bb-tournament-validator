@@ -630,8 +630,9 @@ export function challengesPaused(league: Pick<LeagueRecord, "redraftRules" | "re
   if (s.endsAt && now.getTime() >= Date.parse(s.endsAt)) return "The ladder has ended.";
   const w = currentRedraftWindow(league, ladder, now);
   if (w) return `Challenges are paused for the redraft window until ${day(w.closesAt)}.`;
-  const gate = ladder.ladder?.gates?.challenges?.opensAt;
-  if (gate && now.getTime() < Date.parse(gate)) return `Challenges open on ${day(gate)}.`;
+  const gate = ladder.ladder?.gates?.challenges;
+  if (gate && !gate.opensAt) return "Challenges are shut until the organisers open them.";
+  if (gate?.opensAt && now.getTime() < Date.parse(gate.opensAt)) return `Challenges open on ${day(gate.opensAt)}.`;
   return "";
 }
 

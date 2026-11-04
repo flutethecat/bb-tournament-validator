@@ -29,6 +29,8 @@ import LeagueSchedule from "../components/LeagueSchedule.vue";
 import LeagueSettingsTemplates from "../components/LeagueSettingsTemplates.vue";
 import LeagueSettingsLadders from "../components/LeagueSettingsLadders.vue";
 import LeagueTourplayImport from "../components/LeagueTourplayImport.vue";
+import LeagueGatesPanel from "../components/LeagueGatesPanel.vue";
+import { seasonStageOf } from "../leagues/lifecycle";
 import { followSeasons } from "../leagues/followSeasons";
 import { createLeagueDetail, LEAGUE_DETAIL_KEY, pickSeason } from "../leagues/league";
 import { createLeagueSettings, isSettingsTab, LEAGUE_SETTINGS_KEY, SETTINGS_TABS, type SettingsTab } from "../leagues/settings";
@@ -61,6 +63,8 @@ const tabQuery = (t: ManageGroup): Record<string, string> => {
   if (t !== "administration") q.tab = t;
   return q;
 };
+/** Seasons not started yet (setup / registration): each can have a season start gate (lane 8c). */
+const unstarted = computed(() => state.seasons.filter((s) => s.status !== "completed" && seasonStageOf(s) !== "active"));
 /** Participants: the season the header shows (?season=, else the newest). */
 const season = computed(() => pickSeason(detail.state.seasons, route.query.season));
 // A season action here (Start a new season, Finish, Reopen, stage changes) reloads the settings' season list; the shared
@@ -98,7 +102,11 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} settings` : ""));
         >{{ t.label }}</RouterLink>
       </nav>
       <div class="sh-manage-body lg-tab-body">
-      <template v-if="tab === 'administration'"><LeagueSettingsLifecycle /><LeagueSettingsAdmin /></template>
+      <template v-if="tab === 'administration'">
+        <LeagueSettingsLifecycle />
+        <LeagueGatesPanel v-if="unstarted.length" title="Season start gates" :league-id="id" :items="unstarted.map((s) => ({ kind: 'season-start', target: s.id, label: `${s.name}: season start` }))" />
+        <LeagueSettingsAdmin />
+      </template>
       <LeagueSettingsInfo v-else-if="tab === 'information'" />
       <template v-else-if="tab === 'registrations'"><LeagueSettingsRegistrations /><LeagueSettingsSeasonRegistration /></template>
       <LeagueSettingsTeamBuilding v-else-if="tab === 'team-building'" />
