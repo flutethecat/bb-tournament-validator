@@ -650,3 +650,214 @@ describe("access control, CSRF and GETs", () => {
     expect((await h2.call("POST", `/api/leagues/${L}/ladders/${id2}/titles/vacate`, OLGA, {})).status).toBe(409);
   });
 });
+
+// ---- Sol review (P2s): each through the real routes and job ----------------------------------------------------------------
+
+describe("review fixes", () => {
+  const challengeAccepted = async (h: ReturnType<typeof harness>, id: string, challenger: string, defender: string) => {
+    const ch = await h.call("POST", `/api/leagues/${L}/ladders/${id}/challenges`, coach(challenger), { challengerTeamId: h.tid(challenger), defenderTeamId: h.tid(defender) });
+    expect(ch.status, JSON.stringify(ch.body)).toBe(201);
+    const acc = await h.call("POST", `/api/leagues/${L}/ladders/${id}/challenges/${(ch.body as { challenge: { id: string } }).challenge.id}/accept`, coach(defender), {});
+    expect(acc.status, JSON.stringify(acc.body)).toBe(200);
+    return (acc.body as { fixture: { id: string } }).fixture.id;
+  };
+
+  it("1: a champion who concedes loses the belt and earns no defence points, whatever the score", async () => {
+    const h = harness();
+    const id = await h.crowned();
+    const fid = await challengeAccepted(h, id, "Gus", "Amy");
+    const lad = h.ladderOf(id);
+    const f = lad.fixtures.find((x) => x.id === fid)!;
+    h.advance(60_000);
+    f.home.score = 2; f.away.score = 1; f.home.conceded = true; f.finishedAt = h.time.now.toISOString();
+    h.store.putSeason(lad);
+    const state = titleReplay(h.ladderOf(id), h.time.now);
+    expect(state.holder?.teamId).toBe(h.tid("Gus"));
+    expect(state.defences).toHaveLength(0);
+    expect(ladderRanking(h.ladderOf(id), h.time.now).find((r) => r.teamId === h.tid("Amy"))!.bonus).toBe(3);
+  });
+
+  it("2: a Rumble bye recipient who leaves loses by walkover and the bracket goes on; a broken record never wedges the job", async () => {
+    const h = harness();
+    const id = await h.crowned();
+    const date = new Date(h.time.now.getTime() + D).toISOString();
+    await h.call("POST", `/api/leagues/${L}/ladders/${id}/rumbles`, OLGA, { date, field: "open" });
+    const rid = h.ladderOf(id).ladder!.rumbles![0]!.id;
+    for (const c of ["Bob", "Dan", "Gus"]) expect((await h.call("POST", `/api/leagues/${L}/ladders/${id}/rumbles/${rid}/enter`, coach(c), { teamId: h.tid(c) })).status).toBe(200);
+    h.advance(D + 60_000);
+    h.job();
+    const r1 = h.ladderOf(id).ladder!.rumbles![0]!.rounds[0]!.matches;
+    const bye = r1.find((m) => !m.awayTeamId)!;
+    const game = r1.find((m) => m.awayTeamId)!;
+    // The bye recipient leaves the ladder.
+    const lad = h.ladderOf(id);
+    lad.ladder!.members.find((m) => m.teamId === bye.homeTeamId)!.leftAt = h.time.now.toISOString();
+    h.store.putSeason(lad);
+    h.play(id, game.fixtureId!, 1, 0);
+    const out = h.job();
+    expect(out.failed).toEqual([]);
+    const ru = h.ladderOf(id).ladder!.rumbles![0]!;
+    expect(ru.rounds[1]!.matches[0]).toMatchObject({ how: "walkover", winnerTeamId: game.homeTeamId });
+    expect(ru).toMatchObject({ state: "finished", winnerTeamId: game.homeTeamId });
+    // A record the rules can't read is logged and skipped; the job keeps going.
+    const bad = h.ladderOf(id);
+    (bad.ladder!.rumbles![0] as unknown as { rounds: unknown }).rounds = null;
+    bad.ladder!.rumbles![0]!.state = "running";
+    h.store.putSeason(bad);
+    expect(() => h.job()).not.toThrow();
+    expect(h.job().failed).toEqual([]);
+  });
+
+  it("3: correcting an eliminator result names the right mandatory challenger; clearing it puts the eliminator back in play", async () => {
+    const h = harness();
+    const id = await h.crowned();
+    const elim = h.live(id, "eliminator")[0]!;
+    h.play(id, elim.fixtureId, 1, 0); // Eve (home) wins
+    h.job();
+    const first = h.live(id, "mandatory")[0]!;
+    expect(first).toMatchObject({ awayTeamId: h.tid("Eve"), fromBoutId: elim.id });
+    h.play(id, elim.fixtureId, 0, 1); // corrected: Cara won
+    h.job();
+    expect(h.bouts(id).find((b) => b.id === first.id)!.state).toBe("cancelled");
+    expect(h.live(id, "mandatory")[0]).toMatchObject({ awayTeamId: h.tid("Cara") });
+    const lad = h.ladderOf(id);
+    const f = lad.fixtures.find((x) => x.id === elim.fixtureId)!;
+    f.home.score = null; f.away.score = null; delete f.finishedAt;
+    h.store.putSeason(lad);
+    h.job();
+    expect(h.live(id, "mandatory")).toHaveLength(0);
+    expect(h.bouts(id).find((b) => b.id === elim.id)!.state).toBe("scheduled");
+  });
+
+  const rumbleFinal = async (h: ReturnType<typeof harness>, id: string) => {
+    const date = new Date(h.time.now.getTime() + D).toISOString();
+    await h.call("POST", `/api/leagues/${L}/ladders/${id}/rumbles`, OLGA, { date, field: "open" });
+    const rid = h.ladderOf(id).ladder!.rumbles![0]!.id;
+    for (const c of ["Bob", "Dan"]) await h.call("POST", `/api/leagues/${L}/ladders/${id}/rumbles/${rid}/enter`, coach(c), { teamId: h.tid(c) });
+    h.advance(D + 60_000);
+    h.job();
+    return h.ladderOf(id).ladder!.rumbles![0]!.rounds[0]!.matches[0]!;
+  };
+
+  it("4: a corrected Rumble final moves the win, the points and the title-shot contract (or tells the organisers once cashed in)", async () => {
+    const h = harness();
+    const id = await h.crowned();
+    const final = await rumbleFinal(h, id);
+    h.play(id, final.fixtureId!, 1, 0);
+    h.job();
+    const won = h.ladderOf(id).ladder!;
+    expect(won.rumbles![0]!.winnerTeamId).toBe(final.homeTeamId);
+    const oldContract = won.titles!.contracts.find((c) => c.source === "rumble")!;
+    expect(oldContract.teamId).toBe(final.homeTeamId);
+    const bonus = (tid: string) => ladderRanking(h.ladderOf(id), h.time.now).find((r) => r.teamId === tid)!.bonus;
+    expect(bonus(final.homeTeamId)).toBe(5);
+    h.play(id, final.fixtureId!, 0, 1);
+    h.job();
+    const after = h.ladderOf(id).ladder!;
+    expect(after.rumbles![0]).toMatchObject({ state: "finished", winnerTeamId: final.awayTeamId });
+    expect(after.titles!.contracts.find((c) => c.id === oldContract.id)!.revokedAt).toBeTruthy();
+    expect(after.titles!.contracts.find((c) => c.source === "rumble" && !c.revokedAt)!.teamId).toBe(final.awayTeamId);
+    expect(bonus(final.homeTeamId)).toBe(0);
+    expect(bonus(final.awayTeamId!)).toBe(5);
+    // Cashed in before the correction: kept, and the organisers are told.
+    const newC = after.titles!.contracts.find((c) => c.source === "rumble" && !c.revokedAt)!;
+    const awayCoach = h.ladderOf(id).teams.find((t) => t.id === final.awayTeamId)!.coach;
+    expect((await h.call("POST", `/api/leagues/${L}/ladders/${id}/contracts/${newC.id}/cash-in`, coach(awayCoach), {})).status).toBe(200);
+    h.sent.length = 0;
+    h.play(id, final.fixtureId!, 2, 0);
+    h.job();
+    expect(h.ladderOf(id).ladder!.titles!.contracts.find((c) => c.id === newC.id)!.revokedAt).toBeUndefined();
+    expect(h.sent.some((s) => s.coach === "Olga" && s.input.body.includes("already cashed in"))).toBe(true);
+  });
+
+  it("5: a streak a corrected result breaks withdraws its uncashed contract; cash-in re-checks it", async () => {
+    const h = harness();
+    const id = await h.crowned({ mitb: { enabled: true, streak: 3 } });
+    const l = h.ladderOf(id); l.ladder!.titles!.mitbOnAt = "2026-11-01T00:00:00.000Z"; h.store.putSeason(l);
+    h.result(id, "Bob", "Dan", 1, 0, "2026-11-10T13:00:00.000Z");
+    const mid = h.result(id, "Bob", "Finn", 1, 0, "2026-11-10T14:00:00.000Z");
+    h.result(id, "Bob", "Gus", 1, 0, "2026-11-10T15:00:00.000Z");
+    h.advance(4 * H);
+    h.job();
+    const c = h.ladderOf(id).ladder!.titles!.contracts[0]!;
+    // Corrected: Bob lost the middle game; until the job runs, cash-in itself refuses it.
+    const lad = h.ladderOf(id);
+    const f = lad.fixtures.find((x) => x.id === mid.id)!; f.home.score = 0; f.away.score = 1;
+    h.store.putSeason(lad);
+    const refused = await h.call("POST", `/api/leagues/${L}/ladders/${id}/contracts/${c.id}/cash-in`, coach("Bob"), {});
+    expect(refused.status).toBe(409);
+    h.job();
+    expect(h.ladderOf(id).ladder!.titles!.contracts[0]!.revokedAt).toBeTruthy();
+    expect(h.sent.some((s) => s.coach === "Bob" && s.input.title.includes("withdrawn"))).toBe(true);
+  });
+
+  it("6: a contract dates from the result that completed the streak, never the tick that noticed it; an old streak earns nothing", async () => {
+    const h = harness();
+    const id = await h.crowned({ mitb: { enabled: true, streak: 2 } });
+    const l = h.ladderOf(id); l.ladder!.titles!.mitbOnAt = "2026-01-01T00:00:00.000Z"; h.store.putSeason(l);
+    h.result(id, "Dan", "Finn", 1, 0, "2026-06-01T10:00:00.000Z");
+    h.result(id, "Dan", "Gus", 1, 0, "2026-06-02T10:00:00.000Z"); // its 90 days ended 2026-08-31: no contract
+    h.result(id, "Bob", "Finn", 1, 0, "2026-11-01T10:00:00.000Z");
+    h.result(id, "Bob", "Gus", 1, 0, "2026-11-02T10:00:00.000Z");
+    h.advance(5 * D);
+    h.job();
+    const list = h.ladderOf(id).ladder!.titles!.contracts;
+    expect(list.map((c) => c.teamId)).toEqual([h.tid("Bob")]);
+    expect(list[0]).toMatchObject({ earnedAt: "2026-11-02T10:00:00.000Z", expiresAt: new Date(Date.parse("2026-11-02T10:00:00.000Z") + 90 * D).toISOString() });
+  });
+
+  it("7: closing doesn't pay weekly points for time the champion was marked inactive", async () => {
+    const h = harness();
+    const id = await h.crowned();
+    const since = titleReplay(h.ladderOf(id), h.time.now).holder!.since;
+    h.time.now = new Date(Date.parse(since) + 3 * D);
+    expect((await h.call("POST", `/api/leagues/${L}/ladders/${id}/titles/inactive`, OLGA, {})).status).toBe(200);
+    h.time.now = new Date(Date.parse(since) + 20 * D);
+    expect((await h.call("POST", `/api/leagues/${L}/ladders/${id}/close`, OLGA, {})).status).toBe(200);
+    const later = new Date(Date.parse(since) + 40 * D);
+    expect(ladderRanking(h.ladderOf(id), later).find((r) => r.teamId === h.tid("Amy"))!.bonus).toBe(3);
+  });
+
+  it("8 + 9: the scheduled close writes the last period's honours, ranked with the field as it was at each period's end", async () => {
+    const h = harness();
+    const start = h.time.now.getTime();
+    const id = await h.openLadder({ titles: { belt: false }, periodDays: 7, redraft: { trigger: "schedule" }, endsAt: new Date(start + 14 * D).toISOString() });
+    h.seed(id, ["Amy", "Bob", "Cara", "Dan"]);
+    h.result(id, "Amy", "Bob", 2, 0, new Date(start + D).toISOString());
+    h.result(id, "Cara", "Dan", 1, 0, new Date(start + D + H).toISOString());
+    h.result(id, "Bob", "Dan", 1, 0, new Date(start + 2 * D).toISOString());
+    // Bob leaves after period 1 ended, before anything wrote its honours.
+    const lad = h.ladderOf(id);
+    lad.ladder!.members.find((m) => m.teamId === h.tid("Bob"))!.leftAt = new Date(start + 8 * D).toISOString();
+    h.store.putSeason(lad);
+    h.time.now = new Date(start + 14 * D + 60_000);
+    h.job(); // one tick at the end: closes the ladder, periods 1 and 2 honoured first
+    const awards = h.ladderOf(id).awards;
+    expect(h.ladderOf(id).status).toBe("completed");
+    expect(awards.filter((a) => a.key?.startsWith("period:1")).map((a) => a.team)).toContain("Bob's team");
+    expect(awards.some((a) => a.key?.startsWith("period:2"))).toBe(true);
+    expect(awards.some((a) => a.key?.startsWith("final:"))).toBe(true);
+  });
+
+  it("10: closing first settles a Rumble whose final result is in (crowned, not cancelled)", async () => {
+    const h = harness();
+    const id = await h.crowned();
+    const final = await rumbleFinal(h, id);
+    h.play(id, final.fixtureId!, 0, 2); // the result is in; no tick ran
+    expect((await h.call("POST", `/api/leagues/${L}/ladders/${id}/close`, OLGA, {})).status).toBe(200);
+    expect(h.ladderOf(id).ladder!.rumbles![0]).toMatchObject({ state: "finished", winnerTeamId: final.awayTeamId });
+  });
+
+  it("11: closing honours both the champion and the interim champion (labelled interim)", async () => {
+    const h = harness();
+    const id = await h.crowned();
+    await h.call("POST", `/api/leagues/${L}/ladders/${id}/titles/inactive`, OLGA, {});
+    h.play(id, h.live(id, "interim")[0]!.fixtureId, 1, 0);
+    h.job();
+    expect(titleReplay(h.ladderOf(id), h.time.now).interim).toBeTruthy();
+    expect((await h.call("POST", `/api/leagues/${L}/ladders/${id}/close`, OLGA, {})).status).toBe(200);
+    const types = h.ladderOf(id).awards.map((a) => a.type);
+    expect(types).toContain("Spring belt holder at close");
+    expect(types).toContain("Spring interim champion at close");
+  });
+});

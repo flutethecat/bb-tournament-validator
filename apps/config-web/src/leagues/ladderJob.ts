@@ -20,7 +20,7 @@
  */
 import type { NotificationInput } from "../notifications.js";
 import { closeLadderRecord, ladderLink, proposeLink } from "./ladderApi.js";
-import { titleTick } from "./ladderTitles.js";
+import { safeTitleTick } from "./ladderTitles.js";
 import { applyTournamentResets, challengeState, currentRedraftWindow, declineLosses, fixtureOpen, isLadder, ladderState, liveChallenge, settingsOf, teamAccount } from "./ladder.js";
 import { draftAwareNotify } from "./lifecycle.js";
 import type { LeagueStore } from "./store.js";
@@ -75,7 +75,8 @@ export function runLadderJob(deps: LadderJobDeps): LadderJobOutcome {
           if (!n.coach) continue;
           try { notify?.(n.coach, { type: "ladder", title: n.title, body: n.body, link: n.link ?? link, subject: `${league.name} ${ladder.name}`, ...(n.action ? { action: true } : {}) }); } catch { /* fire-and-forget */ }
         }
-      } catch {
+      } catch (e) {
+        console.error(`[leagues] ladder job ${key} failed: ${(e as Error).message}`);
         out.failed.push(key);
       }
     }
@@ -95,7 +96,9 @@ function tick(leagueName: string, ladder: SeasonRecord, now: Date, notes: Note[]
 
   // 1. The scheduled end.
   if (s.endsAt && now.getTime() >= Date.parse(s.endsAt)) {
-    for (const n of closeLadderRecord(ladder, now, "ended on its scheduled date")) notes.push({ coach: n.coach, title: `${title} has ended`, body: n.text });
+    const titleNotes: Parameters<typeof safeTitleTick>[0]["notes"] = [];
+    for (const n of closeLadderRecord(ladder, now, "ended on its scheduled date", { league, competitions: comps, titleNotes })) notes.push({ coach: n.coach, title: `${title} has ended`, body: n.text });
+    for (const n of titleNotes) notes.push({ coach: n.coach, title: n.title, body: n.body });
     for (const m of rec.members) if (!m.leftAt) notes.push({ coach: coach(m.teamId), title: `${title} has ended`, body: "The ladder reached its end date: the ranking is final." });
     out.closed.push(key);
     return true;
@@ -167,8 +170,8 @@ function tick(leagueName: string, ladder: SeasonRecord, now: Date, notes: Note[]
   for (const id of applyTournamentResets(ladder)) { out.resets.push(`${key}/${id}`); changed = true; }
 
   // 7. Titles: the belt, the mandatory challenger, Money in the Bank, the Rumble and period honours (ladderTitles.ts).
-  const titleNotes: Parameters<typeof titleTick>[0]["notes"] = [];
-  if (titleTick({ league, ladder, competitions: comps, now, notes: titleNotes })) { out.titles.push(key); changed = true; }
+  const titleNotes: Parameters<typeof safeTitleTick>[0]["notes"] = [];
+  if (safeTitleTick({ league, ladder, competitions: comps, now, notes: titleNotes })) { out.titles.push(key); changed = true; }
   for (const n of titleNotes) {
     const fixtureId = n.propose ? n.propose.split(":")[3] : undefined;
     notes.push({ coach: n.coach, title: n.title, body: n.body, ...(fixtureId ? { link: proposeLink(league.id, ladder.id, fixtureId), action: true } : {}) });

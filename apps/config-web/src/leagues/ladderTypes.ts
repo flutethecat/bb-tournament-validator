@@ -210,6 +210,8 @@ export interface TitleBout {
   deadline: string;
   fixtureId: string;
   contractId?: string;
+  /** A mandatory set by an eliminator: that eliminator (a corrected eliminator result revisits it). */
+  fromBoutId?: string;
   /** Stored by the job / a write: scheduled until it is played, lapses at its deadline, or is cancelled. */
   state: "scheduled" | "played" | "lapsed" | "cancelled";
   closedAt?: string;
@@ -231,6 +233,9 @@ export interface TitleContract {
   usedAt?: string;
   /** The fixture that completed the streak (streak contracts: never earned twice from one streak). */
   fromFixtureId?: string;
+  /** Withdrawn (a corrected result broke the streak, or the Rumble winner changed) before it was cashed in. */
+  revokedAt?: string;
+  revokedWhy?: string;
   note?: string;
 }
 
@@ -251,7 +256,7 @@ export interface LadderRumbleMatch {
   awayTeamId?: string;
   fixtureId?: string;
   winnerTeamId?: string;
-  how?: "result" | "bye" | "fallback";
+  how?: "result" | "bye" | "fallback" | "walkover";
 }
 
 /** A Rumble (spec round 5): an organiser-dated quick knockout inside the ladder; its games are ladder fixtures, the bracket is the

@@ -62,6 +62,7 @@ function submit(): void {
                 <span v-if="m.away" class="ld-bm-side" :data-win="m.winnerTeamId === m.away.teamId ? 'true' : undefined"><small class="ld-seed">{{ seedOf(m.away.teamId) }}</small>{{ m.away.team }}<b v-if="m.score">{{ m.score[1] }}</b></span>
                 <span v-else class="ld-bm-side muted">Bye</span>
                 <small v-if="m.how === 'fallback'" class="muted">Better seed through</small>
+                <small v-else-if="m.how === 'walkover'" class="muted">Walkover: a team left the ladder</small>
                 <button v-if="m.scheduleRef" type="button" class="sf-btn small" :disabled="!canWrite" @click="emit('propose', m.scheduleRef)">Propose a time</button>
               </li>
             </ul>

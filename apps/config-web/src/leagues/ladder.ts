@@ -241,6 +241,20 @@ export function activeMembers(ladder: SeasonRecord, superseded: ReadonlySet<stri
   return out;
 }
 
+/** The members as they were at `t` (ms): joined by then and not yet gone (left, or moved on) at it; the team row present.
+ *  Period honours rank the field of the period's end, whenever they are written. */
+export function membersAt(ladder: SeasonRecord, t: number, competitions: readonly SeasonRecord[] = [ladder]): Array<{ member: LadderMember; team: LeagueTeam }> {
+  const out: Array<{ member: LadderMember; team: LeagueTeam }> = [];
+  for (const m of ladder.ladder?.members ?? []) {
+    if ((Date.parse(m.joinedAt) || 0) > t) continue;
+    const end = memberEnd(ladder, m, competitions);
+    if (end && (Date.parse(end) || 0) <= t) continue;
+    const team = (ladder.teams ?? []).find((x) => x.id === m.teamId);
+    if (team) out.push({ member: m, team });
+  }
+  return out;
+}
+
 /** The time a member stopped counting (left, or the time its successor row was made), else undefined. */
 function memberEnd(ladder: SeasonRecord, m: LadderMember, competitions: readonly SeasonRecord[]): string | undefined {
   if (m.leftAt) return m.leftAt;

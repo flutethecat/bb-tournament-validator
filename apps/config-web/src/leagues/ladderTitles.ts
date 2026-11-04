@@ -33,9 +33,10 @@
  * Privacy: team ids only; coach names come from the (public) team rows.
  */
 import { generateKnockoutPairings } from "../tournaments/pairing.js";
+import { fixtureOutcome } from "./identity.js";
 import type { ScheduledMatchRecord, TournamentEntrantRecord } from "../tournaments/types.js";
 import {
-  activeMembers, CHALLENGE_PHASE, challengesPaused, countsInRanking, DAY_MS, fixtureOpen, fixtureSide, HOUR_MS, ladderRanking, LadderError, newLadderId, rankRows,
+  activeMembers, CHALLENGE_PHASE, membersAt, challengesPaused, countsInRanking, DAY_MS, fixtureOpen, fixtureSide, HOUR_MS, ladderRanking, LadderError, newLadderId, rankRows,
   replayLadder, resultTime, settingsOf, supersededTeams, teamAccount, type LadderRankRow,
 } from "./ladder.js";
 import type {
@@ -153,10 +154,11 @@ export interface TitleState {
   awards: LadderPointAward[];
 }
 
-const winnerOf = (f: LeagueFixture): string | undefined => {
-  const hs = f.home.score ?? 0;
-  const as = f.away.score ?? 0;
-  return hs > as ? f.home.teamId : as > hs ? f.away.teamId : undefined;
+/** The winning team of a counted fixture by the shared outcome (a concession loses whatever the score; both conceded or a
+ *  draw = no winner). Every title rule uses this: title games, eliminators, the Rumble and win streaks. */
+export const winnerOf = (f: LeagueFixture): string | undefined => {
+  const o = fixtureOutcome(f);
+  return o?.home === "win" ? f.home.teamId : o?.away === "win" ? f.away.teamId : undefined;
 };
 
 /** Every reign from the stored decisions and the title results (no I/O, never writes). */
@@ -273,8 +275,9 @@ export function titleReplay(ladder: SeasonRecord, now: Date): TitleState {
   // A closed ladder freezes every reign at the close.
   const closedAt = rec?.closedAt;
   const cap = closedAt ? Math.min(now.getTime(), Date.parse(closedAt)) : now.getTime();
-  if (closedAt) { end(holder, closedAt, "The ladder closed"); end(interim, closedAt, "The ladder closed"); }
+  // Outstanding inactivity is recorded BEFORE the close ends the reign (no weekly points for time marked inactive).
   if (holder && inactiveSince && !holder.until) pause(holder, inactiveSince, iso(cap));
+  if (closedAt) { end(holder, closedAt, "The ladder closed"); end(interim, closedAt, "The ladder closed"); }
   for (const r of out.reigns) {
     if (!b.weekHeld) break;
     const from = Date.parse(r.since);
@@ -314,9 +317,10 @@ const daysBetween = (from: string, to: number): number => Math.max(0, Math.floor
 
 // ---- contracts ----------------------------------------------------------------------------------------------------------------
 
-export type ContractState = "held" | "cashing-in" | "used" | "expired";
+export type ContractState = "held" | "cashing-in" | "used" | "expired" | "revoked";
 
 export function contractState(c: TitleContract, rec: LadderRecord, now: Date): ContractState {
+  if (c.revokedAt) return "revoked";
   const bout = c.boutId ? rec.titles?.bouts.find((x) => x.id === c.boutId) : undefined;
   if (bout && bout.state === "scheduled") return "cashing-in";
   if (c.usedAt) return "used";
@@ -328,7 +332,7 @@ export function contractState(c: TitleContract, rec: LadderRecord, now: Date): C
 export interface TitleNote { coach: string; title: string; body: string; propose?: string }
 
 export interface TitleTickContext {
-  league: Pick<LeagueRecord, "id" | "name" | "redraftRules" | "redraftCap">;
+  league: Pick<LeagueRecord, "id" | "name" | "redraftRules" | "redraftCap"> & Partial<Pick<LeagueRecord, "organisers" | "owner">>;
   ladder: SeasonRecord;
   competitions: readonly SeasonRecord[];
   now: Date;
@@ -417,7 +421,7 @@ export function titleTick(ctx: TitleTickContext): boolean {
   const rec = ladder.ladder;
   if (!rec || ladder.status === "completed" || ladder.stage === "setup" || ladder.stage === "registration") return false;
   const ts = titleSettingsOf(rec);
-  const hasTitleWork = ts.belt || (rec.titles?.bouts.some((b) => b.state === "scheduled") ?? false) || (rec.rumbles ?? []).some((r) => r.state === "entry" || r.state === "running");
+  const hasTitleWork = ts.belt || Boolean(rec.titles?.bouts.length) || Boolean(rec.titles?.contracts.length);
   const before = JSON.stringify([rec.titles ?? null, rec.rumbles ?? null, rec.belt ?? null, rec.periodHonours ?? null, ladder.fixtures.length, ladder.awards.length]);
   const at = now.toISOString();
   const team = (id: string | undefined) => ladder.teams.find((x) => x.id === id);
@@ -431,6 +435,22 @@ export function titleTick(ctx: TitleTickContext): boolean {
     const t = titlesOf(rec);
     let state = titleReplay(ladder, now);
 
+    // 0. Played eliminators are re-derived from their results: a corrected result names the right mandatory challenger (the
+    // mandatory it set is called off and set again); a cleared one puts the eliminator back in play. Too late once played.
+    for (const bout of t.bouts) {
+      if (bout.kind !== "eliminator" || bout.state !== "played" || bout.how !== "result") continue;
+      const f = ladder.fixtures.find((x) => x.id === bout.fixtureId);
+      const counted = Boolean(f && countsInRanking(f));
+      const winner = counted ? winnerOf(f!) ?? bout.homeTeamId : undefined;
+      if (winner === bout.winnerTeamId) continue;
+      if (t.bouts.some((b) => b.fromBoutId === bout.id && b.state === "played")) continue;
+      for (const m of t.bouts) if (m.fromBoutId === bout.id && m.state === "scheduled") cancelBout(ladder, m, at, "The eliminator result changed.");
+      if (!winner) { bout.state = "scheduled"; delete bout.winnerTeamId; delete bout.how; delete bout.closedAt; continue; }
+      bout.winnerTeamId = winner;
+      state = titleReplay(ladder, now);
+      mandatoryFrom(ctx, state, winner, ts, bout.id);
+    }
+
     // 1. Settle the live bouts: played, lapsed at the deadline, or cancelled because a team left.
     for (const bout of liveBouts(rec)) {
       const f = ladder.fixtures.find((x) => x.id === bout.fixtureId);
@@ -443,7 +463,7 @@ export function titleTick(ctx: TitleTickContext): boolean {
         bout.closedAt = at;
         bout.winnerTeamId = winnerOf(f) ?? bout.homeTeamId;
         bout.how = "result";
-        if (bout.kind === "eliminator") { state = titleReplay(ladder, now); mandatoryFrom(ctx, state, bout.winnerTeamId, ts); }
+        if (bout.kind === "eliminator") { state = titleReplay(ladder, now); mandatoryFrom(ctx, state, bout.winnerTeamId, ts, bout.id); }
         continue;
       }
       const discarded = !f || f.suspended || f.deadlineOutcome?.outcome === "no-result";
@@ -458,7 +478,7 @@ export function titleTick(ctx: TitleTickContext): boolean {
         bout.winnerTeamId = bout.homeTeamId; bout.how = "fallback";
         bout.note = `Not played in its window: ${name(bout.homeTeamId)}, the higher-ranked team, takes the mandatory spot.`;
         for (const id of [bout.homeTeamId, bout.awayTeamId]) ctx.notes.push({ coach: coach(id), title: `${title}: eliminator not played`, body: bout.note });
-        mandatoryFrom(ctx, state, bout.homeTeamId, ts);
+        mandatoryFrom(ctx, state, bout.homeTeamId, ts, bout.id);
       } else if (bout.kind === "vacant" && !state.holder) {
         bout.winnerTeamId = bout.homeTeamId; bout.how = "fallback";
         addEvent(rec, { kind: "crowned", teamId: bout.homeTeamId, at, by: "job", reason: "fallback" });
@@ -496,7 +516,8 @@ export function titleTick(ctx: TitleTickContext): boolean {
       cancelBout(ladder, bout, at, "The title changed hands or the champion's status changed.");
       if (bout.kind === "mandatory" && h && !state.inactiveSince && !state.interim && bout.awayTeamId !== h && isMember(bout.awayTeamId)) {
         // The mandatory challenger keeps the spot against the new champion.
-        createBout(ctx, "mandatory", team(h)!, team(bout.awayTeamId)!, ts.mandatoryDays * DAY_MS);
+        const again = createBout(ctx, "mandatory", team(h)!, team(bout.awayTeamId)!, ts.mandatoryDays * DAY_MS);
+        if (bout.fromBoutId) again.fromBoutId = bout.fromBoutId;
       }
     }
 
@@ -568,14 +589,14 @@ export function titleTick(ctx: TitleTickContext): boolean {
 }
 
 /** The eliminator's winner (or the fallback) becomes the mandatory challenger: the champion's mandatory defence. */
-function mandatoryFrom(ctx: TitleTickContext, state: TitleState, challengerId: string, ts: LadderTitleSettings): void {
+function mandatoryFrom(ctx: TitleTickContext, state: TitleState, challengerId: string, ts: LadderTitleSettings, fromBoutId?: string): void {
   const rec = ctx.ladder.ladder!;
   const h = state.holder;
   if (!h || state.inactiveSince || state.interim || challengerId === h.teamId) return;
   if (liveBouts(rec).some((b) => b.kind === "mandatory")) return;
   const home = ctx.ladder.teams.find((x) => x.id === h.teamId);
   const away = ctx.ladder.teams.find((x) => x.id === challengerId);
-  if (home && away) createBout(ctx, "mandatory", home, away, ts.mandatoryDays * DAY_MS);
+  if (home && away) { const b = createBout(ctx, "mandatory", home, away, ts.mandatoryDays * DAY_MS); if (fromBoutId) b.fromBoutId = fromBoutId; }
 }
 
 export function cancelBout(ladder: SeasonRecord, bout: TitleBout, at: string, note: string): void {
@@ -587,32 +608,70 @@ export function cancelBout(ladder: SeasonRecord, bout: TitleBout, at: string, no
   if (c) { delete c.boutId; delete c.usedAt; }
 }
 
-/** Money in the Bank: every N wins in a row (counted from when MITB was switched on) earn one contract; one held at a time. */
-function earnStreakContracts(ctx: TitleTickContext, ts: LadderTitleSettings, state: TitleState): void {
-  const { ladder, now } = ctx;
+/** Every qualifying N-win streak (counted from when MITB was switched on), from the current results: the completing fixture,
+ *  the team and when it was played. Derived each time, so a corrected or cleared result removes a streak. */
+export function streakCompletions(ladder: SeasonRecord, streakLen: number): Array<{ fixtureId: string; teamId: string; at: number }> {
   const rec = ladder.ladder!;
-  const t = titlesOf(rec);
-  const since = Date.parse(t.mitbOnAt ?? rec.startedAt ?? "") || 0;
+  const since = Date.parse(rec.titles?.mitbOnAt ?? rec.startedAt ?? "") || 0;
   const games = ladder.fixtures.filter((f) => countsInRanking(f) && resultTime(ladder, f) >= since).sort((a, b) => resultTime(ladder, a) - resultTime(ladder, b) || a.id.localeCompare(b.id));
   const streak = new Map<string, number>();
+  const out: Array<{ fixtureId: string; teamId: string; at: number }> = [];
   for (const f of games) {
     const w = winnerOf(f);
     for (const side of [f.home.teamId, f.away.teamId]) {
       if (!side) continue;
       if (side !== w) { streak.set(side, 0); continue; }
       const n = (streak.get(side) ?? 0) + 1;
-      if (n < ts.mitb.streak) { streak.set(side, n); continue; }
+      if (n < streakLen) { streak.set(side, n); continue; }
       streak.set(side, 0);
-      if (t.contracts.some((c) => c.fromFixtureId === f.id && c.teamId === side)) continue;
-      if (side === state.holder?.teamId) continue;
-      if (t.contracts.some((c) => c.teamId === side && ["held", "cashing-in"].includes(contractState(c, rec, now)))) continue;
-      const earnedAt = new Date(Math.max(resultTime(ladder, f), now.getTime() - 1)).toISOString();
-      const c: TitleContract = { id: newLadderId("tc"), teamId: side, source: "streak", earnedAt, expiresAt: new Date(Date.parse(earnedAt) + ts.mitb.cashInDays * DAY_MS).toISOString(), fromFixtureId: f.id };
-      t.contracts.push(c);
-      t.told.push(`contract:${c.id}`);
-      const team = ladder.teams.find((x) => x.id === side);
-      ctx.notes.push({ coach: team ? teamAccount(team) : "", title: `${ctx.league.name} ${ladder.name}: Money in the Bank`, body: `${team?.name ?? "Your team"} won ${ts.mitb.streak} in a row and earned a title-shot contract. Cash it in by ${c.expiresAt.slice(0, 10)}: the champion can't decline.` });
+      out.push({ fixtureId: f.id, teamId: side, at: resultTime(ladder, f) });
     }
+  }
+  return out;
+}
+
+/** Is a streak contract's qualifying streak still there in the current results? (Other sources are always valid.) */
+export function contractStreakHolds(ladder: SeasonRecord, c: TitleContract): boolean {
+  if (c.source !== "streak") return true;
+  const ts = titleSettingsOf(ladder.ladder);
+  return streakCompletions(ladder, ts.mitb.streak).some((x) => x.fixtureId === c.fromFixtureId && x.teamId === c.teamId);
+}
+
+function revokeContract(ctx: TitleTickContext, c: TitleContract, why: string): void {
+  c.revokedAt = ctx.now.toISOString();
+  c.revokedWhy = why;
+  const team = ctx.ladder.teams.find((x) => x.id === c.teamId);
+  ctx.notes.push({ coach: team ? teamAccount(team) : "", title: `${ctx.league.name} ${ctx.ladder.name}: title-shot contract withdrawn`, body: `${team?.name ?? "Your team"}'s contract was withdrawn: ${why}` });
+}
+
+/** Tells the league's organisers (a corrected result that would have revoked a contract already cashed in). */
+function tellOrganisers(ctx: TitleTickContext, title: string, body: string): void {
+  for (const o of new Set([...(ctx.league.owner ? [ctx.league.owner] : []), ...(ctx.league.organisers ?? [])])) ctx.notes.push({ coach: o, title, body });
+}
+
+/** Money in the Bank: every N wins in a row earn one contract (one held at a time); an uncashed contract whose streak no longer
+ *  holds after a correction is withdrawn. A contract dates from the result that completed the streak, never from the tick. */
+function earnStreakContracts(ctx: TitleTickContext, ts: LadderTitleSettings, state: TitleState): void {
+  const { ladder, now } = ctx;
+  const rec = ladder.ladder!;
+  const t = titlesOf(rec);
+  const done = streakCompletions(ladder, ts.mitb.streak);
+  for (const c of t.contracts) {
+    if (c.source !== "streak" || c.revokedAt || c.usedAt || c.boutId) continue;
+    if (!done.some((x) => x.fixtureId === c.fromFixtureId && x.teamId === c.teamId)) revokeContract(ctx, c, "a corrected result broke the winning streak.");
+  }
+  for (const x of done) {
+    if (t.contracts.some((c) => c.fromFixtureId === x.fixtureId && c.teamId === x.teamId && !c.revokedAt)) continue;
+    if (x.teamId === state.holder?.teamId) continue;
+    if (t.contracts.some((c) => c.teamId === x.teamId && ["held", "cashing-in"].includes(contractState(c, rec, now)))) continue;
+    const earnedAt = new Date(x.at).toISOString();
+    const expiresAt = new Date(x.at + ts.mitb.cashInDays * DAY_MS).toISOString();
+    if (Date.parse(expiresAt) <= now.getTime()) continue; // a streak whose cash-in window is already over earns nothing
+    const c: TitleContract = { id: newLadderId("tc"), teamId: x.teamId, source: "streak", earnedAt, expiresAt, fromFixtureId: x.fixtureId };
+    t.contracts.push(c);
+    t.told.push(`contract:${c.id}`);
+    const team = ladder.teams.find((y) => y.id === x.teamId);
+    ctx.notes.push({ coach: team ? teamAccount(team) : "", title: `${ctx.league.name} ${ladder.name}: Money in the Bank`, body: `${team?.name ?? "Your team"} won ${ts.mitb.streak} in a row and earned a title-shot contract. Cash it in by ${c.expiresAt.slice(0, 10)}: the champion can't decline.` });
   }
 }
 
@@ -626,6 +685,8 @@ export function cashIn(ctx: TitleTickContext, contractId: string): TitleBout {
   if (!c) throw new LadderError(404, "Contract not found.");
   const st = contractState(c, rec, now);
   if (st === "expired") throw new LadderError(409, "This contract has expired.");
+  if (st === "revoked") throw new LadderError(409, "This contract was withdrawn.");
+  if (!contractStreakHolds(ladder, c)) throw new LadderError(409, "This contract's winning streak no longer stands after a corrected result.");
   if (st !== "held") throw new LadderError(409, "This contract has already been cashed in.");
   if (!ts.belt) throw new LadderError(409, "This ladder has no belt.");
   if (c.source !== "rumble" && !ts.mitb.enabled) throw new LadderError(409, "Money in the Bank is switched off for this ladder.");
@@ -681,36 +742,54 @@ function engineView(ru: LadderRumble): { entrants: TournamentEntrantRecord[]; ma
   return { entrants, matches };
 }
 
-function drawRound(ctx: TitleTickContext, ru: LadderRumble, number: number): void {
+/** The engine's pairing for round `number` from the rounds before it (each decided). */
+function enginePairs(ru: LadderRumble, number: number): Array<{ home: string; away?: string }> {
+  const { entrants, matches } = engineView({ ...ru, rounds: ru.rounds.filter((r) => r.number < number) });
+  return generateKnockoutPairings(entrants, matches, number, { win: 3, draw: 1, loss: 0, bye: 3 }, ["seed"]).map((p) => ({ home: p.homeEntrantId, ...(p.awayEntrantId ? { away: p.awayEntrantId } : {}) }));
+}
+
+/** Draws round `number` (the tournament engine's knockout pairing). A side that is no longer in the ladder loses by walkover: its
+ *  opponent goes through without a game (both gone: the better seed's slot goes through, and loses its next game the same way). */
+function drawRound(ctx: TitleTickContext, ru: LadderRumble, number: number, isMember: (id: string) => boolean): void {
   const { ladder, now } = ctx;
-  const { entrants, matches } = engineView(ru);
-  const pairs = generateKnockoutPairings(entrants, matches, number, { win: 3, draw: 1, loss: 0, bye: 3 }, ["seed"]);
+  const pairs = enginePairs(ru, number);
   const deadline = new Date(now.getTime() + ru.roundDays * DAY_MS).toISOString();
   const round = { number, deadline, matches: [] as LadderRumbleMatch[] };
   const label = pairs.length === 1 ? `${ru.name} final` : `${ru.name} round ${number}`;
   for (const [i, p] of pairs.entries()) {
-    const m: LadderRumbleMatch = { slot: i + 1, homeTeamId: p.homeEntrantId, ...(p.awayEntrantId ? { awayTeamId: p.awayEntrantId } : {}) };
-    if (!p.awayEntrantId) { m.winnerTeamId = p.homeEntrantId; m.how = "bye"; round.matches.push(m); continue; }
-    const home = ladder.teams.find((x) => x.id === p.homeEntrantId)!;
-    const away = ladder.teams.find((x) => x.id === p.awayEntrantId)!;
+    const m: LadderRumbleMatch = { slot: i + 1, homeTeamId: p.home, ...(p.away ? { awayTeamId: p.away } : {}) };
+    round.matches.push(m);
+    if (!p.away) { m.winnerTeamId = p.home; m.how = "bye"; continue; }
+    const home = isMember(p.home) ? ladder.teams.find((x) => x.id === p.home) : undefined;
+    const away = isMember(p.away) ? ladder.teams.find((x) => x.id === p.away) : undefined;
+    if (!home || !away) { m.winnerTeamId = home ? p.home : away ? p.away : p.home; m.how = "walkover"; continue; }
     const f = titleFixture(ladder, label, home, away, deadline, { title: "rumble", rumbleId: ru.id });
     ladder.fixtures.push(f);
     m.fixtureId = f.id;
-    round.matches.push(m);
     const ref = `league:${ctx.league.id}:${ladder.id}:${f.id}`;
     for (const [me, other] of [[home, away], [away, home]] as const) ctx.notes.push({ coach: teamAccount(me), title: `${label}: ${home.name} v ${away.name}`, body: `Play by ${deadline.slice(0, 10)}, or the better seed goes through. Agree a time with ${other.coach}.`, propose: ref });
   }
   ru.rounds.push(round);
 }
 
-function rumbleTick(ctx: TitleTickContext, ru: LadderRumble, ts: LadderTitleSettings): void {
+/**
+ * The Rumble, re-derived from the current results on every pass (job, writes, close): each match's winner comes from its fixture
+ * (a draw or both conceding: the better seed), an unplayed game at the deadline or one with a side gone from the ladder goes to
+ * the better seed / the remaining side. A corrected or cleared result that changes who goes through drops the rounds drawn from
+ * it (their open games discarded) and draws again; a changed winner loses the prize, and the title-shot contract is withdrawn
+ * unless it was already cashed in (then the organisers are told). `draw: false` (closing) settles without drawing new rounds.
+ */
+function rumbleTick(ctx: TitleTickContext, ru: LadderRumble, ts: LadderTitleSettings, opts: { draw?: boolean } = {}): void {
   const { ladder, now } = ctx;
+  const draw = opts.draw !== false;
   const at = now.toISOString();
   const coach = (id: string | undefined) => { const x = ladder.teams.find((y) => y.id === id); return x ? teamAccount(x) : ""; };
   const name = (id: string | undefined) => ladder.teams.find((x) => x.id === id)?.name ?? "A team";
   const title = `${ctx.league.name} ${ladder.name}`;
+  const members = new Set(activeMembers(ladder, supersededTeams(ctx.competitions)).map((m) => m.team.id));
+  const isMember = (id: string) => members.has(id);
   if (ru.state === "entry") {
-    if (now.getTime() < Date.parse(ru.date)) return;
+    if (!draw || now.getTime() < Date.parse(ru.date)) return;
     if (challengesPaused(ctx.league, ladder, now)) return;
     const ranking = ladderRanking(ladder, now, ctx.competitions);
     const seeds = ru.field === "top8" ? ranking.slice(0, 8).map((r) => r.teamId) : ranking.filter((r) => ru.entries.includes(r.teamId)).map((r) => r.teamId);
@@ -722,45 +801,81 @@ function rumbleTick(ctx: TitleTickContext, ru: LadderRumble, ts: LadderTitleSett
     }
     ru.seeds = seeds;
     ru.state = "running";
-    drawRound(ctx, ru, 1);
+    drawRound(ctx, ru, 1, isMember);
   }
-  if (ru.state !== "running") return;
-  for (let guard = 0; guard < 8; guard += 1) {
-    const round = ru.rounds.at(-1);
-    if (!round) return;
-    const seedOf = (id: string | undefined) => (ru.seeds ?? []).indexOf(id ?? "") + 1 || 999;
-    for (const m of round.matches) {
-      if (m.winnerTeamId) continue;
-      const f = ladder.fixtures.find((x) => x.id === m.fixtureId);
-      if (f && countsInRanking(f)) {
-        const w = winnerOf(f);
-        m.winnerTeamId = w ?? (seedOf(m.homeTeamId) <= seedOf(m.awayTeamId) ? m.homeTeamId : m.awayTeamId!);
-        m.how = "result";
-        continue;
-      }
-      const gone = !f || f.suspended || f.deadlineOutcome?.outcome === "no-result";
-      if (!gone && now.getTime() < Date.parse(round.deadline)) continue;
-      discardFixture(ladder, m.fixtureId, at);
-      m.winnerTeamId = seedOf(m.homeTeamId) <= seedOf(m.awayTeamId) ? m.homeTeamId : m.awayTeamId!;
-      m.how = "fallback";
+  if (ru.state !== "running" && ru.state !== "finished") return;
+  const seedOf = (id: string | undefined) => (ru.seeds ?? []).indexOf(id ?? "") + 1 || 999;
+  const better = (a: string, b: string | undefined) => (b === undefined || seedOf(a) <= seedOf(b) ? a : b);
+  const truncateAfter = (i: number) => {
+    for (const r of ru.rounds.slice(i + 1)) for (const m of r.matches) discardFixture(ladder, m.fixtureId, at);
+    ru.rounds.length = i + 1;
+  };
+  const unfinish = (why: string) => {
+    if (ru.state !== "finished") return;
+    const old = ru.winnerTeamId;
+    const c = ru.contractId ? ladder.ladder!.titles?.contracts.find((x) => x.id === ru.contractId) : undefined;
+    if (c && !c.revokedAt) {
+      if (c.usedAt || c.boutId) tellOrganisers(ctx, `${title}: ${ru.name} result changed`, `${name(old)} is no longer the ${ru.name} winner (${why}), but has already cashed in the title shot. Decide whether that title game stands.`);
+      else revokeContract(ctx, c, `${ru.name}'s result changed.`);
     }
-    if (round.matches.some((m) => !m.winnerTeamId)) return;
-    const winners = round.matches.map((m) => m.winnerTeamId!);
-    if (winners.length > 1) { drawRound(ctx, ru, round.number + 1); continue; }
+    ru.state = "running";
+    delete ru.winnerTeamId; delete ru.finishedAt; delete ru.contractId;
+  };
+  for (let guard = 0; guard < 16; guard += 1) {
+    let redrawn = false;
+    for (let i = 0; i < ru.rounds.length; i += 1) {
+      const round = ru.rounds[i]!;
+      for (const m of round.matches) {
+        if (!m.awayTeamId) { m.winnerTeamId = m.homeTeamId; m.how = "bye"; continue; }
+        if (m.how === "walkover" && !m.fixtureId) continue;
+        const f = m.fixtureId ? ladder.fixtures.find((x) => x.id === m.fixtureId) : undefined;
+        if (f && countsInRanking(f)) { m.winnerTeamId = winnerOf(f) ?? better(m.homeTeamId, m.awayTeamId); m.how = "result"; continue; }
+        if ((m.how === "fallback" || m.how === "walkover") && f?.deadlineOutcome?.outcome === "no-result") continue;
+        delete m.winnerTeamId; delete m.how;
+        const left = !isMember(m.homeTeamId) || !isMember(m.awayTeamId);
+        const gone = !f || f.suspended || f.deadlineOutcome?.outcome === "no-result";
+        if (left) { discardFixture(ladder, m.fixtureId, at); m.winnerTeamId = isMember(m.homeTeamId) ? m.homeTeamId : isMember(m.awayTeamId) ? m.awayTeamId : better(m.homeTeamId, m.awayTeamId); m.how = "walkover"; continue; }
+        if (gone || now.getTime() >= Date.parse(round.deadline)) { discardFixture(ladder, m.fixtureId, at); m.winnerTeamId = better(m.homeTeamId, m.awayTeamId); m.how = "fallback"; }
+      }
+      const open = round.matches.some((m) => !m.winnerTeamId);
+      if (open) {
+        if (ru.rounds.length > i + 1) { truncateAfter(i); unfinish("a result was cleared"); }
+        else unfinish("a result was cleared");
+        break;
+      }
+      const next = ru.rounds[i + 1];
+      if (next) {
+        const want = enginePairs(ru, next.number);
+        const same = want.length === next.matches.length && want.every((p, k) => p.home === next.matches[k]!.homeTeamId && p.away === next.matches[k]!.awayTeamId);
+        if (!same) {
+          truncateAfter(i);
+          unfinish("a corrected result changed who went through");
+          if (draw && want.length) { drawRound(ctx, ru, round.number + 1, isMember); redrawn = true; }
+          break;
+        }
+      }
+    }
+    if (redrawn) continue;
+    const last = ru.rounds.at(-1);
+    if (!last || last.matches.some((m) => !m.winnerTeamId)) return;
+    const winners = last.matches.map((m) => m.winnerTeamId!);
+    if (winners.length > 1) { if (!draw) return; drawRound(ctx, ru, last.number + 1, isMember); continue; }
+    const winner = winners[0]!;
+    if (ru.state === "finished" && ru.winnerTeamId === winner) return;
+    if (ru.state === "finished") unfinish("a corrected result changed the winner");
     // The final is decided.
     ru.state = "finished";
-    ru.winnerTeamId = winners[0]!;
+    ru.winnerTeamId = winner;
     ru.finishedAt = at;
-    const rec = ladder.ladder!;
     const state = titleReplay(ladder, now);
-    if (ts.belt && state.holder?.teamId !== ru.winnerTeamId) {
-      const t = titlesOf(rec);
-      const c: TitleContract = { id: newLadderId("tc"), teamId: ru.winnerTeamId, source: "rumble", earnedAt: at, expiresAt: new Date(now.getTime() + ts.mitb.cashInDays * DAY_MS).toISOString(), note: ru.name };
+    if (ts.belt && state.holder?.teamId !== winner) {
+      const t = titlesOf(ladder.ladder!);
+      const c: TitleContract = { id: newLadderId("tc"), teamId: winner, source: "rumble", earnedAt: at, expiresAt: new Date(now.getTime() + ts.mitb.cashInDays * DAY_MS).toISOString(), note: ru.name };
       t.contracts.push(c);
       t.told.push(`contract:${c.id}`);
       ru.contractId = c.id;
     }
-    ctx.notes.push({ coach: coach(ru.winnerTeamId), title: `${title}: you won ${ru.name}`, body: `${name(ru.winnerTeamId)} won ${ru.name}: +${ru.points} points${ru.contractId ? " and a guaranteed title shot (cash it in from the Ladder tab; the champion can't decline)" : ""}.` });
+    ctx.notes.push({ coach: coach(winner), title: `${title}: you won ${ru.name}`, body: `${name(winner)} won ${ru.name}: +${ru.points} points${ru.contractId ? " and a guaranteed title shot (cash it in from the Ladder tab; the champion can't decline)" : ""}.` });
     return;
   }
 }
@@ -804,19 +919,19 @@ function placeAwards(ladder: SeasonRecord, rows: readonly LadderRankRow[], label
 }
 
 /** Period ends (periodDays from the start): the top 3 at each end into Honours, once each. */
-function periodHonours(ctx: TitleTickContext): void {
+export function periodHonours(ctx: TitleTickContext, until = ctx.now.getTime()): void {
   const { ladder, now } = ctx;
   const rec = ladder.ladder!;
   const s = settingsOf(rec);
   const start = Date.parse(rec.startedAt ?? "");
   if (!s.periodDays || !Number.isFinite(start)) return;
   const done = new Set(rec.periodHonours ?? []);
-  const members = activeMembers(ladder, supersededTeams(ctx.competitions));
   for (let k = 1; k <= 400; k += 1) {
     const end = start + k * s.periodDays * DAY_MS;
-    if (end > now.getTime()) break;
+    if (end > until) break;
     if (done.has(k)) continue;
-    const rows = rankRows(ladder, replayLadder(ladder, now, { until: end, competitions: ctx.competitions }), members);
+    // The field as it was at the period's end (who had joined and not yet left), however late this runs.
+    const rows = rankRows(ladder, replayLadder(ladder, now, { until: end, competitions: ctx.competitions }), membersAt(ladder, end, ctx.competitions));
     const label = `Period ${k}`;
     const fromIso = new Date(end - s.periodDays * DAY_MS).toISOString().slice(0, 10);
     const endIso = new Date(end).toISOString();
@@ -828,23 +943,59 @@ function periodHonours(ctx: TitleTickContext): void {
 }
 
 /** Closing (the scheduled end or an organiser): the final top 3 and the belt holder at close into Honours (in place). */
-export function finalHonours(ladder: SeasonRecord, now: Date): void {
+export function finalHonours(ladder: SeasonRecord, now: Date, competitions: readonly SeasonRecord[] = [ladder]): void {
   const rec = ladder.ladder;
   if (!rec || ladder.awards.some((a) => a.key?.startsWith("final:"))) return;
   const at = rec.closedAt ?? now.toISOString();
-  const rows = ladderRanking(ladder, now, [ladder]);
+  const rows = ladderRanking(ladder, now, competitions);
   ladder.awards.push(...placeAwards(ladder, rows, "", "final", at, `Final standings (closed ${at.slice(0, 10)})`));
   if (!beltOn(rec)) return;
   const state = titleReplay(ladder, now);
-  const last = state.reigns.filter((r) => !r.interim && r.ended === "The ladder closed").at(-1);
-  if (!last) return;
-  const team = ladder.teams.find((x) => x.id === last.teamId);
-  if (!team) return;
-  const account = teamAccount(team);
-  ladder.awards.push({
-    category: "Ladder", type: `${ladder.name} belt holder at close`, name: "", description: `Held ${daysBetween(last.since, Date.parse(at))} days, ${last.defences} defence${last.defences === 1 ? "" : "s"} (since ${last.since.slice(0, 10)}).`,
-    coach: team.coach, ...(account ? { coachId: account } : {}), team: team.name, race: team.race, goldenStar: false, key: "final:belt", at,
-  });
+  // The champion and the interim champion whose reigns ended with the close (the interim one labelled as such).
+  for (const interim of [false, true]) {
+    const last = state.reigns.filter((r) => r.interim === interim && r.ended === "The ladder closed").at(-1);
+    const team = last ? ladder.teams.find((x) => x.id === last.teamId) : undefined;
+    if (!last || !team) continue;
+    const account = teamAccount(team);
+    ladder.awards.push({
+      category: "Ladder", type: `${ladder.name} ${interim ? "interim champion" : "belt holder"} at close`, name: "", description: `Held ${daysBetween(last.since, Date.parse(at))} days, ${last.defences} defence${last.defences === 1 ? "" : "s"} (since ${last.since.slice(0, 10)}).`,
+      coach: team.coach, ...(account ? { coachId: account } : {}), team: team.name, race: team.race, goldenStar: false, key: interim ? "final:interim" : "final:belt", at,
+    });
+  }
+}
+
+/**
+ * Closing (the scheduled end or an organiser), before anything is discarded: the results already in are settled at the close
+ * instant: finished Rumble games (a decided final crowns its winner; no new rounds are drawn), played title games, and the period
+ * honours of every period that ended by then (the last one included). Then the caller discards what is unfinished. Never throws.
+ */
+export function settleForClose(ctx: TitleTickContext): void {
+  const rec = ctx.ladder.ladder;
+  if (!rec) return;
+  try {
+    const ts = titleSettingsOf(rec);
+    for (const ru of rec.rumbles ?? []) if (ru.state === "running" || ru.state === "finished") rumbleTick(ctx, ru, ts, { draw: false });
+    periodHonours(ctx, ctx.now.getTime());
+  } catch (e) {
+    console.error(`[leagues] ladder titles: settling ${ctx.ladder.leagueId}/${ctx.ladder.id} for the close failed: ${(e as Error).message}`);
+  }
+}
+
+/**
+ * The title rules on a copy: a failure is logged and leaves the ladder as it was (the rest of the job's write goes ahead), so one
+ * bad record never wedges every later tick. Answers whether anything changed.
+ */
+export function safeTitleTick(ctx: TitleTickContext): boolean {
+  const draft = structuredClone(ctx.ladder);
+  const notes: TitleNote[] = [];
+  try {
+    const changed = titleTick({ ...ctx, ladder: draft, notes });
+    if (changed) { for (const k of Object.keys(ctx.ladder) as Array<keyof SeasonRecord>) delete ctx.ladder[k]; Object.assign(ctx.ladder, draft); ctx.notes.push(...notes); }
+    return changed;
+  } catch (e) {
+    console.error(`[leagues] ladder titles ${ctx.ladder.leagueId}/${ctx.ladder.id} failed: ${(e as Error).message}`);
+    return false;
+  }
 }
 
 /** Every finished reign as an honour (derived from the replay; the reign that ended with the close has its own stored award). */

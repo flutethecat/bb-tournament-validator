@@ -55,7 +55,7 @@ import { clubLabel, priorClubEntry, resolveClubPick } from "../clubs/pick.js";
 import { teamGamesPlayed } from "./teamOps.js";
 import type { LadderChallenge, LadderRanking, LadderRound } from "./ladderTypes.js";
 import {
-  awardContract, beltHolders, beltOn, cancelBout, cashIn, createRumble, finalHonours, titleReplay, titlesOf, titleTick, titleView, type TitleNote, type TitleTickContext,
+  awardContract, beltHolders, beltOn, cancelBout, cashIn, createRumble, finalHonours, safeTitleTick, settleForClose, titleReplay, titlesOf, titleView, type TitleNote, type TitleTickContext,
 } from "./ladderTitles.js";
 import { hallOfFame } from "./awards.js";
 import { deriveStandings } from "./standings.js";
@@ -455,8 +455,14 @@ async function startLadder(league: LeagueRecord, ladderId: string, auth: LeagueA
  * Closes a ladder (organiser, or the job at the scheduled end): live challenges and unplayed ladder fixtures are discarded
  * (no result, no penalty), the ranking freezes. Answers the coaches to tell (the caller sends after the write).
  */
-export function closeLadderRecord(ladder: SeasonRecord, now: Date, reason: string): Array<{ coach: string; text: string }> {
+export function closeLadderRecord(
+  ladder: SeasonRecord, now: Date, reason: string,
+  opts: { league?: TitleTickContext["league"]; competitions?: readonly SeasonRecord[]; titleNotes?: TitleNote[] } = {},
+): Array<{ coach: string; text: string }> {
   const at = now.toISOString();
+  const competitions = opts.competitions ?? [ladder];
+  // First the results already in (finished Rumble games, the last period's honours), at the close instant; then the discards.
+  settleForClose({ league: opts.league ?? { id: ladder.leagueId, name: "" }, ladder, competitions, now, notes: opts.titleNotes ?? [] });
   const notes: Array<{ coach: string; text: string }> = [];
   const coachOf = (id: string) => teamAccount(ladder.teams.find((t) => t.id === id) ?? { coachId: "" });
   for (const ch of ladder.ladder?.challenges ?? []) {
@@ -480,7 +486,7 @@ export function closeLadderRecord(ladder: SeasonRecord, now: Date, reason: strin
   ladder.endedAt = at;
   if (ladder.ladder) { ladder.ladder.closedAt = at; ladder.ladder.closedReason = reason; }
   // The final standings freeze: the top 3 and the belt holder at close go into league Honours.
-  finalHonours(ladder, now);
+  finalHonours(ladder, now, competitions);
   return notes;
 }
 
@@ -490,9 +496,11 @@ async function closeLadder(league: LeagueRecord, ladderId: string, auth: LeagueA
   now = w.now; // the time of the write: taken after the body arrived, never before (a slow body cannot slip past an expiry)
   const ladder = w.ladder!;
   if (ladderState(ladder) === "closed") return fail(409, "The ladder is already closed.");
-  const notes = closeLadderRecord(ladder, now, reason);
+  const titleNotes: TitleNote[] = [];
+  const notes = closeLadderRecord(ladder, now, reason, { league: w.league, competitions: deps.store.competitions(w.league.id).map((c) => (c.id === ladder.id ? ladder : c)), titleNotes });
   deps.store.putSeason(ladder);
   for (const n of notes) tell(deps, n.coach, { type: "ladder", title: `${w.league.name} ${ladder.name}: challenge discarded`, body: n.text, link: ladderLink(w.league.id, ladderId), subject: ladder.name });
+  sendTitleNotes(deps, w.league, ladder, titleNotes, w.who.coach);
   return res(200, { ok: true, ladder: ladderView(w.league, deps.store.season(w.league.id, ladderId)!, auth, deps, now).ladder });
 }
 
@@ -942,7 +950,7 @@ async function titleWrite(league: LeagueRecord, ladderId: string, auth: LeagueAp
   if (ladderState(ladder) !== "active") return fail(409, ladderState(ladder) === "closed" ? "The ladder is closed." : "The ladder has not started yet.");
   const ctx: TitleTickContext = { league: lg, ladder, competitions: deps.store.competitions(lg.id).map((c) => (c.id === ladder.id ? ladder : c)), now, notes: [] };
   const done = fn(ctx, input, who);
-  titleTick(ctx);
+  safeTitleTick(ctx);
   deps.store.putSeason(ladder);
   sendTitleNotes(deps, lg, ladder, ctx.notes, who.coach);
   const saved = deps.store.season(lg.id, ladder.id) ?? ladder;

@@ -146,8 +146,8 @@ export interface BoutView {
   mine?: boolean;
 }
 export interface ReignView extends ChallengeSide { id: string; interim: boolean; since: string; until?: string; days: number; defences: number; how: string; ended?: string }
-export interface ContractView extends ChallengeSide { id: string; source: "streak" | "organiser" | "rumble"; earnedAt: string; expiresAt: string; state: "held" | "cashing-in" | "used" | "expired"; note?: string; mine?: boolean }
-export interface RumbleMatchView { slot: number; home: ChallengeSide; away?: ChallengeSide; fixtureId?: string; score?: [number, number]; winnerTeamId?: string; how?: "result" | "bye" | "fallback"; scheduleRef?: string }
+export interface ContractView extends ChallengeSide { id: string; source: "streak" | "organiser" | "rumble"; earnedAt: string; expiresAt: string; state: "held" | "cashing-in" | "used" | "expired" | "revoked"; note?: string; mine?: boolean }
+export interface RumbleMatchView { slot: number; home: ChallengeSide; away?: ChallengeSide; fixtureId?: string; score?: [number, number]; winnerTeamId?: string; how?: "result" | "bye" | "fallback" | "walkover"; scheduleRef?: string }
 export interface RumbleView {
   id: string; name: string; date: string; field: "top8" | "open"; roundDays: number; points: number; state: "entry" | "running" | "finished" | "cancelled";
   entries: ChallengeSide[]; seeds: Array<ChallengeSide & { seed: number }>; rounds: Array<{ number: number; deadline: string; matches: RumbleMatchView[] }>; winner?: ChallengeSide; note?: string;
