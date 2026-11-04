@@ -36,9 +36,10 @@ export interface PriorEntry {
   everAccepted: boolean;
 }
 
-/** Was this entry ever accepted (its state now, or any transition into accepted)? */
-export function everAccepted(state: string | undefined, log: ReadonlyArray<{ to?: string }> | undefined): boolean {
-  return state === "accepted" || (log ?? []).some((t) => t?.to === "accepted");
+/** Was this entry ever accepted: its state now, any transition into OR out of accepted (a legacy entry's log can start
+ *  after its acceptance), or a sign the caller knows (a tournament entry in the field, a league row that made its team). */
+export function everAccepted(state: string | undefined, log: ReadonlyArray<{ to?: string; from?: string | null }> | undefined, accepted = false): boolean {
+  return accepted || state === "accepted" || (log ?? []).some((t) => t?.to === "accepted" || t?.from === "accepted");
 }
 
 /**
@@ -80,14 +81,15 @@ export function isClubMember(coach: string, id: string): boolean {
 /** The coach's newest league registration row in a season or ladder, as a prior entry (its club and whether it was ever
  *  accepted), or undefined. */
 export function priorClubEntry(
-  rows: ReadonlyArray<{ coach: string; clubId?: string; state: string; enteredAt?: string; registrationLog?: ReadonlyArray<{ to?: string }> }> | undefined,
+  rows: ReadonlyArray<{ coach: string; clubId?: string; state: string; enteredAt?: string; teamId?: string; registrationLog?: ReadonlyArray<{ to?: string; from?: string | null }> }> | undefined,
   coach: string,
 ): PriorEntry | undefined {
   const k = clubCoachKey(coach);
   const mine = (rows ?? []).filter((r) => clubCoachKey(r.coach) === k).sort((a, b) => (b.enteredAt ?? "").localeCompare(a.enteredAt ?? ""));
   if (!mine.length) return undefined;
   // Any of the coach's rows that was accepted fixes the club (the core keys entries by coach: normally one row).
-  const accepted = mine.find((r) => everAccepted(r.state, r.registrationLog));
+  // A row that made its league team was accepted (the team id stays after a removal).
+  const accepted = mine.find((r) => everAccepted(r.state, r.registrationLog, Boolean(r.teamId)));
   const row = accepted ?? mine[0]!;
   return { clubId: row.clubId ?? null, everAccepted: Boolean(accepted) };
 }

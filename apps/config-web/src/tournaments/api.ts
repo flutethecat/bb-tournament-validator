@@ -2170,7 +2170,7 @@ async function registrationRoutes(
     // Club (clubs lane): the coach picks one of their clubs or none; fixed once the entry was accepted (src/clubs/pick.ts).
     if (!self && input.clubId !== undefined && input.clubId !== null && input.clubId !== "") return { status: 400, body: { error: "Only the coach picks the club they represent.", code: "club" } };
     const priorEntry = deps.store.registrationEntries(tournament.id).find((r) => coachKey(r.coach.ffbCoachId) === coachKey(targetCoach));
-    const clubPick = resolveClubPick(targetCoach, self ? input.clubId : undefined, priorEntry ? { clubId: priorEntry.clubId, everAccepted: everAccepted(entryStateOf(priorEntry), priorEntry.registrationLog) } : undefined);
+    const clubPick = resolveClubPick(targetCoach, self ? input.clubId : undefined, priorEntry ? { clubId: priorEntry.clubId, everAccepted: everAccepted(entryStateOf(priorEntry), priorEntry.registrationLog, deps.store.entrants(tournament.id).some((e) => e.id === priorEntry.id)) } : undefined);
     if (!clubPick.ok) return { status: clubPick.status, body: { error: clubPick.error, code: clubPick.code } };
 
     let teamId = "";
