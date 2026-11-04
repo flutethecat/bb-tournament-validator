@@ -33,6 +33,7 @@ import { seasonStage } from "./lifecycle.js";
 import { playerIdFor } from "./playerIds.js";
 import { seasonRegistrationOf, seasonSnapshot, seasonWindowStatus } from "./seasonRegistration.js";
 import { teamBuildingTable } from "./settings.js";
+import { parseLeagueTeamRef, teamFromLeagueTeam, transferSource } from "./teamLibrary.js";
 import type { LeagueStore } from "./store.js";
 import { refreshTeamValue } from "./teamValue.js";
 import { EMPTY_PLAYER_STATS, type LeagueParticipant, type LeaguePlayer, type LeagueRecord, type LeagueTeam, type SeasonRecord } from "./types.js";
@@ -294,6 +295,30 @@ export function placeRegisteredTeam(league: Pick<LeagueRecord, "id" | "slug">, s
   return team;
 }
 
+/**
+ * Places an accepted registration made with one of the coach's league teams (owner 11-03): the same team (teamUid, roster,
+ * skills, SPP, treasury, history kept in its old season), fresh player ids, this season's counters at zero, a fresh entry.
+ * Re-checked now (owned, transfer permitted, one place at a time).
+ */
+export function placeTransferredTeam(store: LeagueStore, league: LeagueRecord, season: SeasonRecord, row: LeagueRegistrationRow, now: Date): LeagueTeam {
+  const found = transferSource(store, row.coach, row.teamRef, { league, season });
+  if ("error" in found) throw new RegistrationError(409, "invalid-transition", found.error);
+  const used = new Set(store.seasons(league.id).flatMap((s) => (s.teams ?? []).flatMap((t) => [...t.players, ...(t.formerPlayers ?? [])].map((p) => p.playerId))));
+  const at = now.toISOString();
+  const team = teamFromLeagueTeam(found.source.team, season, { id: freshTeamId(season), usedIds: used });
+  team.coach = row.coach;
+  team.coachId = row.coach;
+  team.coachAssigned = { by: row.decided?.by ?? row.coach, at };
+  team.entryId = mint("en");
+  team.registrationId = row.id;
+  delete team.transfer;
+  season.teams = [...(season.teams ?? []), team];
+  season.participants = [...(season.participants ?? []), {
+    coach: row.coach, coachId: row.coach, coachAssigned: true, country: "", race: team.race, team: team.name, registeredAt: at, active: true, teamId: team.id, addedHere: true,
+  }];
+  return team;
+}
+
 /** Takes a removed entry's team out of the season (and its participant row). Refused while a fixture names it. */
 export function unplaceRegisteredTeam(season: SeasonRecord, teamId: string | undefined): void {
   if (!teamId) return;
@@ -440,7 +465,8 @@ export class LeagueRegistrationAdapter implements RegistrationAdapter {
       row.registrationLog = structuredClone(after.log);
       if (after.state === "accepted" && from !== "accepted") {
         // Acceptance and the team are one write (the putSeason below).
-        const team = placeRegisteredTeam(league, season, row, seasons, now);
+        // A league team (transfer permitted when it played elsewhere) joins with its record; a save is built from its sheet.
+        const team = parseLeagueTeamRef(row.teamRef) ? placeTransferredTeam(this.store, league, season, row, now) : placeRegisteredTeam(league, season, row, seasons, now);
         row.teamId = team.id;
         if (seasonStage(season) === "active") row.midSeason = true; else delete row.midSeason;
       } else if (from === "accepted" && after.state !== "accepted") {

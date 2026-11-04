@@ -33,7 +33,7 @@ const STEPS: ReadonlyArray<{ id: Step; label: string }> = [{ id: "team", label: 
 const step = ref<Step>("team");
 const stepNo = computed(() => STEPS.findIndex((s) => s.id === step.value) + 1);
 
-const choices = computed(() => joinChoices(state.options.saves, state.options.library, status.value?.packageName ?? "", status.value?.allowExistingTeams === true));
+const choices = computed(() => joinChoices(state.options.saves, state.options.leagueTeams, status.value?.packageName ?? "", status.value?.allowExistingTeams === true, state.leagueId));
 const teamRef = ref("");
 watch(choices, (list) => { if (!list.some((c) => c.ref === teamRef.value)) teamRef.value = list[0]?.ref ?? ""; }, { immediate: true });
 const chosen = computed(() => choices.value.find((c) => c.ref === teamRef.value));

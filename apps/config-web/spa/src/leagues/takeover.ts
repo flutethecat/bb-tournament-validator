@@ -24,7 +24,7 @@ export const errorText = (err: unknown, fallback: string): string => {
 
 export interface LibraryItem {
   ref: string;
-  kind: "save" | "library" | "league";
+  kind: "save" | "league";
   name: string;
   race: string;
   tv: number | null;
@@ -51,8 +51,7 @@ export interface TeamLibraryView {
 }
 
 export const LIBRARY_GROUPS: ReadonlyArray<{ kind: LibraryItem["kind"]; label: string }> = [
-  { kind: "save", label: "Roster Builder saves" },
-  { kind: "library", label: "Library teams" },
+  { kind: "save", label: "Saved teams" },
   { kind: "league", label: "League teams" },
 ];
 
@@ -69,8 +68,8 @@ export function libraryTv(tv: number | null | undefined): string {
 }
 
 /** The second line of a library row: race, value, where a league team last played. */
-export function librarySub(i: Pick<LibraryItem, "race" | "tv" | "source" | "private">): string {
-  if (i.private) return "Not shared: the coach approves the swap";
+export function librarySub(i: Pick<LibraryItem, "race" | "tv" | "source" | "private"> & { ok?: boolean }): string {
+  if (i.private) return i.ok === false ? "" : "Not shared: the coach approves the swap";
   return [i.race, libraryTv(i.tv), i.source].filter(Boolean).join(" · ");
 }
 
@@ -253,6 +252,19 @@ export type Takeovers = ReturnType<typeof createTakeovers>;
 /** The organiser's team tools: library, swap, listing (one team). */
 export function createTeamLibrary(deps: { api: Fetcher }) {
   const state = reactive({ status: "idle" as "idle" | "loading" | "ok" | "error", view: null as TeamLibraryView | null, busy: false, error: "" });
+  /** Another member's teams (organisers may swap in a team that member SHARED; their private teams stay greyed). */
+  async function loadMember(leagueId: string, seasonId: string, coach: string): Promise<void> {
+    state.status = "loading";
+    state.error = "";
+    try {
+      const r = await deps.api<{ coach: string; items: LibraryItem[] }>(`${seasonPath(leagueId, seasonId)}/library/${encodeURIComponent(coach)}`);
+      state.view = { ...(state.view ?? { team: { id: "", name: "", race: "", games: 0 } }), coach: r.coach, items: r.items ?? [], reason: undefined } as TeamLibraryView;
+      state.status = "ok";
+    } catch (err) {
+      state.view = state.view ? { ...state.view, coach, items: [], reason: errorText(err, "That coach's teams aren't shared with this league.") } : null;
+      state.status = "ok";
+    }
+  }
   async function load(leagueId: string, seasonId: string, teamId: string): Promise<void> {
     state.status = "loading";
     state.error = "";
@@ -278,8 +290,11 @@ export function createTeamLibrary(deps: { api: Fetcher }) {
       state.busy = false;
     }
   }
-  const swap = (leagueId: string, seasonId: string, teamId: string, ref: string, revision: number): Promise<boolean | "requested"> =>
-    post(`${seasonPath(leagueId, seasonId)}/teams/${encodeURIComponent(teamId)}/swap`, { revision, ref });
+  const swap = (leagueId: string, seasonId: string, teamId: string, ref: string, revision: number, coach?: string): Promise<boolean | "requested"> =>
+    post(`${seasonPath(leagueId, seasonId)}/teams/${encodeURIComponent(teamId)}/swap`, { revision, ref, ...(coach ? { coach } : {}) });
+  /** The team's coach: "Permit league transfer" (default off). */
+  const setTransfer = (leagueId: string, seasonId: string, teamId: string, permit: boolean): Promise<boolean | "requested"> =>
+    post(`${seasonPath(leagueId, seasonId)}/teams/${encodeURIComponent(teamId)}/transfer`, { permit });
   const setListing = (leagueId: string, seasonId: string, teamId: string, available: boolean, revision: number): Promise<boolean | "requested"> =>
     post(`${seasonPath(leagueId, seasonId)}/teams/${encodeURIComponent(teamId)}/takeover`, { revision, available });
   // The coach's side of a swap request: which of their private teams was asked for, approve or decline.
@@ -291,5 +306,5 @@ export function createTeamLibrary(deps: { api: Fetcher }) {
   const answerRequest = (leagueId: string, seasonId: string, teamId: string, verb: "approve" | "decline"): Promise<boolean | "requested"> =>
     post(`${seasonPath(leagueId, seasonId)}/teams/${encodeURIComponent(teamId)}/swap-request/${verb}`,
       verb === "approve" && request.view ? { requestId: request.view.id, ref: request.view.ref ?? "" } : {});
-  return { state, load, swap, setListing, request, loadRequest, answerRequest };
+  return { state, load, loadMember, swap, setListing, setTransfer, request, loadRequest, answerRequest };
 }

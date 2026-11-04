@@ -882,6 +882,13 @@ export interface LeagueTeam {
    *  coach approves or declines it (teamLibraryApi.ts). The ref names the coach's own team; organisers never see its
    *  contents. Coach and organisers only: never in a public read. */
   swapRequest?: { id: string; ref: string; by: string; at: string };
+  /**
+   * The coach's transfer option (team page, coach only; default off): "Permit league transfer". On, this league team may
+   * leave its league with its record (lineage, history): its coach can register it in another league or apply with it for
+   * a takeover, and another league's organisers may ask to swap it in (the coach still consents). Off, it stays in its
+   * league. Coach and organisers only: never in a public read.
+   */
+  transfer?: { permitted: boolean; by: string; at: string };
 }
 
 /** One holder of a league entry (LeagueTeam.entryHistory). */

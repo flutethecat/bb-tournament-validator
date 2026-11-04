@@ -2,7 +2,7 @@
   {
     "date": "2026-11-03",
     "title": "Swap a league team, and teams available for takeover",
-    "body": "Organisers can swap the team behind a league entry from the team page cog: they see that coach's teams (Roster Builder saves, library teams, their other league teams), with any that don't fit the season greyed and the reason shown. The entry keeps its standings and fixtures and lists both teams. A team can also be marked Available for Takeover: it shows on the league overview, and any coach can apply with their own team or to take the team over. Records now follow the coach of each game, so a new coach never inherits past results.",
+    "body": "Organisers can swap the team behind a league entry from the team page cog, picking from that coach's saved teams and league teams (teams that don't fit the season are greyed with the reason); a team the coach hasn't shared needs the coach's OK. The entry keeps its standings and fixtures and lists both teams. A team can be marked Available for Takeover on the league overview, where any coach can apply with a saved team or league team, or to take the team over. Coaches can turn on Permit league transfer for a team so it can move to another league with its record. Records follow the coach of each game, so a new coach never inherits past results.",
     "links": [
       {
         "label": "Leagues",

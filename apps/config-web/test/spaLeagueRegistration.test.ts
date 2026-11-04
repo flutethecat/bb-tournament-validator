@@ -43,7 +43,7 @@ const SAVES = [
   { id: "s2", name: "Old Orcs", raceName: "Orc", packageName: "Spike 2026", teamId: null, updatedAt: "x" },
   { id: "s3", name: "Linked", raceName: "Human", packageName: "Spike 2026", teamId: "tm9", updatedAt: "x" },
 ];
-const LIB = [{ teamId: "tm9", teamName: "Linked team", race: "Human", teamValue: 1 }, { teamId: "tm4", teamName: "Spare Elves", race: "Wood Elf", teamValue: 1 }];
+const LIB = [{ ref: "league:tabbl/season-6/old", kind: "league", name: "Old Elves", race: "Wood Elf", source: "TABBL Season 6", ok: true }, { ref: "league:other/season-1/far", kind: "league", name: "Far Orcs", race: "Orc", ok: true }, { ref: "league:other/season-1/busy", kind: "league", name: "Busy", race: "Orc", ok: false }, { ref: "save:s1", kind: "save", name: "x", race: "", ok: true }];
 const PANEL: LeagueRegistrationsView = {
   counts: { accepted: 3, pending: 1, waitlisted: 1, cap: 8, placesLeft: 5 },
   settings: { approval: "organiser", waitlist: true, allowExistingTeams: false, allowMidSeason: true, cap: 8, perRace: 2, entryFee: "$10", stage: "active", open: true, test: false },
@@ -57,11 +57,16 @@ const PANEL: LeagueRegistrationsView = {
 };
 
 describe("league registration helpers (pure)", () => {
-  it("team choices: saves built for this season, then (existing teams allowed) other saves and library teams", () => {
+  it("team choices: saves built for this season, then (existing teams allowed) other saved teams and league teams that may join; never fork library teams", () => {
     expect(joinChoices(SAVES, LIB as never, MARKER, false).map((c) => [c.ref, c.kind])).toEqual([["save:s1", "new"]]);
-    expect(joinChoices(SAVES, LIB as never, MARKER, true).map((c) => [c.ref, c.kind])).toEqual([
-      ["save:s1", "new"], ["save:s2", "existing"], ["save:s3", "existing"], ["library:tm4", "existing"],
+    const all = joinChoices(SAVES, LIB as never, MARKER, true, "tabbl");
+    expect(all.map((c) => [c.ref, c.kind])).toEqual([
+      ["save:s1", "new"], ["save:s2", "existing"], ["save:s3", "existing"], ["league:tabbl/season-6/old", "existing"], ["league:other/season-1/far", "existing"],
     ]);
+    expect(all.find((c) => c.ref === "save:s2")!.sub).toContain("Saved team");
+    expect(all.find((c) => c.ref === "league:tabbl/season-6/old")!.sub).toBe("Wood Elf · League team · TABBL Season 6");
+    expect(all.find((c) => c.ref === "league:other/season-1/far")!.sub).toBe("Orc · League team (transfer permitted)");
+    expect(all.some((c) => c.ref.startsWith("library:"))).toBe(false);
     expect(joinBody({ teamRef: "save:s1", region: "North", share: ["email"], acknowledged: true }, true)).toEqual({ teamRef: "save:s1", share: ["email"], acknowledged: true, region: "North" });
     expect(joinBody({ teamRef: "save:s1", region: "North", share: [], acknowledged: true }, false)).toEqual({ teamRef: "save:s1", share: [], acknowledged: true });
     expect(JSON.stringify(joinBody({ teamRef: "save:s1", region: "", share: [], acknowledged: true }, false))).not.toMatch(/naf/i);
@@ -199,7 +204,7 @@ describe("league registration views (server-rendered)", () => {
     const f = mockFetcher({
       ...AS("Bob"),
       [`${J}/join`]: { status: { ...STATUS, regions: ["North", "South"] } },
-      "/api/fork/library?coach=Bob": { teams: LIB },
+      [`${J}/my-teams`]: { items: LIB },
       "/api/fork/team-builder/saves": { saves: SAVES },
     });
     const j = mods.reg.createLeagueJoin({ api: f });

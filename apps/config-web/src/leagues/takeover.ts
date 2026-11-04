@@ -27,7 +27,7 @@ import {
 import { isDraftLeague } from "./lifecycle.js";
 import { freshTeamId, lineageFor, teamFromSnapshot, type LeagueTeamSnapshot } from "./registration.js";
 import { leagueOwner, type LeagueStore } from "./store.js";
-import { applyEntrySwap, applyTakeover, entryChangeBlock, type EntryChange } from "./teamLibrary.js";
+import { applyEntrySwap, applyTakeover, entryChangeBlock, parseLeagueTeamRef, teamFromLeagueTeam, transferSource, type EntryChange } from "./teamLibrary.js";
 import type { LeagueRecord, LeagueTeam, SeasonRecord } from "./types.js";
 
 export interface TakeoverApplicationRow {
@@ -225,7 +225,16 @@ export class TakeoverAdapter implements RegistrationAdapter {
         if (block) throw new RegistrationError(409, "invalid-transition", block);
         const by = change.transition.by;
         let entry: EntryChange;
-        if (row.mode === "team") {
+        if (row.mode === "team" && row.teamRef && parseLeagueTeamRef(row.teamRef)) {
+          // The applicant's league team moves with its record (lineage, history), re-checked now.
+          const found = transferSource(this.store, row.coach, row.teamRef, { league, season, teamId: team.id });
+          if ("error" in found) throw new RegistrationError(409, "invalid-transition", found.error);
+          const used = new Set(this.store.seasons(league.id).flatMap((s) => s.teams.flatMap((t) => [...t.players, ...(t.formerPlayers ?? [])].map((p) => p.playerId))));
+          const incoming = teamFromLeagueTeam(found.source.team, season, { id: team.id, usedIds: used });
+          incoming.coach = row.coach;
+          incoming.coachId = row.coach;
+          entry = applyEntrySwap(season, team.id, incoming, by, at, "apply");
+        } else if (row.mode === "team") {
           if (!row.teamSnapshot) throw new RegistrationError(409, "invalid-transition", "This application has no team to substitute in.");
           const incoming = teamFromSnapshot(league, season, row.teamSnapshot, {
             id: freshTeamId(season), coach: row.coach, ...(row.teamName ? { teamName: row.teamName } : {}), ...(row.race ? { race: row.race } : {}), by, at,

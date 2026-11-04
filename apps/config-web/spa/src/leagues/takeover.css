@@ -47,6 +47,11 @@
 .tk-entry .tb-k { margin-right: 6px; }
 .tk-entry small { display: block; color: var(--ui-muted); font-size: 13px; }
 
+/* the swap dialog's member picker and the coach's transfer options */
+.tk-owner { margin: 0; }
+.tk-transfer { display: grid; gap: 6px; padding-bottom: 10px; }
+.tk-transfer > :not(.hm-band) { margin-left: 12px; margin-right: 12px; }
+
 /* the coach's swap request notice */
 .tk-request { display: grid; gap: 6px; margin: 0 0 10px; }
 .tk-request .tk-actions { justify-content: flex-start; }

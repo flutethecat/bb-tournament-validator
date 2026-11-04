@@ -348,6 +348,8 @@ export interface LeagueTeam {
   entryHistory?: EntrySpan[];
   /** An organiser's request to swap in one of the coach's private teams (coach and organisers only). */
   swapRequest?: { id: string; by: string; at: string };
+  /** The coach's "Permit league transfer" (coach and organisers only). */
+  transfer?: { permitted: boolean; by: string; at: string };
 }
 
 /** One holder of a league entry ("Team A (games 1-5)"). */

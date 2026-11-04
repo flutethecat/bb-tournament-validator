@@ -178,6 +178,15 @@ async function toggleListing(): Promise<void> {
   if (await lib.setListing(props.leagueId, props.season.id, picked.value.id, on, v.revision)) await refreshTeam();
 }
 async function onSwapped(): Promise<void> { swapping.value = false; await refreshTeam(); }
+/** League members on this season's teams (the swap dialog may list another member's shared teams). */
+const memberCoaches = computed(() => [...new Set(props.season.teams.map((t) => t.coachId).filter((c): c is string => Boolean(c)))].sort((a, b) => a.localeCompare(b)));
+// The team's coach: "Permit league transfer" (owner 11-03, default off).
+const transferOn = computed(() => ctx.value?.team.transfer?.permitted === true);
+async function toggleTransfer(e: Event): Promise<void> {
+  if (!lib || !picked.value) return;
+  const on = (e.target as HTMLInputElement).checked;
+  if (await lib.setTransfer(props.leagueId, props.season.id, picked.value.id, on)) await refreshTeam();
+}
 const requestNotice = ref("");
 async function onRequested(): Promise<void> { swapping.value = false; requestNotice.value = "Swap request sent. The coach sees which team you picked and approves or declines it."; await refreshTeam(); }
 // The coach's side: an organiser asked to swap in one of their private teams.
@@ -288,6 +297,11 @@ watch(() => [wantEdit.value, ctx.value?.role.organiser, mayWrite.value] as const
             </section>
           </template>
           <template #after>
+            <section v-if="ctx?.role.coach && mayWrite" class="hm-panel tk-transfer" aria-labelledby="tk-transfer-h" data-transfer-options>
+              <header class="hm-band"><h2 id="tk-transfer-h">Transfer options</h2></header>
+              <label class="sf-check"><input type="checkbox" :checked="transferOn" :disabled="lib?.state.busy" data-permit-transfer @change="toggleTransfer" /> Permit league transfer</label>
+              <p class="hm-small tr-help">On: you can register this team in another league or apply with it for a takeover, and another league's organisers may ask you to swap it in. It moves with its record. Off: it stays in this league.</p>
+            </section>
             <TeamHistory v-if="ctx" :entries="ctx.history" />
             <LeagueTeamRedraftBudget :league-id="leagueId" :season-id="season.id" :team-id="picked.id" />
           </template>
@@ -299,7 +313,8 @@ watch(() => [wantEdit.value, ctx.value?.role.organiser, mayWrite.value] as const
           @add-skill="(s) => send([{ op: 'addSkill', playerId: menu!.id, skill: s }], `${s} added.`)"
           @injury="onInjury" :fresh="freshRoll" :taken="takenRoll" @roll="onRoll" @resolve="onResolve"
         />
-        <TeamSwapDialog v-if="swapping && ctx?.role.organiser" :league-id="leagueId" :season-id="season.id" :team-id="picked.id" :team-name="picked.name" :revision="ctx.revision" @close="swapping = false" @swapped="onSwapped" @requested="onRequested" />
+        <TeamSwapDialog v-if="swapping && ctx?.role.organiser" :league-id="leagueId" :season-id="season.id" :team-id="picked.id" :team-name="picked.name" :revision="ctx.revision"
+          :coach="picked.coachId" :members="memberCoaches" @close="swapping = false" @swapped="onSwapped" @requested="onRequested" />
         <p v-if="lib?.state.error" class="sf-error" role="alert">{{ lib.state.error }}</p>
         <TeamStatusDialog v-if="status && ctx?.role.organiser" :view="ctx" :start="status" :busy="busy" :error="page?.state.error" @close="status = null" @status="onStatus" @decide="onDecide" />
       </template>

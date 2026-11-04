@@ -44,10 +44,10 @@ import {
   type TakeoverApplicationRow, type TakeoverApproval, type TakeoverEntryData,
 } from "./takeover.js";
 import {
-  applyEntrySwap, entryChangeBlock, entryHistoryLine, leagueTeamProblem, leagueTeamRef, leagueTeamsOf, parseLeagueTeamRef, setTakeoverListing, teamFixtures, teamFromLeagueTeam,
+  applyEntrySwap, entryChangeBlock, entryHistoryLine, leagueTeamProblem, leagueTeamRef, leagueTeamsOf, parseLeagueTeamRef, setTakeoverListing, snapshotOfLeagueTeam, teamFixtures, teamFromLeagueTeam, transferSource,
   type CoachTeamRow, type LibraryItem,
 } from "./teamLibrary.js";
-import { addHistory, publicTeam, settleServedMng, teamGamesPlayed } from "./teamOps.js";
+import { addHistory, ensureTeamIdentity, publicTeam, settleServedMng, teamGamesPlayed } from "./teamOps.js";
 import type { LeagueRecord, LeagueTeam, SeasonRecord } from "./types.js";
 
 export interface TeamLibraryApiDeps {
@@ -62,7 +62,8 @@ const NOTE_MAX = 300;
 const REASON_MAX = 500;
 const LIBRARY_MAX = 60;
 const NO_STORE = { "cache-control": "private, no-store" };
-const TEAM_REF = /^(?:save|library):[A-Za-z0-9_.:-]{1,110}$/;
+/** A Roster Builder save (fork library teams are per-fixture copies, never a source: owner 11-03). */
+const TEAM_REF = /^save:[A-Za-z0-9_.:-]{1,110}$/;
 const ckey = (c: string | undefined): string => (c ?? "").normalize("NFC").trim().toLowerCase();
 const res = (status: number, body: unknown): LeagueApiResult => ({ status, body, headers: { ...NO_STORE } });
 const fail = (status: number, error: string, extra: Record<string, unknown> = {}): LeagueApiResult => res(status, { error, ...extra });
@@ -104,28 +105,36 @@ function checkSheet(league: LeagueRecord, season: SeasonRecord, coach: string, r
 }
 
 /** The coach's library judged against the season: saves, library teams, then league teams; fitting teams first in each. */
-export function libraryItems(league: LeagueRecord, season: SeasonRecord, coach: string, deps: LeagueApiDeps, opts: { teamId?: string; leagueTeams: boolean; organiser?: boolean }): LibraryItem[] {
+export function libraryItems(league: LeagueRecord, season: SeasonRecord, coach: string, deps: LeagueApiDeps, opts: { teamId?: string; leagueTeams: boolean; organiser?: boolean; requestable?: boolean }): LibraryItem[] {
   const now = deps.now?.() ?? new Date();
   let rows: CoachTeamRow[] = [];
   try { rows = (deps.coachTeams?.(coach) ?? []).slice(0, LIBRARY_MAX); } catch { rows = []; }
   const own: LibraryItem[] = rows.filter((r) => TEAM_REF.test(r.ref)).map((r) => {
     // An organiser never sees anything of a team the coach never shared (no name, race, value or check result): it shows
     // as a private team, and picking it only asks the coach to approve the swap.
-    if (opts.organiser && !r.shared) return { ref: r.ref, kind: r.kind, name: r.kind === "save" ? "Private save" : "Private library team", race: "", tv: null, ok: true, private: true };
+    // Only the entry's own coach can be asked; another member's private team is greyed.
+    if (opts.organiser && !r.shared) return opts.requestable
+      ? { ref: r.ref, kind: r.kind, name: "Private saved team", race: "", tv: null, ok: true, private: true }
+      : { ref: r.ref, kind: r.kind, name: "Private saved team", race: "", tv: null, ok: false, private: true, reason: "Not shared with the organisers." };
     const c = checkSheet(league, season, coach, r.ref, deps, now);
     return {
       ref: r.ref, kind: r.kind, name: c.name || r.name, race: c.race || r.race, tv: r.tv, ok: c.ok,
       ...(c.ok ? {} : { reason: c.reason }),
     };
   });
-  const lg: LibraryItem[] = !opts.leagueTeams ? [] : leagueTeamsOf(deps.store, coach, { leagueId: league.id }).map((x) => {
+  const lg: LibraryItem[] = !opts.leagueTeams ? [] : leagueTeamsOf(deps.store, coach, { leagueId: league.id }).map((x): LibraryItem => {
+    const ref = leagueTeamRef(x.league.id, x.season.id, x.team.id);
+    // Another league's team (its coach permitted a transfer) stays masked from these organisers until the coach consents.
+    if (opts.organiser && x.league.id !== league.id) return opts.requestable
+      ? { ref, kind: "league", name: "League team (transfer permitted)", race: "", tv: null, ok: true, private: true }
+      : { ref, kind: "league", name: "League team (transfer permitted)", race: "", tv: null, ok: false, private: true, reason: "Only its coach can offer it." };
     const problem = leagueTeamProblem(x, { league, season, ...(opts.teamId ? { teamId: opts.teamId } : {}) });
     return {
       ref: leagueTeamRef(x.league.id, x.season.id, x.team.id), kind: "league" as const, name: x.team.name, race: x.team.race,
       tv: x.team.teamValue ?? null, source: `${x.league.name} ${x.season.name}`, ok: !problem, ...(problem ? { reason: problem } : {}),
     };
   });
-  const order = { save: 0, library: 1, league: 2 } as const;
+  const order = { save: 0, league: 1 } as const;
   return [...own, ...lg].sort((a, b) => order[a.kind] - order[b.kind] || Number(b.ok) - Number(a.ok) || a.name.localeCompare(b.name));
 }
 
@@ -143,6 +152,8 @@ export async function teamLibraryRoutes(
       return memberLibrary(seasonId, a, league, auth, deps);
     }
     if (third === "teams" && a && b === "swap-request" && d === undefined) return await swapRequestRoute(method, seasonId, a, c, league, auth, deps);
+    if (third === "teams" && a && b === "transfer" && c === undefined) { if (method !== "POST") return fail(405, "Use POST."); return await transferRoute(seasonId, a, league, auth, deps); }
+    if (third === "my-teams" && a === undefined) { if (!read) return fail(405, "Use GET."); return myTeams(seasonId, league, auth, deps); }
     if (third === "teams" && a && (b === "library" || b === "swap" || b === "takeover") && c === undefined) {
       if (b === "library") { if (!read) return fail(405, "Use GET."); return teamLibrary(seasonId, a, league, auth, deps); }
       if (method !== "POST") return fail(405, "Use POST.");
@@ -180,7 +191,7 @@ function memberLibrary(seasonId: string, coach: string, league: LeagueRecord | u
   if (!season) return fail(404, "Season not found.");
   // Not a member (or not sharing): the same answer as an unknown coach.
   if (!libraryVisible(league!, coach, auth!, deps)) return fail(404, "No member of this league by that name.");
-  return res(200, { coach: coach.trim(), items: libraryItems(league!, season, coach.trim(), deps, { leagueTeams: true, organiser: true }) });
+  return res(200, { coach: coach.trim(), items: libraryItems(league!, season, coach.trim(), deps, { leagueTeams: true, organiser: true, requestable: false }) });
 }
 
 function teamLibrary(seasonId: string, teamId: string, league: LeagueRecord | undefined, auth: LeagueApiIdentity | undefined, deps: LeagueApiDeps): LeagueApiResult {
@@ -194,7 +205,7 @@ function teamLibrary(seasonId: string, teamId: string, league: LeagueRecord | un
   const base = { team: { id: team.id, name: team.name, race: team.race, games: teamGamesPlayed(season, team.id) }, ...(block ? { block } : {}) };
   if (!coach) return res(200, { ...base, coach: null, items: [], reason: "This team has no coach account: assign one first." });
   if (!libraryVisible(league!, coach, auth!, deps)) return res(200, { ...base, coach, items: [], reason: "This coach hasn't shared their teams with this league yet." });
-  return res(200, { ...base, coach, ...(team.swapRequest ? { request: { by: team.swapRequest.by, at: team.swapRequest.at } } : {}), items: libraryItems(league!, season, coach, deps, { teamId: team.id, leagueTeams: true, organiser: true }) });
+  return res(200, { ...base, coach, ...(team.swapRequest ? { request: { by: team.swapRequest.by, at: team.swapRequest.at } } : {}), items: libraryItems(league!, season, coach, deps, { teamId: team.id, leagueTeams: true, organiser: true, requestable: true }) });
 }
 
 function revisionError(input: Record<string, unknown>, season: SeasonRecord, deps: LeagueApiDeps): LeagueApiResult | undefined {
@@ -244,18 +255,34 @@ async function swap(seasonId: string, teamId: string, league: LeagueRecord | und
   if (stale) return stale;
   const ref = typeof input.ref === "string" ? input.ref.trim() : "";
   if (!ref) return fail(400, "Pick a team from the coach's library.", { field: "ref" });
-  const coach = seatOf(team);
-  if (!coach) return fail(409, "This team has no coach account: assign one first.");
-  if (!libraryVisible(lg, coach, auth!, deps)) return fail(403, "This coach hasn't shared their teams with this league yet.");
+  const seat = seatOf(team);
+  if (!seat) return fail(409, "This team has no coach account: assign one first.");
+  // Whose team goes in: the entry's coach (default), or any member who SHARED it (owner 11-03: organisers may replace a team
+  // by other means whatever the coach answered to a request).
+  if (input.coach !== undefined && (typeof input.coach !== "string" || !input.coach.trim())) return fail(400, "coach must name a member of the league.", { field: "coach" });
+  const owner = typeof input.coach === "string" ? input.coach.trim() : seat;
+  const own = ckey(owner) === ckey(seat);
+  if (!libraryVisible(lg, owner, auth!, deps)) return own ? fail(403, "This coach hasn't shared their teams with this league yet.") : fail(404, "No member of this league by that name.");
+  let privateTeam = false;
   if (TEAM_REF.test(ref)) {
     let rows: CoachTeamRow[] = [];
-    try { rows = deps.coachTeams?.(coach) ?? []; } catch { rows = []; }
+    try { rows = deps.coachTeams?.(owner) ?? []; } catch { rows = []; }
     const row = rows.find((r) => r.ref === ref);
     if (!row) return fail(404, "That team isn't in this coach's library.", { field: "ref" });
-    // A team the coach never shared: the organiser only asks; the coach approves (or declines) on their team page.
-    if (!row.shared) return requestSwap(lg, season, team, coach, ref, auth!, deps);
-  } else if (!parseLeagueTeamRef(ref)) return fail(400, "ref must name a save, a library team or a league team of the coach.", { field: "ref" });
-  return performSwap(lg, seasonId, teamId, coach, ref, auth!.coach, deps, { revision: season.revision ?? 0 });
+    privateTeam = !row.shared;
+  } else {
+    const r = parseLeagueTeamRef(ref);
+    if (!r) return fail(400, "ref must name a saved team or a league team of the coach.", { field: "ref" });
+    if (!leagueTeamsOf(deps.store, owner, { leagueId: lg.id }).some((x) => x.league.id === r.leagueId && x.season.id === r.seasonId && x.team.id === r.teamId))
+      return fail(404, "That team isn't in this coach's library.", { field: "ref" });
+    privateTeam = r.leagueId !== lg.id; // another league's team (transfer permitted): the coach consents first
+  }
+  if (privateTeam) {
+    // Only the entry's own coach can be asked; nobody else's private team is ever used.
+    if (!own) return fail(403, "That team isn't shared with this league's organisers.", { field: "ref" });
+    return requestSwap(lg, season, team, seat, ref, auth!, deps);
+  }
+  return performSwap(lg, seasonId, teamId, seat, ref, auth!.coach, deps, { revision: season.revision ?? 0, owner });
 }
 
 /** Stores the organiser's request to swap in one of the coach's private teams and asks the coach (an actionable note). */
@@ -287,8 +314,9 @@ function requestSwap(lg: LeagueRecord, season: SeasonRecord, team: LeagueTeam, c
  */
 async function performSwap(
   lg: LeagueRecord, seasonId: string, teamId: string, coach: string, ref: string, actor: string, deps: LeagueApiDeps,
-  opts: { revision?: number; requestId?: string; requestedBy?: string },
+  opts: { revision?: number; requestId?: string; requestedBy?: string; owner?: string },
 ): Promise<LeagueApiResult> {
+  const owner = opts.owner ?? coach;
   const first = deps.store.season(lg.id, seasonId);
   if (!first) return fail(404, "Season not found.");
   const open = await openRecorderFixtures(deps, lg.id, seasonId);
@@ -306,21 +334,18 @@ async function performSwap(
     const at = now.toISOString();
     const seasons = deps.store.seasons(lg.id);
     let incoming: LeagueTeam;
-    const leagueRef = parseLeagueTeamRef(ref);
-    if (leagueRef) {
-      const source = leagueTeamsOf(deps.store, coach, { leagueId: lg.id })
-        .find((x) => x.league.id === leagueRef.leagueId && x.season.id === leagueRef.seasonId && x.team.id === leagueRef.teamId);
-      if (!source) return fail(404, "That team isn't in this coach's library.", { field: "ref" });
-      const problem = leagueTeamProblem(source, { league: lg, season, teamId: team.id });
-      if (problem) return fail(400, problem, { code: "invalid-team", field: "ref" });
+    if (parseLeagueTeamRef(ref)) {
+      const found = transferSource(deps.store, owner, ref, { league: lg, season, teamId: team.id });
+      if ("error" in found) return fail(found.status, found.error, { code: "invalid-team", field: "ref" });
       const used = new Set(seasons.flatMap((s) => s.teams.flatMap((t) => [...t.players, ...(t.formerPlayers ?? [])].map((p) => p.playerId))));
-      incoming = teamFromLeagueTeam(source.team, season, { id: team.id, usedIds: used });
-      incoming.coachId = coach;
+      incoming = teamFromLeagueTeam(found.source.team, season, { id: team.id, usedIds: used });
+      incoming.coach = owner;
+      incoming.coachId = owner;
     } else {
-      const checked = checkSheet(lg, season, coach, ref, deps, now);
+      const checked = checkSheet(lg, season, owner, ref, deps, now);
       if (!checked.ok) return fail(400, checked.reason, { code: "invalid-team", field: "ref" });
       incoming = teamFromSnapshot(lg, season, checked.snapshot, {
-        id: freshTeamId(season), coach, teamName: checked.name, race: checked.race, by: actor, at,
+        id: freshTeamId(season), coach: owner, teamName: checked.name, race: checked.race, by: actor, at,
         teamUid: lineageFor(seasons, checked.libraryTeamId), entryId: team.entryId ?? "", ...(checked.libraryTeamId ? { libraryTeamId: checked.libraryTeamId } : {}),
       });
     }
@@ -338,6 +363,7 @@ async function performSwap(
     const who = opts.requestedBy ? `${actor} approved ${opts.requestedBy}'s request to swap` : `${actor} swapped`;
     const line = `${who} ${change.before.name} for ${change.after.name} in ${lg.name} ${season.name}. The entry keeps its standings and fixtures.`;
     if (ckey(coach) !== ckey(actor)) send(deps, coach, { type: "league-broadcast", title: `Your team in ${lg.name} was swapped`, body: line, link, from: actor, subject: lg.name, action: true });
+    if (ckey(owner) !== ckey(coach) && ckey(owner) !== ckey(actor)) send(deps, owner, { type: "league-broadcast", title: `Your team joined ${lg.name}`, body: line, link, from: actor, subject: lg.name, action: true });
     if (opts.requestedBy && ckey(opts.requestedBy) !== ckey(actor)) send(deps, opts.requestedBy, { type: "league-broadcast", title: `Swap approved: ${change.after.name}`, body: line, link, from: actor, subject: lg.name });
     notifyRecordChange(lg, opts.requestedBy ?? actor, { title: `${lg.name}: ${change.before.name} swapped for ${change.after.name}`, body: line, link }, deps.notify);
     for (const r of declined) send(deps, r.coach, { type: "registration-outcome", title: `Application closed: ${r.listedTeam}`, body: "This team is no longer available for takeover.", link: takeoverLink(lg.id, season.id), subject: lg.name });
@@ -399,6 +425,28 @@ async function swapRequestRoute(method: string, seasonId: string, teamId: string
   if (isCoach && ckey(req.by) !== ckey(auth.coach)) send(deps, req.by, { type: "league-broadcast", title: `Swap declined: ${team.name}`, body: `${auth.coach} declined the swap you asked for (${lg.name} ${season.name}).`, link: teamLink(lg.id, season.id, team.id), from: auth.coach, subject: lg.name });
   const saved = deps.store.season(lg.id, season.id) ?? season;
   return res(200, { ok: true, revision: saved.revision ?? 0 });
+}
+
+/** POST .../teams/:teamId/transfer { permit }: the team's coach permits (or stops) a league transfer (default off). */
+async function transferRoute(seasonId: string, teamId: string, league: LeagueRecord | undefined, auth: LeagueApiIdentity | undefined, deps: LeagueApiDeps): Promise<LeagueApiResult> {
+  if (!auth) return fail(401, "Sign in first.");
+  if (!league) return fail(404, "League not found.");
+  const body = await readJsonObject(deps, BODY_MAX);
+  if (!body.ok) return { ...fail(body.status, body.error), ...(body.close ? { close: true } : {}) };
+  if (typeof body.value.permit !== "boolean") return fail(400, "permit must be true or false.", { field: "permit" });
+  const season = deps.store.season(league.id, seasonId);
+  const team = season?.teams.find((t) => t.id === teamId);
+  if (!season || !team) return fail(404, "Team not found.");
+  if (ckey(seatOf(team)) !== ckey(auth.coach)) return fail(403, "Only this team's coach sets its transfer options.");
+  const at = (deps.now?.() ?? new Date()).toISOString();
+  const was = team.transfer?.permitted === true;
+  // A team that may move carries its lineage id (teamOps.ts), so it stays the same team wherever it plays.
+  ensureTeamIdentity(team);
+  team.transfer = { permitted: body.value.permit, by: auth.coach, at };
+  if (was !== body.value.permit) addHistory(team, { at, by: auth.coach, kind: "coach-edit", changes: [{ what: "Permit league transfer", from: was ? "On" : "Off", to: body.value.permit ? "On" : "Off" }] });
+  try { deps.store.putSeason(season); } catch { return fail(500, "Could not save right now."); }
+  const saved = deps.store.season(league.id, season.id) ?? season;
+  return res(200, { ok: true, revision: saved.revision ?? 0, transfer: { permitted: body.value.permit } });
 }
 
 async function listing(seasonId: string, teamId: string, league: LeagueRecord | undefined, auth: LeagueApiIdentity | undefined, deps: LeagueApiDeps): Promise<LeagueApiResult> {
@@ -500,7 +548,7 @@ function myTeams(seasonId: string, league: LeagueRecord | undefined, auth: Leagu
   if (!league) return fail(404, "League not found.");
   const season = deps.store.season(league.id, seasonId);
   if (!season) return fail(404, "Season not found.");
-  return res(200, { items: libraryItems(league, season, auth.coach, deps, { leagueTeams: false }) });
+  return res(200, { items: libraryItems(league, season, auth.coach, deps, { leagueTeams: true }) });
 }
 
 function serviceFor(deps: LeagueApiDeps, onApproved?: (info: TakeoverApproval) => void, openRecorder?: ReadonlySet<string>) {
@@ -540,13 +588,23 @@ async function apply(seasonId: string, listingId: string, league: LeagueRecord |
   if (input.mode === "team") {
     const ref = typeof input.teamRef === "string" ? input.teamRef.trim() : "";
     if (!ref) return fail(400, "Pick one of your teams.", { field: "teamRef" });
-    if (!TEAM_REF.test(ref)) return fail(400, "teamRef must name a Roster Builder save (save:<id>) or a library team (library:<teamId>).", { field: "teamRef" });
-    const checked = checkSheet(lg, season, auth.coach, ref, deps, now);
-    if (!checked.ok) return fail(400, checked.reason, { code: "invalid-team", field: "teamRef" });
-    Object.assign(data, {
-      teamRef: ref, teamName: checked.name, race: checked.race, teamSnapshot: checked.snapshot,
-      validation: { ok: true, problems: [], checkedAt: now.toISOString() }, ...(checked.libraryTeamId ? { libraryTeamId: checked.libraryTeamId } : {}),
-    });
+    if (parseLeagueTeamRef(ref)) {
+      // A league team of yours (transfer permitted when it plays elsewhere) moves with its record.
+      const found = transferSource(deps.store, auth.coach, ref, { league: lg, season });
+      if ("error" in found) return fail(found.status, found.error, { code: "invalid-team", field: "teamRef" });
+      Object.assign(data, {
+        teamRef: ref, teamName: found.source.team.name, race: canonicalRace(found.source.team.race), teamSnapshot: snapshotOfLeagueTeam(found.source.team),
+        validation: { ok: true, problems: [], checkedAt: now.toISOString() },
+      });
+    } else {
+      if (!TEAM_REF.test(ref)) return fail(400, "teamRef must name a saved team (save:<id>) or one of your league teams.", { field: "teamRef" });
+      const checked = checkSheet(lg, season, auth.coach, ref, deps, now);
+      if (!checked.ok) return fail(400, checked.reason, { code: "invalid-team", field: "teamRef" });
+      Object.assign(data, {
+        teamRef: ref, teamName: checked.name, race: checked.race, teamSnapshot: checked.snapshot,
+        validation: { ok: true, problems: [], checkedAt: now.toISOString() }, ...(checked.libraryTeamId ? { libraryTeamId: checked.libraryTeamId } : {}),
+      });
+    }
   }
   const cid = takeoverCompetitionId(lg.id, season.id, listingId);
   const result = await serviceFor(deps).submit(cid, auth.coach, actorOf(auth), { data: data as unknown as Record<string, unknown> });

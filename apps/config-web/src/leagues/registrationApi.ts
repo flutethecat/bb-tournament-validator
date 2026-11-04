@@ -37,6 +37,7 @@ import {
   seasonEntries, seasonRegistrationSettings, snapshotFromRoster, type LeagueEntryData, type LeagueRegistrationRow,
 } from "./registration.js";
 import { seasonRegistrationOf, seasonSnapshot, seasonWindowStatus, seasonWindow } from "./seasonRegistration.js";
+import { parseLeagueTeamRef, snapshotOfLeagueTeam, transferSource } from "./teamLibrary.js";
 import { leagueOwner } from "./store.js";
 import type { LeagueRecord, SeasonRecord } from "./types.js";
 import { paymentLinksView } from "../payments/links.js";
@@ -71,7 +72,9 @@ const BODY_MAX = 16 * 1024;
 const REASON_MAX = 500;
 const NO_STORE = { "cache-control": "private, no-store" };
 const LIVE = new Set<EntryState>(["pending", "waitlisted", "accepted"]);
-const TEAM_REF = /^(?:save|library):[A-Za-z0-9_.:-]{1,110}$/;
+/** A Roster Builder save, or one of the coach's league teams (owner 11-03: fork library teams are per-fixture copies, never
+ *  a source; a league team from another league needs its coach's "Permit league transfer"). */
+const TEAM_REF = /^save:[A-Za-z0-9_.:-]{1,110}$/;
 const ckey = (c: string | undefined) => (c ?? "").trim().toLowerCase();
 const res = (status: number, body: unknown, extra: Partial<LeagueApiResult> = {}): LeagueApiResult => ({ status, body, headers: { ...NO_STORE }, ...extra });
 const fail = (status: number, error: string, extra: Record<string, unknown> = {}): LeagueApiResult => res(status, { error, ...extra });
@@ -297,7 +300,8 @@ async function join(
   }
   const teamRef = typeof input.teamRef === "string" ? input.teamRef.trim() : "";
   if (!teamRef) return fail(400, "Pick a team.", { field: "teamRef" });
-  if (!TEAM_REF.test(teamRef)) return fail(400, "teamRef must name a Roster Builder save (save:<id>) or a library team (library:<teamId>).", { field: "teamRef" });
+  const leagueRef = parseLeagueTeamRef(teamRef);
+  if (!TEAM_REF.test(teamRef) && !leagueRef) return fail(400, "teamRef must name a saved team (save:<id>) or one of your league teams.", { field: "teamRef" });
   if (input.acknowledged !== true)
     return fail(400, "Tick the box to confirm you agree to share your data with this league's organisers.", { field: "acknowledged" });
   let share: ShareField[];
@@ -309,6 +313,22 @@ async function join(
     region = input.region.trim();
   } else if (regions.length) return fail(400, "Pick your region.", { code: "region", field: "region" });
 
+  if (leagueRef) {
+    // A league team moves with its record: an existing team, checked against this season (one place at a time).
+    const reg0 = seasonRegistrationOf(lg, season);
+    if (!reg0.allowExistingTeams) return fail(400, "This season takes new teams built under its rules. Build one in the Roster Builder.", { code: "existing-teams", field: "teamRef" });
+    const found = transferSource(deps.store, auth.coach, teamRef, { league: lg, season });
+    if ("error" in found) return fail(found.status, found.error, { code: "invalid-team", field: "teamRef" });
+    const t = found.source.team;
+    const lrace = canonicalRace(t.race);
+    const ok = rosterAllowed(lrace, reg0.allowedRosters);
+    if (!ok.allowed) return fail(400, ok.reason, { code: "roster" });
+    const ldata: LeagueEntryData = {
+      teamRef, kind: "existing", teamName: t.name, race: lrace, teamSnapshot: snapshotOfLeagueTeam(t),
+      validation: { ok: true, problems: [], checkedAt: now.toISOString() }, ...(region ? { region } : {}),
+    };
+    return submitJoin(lg, season, cid, auth, lrace, ldata, share, deps);
+  }
   if (!deps.leagueTeamSheet) return fail(503, "Team validation is unavailable on this host.");
   const marker = leaguePackageName(lg.id, season.id);
   const sheet = deps.leagueTeamSheet(auth.coach, teamRef, marker, houseRulesOf(lg, "league"), now);
@@ -327,6 +347,12 @@ async function join(
     teamRef, kind, ...(sheet.libraryTeamId ? { libraryTeamId: sheet.libraryTeamId } : {}), teamName: snapshot.teamName, race,
     teamSnapshot: snapshot, validation: { ok: true, problems: [], checkedAt: now.toISOString() }, ...(region ? { region } : {}),
   };
+  return submitJoin(lg, season, cid, auth, race, data, share, deps);
+}
+
+async function submitJoin(
+  lg: LeagueRecord, season: SeasonRecord, cid: string, auth: LeagueApiIdentity, race: string, data: LeagueEntryData, share: ShareField[], deps: LeagueApiDeps,
+): Promise<LeagueApiResult> {
   const result = await serviceFor(deps).submit(cid, auth.coach, actorOf(auth), { race, data: data as unknown as Record<string, unknown> });
   if (!result.changed) return fail(409, "You already have an entry for this season.", { code: "already" });
   remindMidSeason(deps, lg, season.id, [result.entry, ...result.promoted]);

@@ -23,11 +23,12 @@ describe("library helpers", () => {
   const items: LibraryItem[] = [
     { ref: "league:a/s/t", kind: "league", name: "Old", race: "Human", tv: 1_200_000, source: "A Season 1", ok: false, reason: "Built for BB2020; this season plays BB2025." },
     { ref: "save:1", kind: "save", name: "New", race: "Orc", tv: 650_000, ok: true },
-    { ref: "library:x", kind: "library", name: "Lib", race: "Dwarf", tv: 1_050, ok: true },
+    { ref: "save:x", kind: "save", name: "Lib", race: "Dwarf", tv: 1_050, ok: true },
   ];
   it("groups in the dialog's order and keeps the reason on greyed rows", () => {
-    expect(libraryGroups(items).map((g) => g.kind)).toEqual(["save", "library", "league"]);
-    expect(libraryGroups(items)[2]!.items[0]!.reason).toContain("BB2020");
+    expect(libraryGroups(items).map((g) => g.kind)).toEqual(["save", "league"]); // saved teams and league teams only (owner 11-03)
+    expect(libraryGroups(items).map((g) => g.label)).toEqual(["Saved teams", "League teams"]);
+    expect(libraryGroups(items)[1]!.items[0]!.reason).toContain("BB2020");
     expect(libraryGroups([items[1]!]).map((g) => g.kind)).toEqual(["save"]);
   });
   it("shows gold and fork-library thousands alike", () => {
@@ -37,6 +38,7 @@ describe("library helpers", () => {
     expect(librarySub(items[0]!)).toBe("Human · 1,200k · A Season 1");
     // a private team (never shared by the coach) carries no details at all
     expect(librarySub({ race: "", tv: null, private: true })).toBe("Not shared: the coach approves the swap");
+    expect(librarySub({ race: "", tv: null, private: true, ok: false })).toBe("");
   });
 });
 
@@ -108,6 +110,10 @@ describe("placement and style", () => {
     expect(teams).toContain("data-cog-swap");
     expect(teams).toContain("data-cog-takeover");
     expect(teams).toContain('route.query.edit === "1"');
+    // the coach's transfer option (default off) and the swap dialog's member picker (another member's shared teams)
+    expect(teams).toContain("data-permit-transfer");
+    expect(teams).toContain("Permit league transfer");
+    expect(read("components/TeamSwapDialog.vue")).toContain("data-swap-owner");
   });
   it("takeover.css uses tokens only", () => {
     const css = read("leagues/takeover.css");

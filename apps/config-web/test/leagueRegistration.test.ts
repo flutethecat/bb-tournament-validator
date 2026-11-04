@@ -54,6 +54,7 @@ function sheetFor(coachName: string, ref: string, packageName: string): LeagueTe
   if (ref === "save:missing") return { error: "Team Builder save not found.", status: 404 };
   const race = /orc/i.test(ref) ? "Orc" : /human/i.test(ref) ? "Human" : /dwarf/i.test(ref) ? "Dwarf" : /gnoblar/i.test(ref) ? "Gnoblar Horde" : "Elven Union";
   if (ref === "save:bad-orc") return { teamName: `${coachName} Bad`, savePackage: packageName, validation: { ok: false, problems: ["Too many big guys."] }, roster: rosterOf("Orc") };
+  if (ref.startsWith("save:linked-")) return { teamName: `${coachName} Linked ${race}s`, libraryTeamId: ref.slice("save:linked-".length), savePackage: "Spike 2026", validation: { ok: true, problems: [] }, roster: rosterOf(race) };
   if (ref.startsWith("save:new-")) return { teamName: `${coachName} ${race}s`, savePackage: packageName, validation: { ok: true, problems: [] }, roster: rosterOf(race) };
   if (ref.startsWith("save:old-")) return { teamName: `${coachName} Old ${race}s`, savePackage: "Spike 2026", validation: { ok: true, problems: [] }, roster: rosterOf(race) };
   if (ref.startsWith("library:")) return { teamName: `${coachName} Library ${race}s`, libraryTeamId: ref.slice(8), savePackage: "Spike 2026", validation: { ok: true, problems: [] }, roster: rosterOf(race) };
@@ -153,15 +154,38 @@ describe("coach join flow", () => {
     expect((await h.join("Pat", "save:new-human")).status).toBe(409);
   });
 
-  it("existing teams are refused unless the organisers allow them; then a save or library team is checked and kept as existing", async () => {
+  it("existing teams are refused unless the organisers allow them; then a saved team is checked and kept as existing; fork library teams are never a source", async () => {
     const h = harness();
     expect(await h.join("Pat", "save:old-orc")).toMatchObject({ status: 400, body: { code: "existing-teams" } });
-    expect(await h.join("Pat", "library:lib-1-dwarf")).toMatchObject({ status: 400, body: { code: "existing-teams" } });
     h.setReg({ allowExistingTeams: true });
     expect((await h.join("Pat", "save:old-orc")).status).toBe(201);
     expect(h.rowOf("Pat")).toMatchObject({ kind: "existing", teamName: "Pat Old Orcs" });
-    expect((await h.join("Dee", "library:lib-1-dwarf")).status).toBe(201);
-    expect(h.rowOf("Dee")).toMatchObject({ kind: "existing", libraryTeamId: "lib-1-dwarf", race: "Dwarf" });
+    // owner 11-03: fork library teams are per-fixture copies, never a team to join with
+    expect((await h.join("Dee", "library:lib-1-dwarf")).status).toBe(400);
+  });
+
+  it("a league team from another league joins only when its coach permits a league transfer, and moves with its record", async () => {
+    const h = harness({ reg: { allowExistingTeams: true } });
+    const old: SeasonRecord = { ...h.season("otherbbl"), id: "season-0", number: 0, sourceSlug: "o0", status: "completed", registrations: [], teams: [
+      { id: "oldorcs", name: "Old Orcs", race: "Orc", coach: "Pat", coachId: "Pat", teamValue: 1_000_000, treasury: 30_000, rerolls: 2, fans: 3, assistantCoaches: 0, cheerleaders: 0, apothecary: true, tier: "2", raceLeague: "",
+        players: [{ playerId: "p-old1", number: 1, name: "Grub", position: "Lineman", ma: 5, st: 3, ag: 3, pa: 4, av: 10, skills: ["Block"], value: 70_000, level: "Experienced", availableSpp: 6, niggling: 0, missNextGame: false, stats: { td: 2, cas: 0, mvp: 0, int: 0, completions: 0, fouls: 0, injuries: 0, sentOffs: 0, spp: 8, performance: 0 } }],
+        formerPlayers: [], teamUid: "tm-bbbbbbbbbbbb" },
+    ] } as unknown as SeasonRecord;
+    h.store.putSeason(old);
+    const ref = "league:otherbbl/season-0/oldorcs";
+    expect((await h.join("Pat", ref)).status).toBe(404); // no transfer permitted: it can't leave Other BBL
+    const s = h.store.season("otherbbl", "season-0")!;
+    s.teams[0]!.transfer = { permitted: true, by: "Pat", at: "2026-11-01T00:00:00.000Z" };
+    h.store.putSeason(s);
+    const r = await h.join("Pat", ref);
+    expect(r.status, JSON.stringify(r.body)).toBe(201);
+    expect(h.rowOf("Pat")).toMatchObject({ kind: "existing", teamRef: ref, teamName: "Old Orcs", race: "Orc" });
+    expect((await h.decide("Pat", "accept")).status).toBe(200);
+    const t = h.season().teams.find((x) => x.id === h.rowOf("Pat")!.teamId)!;
+    expect(t).toMatchObject({ name: "Old Orcs", coachId: "Pat", teamUid: "tm-bbbbbbbbbbbb", treasury: 30_000 });
+    expect(t.players[0]).toMatchObject({ name: "Grub", skills: ["Block"], availableSpp: 6, previousIds: ["p-old1"] });
+    expect(t.players[0]!.stats.td).toBe(0); // this season's counters start at zero
+    expect(t).not.toHaveProperty("transfer");
   });
 
   it("validates against the season rules: an invalid team, a missing save and a roster class the league refuses", async () => {
@@ -377,13 +401,13 @@ describe("races, promotion and atomic acceptance", () => {
     expect(h.season().teams[0]!.id).toBe(h.rowOf("Pat")!.teamId);
   });
 
-  it("a library team keeps its teamUid across seasons of the league", async () => {
+  it("a save linked to a team keeps that team's teamUid across seasons of the league", async () => {
     const h = harness({ reg: { approval: "auto", allowExistingTeams: true } });
     const prior = { ...h.season(), id: "season-0", number: 0, sourceSlug: "s0", status: "completed", teams: [
       { id: "old", name: "Old Dwarfs", race: "Dwarf", coach: "Pat", coachId: "Pat", teamValue: null, players: [], formerPlayers: [], teamUid: "tm-aaaaaaaaaaaa", libraryTeamId: "lib-7-dwarf" },
     ], registrations: [] } as unknown as SeasonRecord;
     h.store.putSeason(prior);
-    await h.join("Pat", "library:lib-7-dwarf");
+    await h.join("Pat", "save:linked-lib-7-dwarf");
     expect(h.season().teams[0]).toMatchObject({ teamUid: "tm-aaaaaaaaaaaa", libraryTeamId: "lib-7-dwarf" });
     // the public read never carries the library or entry links
     const read = (await h.call("GET", base)).body as { season: SeasonRecord };

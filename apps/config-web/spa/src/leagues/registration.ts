@@ -4,7 +4,7 @@
 // The server stays the authority for every rule (window, cap, per-race, existing teams, region, the season's rules).
 
 import { reactive, type InjectionKey } from "vue";
-import { ApiError, type BuilderSaveSummary, type EntryState, type LibraryTeam } from "../shared/api";
+import { ApiError, type BuilderSaveSummary, type EntryState } from "../shared/api";
 import type { ShareField } from "../account/sharing";
 import { STATE_LABEL, STATE_TONE, utcLabel } from "../tournaments/registration";
 
@@ -87,8 +87,17 @@ export interface LeagueRegistrationsView {
   entries: LeagueRegistrationRowView[];
 }
 
+/** One of the coach's league teams that may join (GET .../seasons/:sid/my-teams, kind "league"). */
+export interface JoinLeagueTeam { ref: string; kind: string; name: string; race: string; source?: string; ok: boolean }
+
+/** "Saved team" / "League team (transfer permitted)": what a join choice is (owner 11-03 copy). */
+export function teamSourceLabel(ref: string, leagueId: string): string {
+  if (ref.startsWith("save:")) return "Saved team";
+  return ref.startsWith(`league:${leagueId}/`) ? "League team" : "League team (transfer permitted)";
+}
+
 export interface JoinChoice {
-  /** "save:<id>" or "library:<teamId>". */
+  /** "save:<id>" or "league:<leagueId>/<seasonId>/<teamId>" (fork library teams are never a source, owner 11-03). */
   ref: string;
   kind: "new" | "existing";
   label: string;
@@ -100,19 +109,19 @@ export interface JoinChoice {
  * "new"), then, only when the organisers allow existing teams, the coach's other saves and library teams ("existing";
  * the server checks each against the season's rules at join).
  */
-export function joinChoices(saves: readonly BuilderSaveSummary[], library: readonly LibraryTeam[], packageName: string, allowExisting: boolean): JoinChoice[] {
+export function joinChoices(saves: readonly BuilderSaveSummary[], leagueTeams: readonly JoinLeagueTeam[], packageName: string, allowExisting: boolean, leagueId = ""): JoinChoice[] {
   const built = saves.filter((s) => s.packageName === packageName && !s.teamId);
   const out: JoinChoice[] = built.map((s) => ({ ref: `save:${s.id}`, kind: "new", label: s.name, sub: s.raceName ? `${s.raceName} · built for this season` : "Built for this season" }));
   if (!allowExisting) return out;
   const builtIds = new Set(built.map((s) => s.id));
-  const linked = new Set(saves.map((s) => s.teamId).filter((id): id is string => Boolean(id)));
   for (const s of saves) {
     if (builtIds.has(s.id)) continue;
-    out.push({ ref: `save:${s.id}`, kind: "existing", label: s.name, sub: s.raceName ? `${s.raceName} · Roster Builder save` : "Roster Builder save" });
+    out.push({ ref: `save:${s.id}`, kind: "existing", label: s.name, sub: s.raceName ? `${s.raceName} · Saved team` : "Saved team" });
   }
-  for (const t of library) {
-    if (linked.has(t.teamId) && saves.some((s) => s.teamId === t.teamId)) continue;
-    out.push({ ref: `library:${t.teamId}`, kind: "existing", label: t.teamName, sub: t.race ? `${t.race} · Library team` : "Library team" });
+  // The coach's league teams that may join (a team from another league only with "Permit league transfer" on).
+  for (const t of leagueTeams) {
+    if (t.kind !== "league" || !t.ok) continue;
+    out.push({ ref: t.ref, kind: "existing", label: t.name, sub: [t.race, teamSourceLabel(t.ref, leagueId), t.source].filter(Boolean).join(" · ") });
   }
   return out;
 }
@@ -199,7 +208,7 @@ export function createLeagueJoin(deps: { api: Fetcher }) {
   const state = reactive({
     leagueId: "", seasonId: "", loaded: false, status: null as LeagueJoinStatus | null, mine: null as LeagueMyEntry | null,
     busy: "" as "" | "join" | "withdraw" | "claim", error: "", notice: "",
-    options: { status: "idle" as "idle" | "loading" | "ok", saves: [] as BuilderSaveSummary[], library: [] as LibraryTeam[] },
+    options: { status: "idle" as "idle" | "loading" | "ok", saves: [] as BuilderSaveSummary[], leagueTeams: [] as JoinLeagueTeam[] },
   });
   let seq = 0;
   async function load(leagueId: string, seasonId: string): Promise<void> {
@@ -222,11 +231,14 @@ export function createLeagueJoin(deps: { api: Fetcher }) {
   async function loadOptions(coach: string): Promise<void> {
     if (!coach) return;
     state.options.status = "loading";
-    const [library, saves] = await Promise.all([
-      deps.api<{ teams?: LibraryTeam[] }>(`/api/fork/library?coach=${encodeURIComponent(coach)}`).then((r) => r.teams ?? []).catch(() => [] as LibraryTeam[]),
+    // Saved teams and the coach's league teams (fork library teams are per-fixture copies, never a source: owner 11-03).
+    const [leagueTeams, saves] = await Promise.all([
+      state.leagueId && state.seasonId
+        ? deps.api<{ items?: JoinLeagueTeam[] }>(`${seasonPath(state.leagueId, state.seasonId)}/my-teams`).then((r) => (r.items ?? []).filter((i) => i.kind === "league")).catch(() => [] as JoinLeagueTeam[])
+        : Promise.resolve([] as JoinLeagueTeam[]),
       deps.api<{ saves?: BuilderSaveSummary[] }>("/api/fork/team-builder/saves").then((r) => r.saves ?? []).catch(() => [] as BuilderSaveSummary[]),
     ]);
-    state.options = { status: "ok", library, saves };
+    state.options = { status: "ok", leagueTeams, saves };
   }
   async function run<T>(what: "join" | "withdraw" | "claim", task: () => Promise<T>): Promise<T | undefined> {
     state.busy = what;

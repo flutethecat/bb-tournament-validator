@@ -35,7 +35,7 @@ const mint = (prefix: string): string => `${prefix}-${randomBytes(6).toString("h
 
 /** A save or fork library team of the coach (server.ts coachTeams). */
 export interface CoachTeamRow {
-  ref: string; kind: "save" | "library"; name: string; race: string; tv: number | null;
+  ref: string; kind: "save"; name: string; race: string; tv: number | null;
   /** The coach shared it (a save with a share link): organisers may see and swap it in directly. Anything else is private:
    *  organisers see only "Private save" and a swap needs the coach's approval. */
   shared?: boolean;
@@ -43,9 +43,9 @@ export interface CoachTeamRow {
 
 /** One library row as the swap dialog / the application dialog shows it. */
 export interface LibraryItem {
-  /** "save:<id>" | "library:<teamId>" | "league:<leagueId>/<seasonId>/<teamId>". */
+  /** "save:<id>" | "league:<leagueId>/<seasonId>/<teamId>". */
   ref: string;
-  kind: "save" | "library" | "league";
+  kind: "save" | "league";
   name: string;
   race: string;
   tv: number | null;
@@ -69,6 +69,8 @@ export function leagueTeamsOf(store: Pick<LeagueStore, "list" | "seasons">, coac
     for (const season of store.seasons(league.id)) {
       for (const team of season.teams ?? []) {
         if (team.coachAssigned?.cleared || ckey(team.coachId) !== key) continue;
+        // A team leaves its league only when its coach permits a league transfer (owner 11-03).
+        if (league.id !== target.leagueId && team.transfer?.permitted !== true) continue;
         const lineage = team.teamUid ?? `${league.id}/${season.id}/${team.id}`;
         const have = best.get(lineage);
         const newer = !have || (have.league.id === league.id ? season.number > have.season.number : (season.importedAt ?? "") > (have.season.importedAt ?? ""));
@@ -83,12 +85,35 @@ export function leagueTeamsOf(store: Pick<LeagueStore, "list" | "seasons">, coac
 export function leagueTeamProblem(source: { league: LeagueRecord; season: SeasonRecord; team: LeagueTeam }, target: { league: LeagueRecord; season: SeasonRecord; teamId?: string }): string {
   const { league, season, team } = source;
   if (league.id === target.league.id && season.id === target.season.id) return target.teamId === team.id ? "This is the team in the entry now." : "Already in this season.";
+  if (league.id !== target.league.id && team.transfer?.permitted !== true) return "Its coach hasn't permitted a league transfer.";
   if (season.ruleset !== target.season.ruleset) return `Built for ${season.ruleset}; this season plays ${target.season.ruleset}.`;
+  if (season.fixtures.some((f) => (f.home.teamId === team.id || f.away.teamId === team.id) && fixtureOutcome(f) === undefined && f.deadlineOutcome?.outcome !== "no-result" && team.status !== "inactive"))
+    return `Has open fixtures in ${league.name} ${season.name}.`;
   if (season.status === "active" && team.status !== "inactive") return `Still playing in ${league.name} ${season.name}.`;
   const allowed = rosterAllowed(canonicalRace(team.race), seasonRegistrationOf(target.league, target.season).allowedRosters);
   if (!allowed.allowed) return allowed.reason;
   const errors = rosterLimitErrors(team, datasetRoster(canonicalRace(team.race))).errors;
   return errors.length ? errors.join(" ") : "";
+}
+
+/** A league team as a registration / application snapshot (what the organisers' lists show: name, race, players, value). */
+export function snapshotOfLeagueTeam(team: LeagueTeam): import("./registration.js").LeagueTeamSnapshot {
+  return {
+    teamName: team.name, race: canonicalRace(team.race), rerolls: team.rerolls ?? 0, apothecary: team.apothecary, assistantCoaches: team.assistantCoaches ?? 0,
+    cheerleaders: team.cheerleaders ?? 0, dedicatedFans: team.fans ?? 1, cost: team.teamValue ?? 0,
+    players: team.players.map((p) => ({ number: p.number, name: p.name, position: p.position, ma: p.ma, st: p.st, ag: p.ag, pa: p.pa, av: p.av, skills: [...p.skills], cost: p.value ?? 0 })),
+  };
+}
+
+/** The coach's league team behind a "league:" ref, when they own it and it may enter `target` (else the reason). */
+export function transferSource(store: Pick<LeagueStore, "list" | "seasons">, coach: string, ref: string, target: { league: LeagueRecord; season: SeasonRecord; teamId?: string }):
+  { source: { league: LeagueRecord; season: SeasonRecord; team: LeagueTeam } } | { error: string; status: number } {
+  const r = parseLeagueTeamRef(ref);
+  if (!r) return { error: "That isn't a league team.", status: 400 };
+  const source = leagueTeamsOf(store, coach, { leagueId: target.league.id }).find((x) => x.league.id === r.leagueId && x.season.id === r.seasonId && x.team.id === r.teamId);
+  if (!source) return { error: "That team isn't one of the coach's teams that may move here.", status: 404 };
+  const problem = leagueTeamProblem(source, target);
+  return problem ? { error: problem, status: 400 } : { source };
 }
 
 /** "league:<leagueId>/<seasonId>/<teamId>". */

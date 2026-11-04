@@ -10,7 +10,7 @@ import { createTeamLibrary, libraryGroups, librarySub } from "../leagues/takeove
 import "../tournaments/registration.css";
 import "../leagues/takeover.css";
 
-const props = defineProps<{ leagueId: string; seasonId: string; teamId: string; teamName: string; revision: number }>();
+const props = defineProps<{ leagueId: string; seasonId: string; teamId: string; teamName: string; revision: number; coach?: string; members?: string[] }>();
 const emit = defineEmits<{ close: []; swapped: []; requested: [] }>();
 const fetcher = inject(API_KEY)!;
 const lib = createTeamLibrary({ api: fetcher });
@@ -20,10 +20,18 @@ const groups = computed(() => libraryGroups(state.view?.items ?? []));
 const choice = computed(() => state.view?.items.find((i) => i.ref === picked.value && i.ok));
 const games = computed(() => state.view?.team.games ?? 0);
 onMounted(() => { void lib.load(props.leagueId, props.seasonId, props.teamId); });
+/** Whose teams are listed: the entry's coach (default), or another member who shared a team (owner 11-03). */
+const owner = ref(props.coach ?? "");
+const others = computed(() => (props.members ?? []).filter((m) => m.toLowerCase() !== (props.coach ?? "").toLowerCase()));
+function pickOwner(): void {
+  picked.value = "";
+  if (!owner.value || owner.value === props.coach) void lib.load(props.leagueId, props.seasonId, props.teamId);
+  else void lib.loadMember(props.leagueId, props.seasonId, owner.value);
+}
 
 async function swap(): Promise<void> {
   if (!choice.value || state.busy) return;
-  const out = await lib.swap(props.leagueId, props.seasonId, props.teamId, choice.value.ref, props.revision);
+  const out = await lib.swap(props.leagueId, props.seasonId, props.teamId, choice.value.ref, props.revision, owner.value && owner.value !== props.coach ? owner.value : undefined);
   if (out === "requested") emit("requested");
   else if (out) emit("swapped");
 }
@@ -34,6 +42,13 @@ async function swap(): Promise<void> {
     <p class="tr-help">
       The entry keeps its standings and fixtures{{ games ? ` (${games} ${games === 1 ? "game" : "games"} played)` : "" }}. The team you pick plays its games from now on.
     </p>
+    <label v-if="others.length" class="sf-field tk-owner">
+      <span class="sf-k">Teams of</span>
+      <select v-model="owner" class="sf-input tr-select" data-swap-owner @change="pickOwner">
+        <option :value="coach ?? ''">{{ coach }} (this team's coach)</option>
+        <option v-for="m in others" :key="m" :value="m">{{ m }} (shared teams only)</option>
+      </select>
+    </label>
     <p v-if="state.status === 'loading' || state.status === 'idle'" class="tr-help" role="status">Loading the coach's teams...</p>
     <p v-else-if="state.status === 'error'" class="sf-error" role="alert">{{ state.error }}</p>
     <template v-else-if="state.view">
