@@ -896,6 +896,9 @@ export interface LeagueTeam {
    * league. Coach and organisers only: never in a public read.
    */
   transfer?: { permitted: boolean; by: string; at: string };
+  /** Lane 8b: the team moved here from another competition of the league (a season or a ladder) with its progression. The
+   *  team it came from is superseded (ladder.ts currentTeamRows): a team plays in one place at a time. */
+  movedFrom?: { kind: "season" | "ladder"; id: string; teamId: string; at: string };
 }
 
 /** One holder of a league entry (LeagueTeam.entryHistory). */
@@ -916,9 +919,6 @@ export interface EntrySpan {
   by?: string;
   /** The replaced team as it was when it left the entry (private: coach and organisers only). */
   outgoing?: LeagueTeam;
-  /** Lane 8b: the team moved here from another competition of the league (a season or a ladder) with its progression. The
-   *  team it came from is superseded (ladder.ts currentTeamRows): a team plays in one place at a time. */
-  movedFrom?: { kind: "season" | "ladder"; id: string; teamId: string; at: string };
 }
 
 /** One team history line: what changed (old -> new), who, when. */

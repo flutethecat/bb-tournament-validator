@@ -308,7 +308,7 @@ export function placeRegisteredTeam(league: Pick<LeagueRecord, "id" | "slug">, s
 export function placeTransferredTeam(store: LeagueStore, league: LeagueRecord, season: SeasonRecord, row: LeagueRegistrationRow, now: Date): LeagueTeam {
   const found = transferSource(store, row.coach, row.teamRef, { league, season });
   if ("error" in found) throw new RegistrationError(409, "invalid-transition", found.error);
-  const used = new Set(store.seasons(league.id).flatMap((s) => (s.teams ?? []).flatMap((t) => [...t.players, ...(t.formerPlayers ?? [])].map((p) => p.playerId))));
+  const used = new Set(store.competitions(league.id).flatMap((s) => (s.teams ?? []).flatMap((t) => [...t.players, ...(t.formerPlayers ?? [])].map((p) => p.playerId))));
   const at = now.toISOString();
   const moved = adoptLineage(store, found.source, at);
   const team = teamFromLeagueTeam(moved.team, season, { id: freshTeamId(season), usedIds: used, from: moved.from });

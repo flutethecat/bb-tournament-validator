@@ -212,14 +212,15 @@ export const ladderBuilderHref = (leagueId: string, ladderId: string): string =>
 
 const errorText = (err: unknown, fallback: string): string => (err instanceof ApiError || err instanceof Error) && err.message ? err.message : fallback;
 
-/** The join sheet's team choices: saves built for this ladder, then (league style) other saves and library teams. */
+/** The join sheet's team choices: saves built for this ladder, then (league style) other saves. A fork library team is
+ *  never a source (owner 11-03); a league team moves in from the movable list instead. */
 export function ladderJoinChoices(saves: readonly BuilderSaveSummary[], library: readonly LibraryTeam[], packageName: string, existing: boolean) {
   const built = saves.filter((s) => s.packageName === packageName && !s.teamId);
   const out = built.map((s) => ({ ref: `save:${s.id}`, kind: "new" as const, label: s.name, sub: s.raceName ? `${s.raceName} · built for this ladder` : "Built for this ladder" }));
   if (!existing) return out;
   const builtIds = new Set(built.map((s) => s.id));
   for (const s of saves) if (!builtIds.has(s.id)) out.push({ ref: `save:${s.id}`, kind: "existing" as never, label: s.name, sub: s.raceName ? `${s.raceName} · Roster Builder save` : "Roster Builder save" });
-  for (const t of library) out.push({ ref: `library:${t.teamId}`, kind: "existing" as never, label: t.teamName, sub: t.race ? `${t.race} · Library team` : "Library team" });
+  void library;
   return out as Array<{ ref: string; kind: "new" | "existing"; label: string; sub: string }>;
 }
 

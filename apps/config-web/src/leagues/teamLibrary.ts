@@ -60,14 +60,15 @@ export interface LibraryItem {
 
 /** The coach's teams in league seasons (owned: a seat not cleared by an organiser), one per lineage, newest season. Only
  *  published leagues (a draft league does not exist for another league's organisers) and the target league. */
-export function leagueTeamsOf(store: Pick<LeagueStore, "list" | "seasons">, coach: string, target: { leagueId: string }): Array<{ league: LeagueRecord; season: SeasonRecord; team: LeagueTeam }> {
+export function leagueTeamsOf(store: Pick<LeagueStore, "list" | "seasons"> & Partial<Pick<LeagueStore, "competitions">>, coach: string, target: { leagueId: string }): Array<{ league: LeagueRecord; season: SeasonRecord; team: LeagueTeam }> {
   const key = ckey(coach);
   if (!key) return [];
   // Judged per LINEAGE (teamUid): only the team's CURRENT copy counts (the newest, whoever owns it, in any league, drafts
   // included), so an older copy left behind by a move or a takeover is never selectable.
   const current = new Map<string, { league: LeagueRecord; season: SeasonRecord; team: LeagueTeam }>();
   for (const league of store.list()) {
-    for (const season of store.seasons(league.id)) {
+    // Seasons AND ladders (lane 8b): a team that moved into a ladder has its current copy there.
+    for (const season of store.competitions ? store.competitions(league.id) : store.seasons(league.id)) {
       for (const team of season.teams ?? []) {
         const lineage = team.teamUid ?? `${league.id}/${season.id}/${team.id}`;
         const have = current.get(lineage);
@@ -86,14 +87,16 @@ export function leagueTeamsOf(store: Pick<LeagueStore, "list" | "seasons">, coac
 
 /** When a copy of a team took its place: its arrival (a move), else its coach seat, else its season's start / creation. */
 function copyTime(x: { season: SeasonRecord; team: LeagueTeam }): number {
-  for (const t of [x.team.transferredFrom?.at, x.team.coachAssigned?.at, x.season.startedAt, x.season.importedAt]) {
+  for (const t of [x.team.transferredFrom?.at, x.team.movedFrom?.at, x.team.coachAssigned?.at, x.season.startedAt, x.season.importedAt]) {
     const ms = t ? Date.parse(t) : Number.NaN;
     if (Number.isFinite(ms)) return ms;
   }
   return 0;
 }
-const movedFrom = (a: { team: LeagueTeam }, b: { league: LeagueRecord; season: SeasonRecord; team: LeagueTeam }): boolean =>
-  a.team.transferredFrom?.leagueId === b.league.id && a.team.transferredFrom.seasonId === b.season.id && a.team.transferredFrom.teamId === b.team.id;
+const movedFrom = (a: { league: LeagueRecord; team: LeagueTeam }, b: { league: LeagueRecord; season: SeasonRecord; team: LeagueTeam }): boolean =>
+  (a.team.transferredFrom?.leagueId === b.league.id && a.team.transferredFrom.seasonId === b.season.id && a.team.transferredFrom.teamId === b.team.id)
+  // a move within the league between a season and a ladder (lane 8b, ladderRegistration.ts)
+  || (a.league.id === b.league.id && a.team.movedFrom?.id === b.season.id && a.team.movedFrom.teamId === b.team.id);
 /** Is copy `a` newer than copy `b` of the same lineage? A copy moved from the other is newer; within a league the later
  *  season; otherwise the later arrival / seat. */
 function isNewerCopy(a: { league: LeagueRecord; season: SeasonRecord; team: LeagueTeam }, b: { league: LeagueRecord; season: SeasonRecord; team: LeagueTeam }): boolean {
@@ -421,10 +424,10 @@ export interface PlayedCoachBackfill { seasons: number; sides: number; nameOnly:
  * the coach at the time. Nothing else is rewritten. `nameOnly` counts stamped sides with no account (an imported display
  * name: the statistics alias table links it as before). Dry run unless `apply` (one putSeason per changed season).
  */
-export function backfillPlayedCoaches(store: Pick<LeagueStore, "list" | "seasons" | "putSeason">, apply: boolean): PlayedCoachBackfill {
+export function backfillPlayedCoaches(store: Pick<LeagueStore, "list" | "seasons" | "putSeason"> & Partial<Pick<LeagueStore, "competitions">>, apply: boolean): PlayedCoachBackfill {
   const out: PlayedCoachBackfill = { seasons: 0, sides: 0, nameOnly: 0 };
   for (const league of store.list()) {
-    for (const season of store.seasons(league.id)) {
+    for (const season of store.competitions ? store.competitions(league.id) : store.seasons(league.id)) {
       const copy = structuredClone(season);
       const missing = copy.fixtures.flatMap((f) => (fixtureOutcome(f) !== undefined ? [f.home, f.away] : [])).filter((s) => s && !s.playedBy && (s.coach || s.coachId));
       if (!missing.length) continue;

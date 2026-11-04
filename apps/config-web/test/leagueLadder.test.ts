@@ -33,6 +33,7 @@ import { fixturePlayBlock } from "../src/leagues/playBlock.js";
 import { resolveLeaguePackage } from "../src/leagues/leagueBuilder.js";
 import { postTo } from "../src/discord/targets.js";
 import { suggestForfeit } from "../src/forfeit/rules.js";
+import { leagueTeamsOf } from "../src/leagues/teamLibrary.js";
 import type { IncomingMessage } from "node:http";
 import { onboardingGateApplies } from "../src/auth/onboarding.js";
 
@@ -1093,5 +1094,29 @@ describe("review fixes, round 3", () => {
     const returned = h.store.season(L, "season-1")!.teams.find((t) => t.id === (back.body as { teamId: string }).teamId)!;
     expect(returned.players[4]!.missNextGame).toBe(false);
     expect(returned.currentTeamValue).toBe(returned.teamValue);
+  });
+});
+
+// ---- reconciled with the team swap / takeover lane (f9f8cea2) ----
+
+describe("ladders beside team swaps and takeovers", () => {
+  it("a team moved into a ladder has its current copy there: the team library offers the ladder row, never the superseded season row", async () => {
+    const h = harness();
+    const id = await h.openLadder("points");
+    const base = `/api/leagues/${L}/ladders/${id}`;
+    await h.call("POST", `${base}/registrations`, coach("Amy"), { move: { id: "season-1", teamId: "t-amy" }, share: [], acknowledged: true });
+    await h.call("POST", `${base}/registrations/${h.ladderOf(id).registrations![0]!.id}/accept`, OLGA, {});
+    const mine = leagueTeamsOf(h.store, "Amy", { leagueId: L });
+    expect(mine.map((x) => `${x.season.id}/${x.team.id}`)).toEqual([`${id}/${h.ladderOf(id).teams[0]!.id}`]);
+    // The moved copy leaves the source entry's own records behind.
+    expect(h.ladderOf(id).teams[0]!.entryHistory).toBeUndefined();
+  });
+
+  it("a fork library team is never a source for a ladder either (owner 11-03)", async () => {
+    const h = harness();
+    const id = await h.openLadder("points");
+    const r = await h.call("POST", `/api/leagues/${L}/ladders/${id}/registrations`, coach("Cara"), { teamRef: "library:abc", share: [], acknowledged: true });
+    expect(r.status).toBe(400);
+    expect((r.body as { code: string }).code).toBe("library-source");
   });
 });

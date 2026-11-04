@@ -669,6 +669,8 @@ export function applyTournamentResets(ladder: SeasonRecord): string[] {
     ladder.teams[i] = {
       ...base, id: current.id, name: current.name, coach: current.coach, ...(current.coachId ? { coachId: current.coachId } : {}),
       ...(current.coachAssigned ? { coachAssigned: current.coachAssigned } : {}), ...(current.history ? { history: current.history } : {}),
+      ...(current.entryHistory ? { entryHistory: current.entryHistory } : {}), ...(current.takeover ? { takeover: current.takeover } : {}),
+      ...(current.swapRequest ? { swapRequest: current.swapRequest } : {}), ...(current.transfer ? { transfer: current.transfer } : {}),
       players: base.players.map((p) => ({ ...p, stats: stats.get(p.playerId) ?? p.stats })), formerPlayers: [],
     };
     m.reset = { ...m.reset, after: new Date(last).toISOString() };

@@ -229,7 +229,7 @@ export class TakeoverAdapter implements RegistrationAdapter {
           // The applicant's league team moves with its record (lineage, history), re-checked now.
           const found = transferSource(this.store, row.coach, row.teamRef, { league, season, teamId: team.id });
           if ("error" in found) throw new RegistrationError(409, "invalid-transition", found.error);
-          const used = new Set(this.store.seasons(league.id).flatMap((s) => s.teams.flatMap((t) => [...t.players, ...(t.formerPlayers ?? [])].map((p) => p.playerId))));
+          const used = new Set(this.store.competitions(league.id).flatMap((s) => s.teams.flatMap((t) => [...t.players, ...(t.formerPlayers ?? [])].map((p) => p.playerId))));
           const moved = adoptLineage(this.store, found.source, at);
           const incoming = teamFromLeagueTeam(moved.team, season, { id: team.id, usedIds: used, from: moved.from });
           incoming.coach = row.coach;
@@ -239,7 +239,7 @@ export class TakeoverAdapter implements RegistrationAdapter {
           if (!row.teamSnapshot) throw new RegistrationError(409, "invalid-transition", "This application has no team to substitute in.");
           const incoming = teamFromSnapshot(league, season, row.teamSnapshot, {
             id: freshTeamId(season), coach: row.coach, ...(row.teamName ? { teamName: row.teamName } : {}), ...(row.race ? { race: row.race } : {}), by, at,
-            teamUid: lineageFor(this.store.seasons(league.id), row.libraryTeamId), entryId: team.entryId ?? mint("en"),
+            teamUid: lineageFor(this.store.competitions(league.id), row.libraryTeamId), entryId: team.entryId ?? mint("en"),
             ...(row.libraryTeamId ? { libraryTeamId: row.libraryTeamId } : {}),
           });
           entry = applyEntrySwap(season, team.id, incoming, by, at, "apply");

@@ -55,7 +55,8 @@ import { parseLeagueHouseRules, SettingsError } from "./settings.js";
 
 const BODY_MAX = 32 * 1024;
 const NO_STORE = { "cache-control": "private, no-store" };
-const TEAM_REF = /^(?:save|library):[A-Za-z0-9_.:-]{1,110}$/;
+/** A Roster Builder save (a fork library team is never a source, owner 11-03; a league team moves in with `move`). */
+const TEAM_REF = /^save:[A-Za-z0-9_.:-]{1,110}$/;
 const ROUND_PAIRS_MAX = 64;
 const ckey = (c: string | undefined): string => (c ?? "").trim().toLowerCase();
 const res = (status: number, body: unknown, headers: Record<string, string> = NO_STORE): LeagueApiResult => ({ status, body, headers: { ...headers } });
@@ -534,7 +535,8 @@ async function join(league: LeagueRecord, ladderId: string, auth: LeagueApiIdent
   } else {
     const teamRef = typeof input.teamRef === "string" ? input.teamRef.trim() : "";
     if (!teamRef) return fail(400, "Pick a team.", { field: "teamRef" });
-    if (!TEAM_REF.test(teamRef)) return fail(400, "teamRef must name a Roster Builder save (save:<id>) or a library team (library:<teamId>).", { field: "teamRef" });
+    if (teamRef.startsWith("library:")) return fail(400, "A Super FUMBBL library team can't join a league. Pick a saved team, or move one of your league teams in.", { code: "library-source", field: "teamRef" });
+    if (!TEAM_REF.test(teamRef)) return fail(400, "teamRef must name a Roster Builder save (save:<id>).", { field: "teamRef" });
     if (!deps.leagueTeamSheet) return fail(503, "Team validation is unavailable on this host.");
     const marker = leaguePackageName(lg.id, ladder.id);
     const sheet = deps.leagueTeamSheet(auth.coach, teamRef, marker, houseRulesOf(ladder.ladder ?? {}, "league"), now);

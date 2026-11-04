@@ -96,7 +96,7 @@ function send(deps: LeagueApiDeps, coach: string | undefined, input: Parameters<
  *  and sharing with the league (the acknowledged notice). Fails closed without the identity lookup. */
 export function libraryVisible(league: LeagueRecord, coach: string, viewer: LeagueApiIdentity, deps: LeagueApiDeps): boolean {
   if (!managesLeague(league, viewer) || !ckey(coach)) return false;
-  if (!rosterAccounts(deps.store.seasons(league.id)).has(ckey(coach))) return false;
+  if (!rosterAccounts(deps.store.competitions(league.id)).has(ckey(coach))) return false;
   if (!deps.memberContact) return false;
   try { return deps.memberContact({ coach: viewer.coach, ...(viewer.admin ? { admin: true } : {}) }, coach, league.id) !== undefined; } catch { return false; }
 }
@@ -363,7 +363,7 @@ async function performSwap(
     if (block) return fail(409, block);
     const now = deps.now?.() ?? new Date();
     const at = now.toISOString();
-    const seasons = deps.store.seasons(lg.id);
+    const seasons = deps.store.competitions(lg.id);
     let incoming: LeagueTeam;
     if (parseLeagueTeamRef(ref)) {
       const found = transferSource(deps.store, owner, ref, { league: lg, season, teamId: team.id });
@@ -552,7 +552,7 @@ function takeoverPanel(seasonId: string, league: LeagueRecord | undefined, auth:
   if (!league) return fail(404, "League not found.");
   const season = deps.store.season(league.id, seasonId);
   if (!season) return fail(404, "Season not found.");
-  const member = rosterAccounts(deps.store.seasons(league.id)).has(ckey(auth.coach));
+  const member = rosterAccounts(deps.store.competitions(league.id)).has(ckey(auth.coach));
   const rows = season.takeoverApplications ?? [];
   const listings = season.teams.filter((t) => t.takeover).map((t) => ({
     listingId: t.takeover!.id, teamId: t.id, name: t.name, race: t.race, coach: t.coach, ...(t.coachId ? { coachId: t.coachId } : {}),
@@ -619,7 +619,7 @@ async function apply(seasonId: string, listingId: string, league: LeagueRecord |
   if (!team) return fail(404, "That team isn't available for takeover.");
   if (ckey(seatOf(team)) === ckey(auth.coach)) return fail(400, "This is your team: you can't apply to take it over.");
   if (input.mode !== "team" && input.mode !== "takeover") return fail(400, 'mode must be "team" (apply with your team) or "takeover" (take this team over).', { field: "mode" });
-  const member = rosterAccounts(deps.store.seasons(lg.id)).has(ckey(auth.coach));
+  const member = rosterAccounts(deps.store.competitions(lg.id)).has(ckey(auth.coach));
   let share: ShareField[] = [];
   if (!member) {
     if (input.acknowledged !== true) return fail(400, "Tick the box to confirm you agree to share your data with this league's organisers.", { field: "acknowledged" });

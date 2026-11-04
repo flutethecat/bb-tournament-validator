@@ -76,6 +76,11 @@ export function copyTeamForMove(team: LeagueTeam, target: SeasonRecord, from: { 
   delete copy.status;
   delete copy.statusChanged;
   delete copy.registrationId;
+  // The source entry's own records (team library lane) stay with that entry: its history of holders, a takeover listing,
+  // a pending swap request.
+  delete copy.entryHistory;
+  delete copy.takeover;
+  delete copy.swapRequest;
   if (copy.captainPlayerId) { const next = remap.get(copy.captainPlayerId); if (next) copy.captainPlayerId = next; else delete copy.captainPlayerId; }
   // A served MNG cleared above counts the player again: the team value (and current team value) is the league's own recompute.
   refreshTeamValue(copy, target.ruleset);
@@ -112,7 +117,7 @@ export function placeMovedTeam(store: LeagueStore, league: LeagueRecord, target:
  * coach fields from the live team.
  */
 export const resetRosterOf = (team: LeagueTeam): unknown => {
-  const { history: _h, statusChanged: _s, coach: _c, coachId: _ci, coachAssigned: _ca, nafUser: _n, ...rest } = structuredClone(team);
+  const { history: _h, statusChanged: _s, coach: _c, coachId: _ci, coachAssigned: _ca, nafUser: _n, entryHistory: _e, takeover: _t, swapRequest: _sr, transfer: _tr, ...rest } = structuredClone(team);
   return {
     ...rest,
     players: rest.players.map(({ pendingAdvance: _p, injuries, ...p }) => ({ ...p, ...(injuries?.length ? { injuries: injuries.map(({ by: _b, ...i }) => i) } : {}) })),
