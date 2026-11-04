@@ -211,7 +211,11 @@ export const routes: RouteRecordRaw[] = [
     path: "/tournament-team-builder/redraft/:leagueId([a-z0-9-]{1,64})",
     name: "roster-builder-redraft",
     component: RosterBuilderRedraftView,
-    props: (route) => ({ leagueId: String(route.params.leagueId), teamId: typeof route.query.team === "string" ? route.query.team : "" }),
+    props: (route) => ({
+      leagueId: String(route.params.leagueId), teamId: typeof route.query.team === "string" ? route.query.team : "",
+      // A ladder's redraft (cleanup lane 11-03): ?ladder=<ladderId>.
+      ladderId: typeof route.query.ladder === "string" ? route.query.ladder : "",
+    }),
     meta: { requiresAuth: true, title: "Roster Builder" },
   },
   // Tournament Builder (owner 10-30): public like the vanilla page (browsing and the guest preview need no sign-in; saving,

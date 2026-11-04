@@ -104,6 +104,9 @@ export interface CompetitionSnapshot {
   window: RegistrationWindow;
   /** Owner + organisers (tournament ownerCoachId + organizerCoachIds; league owner + organisers). */
   managers: readonly string[];
+  /** A shut Registration gate (tournaments, src/tournaments/registrationGate.ts): self-registration is refused until opensAt
+   *  (absent = until an organiser opens it), with this message. */
+  gate?: { opensAt?: string; message: string };
   /** Start of play (tournament start date + time), for the default check-in window. */
   startAt?: string;
   /** Which entries were sent the check-in-open notice, for which check-in window (`opensAt|closesAt`): once per entry

@@ -692,9 +692,9 @@ describe("redraft hooks and gates", () => {
     g.ladder!.settings = parseLadderSettings({ redraft: { tvCap: null, trigger: "games", everyGames: 1 } }, g.ladder!.settings, h.clock.now);
     h.store.putSeason(g);
     h.result(id, "Bob", "Cara", 1, 0, new Date(h.clock.now.getTime() - D).toISOString());
-    // Stored but not enforced until ladder redrafts exist (nothing could lift the block): the count is there for that lane.
+    // Enforced since the ladder redraft board exists (cleanup lane 11-03; leagueLadderRedraft.test.ts runs the redraft itself).
     expect(ladderTeamGamesSinceRedraft(h.ladderOf(id), tid("Bob"))).toBe(1);
-    expect((await h.call("POST", `${base}/challenges`, coach("Bob"), { challengerTeamId: tid("Bob"), defenderTeamId: tid("Amy") })).status).toBe(201);
+    expect(((await h.call("POST", `${base}/challenges`, coach("Bob"), { challengerTeamId: tid("Bob"), defenderTeamId: tid("Amy") })).body as { error: string }).error).toContain("must redraft");
   });
 
   it("the Schedule page's gate source lists a ladder's challenge gate while it is still to open (lane 8c hook), and the gate pauses challenges", async () => {

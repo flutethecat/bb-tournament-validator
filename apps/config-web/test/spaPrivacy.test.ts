@@ -57,7 +57,7 @@ describe("privacy notice (server-rendered)", () => {
       expect(html, id).toContain(`id="${id}"`);
       expect(html, `toc ${id}`).toContain(`href="#${id}"`);
     }
-    expect(html).toContain("Last updated 2026-10-31");
+    expect(html).toContain("Last updated 2026-11-03");
     const { INVENTORY } = mods.inventory;
     expect(INVENTORY.length).toBeGreaterThan(10);
     for (const row of INVENTORY) expect(html, row.id).toContain(`data-row="${row.id}"`);
@@ -69,7 +69,7 @@ describe("privacy notice (server-rendered)", () => {
 
   it("exports the privacy version from one place", async () => {
     const version = await vite.ssrLoadModule("/src/privacy/version.ts");
-    expect(version.PRIVACY_VERSION).toBe("2026-10-31");
+    expect(version.PRIVACY_VERSION).toBe("2026-11-03");
     expect(mods.inventory.PRIVACY_VERSION).toBe(version.PRIVACY_VERSION);
     expect(mods.inventory.PRIVACY_LAST_UPDATED).toBe(version.PRIVACY_VERSION);
   });

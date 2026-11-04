@@ -147,4 +147,24 @@ describe("myLeagues", () => {
     myLeagues(store, "Ann", t0 + 70 + INDEX_TTL_MS);
     expect(seasons.mock.calls.length).toBeGreaterThan(before);
   });
+
+  it("a coach seated only in an active ladder still gets the league row (cleanup lane 11-03); a ladder in setup or a team that left does not", () => {
+    const ladder = (id: string, stage: "active" | "setup", teams: LeagueTeam[], left: string[] = []): SeasonRecord => ({
+      ...season("eps", id === "ladder-1" ? 9 : 10, "active", teams, [fx("lf1", 0, ["Orcs", null], ["Gnomes", null], { phaseId: "ladder-challenges" })]),
+      id, name: id === "ladder-1" ? "Spring Ladder" : "Autumn Ladder", stage, competition: "ladder",
+      ladder: { members: teams.map((t) => ({ teamId: t.id, joinedAt: "2026-11-01T00:00:00.000Z", via: "organiser" as const, ...(left.includes(t.id) ? { leftAt: "2026-11-02T00:00:00.000Z" } : {}) })), challenges: [] } as never,
+    });
+    store.upsertLeague({ id: "eps", name: "Epsilon", fullName: "Epsilon", slug: "eps", organisers: [] });
+    store.putSeason(season("eps", 1, "completed", [team("orcs", "Orcs", "Orc", "Fay", "Fay")], []));
+    store.putSeason(ladder("ladder-1", "active", [team("orcs", "Orcs", "Orc", "Fay", "Fay"), team("gnomes", "Gnomes", "Gnome", "Gus", "Gus")]));
+    store.putSeason(ladder("ladder-2", "setup", [team("elves", "Elves", "Wood Elf", "Fay", "Fay")]));
+    const [row] = myLeagues(store, "Fay");
+    expect(row).toMatchObject({ id: "eps", ladders: [{ id: "ladder-1", name: "Spring Ladder" }], to: "/leagues/eps?tab=ladder&ladder=ladder-1" });
+    expect(row!.season).toBeUndefined();
+    expect(row!.teams).toEqual([expect.objectContaining({ name: "Orcs", to: "/leagues/eps?tab=ladder&ladder=ladder-1", next: expect.objectContaining({ opponent: "Gnomes", to: "/leagues/eps/seasons/ladder-1/fixtures/lf1/lobby" }) })]);
+    // A coach in a season AND a ladder of one league: one row, season first.
+    expect(myLeagues(store, "Ann").find((l) => l.id === "alpha")!.ladders).toBeUndefined();
+    store.putSeason(ladder("ladder-1", "active", [team("orcs", "Orcs", "Orc", "Fay", "Fay"), team("gnomes", "Gnomes", "Gnome", "Gus", "Gus")], ["gnomes"]));
+    expect(myLeagues(store, "Gus")).toEqual([]);
+  });
 });

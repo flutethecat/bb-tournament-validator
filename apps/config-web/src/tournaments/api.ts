@@ -3,6 +3,7 @@ import { generateTournamentPairings } from "./pairing.js";
 import { NafExportError, renderNafTournamentReport } from "./nafExport.js";
 import { isTournamentManager, tournamentOwner, TournamentStore, TournamentStoreError, type TournamentUpdate } from "./store.js";
 import { canEditSeries, seriesChip } from "./series.js";
+import { tournamentGateRoutes, type TournamentGateDeps } from "./gates.js";
 import {
   assertRegistrationOrder, canSeeTournament, hiddenTournamentPath, parseRegistrationSettings, selfRegistrationStatus,
 } from "./publication.js";
@@ -98,6 +99,8 @@ export interface TournamentApiDeps {
   /** The fixture lobby of a scheduled match (src/fixtureLobby/tournament.ts): undefined = nobody opened one. A lobby that
    *  has not STARTed holds the online launch (waiting presence and launching / launched). Throws when unreadable. */
   fixtureLobby?(matchId: string): { started: boolean } | undefined;
+  /** The Discord state and poster (the Registration gate's opening post). Absent = no post. */
+  discord?: TournamentGateDeps["discord"];
   now?: () => Date;
 }
 
@@ -1302,6 +1305,12 @@ export async function tournamentApi(
     // onboarding 428 gate run in server.ts ahead of every /api write; GETs below never change state.
     const registration = await registrationRoutes(method, path, auth, body, deps, now);
     if (registration) return registration;
+    // The Registration gate (cleanup lane 11-03, src/tournaments/gates.ts): read for everyone who can see the tournament,
+    // set / Open now for its managers.
+    const gate = await tournamentGateRoutes(method, path, auth ? { coach: auth.coach, admin: auth.admin } : undefined, body, {
+      store: deps.store, ...(deps.notify ? { notify: deps.notify } : {}), ...(deps.discord ? { discord: deps.discord } : {}), ...(deps.ifMatch !== undefined ? { ifMatch: deps.ifMatch } : {}),
+    }, now);
+    if (gate) return gate;
 
     const newsMatch = path.match(/^\/api\/tournaments\/([^/]+)\/news(?:\/([^/]+))?$/);
     if (newsMatch && (method === "POST" || method === "PATCH" || method === "DELETE")) {

@@ -29,7 +29,7 @@ import { honoursView } from "../src/leagues/awards.js";
 import { applyDraftTeam } from "../src/leagues/redraft.js";
 import { discordAvatarUrl, PendingSsoStore } from "../src/auth/discordSso.js";
 import {
-  ALICE_DISCORD, ALICE_EMAIL, BOB_DISCORD, BOB_EMAIL, depsFor, filesContaining, JOSE_NFC, JOSE_NFD, png, seed, SHARE, TEST_MAP_KEY, walkFiles,
+  ACCEPTED, ALICE_DISCORD, ALICE_EMAIL, BOB_DISCORD, BOB_EMAIL, depsFor, filesContaining, JOSE_NFC, JOSE_NFD, png, seed, SHARE, TEST_MAP_KEY, walkFiles,
 } from "./privacyFixture.js";
 
 // Privacy spec 2026-10-31 §2 (export) and §3 (delete, anonymise don't erase), and the Sol 6.1 review fixes: explicit
@@ -356,7 +356,7 @@ describe("export", () => {
     const account = JSON.parse(text("account.json"));
     expect(account.identities.email).toBe(ALICE_EMAIL);
     expect(account.contact.phones).toEqual(["+00 0000 0001"]); // onboarding fields ride along (whole record)
-    expect(account.consent.privacy.acceptedVersion).toBe("2026-10-31");
+    expect(account.consent.privacy.acceptedVersion).toBe(ACCEPTED);
     expect(account.legacyOrganiser).toBe(true);
     // her own organiser requests only, without who decided (Bob's request, decided by her, is not hers)
     expect(JSON.parse(text("organiser-requests.json")).map((r: { id: string; decidedBy?: string }) => [r.id, r.decidedBy])).toEqual([["or000000000001", undefined], ["or000000000003", undefined]]);
@@ -681,7 +681,7 @@ describe("delete", () => {
     const raw = readJ(join(root, "identities.json"));
     expect(raw.coaches.alice).toBeUndefined();
     expect(raw.coaches.bob.contact).toEqual({ email: BOB_EMAIL, phones: ["+00 0000 0002"] });
-    expect(raw.coaches.bob.consent.privacy.acceptedVersion).toBe("2026-10-31");
+    expect(raw.coaches.bob.consent.privacy.acceptedVersion).toBe(ACCEPTED);
   });
 
   it("a shared library file loses only the coach's rows; a corrupt file or an unwritable sessions store fails the step", async () => {

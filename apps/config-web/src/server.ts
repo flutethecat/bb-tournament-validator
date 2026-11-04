@@ -325,6 +325,7 @@ import { DEFAULT_TOURNAMENT_TURN_TIMER } from "./tournaments/types.js";
 import { RateLimiter } from "./translate/guards.js";
 import { registrationContactFor, type EntryState } from "./registration/index.js";
 import { sweepTournamentRegistrations, tournamentRegistrationService } from "./tournaments/registration.js";
+import { runTournamentGateJob } from "./tournaments/gates.js";
 import { createTournamentNotifier, isNotificationApiPath, NotificationStore, notificationsApi, SenderRateLimiter, setActiveNotifier, setOrganiserThreadSink, type NotificationInput, type NotificationRecord } from "./notifications.js";
 import { appendFixtureMessage, appendOrganiserMessage, fixtureMessageAllowed, createSocialLimiters, isSocialApiPath, socialApi, type SocialApiDeps } from "./social/api.js";
 import { SocialStore } from "./social/store.js";
@@ -807,6 +808,19 @@ const tournamentRegistrationTick = (): void => {
 };
 setTimeout(tournamentRegistrationTick, 9_000).unref();
 setInterval(tournamentRegistrationTick, 60_000).unref();
+// Tournament Registration gates (cleanup lane 11-03, src/tournaments/gates.ts): due gates open (written first), then one
+// organiser note and one Discord post per opening. Every minute; never from a GET.
+let tournamentGatesRunning = false;
+const tournamentGateTick = (): void => {
+  if (tournamentGatesRunning) return;
+  tournamentGatesRunning = true;
+  void runTournamentGateJob({ store: tournamentStore, notify: tournamentNotifier, discord: { state: discordState } })
+    .then((out) => { if (out.opened.length) console.log(`[tournaments] registration gates opened: ${out.opened.join(", ")}`); })
+    .catch((e) => console.error(`[tournaments] gate job failed: ${(e as Error).message}`))
+    .finally(() => { tournamentGatesRunning = false; });
+};
+setTimeout(tournamentGateTick, 4_000).unref();
+setInterval(tournamentGateTick, 60_000).unref();
 // NAF-sanctioned entries that owe their NAF answer but are not marked yet: marked once, one notice per coach (idempotent).
 try { settleNafOwedEntries({ store: tournamentStore, notify: tournamentNotifier, identityRecords: (coachIds) => { const all = readIdentities().coaches; return coachIds.map((c) => all[normalizeFfbCoachId(c)]); } }); } catch (e) { console.error(`[naf] startup settle failed: ${(e as Error).message}`); }
 const messageLimiter = new SenderRateLimiter(30, 60_000);
@@ -2034,7 +2048,7 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
   if (pathname.startsWith("/api/packages/")) return true;
   if (
     (req.method === "GET" || req.method === "HEAD") &&
-    (/^\/api\/(?:fork\/)?tournaments\/[^/]+$/.test(pathname) || /^\/api\/(?:fork\/)?tournaments\/[^/]+\/(?:standings|statistics|awards)$/.test(pathname))
+    (/^\/api\/(?:fork\/)?tournaments\/[^/]+$/.test(pathname) || /^\/api\/(?:fork\/)?tournaments\/[^/]+\/(?:standings|statistics|awards|gates)$/.test(pathname))
   ) return true;
   if ((req.method === "GET" || req.method === "HEAD") && teamDetailIdFromPath(pathname)) return true;
   if (req.method === "POST" && advancementPath(pathname)) return true;
@@ -2832,6 +2846,8 @@ async function handleApi(
       submissionTeamView: (coach, submission, packageName) => tournamentSubmissionView(coach, submission, packageName),
       notify: tournamentNotifier,
       results: () => tournamentResults.list(),
+      // The Registration gate's opening post (src/tournaments/gates.ts): the cleaned sender, drafts never post.
+      discord: { state: discordState },
       ifMatch: typeof req.headers["if-match"] === "string" ? req.headers["if-match"] : undefined,
       // a fixture lobby that has not STARTed holds the online launch (src/fixtureLobby/tournament.ts)
       fixtureLobby: (matchId) => { const rec = fixtureLobbyStore.get(tournamentLobbyKey(matchId)); return rec ? { started: Boolean(rec.started) } : undefined; },

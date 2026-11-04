@@ -21,6 +21,11 @@
  *                                                              redraft task (override, lift, history) only for the team's
  *                                                              coach and the organisers
  *   GET  /api/leagues?redraft=mine                             the signed-in coach's open redraft tasks (team management page)
+ *
+ * Ladders (cleanup lane 11-03): every route above takes `?ladder=<ladderId>` (the board's POST also `ladderId` in the body) and
+ * then runs that ladder's redraft: the same board, actions, Redraft mode and rules, in place (ladderRedraft.ts). The ladder job
+ * opens one for the period-end / fixed-schedule triggers and gives tasks for the per-team trigger; organisers may also confirm
+ * one from the board.
  */
 import type { NotificationInput } from "../notifications.js";
 import type { LeagueApiDeps, LeagueApiIdentity, LeagueApiResult } from "./api.js";
@@ -28,7 +33,7 @@ import { buildRedraftPost, discordEvents, postWebhook as defaultPoster, type Dis
 import { postLeagueEvent } from "./events.js";
 import { readJsonObject, requestRevision } from "./http.js";
 import {
-  budgetBase, coachOwnsTeam, coachView, draftContext, leagueAliases, gold, liftApplies, OVERRIDE_MAX, parseDraftInput, redraftBudget, redraftPhase,
+  budgetBase, coachOwnsTeam, coachView, draftContext, leagueAliases, gold, liftApplies, liftTask, OVERRIDE_MAX, parseDraftInput, redraftBudget, redraftPhase,
   finishedSeasons, redraftBoard, RedraftError, redraftSource, redraftTarget, redraftTargets, restAndRelaxation, sameCoach, spendable, stateRules, teamRecord,
   windowView, type BoardRow, type CoachRedraftView,
 } from "./redraft.js";
@@ -40,6 +45,8 @@ import { isDraftLeague, publishedLeagues } from "./lifecycle.js";
 import { gateBlock, gateRefusal } from "./gates.js";
 import { parseWall, wallInstant } from "./leagueEvents.js";
 import { leagueTimeZone } from "./timeZone.js";
+import { isLadder, settingsOf } from "./ladder.js";
+import { ladderBoard, rulesFor, skipResetsCount } from "./ladderRedraft.js";
 
 export const REDRAFT_MAX_BYTES = 64 * 1024;
 const NO_STORE = { "cache-control": "no-store" };
@@ -48,7 +55,7 @@ const res = (status: number, body: unknown, headers: Record<string, string> = {}
 const fail = (status: number, error: string, extra: Record<string, unknown> = {}): LeagueApiResult => res(status, { error, ...extra });
 
 /** The coach's Redraft mode (with a team) or the organiser's board (without): server links, /app/... */
-export const redraftLink = (leagueId: string, teamId?: string): string => (teamId ? redraftModeLink(leagueId, teamId) : redraftBoardLink(leagueId));
+export const redraftLink = (leagueId: string, teamId?: string, ladderId?: string): string => (teamId ? redraftModeLink(leagueId, teamId, ladderId) : redraftBoardLink(leagueId, ladderId));
 
 /** The league's seasons, newest first, with seasonsPlayed derived (shared with the window job: redraftWindow.ts). */
 const loadSeasons = (store: LeagueStore, leagueId: string): SeasonRecord[] => redraftSeasons(store, leagueId);
@@ -78,11 +85,15 @@ export interface RedraftBoardView {
   active: BoardRow[];
   inactive: BoardRow[];
   note: string;
+  /** The ladder this board runs (null = the season redraft) and its trigger. */
+  ladder: { id: string; name: string; trigger: "period-end" | "schedule" | "games"; everyGames: number } | null;
+  /** The league's ladders that are running or finished (the board's competition picker). */
+  ladders: Array<{ id: string; name: string }>;
 }
 
 export interface RedraftPicks { source?: string; target?: string }
 
-function boardView(league: LeagueRecord, seasons: SeasonRecord[], picks: RedraftPicks = {}, now: Date = new Date()): RedraftBoardView {
+function boardView(league: LeagueRecord, seasons: SeasonRecord[], picks: RedraftPicks = {}, now: Date = new Date(), ladders: Array<{ id: string; name: string }> = []): RedraftBoardView {
   // An unknown source pick falls back to the default (a stale link must not blank the board).
   const source = redraftSource(seasons, picks.source) ?? redraftSource(seasons);
   const rules = effectiveRedraftRules(league);
@@ -90,7 +101,7 @@ function boardView(league: LeagueRecord, seasons: SeasonRecord[], picks: Redraft
   if (!source) {
     return {
       leagueId: league.id, leagueName: league.name, timeZone: leagueTimeZone(league), revision: 0, source: null, target: null, sources, targets: [], state: null, capEnabled: rules.capEnabled, cap: rules.cap,
-      rules, settingsRevision: league.revision ?? 0, window: null, active: [], inactive: [], note: "Finish a season first: a redraft runs between seasons.",
+      rules, settingsRevision: league.revision ?? 0, window: null, active: [], inactive: [], note: "Finish a season first: a redraft runs between seasons.", ladder: null, ladders,
     };
   }
   // Once confirmed, the target is the one the redraft stored (or the default); a pick only steers an unconfirmed board.
@@ -112,6 +123,37 @@ function boardView(league: LeagueRecord, seasons: SeasonRecord[], picks: Redraft
     window: state?.window && w ? { ...state.window, open: w.open, before: w.before } : null,
     active, inactive,
     note: target ? `Draft lists go into ${target.name}.` : "Draft lists are kept until the next season is started, then go into it.",
+    ladder: null, ladders,
+  };
+}
+
+/** The ladders a board can pick (never one still in setup: it has no members playing yet). */
+const boardLadders = (store: LeagueStore, leagueId: string): Array<{ id: string; name: string }> =>
+  store.ladders(leagueId).filter((l) => isLadder(l) && l.stage !== "setup" && l.stage !== "registration").map((l) => ({ id: l.id, name: l.name }));
+
+const TRIGGER_NOTE: Record<"period-end" | "schedule" | "games", string> = {
+  "period-end": "Teams redraft together when each ladder period ends.",
+  schedule: "Teams redraft together on the ladder's redraft dates.",
+  games: "Each team redrafts after its set number of ladder games, before its next challenge.",
+};
+
+/** The board of a ladder's redraft (in place: the ladder is the source and receives the lists; ladderRedraft.ts). */
+function ladderBoardView(league: LeagueRecord, ladder: SeasonRecord, competitions: readonly SeasonRecord[], now: Date, ladders: Array<{ id: string; name: string }>): RedraftBoardView {
+  const st = ladder.redraft;
+  const rules = st ? stateRules(st) : rulesFor(league, ladder);
+  const trig = settingsOf(ladder.ladder).redraft;
+  const { teams: _t, ...meta } = st ?? ({} as RedraftState);
+  const w = st ? windowView(st, now) : null;
+  return {
+    leagueId: league.id, leagueName: league.name, timeZone: leagueTimeZone(league), revision: st?.revision ?? 0,
+    source: { id: ladder.id, name: ladder.name, number: ladder.number, ruleset: ladder.ruleset },
+    target: { id: ladder.id, name: ladder.name }, sources: [], targets: [],
+    state: st ? meta : null,
+    capEnabled: st?.capEnabled ?? rules.capEnabled, cap: st?.cap ?? rules.cap, rules, settingsRevision: league.revision ?? 0,
+    window: st?.window && w ? { ...st.window, open: w.open, before: w.before } : null,
+    active: ladderBoard(ladder, competitions, st, rules), inactive: [],
+    note: `${TRIGGER_NOTE[trig.trigger]} Redrafted teams stay in ${ladder.name}.`,
+    ladder: { id: ladder.id, name: ladder.name, trigger: trig.trigger, everyGames: trig.everyGames }, ladders,
   };
 }
 
@@ -123,10 +165,10 @@ function checkRevision(input: Record<string, unknown>, current: number, ifMatch:
   return undefined;
 }
 
-async function discord(league: LeagueRecord, deps: LeagueApiDeps, key: "news" | "milestones", payload: DiscordPayload): Promise<void> {
+async function discord(league: LeagueRecord, deps: LeagueApiDeps, key: "news" | "milestones", payload: DiscordPayload, ladderId?: string): Promise<void> {
   // Through the one cleaned sender (src/discord/targets.ts postTo): drafts post nothing, the toggle and webhook are checked,
-  // listed words are starred; best effort, the URL is never logged.
-  await postLeagueEvent(deps.store, league, key, payload, deps.postWebhook ?? defaultPoster);
+  // listed words are starred; best effort, the URL is never logged. A ladder's redraft posts to the ladder's webhook.
+  await postLeagueEvent(deps.store, league, key, payload, deps.postWebhook ?? defaultPoster, ladderId ? { seasonId: ladderId } : {});
 }
 
 function notifyAll(deps: LeagueApiDeps, list: Array<{ coach: string; input: NotificationInput }>): void {
@@ -162,19 +204,6 @@ export function parseInstant(v: unknown): string | undefined {
   return year >= 2000 && year < 2200 ? iso : undefined;
 }
 
-/** Lifts one task to the set budget (when it applies) and logs it with the actor and time. True when it lifted. */
-function liftTask(state: RedraftState, task: RedraftTeamTask, setBudget: number, by: string, at: string, auto: boolean): boolean {
-  if (!liftApplies(task, setBudget)) return false;
-  const from = spendable(task);
-  task.lift = { to: setBudget, by, at, auto };
-  state.log.unshift({
-    at, by, teamId: task.teamId,
-    text: auto ? `${task.name} was lifted from ${gold(from)} to the set budget of ${gold(setBudget)} (Lift teams to the budget, opened by ${by}).`
-      : `${by} lifted ${task.name} from ${gold(from)} to the set budget of ${gold(setBudget)}.`,
-  });
-  return true;
-}
-
 export async function redraftRoutes(
   method: string,
   rest: string[],
@@ -205,20 +234,33 @@ export async function redraftRoutes(
   const lg = deps.store.league(league.id);
   if (!lg) return fail(404, "League not found.");
   const nowDate = deps.now?.() ?? new Date();
+  // A ladder's redraft (?ladder=, or the board POST's ladderId): the same routes, run in place on the ladder.
+  const ladderPick = query?.get("ladder") || (typeof input.ladderId === "string" ? input.ladderId : "");
+  let ladder: SeasonRecord | undefined;
+  if (ladderPick) {
+    const l = deps.store.season(lg.id, ladderPick);
+    if (!l || !isLadder(l) || l.stage === "setup" || l.stage === "registration") return fail(404, "Ladder not found.");
+    ladder = l;
+  }
   try {
     if (board) {
       if (!isManager(lg, auth)) return fail(403, "This league is not one of yours: only its organisers and site admins run the redraft.");
       const seasons = loadSeasons(deps.store, lg.id);
-      if (read) return res(200, { redraft: boardView(lg, seasons, { source: query?.get("source") || undefined, target: query?.get("target") || undefined }, nowDate) });
+      const ladders = boardLadders(deps.store, lg.id);
+      if (ladder) {
+        if (read) return res(200, { redraft: ladderBoardView(lg, ladder, deps.store.competitions(lg.id), nowDate, ladders) });
+        return await boardPost(lg, auth, input, [ladder, ...seasons], deps, ladder);
+      }
+      if (read) return res(200, { redraft: boardView(lg, seasons, { source: query?.get("source") || undefined, target: query?.get("target") || undefined }, nowDate, ladders) });
       return await boardPost(lg, auth, input, seasons, deps);
     }
-    const seasons = loadSeasons(deps.store, lg.id);
-    const source = redraftSource(seasons);
+    const seasons = ladder ? [ladder, ...loadSeasons(deps.store, lg.id)] : loadSeasons(deps.store, lg.id);
+    const source = ladder ?? redraftSource(seasons);
     const ctx = source ? draftContext(seasons, source, teamId!) : undefined;
     if (!source || !source.redraft || !ctx) return fail(404, "No redraft for this team.");
     if (!isManager(lg, auth) && !coachOwnsTeam(ctx.team, auth.coach, leagueAliases(seasons))) return fail(403, "This is not your team: only its coach and the league organisers can see its redraft.");
     const state = source.redraft;
-    const target = redraftTarget(seasons, source);
+    const target = ladder ?? redraftTarget(seasons, source);
     const view = (): CoachRedraftView => coachView(lg.id, state, ctx, target, nowDate);
     if (read) return res(200, { redraft: view() });
     const stale = checkRevision(input, state.revision, deps.ifMatch);
@@ -232,7 +274,8 @@ export async function redraftRoutes(
     const zone = leagueTimeZone(lg);
     // The redraft window gate, read directly (never only through the window it projects): shut = the window is not open.
     // Only until the window has opened: a gate saved afterwards never shuts an open window again.
-    const windowShut = state.window?.openNotifiedAt ? undefined : gateBlock(deps.store, lg, "redraft-window", "league", nowDate);
+    // (The league's redraft gates belong to its season redraft: a ladder redraft has none.)
+    const windowShut = ladder || state.window?.openNotifiedAt ? undefined : gateBlock(deps.store, lg, "redraft-window", "league", nowDate);
     if (windowShut) return windowShut;
     if (windowBefore(state.window, nowDate)) {
       return fail(409, `The redraft opens at ${whenText(state.window!.opensAt, zone)}.`, {
@@ -240,7 +283,7 @@ export async function redraftRoutes(
       });
     }
     // Gates (gates.ts): rest rolls and submissions each wait for their own "Opens at" (a league night, say).
-    const shut = gateBlock(deps.store, lg, action === "rest" ? "redraft-rest" : "redraft-submit", "league", nowDate);
+    const shut = ladder ? undefined : gateBlock(deps.store, lg, action === "rest" ? "redraft-rest" : "redraft-submit", "league", nowDate);
     if (shut) return shut;
     const now = nowDate.toISOString();
 
@@ -257,7 +300,7 @@ export async function redraftRoutes(
       if (rolls.length) {
         const name = (id: string): string => { const p = ctx.team.players.find((x) => x.playerId === id); return p ? (p.name || p.position) : "A player"; };
         const lines = rolls.map((r) => `${name(r.playerId)}: rolled ${r.roll} (needs ${r.target}+), ${r.recovered ? "niggling injury healed" : "niggling injury stays"}`);
-        await postLeagueEvent(deps.store, lg, "redraftRolls", buildRedraftPost(lg, `${ctx.team.name} Rest & Relaxation`, `${lines.join("\n")}${mode === "entered" ? "\n(tabletop rolls)" : ""}`), deps.postWebhook);
+        await postLeagueEvent(deps.store, lg, "redraftRolls", buildRedraftPost(lg, `${ctx.team.name} Rest & Relaxation`, `${lines.join("\n")}${mode === "entered" ? "\n(tabletop rolls)" : ""}`), deps.postWebhook, ladder ? { seasonId: ladder.id } : {});
       }
       return res(200, { ok: true, redraft: view() });
     }
@@ -277,9 +320,9 @@ export async function redraftRoutes(
     // The team's own season (an inactive team drafts from an earlier one) holds the teamUid minted at the redraft.
     if (ctx.source.id !== source.id) deps.store.putSeason(ctx.source);
     notifyAll(deps, organisersOf(lg).filter((c) => !sameCoach(c, auth.coach)).map((coach) => ({
-      coach, input: { type: "league-broadcast", title: "Redraft submitted", body: `${lg.name}: ${done.text}`, link: redraftLink(lg.id), from: auth.coach },
+      coach, input: { type: "league-broadcast", title: "Redraft submitted", body: `${lg.name}: ${done.text}`, link: redraftLink(lg.id, undefined, ladder?.id), from: auth.coach },
     })));
-    await discord(lg, deps, "news", buildRedraftPost(lg, `${ctx.team.name} redrafted`, done.text));
+    await discord(lg, deps, "news", buildRedraftPost(lg, `${ctx.team.name} redrafted`, done.text), ladder?.id);
     return res(200, { ok: true, redraft: view() });
   } catch (e) {
     if (e instanceof RedraftError) return fail(e.status, e.message, e.field ? { field: e.field } : {});
@@ -293,9 +336,10 @@ const pickId = (v: unknown, field: string): string | undefined => {
   return v;
 };
 
-async function boardPost(lg: LeagueRecord, auth: LeagueApiIdentity, input: Record<string, unknown>, seasons: SeasonRecord[], deps: LeagueApiDeps): Promise<LeagueApiResult> {
-  const sourcePick = pickId(input.sourceSeasonId, "sourceSeasonId");
-  const source = redraftSource(seasons, sourcePick);
+async function boardPost(lg: LeagueRecord, auth: LeagueApiIdentity, input: Record<string, unknown>, seasons: SeasonRecord[], deps: LeagueApiDeps, ladder?: SeasonRecord): Promise<LeagueApiResult> {
+  // A ladder board (ladderRedraft.ts): the ladder is the source and receives the lists; `seasons` holds it first.
+  const sourcePick = ladder ? undefined : pickId(input.sourceSeasonId, "sourceSeasonId");
+  const source = ladder ?? redraftSource(seasons, sourcePick);
   if (sourcePick && !source) return fail(400, "Pick a finished season to redraft from.", { field: "sourceSeasonId" });
   if (!source) return fail(409, "Finish a season first: a redraft runs between seasons.");
   const stale = checkRevision(input, source.redraft?.revision ?? 0, deps.ifMatch);
@@ -303,23 +347,27 @@ async function boardPost(lg: LeagueRecord, auth: LeagueApiIdentity, input: Recor
   const nowDate = deps.now?.() ?? new Date();
   const now = nowDate.toISOString();
   const action = input.action;
-  const view = (): RedraftBoardView => boardView(deps.store.league(lg.id) ?? lg, seasons, {}, nowDate);
+  const view = (): RedraftBoardView => ladder
+    ? ladderBoardView(deps.store.league(lg.id) ?? lg, ladder, deps.store.competitions(lg.id).map((c) => (c.id === ladder.id ? ladder : c)), nowDate, boardLadders(deps.store, lg.id))
+    : boardView(deps.store.league(lg.id) ?? lg, seasons, {}, nowDate, boardLadders(deps.store, lg.id));
+  const link = (teamId?: string): string => redraftLink(lg.id, teamId, ladder?.id);
 
   if (action === "confirm") {
-    if (source.redraft) return fail(409, `A redraft from ${source.name} has already been confirmed.`);
-    const open = seasons.find((s) => s.id !== source.id && s.redraft && !s.redraft.closedAt);
+    // A ladder redraft runs again and again (a closed one never blocks the next); a season's runs once.
+    if (ladder ? source.redraft && !source.redraft.closedAt : source.redraft) return fail(409, ladder ? `${source.name} already has a redraft open.` : `A redraft from ${source.name} has already been confirmed.`);
+    const open = ladder ? undefined : seasons.find((s) => s.id !== source.id && s.redraft && !s.redraft.closedAt);
     if (open) return fail(409, `Close the redraft from ${open.name} first.`);
-    const targetPick = pickId(input.targetSeasonId, "targetSeasonId");
-    const target = redraftTarget(seasons, source, targetPick);
+    const targetPick = ladder ? undefined : pickId(input.targetSeasonId, "targetSeasonId");
+    const target = ladder ?? redraftTarget(seasons, source, targetPick);
     if (targetPick && !target) return fail(400, `Pick a season after ${source.name} to receive the draft lists.`, { field: "targetSeasonId" });
-    if (target && target.fixtures.some((f) => f.home.score !== null && f.away.score !== null))
+    if (!ladder && target && target.fixtures.some((f) => f.home.score !== null && f.away.score !== null))
       return fail(409, `${target.name} already has results: a redraft happens between seasons.`);
     // The board was read against one version of the league's redraft settings: a save since then (another tab, another
     // organiser) must not be confirmed with the stale formula.
     if (input.settingsRevision !== undefined && input.settingsRevision !== (lg.revision ?? 0))
       return fail(409, "The league's redraft settings changed since you opened the board. Reload to see the latest.", { settingsRevision: lg.revision ?? 0 });
     if (typeof input.capEnabled !== "boolean") throw new RedraftError(400, "capEnabled must be true or false.", "capEnabled");
-    const settings = effectiveRedraftRules(lg);
+    const settings = ladder ? rulesFor(lg, ladder) : effectiveRedraftRules(lg);
     const capAmount = input.cap === undefined ? settings.cap : input.cap;
     if (typeof capAmount !== "number" || !Number.isInteger(capAmount) || capAmount < 0 || capAmount > OVERRIDE_MAX)
       throw new RedraftError(400, "cap must be a whole number of gold.", "cap");
@@ -341,7 +389,7 @@ async function boardPost(lg: LeagueRecord, auth: LeagueApiIdentity, input: Recor
       if (Date.parse(opensAt) < nowDate.getTime()) opensAt = undefined;
     }
     // The redraft window gate (gates.ts), while shut, decides when the window opens (and moves it with its League Event).
-    const windowGate = gateRefusal(deps.store, lg, "redraft-window", "league", nowDate);
+    const windowGate = ladder ? undefined : gateRefusal(deps.store, lg, "redraft-window", "league", nowDate);
     if (windowGate) {
       if (!windowGate.gate?.opensAt) return fail(409, "The redraft window gate has no time yet: pick one (or open it) before you confirm.", { code: "gate-shut", gate: windowGate.gate });
       opensAt = windowGate.gate.opensAt;
@@ -354,7 +402,7 @@ async function boardPost(lg: LeagueRecord, auth: LeagueApiIdentity, input: Recor
     }
     const rules: RedraftRules = { ...settings, capEnabled: cap.enabled, cap: cap.cap, windowDays: days };
     if (!Array.isArray(input.teams)) throw new RedraftError(400, "teams must be a list.", "teams");
-    const { active, inactive } = redraftBoard(seasons, source, undefined, rules, target ?? null);
+    const { active, inactive } = ladder ? { active: ladderBoard(ladder, deps.store.competitions(lg.id), undefined, rules), inactive: [] } : redraftBoard(seasons, source, undefined, rules, target ?? null);
     const rows = new Map([...active, ...inactive].map((r) => [r.teamId, r]));
     const picks = new Map<string, { selected: boolean; override?: { budget: number; reason: string } }>();
     for (const [i, raw] of (input.teams as unknown[]).entries()) {
@@ -377,9 +425,10 @@ async function boardPost(lg: LeagueRecord, auth: LeagueApiIdentity, input: Recor
       };
     });
     const window = newWindow(nowDate, opensAt, days);
-    const text = `${auth.coach} started the redraft from ${source.name}${targetPick && target ? ` into ${target.name}` : ""}: ${chosen} team${chosen === 1 ? "" : "s"} selected${cap.enabled ? `, budgets capped at ${gold(cap.cap)}` : ", no budget cap"}. The window runs from ${whenText(window.opensAt, zone)} to ${whenText(window.closesAt, zone)}.`;
+    const text = `${auth.coach} started the ${ladder ? `${source.name} redraft` : `redraft from ${source.name}`}${targetPick && target ? ` into ${target.name}` : ""}: ${chosen} team${chosen === 1 ? "" : "s"} selected${cap.enabled ? `, budgets capped at ${gold(cap.cap)}` : ", no budget cap"}. The window runs from ${whenText(window.opensAt, zone)} to ${whenText(window.closesAt, zone)}.`;
     const state: RedraftState = {
-      startedAt: now, byCoach: auth.coach, capEnabled: cap.enabled, cap: cap.cap, revision: 1, teams, log: [{ at: now, by: auth.coach, text }],
+      // A ladder's revisions continue across its redrafts (a stale tab never matches the new one).
+      startedAt: now, byCoach: auth.coach, capEnabled: cap.enabled, cap: cap.cap, revision: (source.redraft?.revision ?? 0) + 1, teams, log: [{ at: now, by: auth.coach, text }],
       // Every resolved target is bound now: starting another season later never redirects this redraft.
       ...(target ? { targetSeasonId: target.id } : {}),
       rules, window,
@@ -392,18 +441,18 @@ async function boardPost(lg: LeagueRecord, auth: LeagueApiIdentity, input: Recor
     deps.store.putSeason(source);
     // The cap picked here is this redraft's (snapshot above); the league's saved settings are left as they are. The old
     // remembered cap is kept for leagues that never saved one (it sits under redraftRules in effectiveRedraftRules).
-    deps.store.updateLeague(lg.id, (l) => { l.redraftCap = cap; });
+    if (!ladder) deps.store.updateLeague(lg.id, (l) => { l.redraftCap = cap; });
     // Coaches are told now when the window is open; otherwise the window job tells them when it opens.
     if (openNow) {
       notifyAll(deps, teams.filter((t) => t.selected && t.coachId).map((t) => ({
         coach: t.coachId!, input: {
-          type: "league-broadcast" as const, title: "Redraft: build next season's roster",
-          body: `${lg.name}: ${t.name} is in the redraft with a budget of ${gold(spendable(t))}, until ${whenText(window.closesAt, zone)}. Roll Rest & Relaxation, re-hire players and staff in the Roster Builder, then submit your draft list.`,
-          link: redraftLink(lg.id, t.teamId), from: auth.coach, action: true,
+          type: "league-broadcast" as const, title: ladder ? `Redraft: rebuild ${t.name}` : "Redraft: build next season's roster",
+          body: `${lg.name}: ${t.name} is in the ${ladder ? `${source.name} ` : ""}redraft with a budget of ${gold(spendable(t))}, until ${whenText(window.closesAt, zone)}. Roll Rest & Relaxation, re-hire players and staff in the Roster Builder, then submit your draft list.`,
+          link: link(t.teamId), from: auth.coach, action: true,
         },
       })));
     }
-    await discord(lg, deps, "milestones", buildRedraftPost(lg, "Redraft started", text));
+    await discord(lg, deps, "milestones", buildRedraftPost(lg, "Redraft started", text), ladder?.id);
     return res(200, { ok: true, redraft: view() });
   }
 
@@ -420,16 +469,18 @@ async function boardPost(lg: LeagueRecord, auth: LeagueApiIdentity, input: Recor
     if (input.skip === true) {
       task.status = "skipped";
       delete task.needsRedraft;
+      // A ladder team taken out carries on: its games-since-redraft count restarts (no new task a minute later).
+      if (ladder) skipResetsCount(source, [task.teamId], now);
       text = `${auth.coach} took ${task.name} out of the redraft.`;
     } else if (input.override === null) {
       delete task.override;
       text = `${auth.coach} removed the budget override of ${task.name} (budget ${gold(spendable(task))}).`;
-      notice = { type: "league-broadcast", title: "Redraft budget changed", body: `${lg.name}: ${task.name}'s redraft budget is back to ${gold(spendable(task))}.`, link: redraftLink(lg.id, task.teamId), from: auth.coach };
+      notice = { type: "league-broadcast", title: "Redraft budget changed", body: `${lg.name}: ${task.name}'s redraft budget is back to ${gold(spendable(task))}.`, link: link(task.teamId), from: auth.coach };
     } else if (input.override !== undefined) {
       const o = parseOverride(input.override);
       task.override = { ...o, by: auth.coach, at: now };
       text = `${auth.coach} set ${task.name}'s budget to ${gold(o.budget)}: ${o.reason}`;
-      notice = { type: "league-broadcast", title: "Redraft budget changed", body: `${lg.name}: ${task.name}'s redraft budget is now ${gold(o.budget)} (${o.reason}).`, link: redraftLink(lg.id, task.teamId), from: auth.coach };
+      notice = { type: "league-broadcast", title: "Redraft budget changed", body: `${lg.name}: ${task.name}'s redraft budget is now ${gold(o.budget)} (${o.reason}).`, link: link(task.teamId), from: auth.coach };
     } else throw new RedraftError(400, "Send override (or null) or skip.", "override");
     state.log.unshift({ at: now, by: auth.coach, text, teamId: task.teamId });
     state.revision += 1;
@@ -454,7 +505,7 @@ async function boardPost(lg: LeagueRecord, auth: LeagueApiIdentity, input: Recor
     state.revision += 1;
     deps.store.putSeason(source);
     notifyAll(deps, lifted.filter((t) => t.coachId && !sameCoach(t.coachId, auth.coach)).map((t) => ({
-      coach: t.coachId!, input: { type: "league-broadcast" as const, title: "Redraft budget lifted", body: `${lg.name}: ${t.name}'s redraft budget was lifted to the set budget of ${gold(setBudget)}.`, link: redraftLink(lg.id, t.teamId), from: auth.coach },
+      coach: t.coachId!, input: { type: "league-broadcast" as const, title: "Redraft budget lifted", body: `${lg.name}: ${t.name}'s redraft budget was lifted to the set budget of ${gold(setBudget)}.`, link: link(t.teamId), from: auth.coach },
     })));
     return res(200, { ok: true, redraft: view() });
   }
@@ -465,6 +516,7 @@ async function boardPost(lg: LeagueRecord, auth: LeagueApiIdentity, input: Recor
       return fail(409, "The window close is still writing rebuilt rosters into the next season. Try Close redraft again in a minute.");
     const left = state.teams.filter((t) => t.selected && t.status === "pending");
     for (const t of left) { t.status = "skipped"; delete t.needsRedraft; }
+    if (ladder) skipResetsCount(source, left.map((t) => t.teamId), now);
     const done = state.teams.filter((t) => t.status === "submitted").length;
     const text = `${auth.coach} closed the redraft: ${done} draft list${done === 1 ? "" : "s"} submitted${left.length ? `, ${left.length} team${left.length === 1 ? "" : "s"} did not redraft` : ""}.`;
     state.closedAt = now;
@@ -472,7 +524,7 @@ async function boardPost(lg: LeagueRecord, auth: LeagueApiIdentity, input: Recor
     state.log.unshift({ at: now, by: auth.coach, text });
     state.revision += 1;
     deps.store.putSeason(source);
-    await discord(lg, deps, "milestones", buildRedraftPost(lg, "Redraft closed", text));
+    await discord(lg, deps, "milestones", buildRedraftPost(lg, "Redraft closed", text), ladder?.id);
     return res(200, { ok: true, redraft: view() });
   }
   throw new RedraftError(400, 'action must be "confirm", "team", "lift" or "close".', "action");
@@ -553,6 +605,8 @@ export interface MyRedraftTask {
   /** not started / in progress / submitted / needs redraft / expired (redraftPhase). */
   phase?: string;
   closesAt?: string;
+  /** A ladder's redraft (its Redraft mode link carries ?ladder=). */
+  ladderId?: string;
 }
 
 /** Open redraft tasks (pending, submitted or expired; redraft not closed) of this coach across every league. */
@@ -561,17 +615,23 @@ export function myRedraftTasks(store: LeagueStore, coach: string): MyRedraftTask
   for (const lg of publishedLeagues(store.list())) {
     const seasons = store.seasons(lg.id);
     const source = redraftSource(seasons);
-    const state = source?.redraft;
-    if (!state || state.closedAt) continue;
-    const aliases = leagueAliases(seasons);
-    for (const t of state.teams) {
-      if (!t.selected || t.status === "skipped") continue;
-      const team = seasons.find((s) => s.id === t.sourceSeasonId)?.teams.find((x) => x.id === t.teamId) ?? t;
-      if (!coachOwnsTeam(team, coach, aliases)) continue;
-      out.push({
-        leagueId: lg.id, leagueName: lg.name, teamId: t.teamId, teamName: t.name, race: t.race, status: t.status, spendable: spendable(t), link: redraftLink(lg.id, t.teamId),
-        phase: redraftPhase(t), ...(state.window ? { closesAt: state.window.closesAt } : {}),
-      });
+    // The season redraft, and every running ladder's own (ladderRedraft.ts).
+    let ladders: SeasonRecord[] = [];
+    try { ladders = store.ladders(lg.id).filter((l) => isLadder(l) && l.status !== "completed" && l.stage !== "setup" && l.stage !== "registration"); } catch { ladders = []; }
+    const runs = [...(source ? [{ source, ladderId: undefined as string | undefined }] : []), ...ladders.map((l) => ({ source: l, ladderId: l.id as string | undefined }))];
+    const aliases = leagueAliases([...seasons, ...ladders]);
+    for (const run of runs) {
+      const state = run.source.redraft;
+      if (!state || state.closedAt) continue;
+      for (const t of state.teams) {
+        if (!t.selected || t.status === "skipped") continue;
+        const team = [run.source, ...seasons].find((s) => s.id === t.sourceSeasonId)?.teams.find((x) => x.id === t.teamId) ?? t;
+        if (!coachOwnsTeam(team, coach, aliases)) continue;
+        out.push({
+          leagueId: lg.id, leagueName: lg.name, teamId: t.teamId, teamName: t.name, race: t.race, status: t.status, spendable: spendable(t), link: redraftLink(lg.id, t.teamId, run.ladderId),
+          phase: redraftPhase(t), ...(state.window ? { closesAt: state.window.closesAt } : {}), ...(run.ladderId ? { ladderId: run.ladderId } : {}),
+        });
+      }
     }
   }
   return out;

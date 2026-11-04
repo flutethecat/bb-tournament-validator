@@ -3,7 +3,11 @@
  * handler. For each open ladder it stores what the reads already derive and tells the coaches, each once:
  *
  *   scheduled end   the ladder closes on its end date: live challenges and unplayed fixtures are discarded, the ranking freezes
- *   redraft window  a period end (or a fixed-schedule date) opened a window: live challenges are discarded, challenges pause
+ *   redraft window  a period end (or a fixed-schedule date) opened a window: live challenges are discarded, challenges pause,
+ *                   and a ladder redraft opens for every active member (ladderRedraft.ts: the season redraft run in place;
+ *                   redraftWindow.ts closes it with the same rebuild-or-mark step)
+ *   per-team redraft (trigger "after N games") a team that reached N games since its last redraft gets a redraft task and
+ *                   can't take part in a challenge until its list is in (ladder.ts teamRedraftBlock)
  *   expiry          an unanswered challenge expires after 48 hours (a decline when the decline rule is on)
  *   decline rule    a decline / expiry that completed the count is a loss: both coaches are told
  *   deadline        an accepted challenge (or a scheduled-round game) not played by its deadline is discarded: no result, no
@@ -24,6 +28,9 @@ import { honoursHoldFor } from "./gates.js";
 import { safeTitleTick } from "./ladderTitles.js";
 import { applyTournamentResets, challengeState, currentRedraftWindow, declineLosses, fixtureOpen, isLadder, ladderState, liveChallenge, settingsOf, teamAccount } from "./ladder.js";
 import { draftAwareNotify } from "./lifecycle.js";
+import { ladderGamesTriggerTasks, openLadderRedraft } from "./ladderRedraft.js";
+import { redraftModeLink, whenText } from "./redraftWindow.js";
+import { gold, spendable } from "./redraft.js";
 import type { LeagueStore } from "./store.js";
 import type { LeagueTeam, SeasonRecord } from "./types.js";
 
@@ -43,6 +50,8 @@ export interface LadderJobOutcome {
   windows: string[];
   resets: string[];
   titles: string[];
+  /** Teams given a redraft task by the per-team trigger. */
+  redrafts: string[];
   failed: string[];
 }
 
@@ -53,7 +62,7 @@ const day = (iso: string): string => iso.slice(0, 10);
 /** One pass over every open ladder. Never throws (a ladder whose write fails is retried on the next tick). */
 export function runLadderJob(deps: LadderJobDeps): LadderJobOutcome {
   const now = deps.now?.() ?? new Date();
-  const out: LadderJobOutcome = { expired: [], discarded: [], played: [], losses: [], closed: [], windows: [], resets: [], titles: [], failed: [] };
+  const out: LadderJobOutcome = { expired: [], discarded: [], played: [], losses: [], closed: [], windows: [], resets: [], titles: [], redrafts: [], failed: [] };
   let leagues: ReturnType<LeagueStore["list"]> = [];
   try { leagues = deps.store.list(); } catch { return out; }
   for (const league of leagues) {
@@ -109,14 +118,37 @@ function tick(leagueName: string, ladder: SeasonRecord, now: Date, notes: Note[]
   const w = currentRedraftWindow(league, ladder, now);
   if (w && !(rec.redraftWindows ?? []).some((x) => x.opensAt === w.opensAt)) {
     rec.redraftWindows = [...(rec.redraftWindows ?? []), { ...w, processedAt: at }];
+    // The redraft itself (all teams together): the season redraft's state, board and Redraft mode, in place. The window opened
+    // now, so it is marked told (the notes below are the opening notice).
+    const state = openLadderRedraft(league, ladder, comps, {
+      window: { opensAt: w.opensAt, closesAt: w.closesAt, openNotifiedAt: at }, by: "League", at,
+      text: `The ladder redraft opened (${s.redraft.trigger === "schedule" ? "fixed schedule" : "period end"}): every team redrafts by ${whenText(w.closesAt)}.`,
+    });
     for (const ch of rec.challenges) {
       const st = challengeState(ch, ladder, now);
       if (!liveChallenge(st)) continue;
       discard(ladder, ch, st, at, `Discarded: the redraft window opened (challenges pause until ${day(w.closesAt)}).`);
       for (const id of [ch.challengerTeamId, ch.defenderTeamId]) notes.push({ coach: coach(id), title: `${title}: challenge discarded`, body: `${name(ch.challengerTeamId)} v ${name(ch.defenderTeamId)}: ${ch.reason}` });
     }
-    for (const m of rec.members) if (!m.leftAt) notes.push({ coach: coach(m.teamId), title: `${title}: redraft window open`, body: `Challenges are paused until ${day(w.closesAt)}.` });
+    for (const task of state.teams) {
+      if (!task.selected) continue;
+      notes.push({
+        coach: coach(task.teamId), title: `${title}: redraft window open`, link: redraftModeLink(league.id, task.teamId, ladder.id), action: true,
+        body: `Challenges are paused until ${day(w.closesAt)}. ${task.name} redrafts with a budget of ${gold(spendable(task))}: roll Rest & Relaxation, then rebuild the team in the Roster Builder's Redraft mode.`,
+      });
+    }
     out.windows.push(key);
+    changed = true;
+  }
+
+  // 2b. The per-team trigger: a team that reached N games since its last redraft gets its task (once), and is told.
+  for (const team of ladderGamesTriggerTasks(league, ladder, comps, at)) {
+    const task = ladder.redraft?.teams.find((t) => t.teamId === team.id);
+    notes.push({
+      coach: teamAccount(team), title: `${title}: time to redraft ${team.name}`, link: redraftModeLink(league.id, team.id, ladder.id), action: true,
+      body: `${team.name} has played ${s.redraft.everyGames} ladder game${s.redraft.everyGames === 1 ? "" : "s"} since its last redraft. Redraft it in the Roster Builder${task ? ` (budget ${gold(spendable(task))})` : ""} before its next challenge.`,
+    });
+    out.redrafts.push(`${key}/${team.id}`);
     changed = true;
   }
 

@@ -80,6 +80,17 @@ export function redraftTarget(seasons: SeasonRecord[], source: SeasonRecord, pic
   return after.find((s) => s.status === "active") ?? after[0];
 }
 
+/** A ladder (season record marked competition "ladder"): its redraft is in place (the ladder receives its own lists). */
+export const isLadderRecord = (s: Pick<SeasonRecord, "competition"> | undefined): boolean => s?.competition === "ladder";
+
+/**
+ * The competition a redraft's lists go into: a ladder redraft goes back into the ladder itself (in place, ladderRedraft.ts);
+ * a season redraft into its target season (redraftTarget).
+ */
+export function redraftReceiver(seasons: SeasonRecord[], source: SeasonRecord): SeasonRecord | undefined {
+  return isLadderRecord(source) ? source : redraftTarget(seasons, source);
+}
+
 export interface TeamRecordLine { played: number; wins: number; draws: number; losses: number }
 
 /** Games of the team in the season's league fixtures (a fixture counts once it has a result). */
@@ -123,6 +134,19 @@ export const spendable = (task: Pick<RedraftTeamTask, "budget" | "override" | "l
 /** A lift would raise this team: it earned less than the set budget, has no override and is not lifted that far yet. */
 export const liftApplies = (task: Pick<RedraftTeamTask, "budget" | "override" | "lift">, setBudget: number): boolean =>
   !task.override && earned(task) < setBudget && (task.lift?.to ?? 0) < setBudget;
+
+/** Lifts one task to the set budget (when it applies) and logs it with the actor and time. True when it lifted. */
+export function liftTask(state: RedraftState, task: RedraftTeamTask, setBudget: number, by: string, at: string, auto: boolean): boolean {
+  if (!liftApplies(task, setBudget)) return false;
+  const from = spendable(task);
+  task.lift = { to: setBudget, by, at, auto };
+  state.log.unshift({
+    at, by, teamId: task.teamId,
+    text: auto ? `${task.name} was lifted from ${gold(from)} to the set budget of ${gold(setBudget)} (Lift teams to the budget, opened by ${by}).`
+      : `${by} lifted ${task.name} from ${gold(from)} to the set budget of ${gold(setBudget)}.`,
+  });
+  return true;
+}
 
 /** The budget's starting amount: the league's base when it sets one, else the roster's initial treasury. */
 export const budgetBase = (rules: Pick<RedraftRules, "base">, rulesSeason: Pick<SeasonRecord, "rules"> | undefined, race: string): number =>
@@ -191,8 +215,9 @@ export function redraftPhase(task: RedraftTeamTask | undefined): RedraftPhase {
 
 const teamKey = (t: Pick<LeagueTeam, "id">): string => t.id;
 
-export function boardRow(source: SeasonRecord, team: LeagueTeam, rules: RedraftRules, rulesSeason: SeasonRecord | undefined, task?: RedraftTeamTask): BoardRow {
-  const rec = teamRecord(source, team);
+export function boardRow(source: SeasonRecord, team: LeagueTeam, rules: RedraftRules, rulesSeason: SeasonRecord | undefined, task?: RedraftTeamTask, record?: TeamRecordLine): BoardRow {
+  // A ladder redraft (ladderRedraft.ts) counts only the games since the team last redrafted: it passes that record.
+  const rec = record ?? teamRecord(source, team);
   const budget = task?.budget ?? redraftBudget({ base: budgetBase(rules, rulesSeason, team.race), treasury: team.treasury ?? 0, ...rec }, { enabled: rules.capEnabled, cap: rules.cap }, amountsOf(rules));
   const played = teamPlayedIn(source, team);
   const asTask = task ?? { budget };
@@ -660,6 +685,43 @@ export function applyDraftTeam(season: SeasonRecord, team: LeagueTeam): void {
   if (!season.participants.some((p) => p.team.trim().toLowerCase() === named)) {
     season.participants.push({ coach: team.coach, ...teamSeat(team), country: "", race: team.race, team: team.name, active: true });
   }
+}
+
+/**
+ * A ladder redraft is in place (cleanup lane 11-03): the team stays in its ladder. Kept players keep their id, career and
+ * ladder stats (the ladder's honours count them); released players go to formerPlayers (their stats stay on record); hires
+ * are new rookies; the team's ladder entry (entryId, status) stays. Everything else is the drafted roster.
+ */
+export function inPlaceDraftTeam(current: LeagueTeam, drafted: LeagueTeam): LeagueTeam {
+  const byId = new Map(current.players.map((p) => [p.playerId, p] as const));
+  const kept = new Set<string>();
+  const players = drafted.players.map((p) => {
+    const was = p.previousIds?.length ? byId.get(p.previousIds[p.previousIds.length - 1]!) : undefined;
+    if (!was) return p;
+    kept.add(was.playerId);
+    const out: LeaguePlayer = { ...p, playerId: was.playerId, stats: structuredClone(was.stats), ...(was.careerKey ? { careerKey: was.careerKey } : {}) };
+    if (was.previousIds?.length) out.previousIds = [...was.previousIds]; else delete out.previousIds;
+    return out;
+  });
+  const released = current.players.filter((p) => !kept.has(p.playerId)).map((p) => structuredClone(p));
+  const out: LeagueTeam = { ...drafted, players, formerPlayers: [...structuredClone(current.formerPlayers ?? []), ...released] };
+  if (current.entryId) out.entryId = current.entryId;
+  if (current.status) out.status = current.status;
+  if (current.statusChanged) out.statusChanged = structuredClone(current.statusChanged);
+  return out;
+}
+
+/**
+ * Puts a draft list's roster into the competition that receives it: a season (applyDraftTeam), or back into its ladder (in
+ * place): the team's games-since-redraft count starts again from `at`, and a tournament-style ladder resets to this roster.
+ */
+export function placeDraft(receiver: SeasonRecord, team: LeagueTeam, at: string): void {
+  applyDraftTeam(receiver, team);
+  if (!isLadderRecord(receiver)) return;
+  const m = receiver.ladder?.members.find((x) => x.teamId === team.id && !x.leftAt);
+  if (!m) return;
+  m.redraftedAt = at;
+  if (m.reset) m.reset = { roster: structuredClone(receiver.teams.find((t) => t.id === team.id) ?? team), after: at };
 }
 
 /** Every player id of the league (for unique fresh ids). */

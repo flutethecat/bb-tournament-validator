@@ -1035,6 +1035,23 @@ export class TournamentStore {
   }
 
   /** Records who was sent the check-in-open notice for the current window (the registration core's guard). */
+  /**
+   * One synchronous read-modify-write of a tournament record (the Registration gate routes and job, src/tournaments/gates.ts):
+   * written only when `change` changed it (updatedAt stamped unless touch is false). 404 when the tournament is gone.
+   */
+  updateTournamentRecord<T>(tournamentId: string, change: (tournament: TournamentRecord) => T, now = new Date(), opts: { touch?: boolean } = {}): T {
+    const data = this.snapshot();
+    const tournament = data.tournaments[tournamentId];
+    if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
+    const before = JSON.stringify(tournament);
+    const result = change(tournament);
+    if (JSON.stringify(tournament) !== before) {
+      if (opts.touch !== false) tournament.updatedAt = now.toISOString();
+      this.writeSnapshot(data);
+    }
+    return structuredClone(result);
+  }
+
   setCheckInNotice(tournamentId: string, notice: NonNullable<TournamentRecord["checkInNotice"]>): void {
     this.mutate((data) => {
       const tournament = data.tournaments[tournamentId];

@@ -3,13 +3,13 @@
 // above when the season was made. Allow registration, max teams and max per race are enforced through the registration
 // core's window (server seasonRegistration.ts); the band caption says whether self-registration is open right now.
 // GET / PATCH /api/leagues/:id/seasons/:seasonId/registration (the season's revision guards the write). The payment links
-// (PayPal.Me link, Venmo username) sit next to the entry fee; the server checks them again.
+// (PayPal.Me link, Venmo username) sit next to the entry fee; the server checks them again. Registration opens / closes are
+// wall-clock times in the LEAGUE's time zone (labelled; sent as opensAtWall / closesAtWall), never the browser's.
 import { computed, inject, reactive, ref, watch } from "vue";
 import { API_KEY } from "../app";
 import { ApiError } from "../shared/api";
 import { LEAGUE_SETTINGS_KEY } from "../leagues/settings";
 import type { SeasonRegistrationView } from "../leagues/lifecycle";
-import { fromLocalInput, toLocalInput } from "../leagues/wizard";
 import { normalisePayPal, normaliseVenmo, PAY_NOTE, payPalProblem, venmoProblem } from "../shared/payLinks";
 import LeagueGatesPanel from "./LeagueGatesPanel.vue";
 
@@ -34,7 +34,7 @@ function fill(v: SeasonRegistrationView): void {
   Object.assign(form, {
     ...s.allowedRosters, allowRegistration: s.allowRegistration,
     maxRegistrations: s.maxRegistrations === null ? "" : String(s.maxRegistrations), maxPerRace: s.maxPerRace === null ? "" : String(s.maxPerRace),
-    opensAt: toLocalInput(s.opensAt), closesAt: toLocalInput(s.closesAt), approval: s.approval, waitlist: s.waitlist,
+    opensAt: s.opensAtWall ?? "", closesAt: s.closesAtWall ?? "", approval: s.approval, waitlist: s.waitlist,
     allowExistingTeams: s.allowExistingTeams, allowMidSeason: s.allowMidSeason, entryFee: s.entryFee,
     payPal: s.payPal ?? "", venmo: s.venmo ?? "",
   });
@@ -67,11 +67,14 @@ const errors = computed(() => ({
   maxRegistrations: maxReg.value === "bad" ? "1 to 512, or blank for no limit." : "",
   maxPerRace: maxRace.value === "bad" ? "1 to 64, or blank for no limit."
     : typeof maxRace.value === "number" && typeof maxReg.value === "number" && maxRace.value > maxReg.value ? "Cannot be more than max teams." : "",
-  closesAt: (() => { const o = fromLocalInput(form.opensAt); const c = fromLocalInput(form.closesAt); return o && c && Date.parse(c) <= Date.parse(o) ? "Registration must close after it opens." : ""; })(),
+  // Both are wall times in the same (league) zone, so they compare as text.
+  closesAt: form.opensAt && form.closesAt && form.closesAt.slice(0, 16) <= form.opensAt.slice(0, 16) ? "Registration must close after it opens." : "",
   payPal: payPalProblem(form.payPal),
   venmo: venmoProblem(form.venmo),
 }));
 const valid = computed(() => Object.values(errors.value).every((e) => !e));
+const zoneText = computed(() => (view.value?.timeZone ?? "UTC").replace(/_/g, " "));
+const wall = (v: string): string | null => (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(v) ? v.slice(0, 16) : null);
 const caption = computed(() => {
   const v = view.value;
   if (!v) return "";
@@ -89,7 +92,7 @@ async function save(): Promise<void> {
       revision: view.value.revision ?? 0,
       allowedRosters: { official: form.official, nafApproved: form.nafApproved, unofficial: form.unofficial },
       allowRegistration: form.allowRegistration, maxRegistrations: maxReg.value, maxPerRace: maxRace.value,
-      opensAt: fromLocalInput(form.opensAt), closesAt: fromLocalInput(form.closesAt), approval: form.approval, waitlist: form.waitlist,
+      opensAtWall: wall(form.opensAt), closesAtWall: wall(form.closesAt), approval: form.approval, waitlist: form.waitlist,
       allowExistingTeams: form.allowExistingTeams, allowMidSeason: form.allowMidSeason, entryFee: form.entryFee.trim(),
       payPal: (() => { const p = normalisePayPal(form.payPal); return p.ok ? p.value : form.payPal.trim(); })(),
       venmo: (() => { const v = normaliseVenmo(form.venmo); return v.ok ? v.value : form.venmo.trim(); })(),
@@ -149,9 +152,9 @@ async function save(): Promise<void> {
             <input v-model="form.maxPerRace" type="number" min="1" max="64" inputmode="numeric" placeholder="No limit" />
             <small v-if="errors.maxPerRace" class="ls-field-error">{{ errors.maxPerRace }}</small>
           </label>
-          <label class="ls-field"><span>Registration opens</span><input v-model="form.opensAt" type="datetime-local" /></label>
+          <label class="ls-field"><span>Registration opens ({{ zoneText }})</span><input v-model="form.opensAt" type="datetime-local" data-reg-opens /></label>
           <label class="ls-field" :data-invalid="errors.closesAt ? 'true' : undefined">
-            <span>Registration closes</span>
+            <span>Registration closes ({{ zoneText }})</span>
             <input v-model="form.closesAt" type="datetime-local" />
             <small v-if="errors.closesAt" class="ls-field-error">{{ errors.closesAt }}</small>
           </label>

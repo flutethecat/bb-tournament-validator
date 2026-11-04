@@ -48,7 +48,12 @@ export interface SeasonRegistrationView {
   message?: string;
   revision?: number;
   counts: { teams: number; cap: number | null; placesLeft: number | null };
+  /** The league's zone: opens / closes are shown and typed in it. */
+  timeZone?: string;
   settings: {
+    /** Opens / closes as wall-clock times in the league's zone (what the form edits). */
+    opensAtWall?: string;
+    closesAtWall?: string;
     allowedRosters: { official: boolean; nafApproved: boolean; unofficial: boolean };
     allowRegistration: boolean;
     maxRegistrations: number | null;

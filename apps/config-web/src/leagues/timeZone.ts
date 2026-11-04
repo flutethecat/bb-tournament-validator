@@ -19,5 +19,13 @@ export function leagueTimeZone(league: Pick<LeagueRecord, "timeZone"> | undefine
   return league?.timeZone && isTimeZone(league.timeZone) ? league.timeZone : DEFAULT_LEAGUE_TIME_ZONE;
 }
 
+/** The wall-clock value ("2026-11-05T19:00") of an instant in a zone (an unknown zone reads UTC). */
+export function wallOf(iso: string, zone: string): string {
+  const z = isTimeZone(zone) ? zone : DEFAULT_LEAGUE_TIME_ZONE;
+  const p = new Intl.DateTimeFormat("en-CA", { timeZone: z, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(iso));
+  const g = (k: string) => p.find((x) => x.type === k)?.value ?? "00";
+  return `${g("year")}-${g("month")}-${g("day")}T${g("hour")}:${g("minute")}`;
+}
+
 /** Has the organiser set a zone (false = the UTC fallback, show the note)? */
 export const leagueTimeZoneSet = (league: Pick<LeagueRecord, "timeZone">): boolean => Boolean(league.timeZone && isTimeZone(league.timeZone));

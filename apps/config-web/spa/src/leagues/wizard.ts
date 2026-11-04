@@ -49,7 +49,8 @@ export interface WizardDraft {
   season: {
     id: string; name: string; number: number; startedAt?: string; stage: string; divisions: string[]; playoffs: boolean; revision: number;
     registration: {
-      opensAt?: string; closesAt?: string; approval: "auto" | "organiser"; waitlist: boolean; allowExistingTeams: boolean; allowMidSeason: boolean; entryFee: string;
+      opensAt?: string; closesAt?: string; opensAtWall?: string; closesAtWall?: string;
+      approval: "auto" | "organiser"; waitlist: boolean; allowExistingTeams: boolean; allowMidSeason: boolean; entryFee: string;
       payPal?: string; venmo?: string;
     };
     regions?: string[];
@@ -126,6 +127,9 @@ export function fromLocalInput(v: string): string | null {
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
+/** A datetime-local value as a wall-clock time ("2026-11-05T19:00"), or null when empty or malformed. */
+export const wallValue = (v: string): string | null => (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(v.trim()) ? v.trim().slice(0, 16) : null);
+
 /** The season start date: a calendar day, stored at noon UTC so every time zone shows the same day. */
 export const startDateIso = (day: string): string | null => (/^\d{4}-\d{2}-\d{2}$/.test(day) ? `${day}T12:00:00.000Z` : null);
 export const isoDay = (iso: string | undefined): string => (iso && /^\d{4}-\d{2}-\d{2}/.test(iso) ? iso.slice(0, 10) : "");
@@ -148,7 +152,8 @@ export function formFromDraft(d: WizardDraft): WizardForm {
     const r = d.season.registration;
     f.season = {
       name: d.season.name, startsAt: isoDay(d.season.startedAt), divisions: [...d.season.divisions], playoffs: d.season.playoffs,
-      opensAt: toLocalInput(r.opensAt), closesAt: toLocalInput(r.closesAt), approval: r.approval, waitlist: r.waitlist,
+      // Wall times in the league's zone (the server sends them; the step labels the zone).
+      opensAt: r.opensAtWall ?? "", closesAt: r.closesAtWall ?? "", approval: r.approval, waitlist: r.waitlist,
       allowExistingTeams: r.allowExistingTeams, allowMidSeason: r.allowMidSeason, entryFee: r.entryFee,
       payPal: r.payPal ?? "", venmo: r.venmo ?? "", regions: [...(d.season.regions ?? [])],
     };
@@ -205,9 +210,8 @@ export function seasonErrors(f: WizardForm): StepErrors {
   if (names.length > 16) e.divisions = "At most 16 divisions.";
   else if (names.some((n) => n.length > 40)) e.divisions = "Division names must be at most 40 characters.";
   else if (new Set(names.map((n) => n.toLowerCase())).size !== names.length) e.divisions = "Each division needs its own name.";
-  const opens = fromLocalInput(s.opensAt);
-  const closes = fromLocalInput(s.closesAt);
-  if (opens && closes && Date.parse(closes) <= Date.parse(opens)) e.closesAt = "Registration must close after it opens.";
+  // Both are wall times in the league's zone: they compare as text.
+  if (wallValue(s.opensAt) && wallValue(s.closesAt) && wallValue(s.closesAt)! <= wallValue(s.opensAt)!) e.closesAt = "Registration must close after it opens.";
   if (s.entryFee.trim().length > ENTRY_FEE_MAX) e.entryFee = `Entry fee must be at most ${ENTRY_FEE_MAX} characters.`;
   const payPal = payPalProblem(s.payPal);
   if (payPal) e.payPal = payPal;
@@ -253,7 +257,7 @@ export function stepPayload(step: WizardStepId, f: WizardForm): Record<string, u
       name: s.name.trim(), startsAt: startDateIso(s.startsAt), divisions: s.divisions.map((d) => d.trim()).filter(Boolean), playoffs: s.playoffs,
       regions: s.regions.map((x) => x.trim()).filter(Boolean),
       registration: {
-        opensAt: fromLocalInput(s.opensAt), closesAt: fromLocalInput(s.closesAt), approval: s.approval, waitlist: s.waitlist,
+        opensAtWall: wallValue(s.opensAt), closesAtWall: wallValue(s.closesAt), approval: s.approval, waitlist: s.waitlist,
         allowExistingTeams: s.allowExistingTeams, allowMidSeason: s.allowMidSeason, entryFee: s.entryFee.trim(),
         payPal: (() => { const p = normalisePayPal(s.payPal); return p.ok ? p.value : s.payPal.trim(); })(),
         venmo: (() => { const v = normaliseVenmo(s.venmo); return v.ok ? v.value : s.venmo.trim(); })(),
@@ -269,11 +273,8 @@ export function stepPayload(step: WizardStepId, f: WizardForm): Record<string, u
 }
 
 const yes = (b: boolean): string => (b ? "Yes" : "No");
-const when = (local: string): string => {
-  const iso = fromLocalInput(local);
-  if (!iso) return "";
-  return new Date(iso).toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-};
+/** A wall-clock time in the league's zone, shown as typed ("2026-11-05 19:00"). */
+const when = (local: string): string => (wallValue(local) ? wallValue(local)!.replace("T", " ") : "");
 
 export interface SummaryGroup { step: WizardStepId; title: string; rows: Array<{ k: string; v: string }> }
 
@@ -286,7 +287,8 @@ export function summaryGroups(f: WizardForm, draft: WizardDraft | null): Summary
   const rosters = [r.official && "Official", r.nafApproved && "NAF-approved", r.unofficial && "Unofficial"].filter(Boolean).join(", ") || "None";
   const changed = r.rosters.filter((x) => x.treasury !== 1000 || x.startingSkills.primary || x.startingSkills.secondary || x.startingSkills.elite).length;
   const divisions = s.divisions.map((d) => d.trim()).filter(Boolean);
-  const window = s.opensAt || s.closesAt ? `${when(s.opensAt) || "When opened"} to ${when(s.closesAt) || "season start"}` : "Opens when you open it";
+  const zone = (i.timeZone || "UTC").replace(/_/g, " ");
+  const window = s.opensAt || s.closesAt ? `${when(s.opensAt) || "When opened"} to ${when(s.closesAt) || "season start"} (${zone})` : "Opens when you open it";
   const discord = c.clearWebhook ? "Removed" : c.webhook.trim() ? "New webhook" : draft?.connections.discord.configured ? "Connected" : "Not set";
   const regions = s.regions.map((x) => x.trim()).filter(Boolean);
   return [

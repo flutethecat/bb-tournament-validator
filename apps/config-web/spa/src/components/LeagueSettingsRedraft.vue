@@ -8,14 +8,20 @@ import { createRedraftBoard, REDRAFT_BOARD_KEY } from "../leagues/redraft";
 import LeagueRedraftBoard from "./LeagueRedraftBoard.vue";
 import LeagueSettingsRedraftRules from "./LeagueSettingsRedraftRules.vue";
 import LeagueGatesPanel from "./LeagueGatesPanel.vue";
-import { RouterLink } from "vue-router";
+import { RouterLink, useRoute } from "vue-router";
 
 const props = defineProps<{ leagueId: string }>();
 const fetcher = inject(API_KEY)!;
 const board = inject(REDRAFT_BOARD_KEY, null) ?? createRedraftBoard({ api: fetcher });
 provide(REDRAFT_BOARD_KEY, board);
 const { state } = board;
-onMounted(() => { if (!state.loaded || state.id !== props.leagueId) void board.load(props.leagueId); });
+// A ladder redraft link (…/settings?tab=redraft&ladder=<id>) opens that ladder's board (cleanup lane 11-03).
+const route = (() => { try { return useRoute(); } catch { return undefined; } })();
+onMounted(() => {
+  const want = typeof route?.query.ladder === "string" ? route.query.ladder : "";
+  if (want && state.ladderPick !== want) { state.ladderPick = want; void board.load(props.leagueId); return; }
+  if (!state.loaded || state.id !== props.leagueId) void board.load(props.leagueId);
+});
 </script>
 
 <template>
@@ -29,7 +35,7 @@ onMounted(() => { if (!state.loaded || state.id !== props.leagueId) void board.l
     <div class="lg-stack rd-manage-rules">
       <!-- gates (lane 8c) sit next to the step they gate: the board's window, its rest rolls and its submissions -->
       <LeagueGatesPanel
-        :league-id="leagueId" title="Redraft gates"
+        v-if="!state.ladderPick" :league-id="leagueId" title="Redraft gates"
         :items="[{ kind: 'redraft-window', target: 'league' }, { kind: 'redraft-rest', target: 'league' }, { kind: 'redraft-submit', target: 'league' }]"
       />
       <section class="hm-panel" aria-labelledby="rd-live-h">

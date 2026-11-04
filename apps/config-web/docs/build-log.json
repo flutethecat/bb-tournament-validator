@@ -1,5 +1,20 @@
 [
   {
+    "date": "2026-11-04",
+    "title": "Ladder redrafts, tournament registration gates and league-time registration dates",
+    "body": "Ladders now redraft through the same board and Redraft mode as seasons: a team that reaches its set number of ladder games redrafts before its next challenge, and a period end opens a redraft for every team. Tournaments can keep registration shut until a set time with a countdown and Open now; registration opens and closes are typed in the league's time zone; leagues where you only play in a ladder now show in the sidebar.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      },
+      {
+        "label": "Tournaments",
+        "href": "/app/tournaments"
+      }
+    ]
+  },
+  {
     "date": "2026-11-03",
     "title": "Gates: open a step at a time or with a league night",
     "body": "Organisers can keep an online step shut until a set time in the league's time zone, or until a League Event (and it moves with the event): the redraft window, rest rolls and submissions, season start, registration, ladder challenges and the period honours reveal. Coaches see a countdown, and when a gate opens they get a note and the league's Discord gets a post. A new live Redraft rolls page shows every Rest & Relaxation roll, large enough for a screen at the venue.",

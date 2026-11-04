@@ -25,7 +25,7 @@ onMounted(async () => { if (!props.tasks) { all.value = await loadMyRedraftTasks
       <li v-for="t in mine" :key="t.teamId">
         <span class="sf-chip" :data-tone="t.phase ? PHASE_TONE[t.phase] : 'soon'">{{ t.phase ? PHASE_LABEL[t.phase] : t.status }}</span>
         {{ t.teamName }} ({{ t.race }}) · budget {{ goldK(t.spendable) }}
-        <RouterLink class="sf-btn small" :to="redraftModePath(t.leagueId, t.teamId)">{{ t.status === "pending" ? "Open Redraft mode" : "View" }}</RouterLink>
+        <RouterLink class="sf-btn small" :to="redraftModePath(t.leagueId, t.teamId, t.ladderId)">{{ t.status === "pending" ? "Open Redraft mode" : "View" }}</RouterLink>
       </li>
     </ul>
   </section>

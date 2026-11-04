@@ -655,7 +655,7 @@ export async function applyFixtureResult(
   return withFixtureLock(fixtureLockKey(leagueId, seasonId, fixtureId), async () => {
     const now = deps.now?.() ?? new Date();
     const fixtureNow = deps.store.season(leagueId, seasonId)?.fixtures.find((x) => x.id === fixtureId);
-    const blocked = fixtureNow ? fixtureRedraftBlock(deps.store.seasons(leagueId), fixtureNow, now) : "";
+    const blocked = fixtureNow ? fixtureRedraftBlock(deps.store.competitions(leagueId), fixtureNow, now) : "";
     if (fixtureNow && (blocked || (fixtureNow.fork?.redraftHold && !opts.release))) {
       const reason = blocked || "The result is held for an organiser to apply after the redraft.";
       let first = false;

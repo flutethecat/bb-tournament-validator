@@ -14,7 +14,8 @@ export const goldK = (n: number): string => `${Math.round(n / 1000).toLocaleStri
 
 /** The coach's Redraft mode in the Roster Builder (a router path; the server's links carry /app in front). */
 /** (The team id rides in the query: league team ids may hold a dot, which the server's SPA fallback treats as a file.) */
-export const redraftModePath = (leagueId: string, teamId: string): string => `/tournament-team-builder/redraft/${encodeURIComponent(leagueId)}?team=${encodeURIComponent(teamId)}`;
+export const redraftModePath = (leagueId: string, teamId: string, ladderId?: string): string =>
+  `/tournament-team-builder/redraft/${encodeURIComponent(leagueId)}?team=${encodeURIComponent(teamId)}${ladderId ? `&ladder=${encodeURIComponent(ladderId)}` : ""}`;
 /** The organiser's board in League settings. */
 export const redraftBoardRoute = (leagueId: string) => ({ name: "league-settings", params: { id: leagueId }, query: { tab: "redraft" } });
 
@@ -93,6 +94,8 @@ export interface RedraftBoardState {
   /** The window before confirmation: "Opens at" (datetime-local in the LEAGUE's time zone; "" = now) and its length. */
   opensAt: string;
   windowDays: number;
+  /** Cleanup lane 11-03: the ladder whose redraft the board runs ("" = the season redraft). */
+  ladderPick: string;
 }
 
 /** Which season pickers the board shows: source unless a redraft is running (closed ones never block), target before confirmation. */
@@ -102,10 +105,13 @@ export function redraftPickers(view: Pick<RedraftBoardView, "state" | "sources" 
 }
 
 /** The board read with the organiser's season picks. */
-export function boardPath(leagueId: string, picks: { source?: string; target?: string } = {}): string {
+export function boardPath(leagueId: string, picks: { source?: string; target?: string; ladder?: string } = {}): string {
   const q = new URLSearchParams();
-  if (picks.source) q.set("source", picks.source);
-  if (picks.target) q.set("target", picks.target);
+  if (picks.ladder) q.set("ladder", picks.ladder);
+  else {
+    if (picks.source) q.set("source", picks.source);
+    if (picks.target) q.set("target", picks.target);
+  }
   const qs = q.toString();
   return `${redraftPath(leagueId)}${qs ? `?${qs}` : ""}`;
 }
@@ -113,7 +119,7 @@ export function boardPath(leagueId: string, picks: { source?: string; target?: s
 export function createRedraftBoard(deps: { api: Fetcher }) {
   const state = reactive<RedraftBoardState>({
     id: "", view: null, loaded: false, denied: "", error: "", busy: "", message: "", notice: "", picked: {}, overrides: {}, capEnabled: true, cap: 1_300_000, sourcePick: "", targetPick: "",
-    opensAt: "", windowDays: 7,
+    opensAt: "", windowDays: 7, ladderPick: "",
   });
 
   let keptSource: string | undefined;
@@ -124,9 +130,9 @@ export function createRedraftBoard(deps: { api: Fetcher }) {
     if (view.rules && !view.state) state.windowDays = view.rules.windowDays;
     // A reload of the same unconfirmed board (a settings save, a target pick) keeps the organiser's ticks; a confirmed
     // board, or another source season, starts from the server's selection.
-    const keep = !view.state && state.view !== null && keptSource === view.source?.id;
+    const keep = !view.state && state.view !== null && keptSource === `${view.ladder?.id ?? ""}|${view.source?.id}`;
     state.picked = Object.fromEntries([...view.active, ...view.inactive].map((r) => [r.teamId, keep && state.picked[r.teamId] !== undefined ? state.picked[r.teamId]! : r.selected]));
-    keptSource = view.source?.id;
+    keptSource = `${view.ladder?.id ?? ""}|${view.source?.id}`;
     state.view = view;
   }
 
@@ -135,7 +141,7 @@ export function createRedraftBoard(deps: { api: Fetcher }) {
     state.denied = "";
     state.error = "";
     try {
-      take((await deps.api<{ redraft: RedraftBoardView }>(boardPath(id, { source: state.sourcePick, target: state.targetPick }))).redraft);
+      take((await deps.api<{ redraft: RedraftBoardView }>(boardPath(id, { source: state.sourcePick, target: state.targetPick, ladder: state.ladderPick }))).redraft);
     } catch (err) {
       state.view = null;
       const s = statusOf(err);
@@ -153,7 +159,7 @@ export function createRedraftBoard(deps: { api: Fetcher }) {
     state.message = "";
     state.notice = "";
     try {
-      const res = await deps.api<{ redraft: RedraftBoardView }>(redraftPath(state.id), { method: "POST", body: { revision: state.view.revision, ...body } });
+      const res = await deps.api<{ redraft: RedraftBoardView }>(redraftPath(state.id), { method: "POST", body: { revision: state.view.revision, ...(state.ladderPick ? { ladderId: state.ladderPick } : {}), ...body } });
       take(res.redraft);
       state.notice = notice;
       return true;
@@ -176,6 +182,8 @@ export function createRedraftBoard(deps: { api: Fetcher }) {
     /** Pick the season to redraft from (the target resets to its default) or the season receiving the lists; reloads. */
     async pickSource(id: string): Promise<void> { state.sourcePick = id; state.targetPick = ""; state.overrides = {}; await load(state.id); },
     async pickTarget(id: string): Promise<void> { state.targetPick = id; await load(state.id); },
+    /** Run a ladder's redraft on the board ("" = the season redraft); reloads. */
+    async pickLadder(id: string): Promise<void> { state.ladderPick = id; state.sourcePick = ""; state.targetPick = ""; state.overrides = {}; await load(state.id); },
     confirm: () => post("confirm", {
       action: "confirm", capEnabled: state.capEnabled, cap: state.cap, windowDays: state.windowDays,
       ...(state.view?.settingsRevision !== undefined ? { settingsRevision: state.view.settingsRevision } : {}),
@@ -272,6 +280,8 @@ export type DraftStep = "rest" | "draft" | "done";
 export interface RedraftTeamState {
   leagueId: string;
   teamId: string;
+  /** A ladder's redraft (cleanup lane 11-03; "" = the season redraft). */
+  ladderId: string;
   view: CoachRedraftView | null;
   loaded: boolean;
   denied: "" | "signin" | "forbidden" | "missing";
@@ -288,10 +298,10 @@ export const stepOf = (v: CoachRedraftView): DraftStep => (v.status !== "pending
 
 export function createRedraftTeam(deps: { api: Fetcher }) {
   const state = reactive<RedraftTeamState>({
-    leagueId: "", teamId: "", view: null, loaded: false, denied: "", error: "", busy: "", message: "", step: "rest",
+    leagueId: "", teamId: "", ladderId: "", view: null, loaded: false, denied: "", error: "", busy: "", message: "", step: "rest",
     picks: { keep: {}, hires: {}, staff: { rerolls: 0, assistantCoaches: 0, cheerleaders: 0, apothecary: false } }, entered: {},
   });
-  const path = (): string => `${redraftPath(state.leagueId)}/teams/${encodeURIComponent(state.teamId)}`;
+  const path = (sub = ""): string => `${redraftPath(state.leagueId)}/teams/${encodeURIComponent(state.teamId)}${sub ? `/${sub}` : ""}${state.ladderId ? `?ladder=${encodeURIComponent(state.ladderId)}` : ""}`;
 
   function take(view: CoachRedraftView, resetPicks: boolean): void {
     state.view = view;
@@ -300,9 +310,10 @@ export function createRedraftTeam(deps: { api: Fetcher }) {
     state.entered = Object.fromEntries(view.rest.needed.map((n) => [n.playerId, Array.from({ length: n.niggling }, () => null)]));
   }
 
-  async function load(leagueId: string, teamId: string): Promise<void> {
+  async function load(leagueId: string, teamId: string, ladderId = ""): Promise<void> {
     state.leagueId = leagueId;
     state.teamId = teamId;
+    state.ladderId = ladderId;
     state.denied = "";
     state.error = "";
     state.message = "";
@@ -325,13 +336,13 @@ export function createRedraftTeam(deps: { api: Fetcher }) {
     state.busy = key;
     state.message = "";
     try {
-      const res = await deps.api<{ redraft: CoachRedraftView }>(`${path()}/${sub}`, { method: "POST", body: { revision: state.view.revision, ...body } });
+      const res = await deps.api<{ redraft: CoachRedraftView }>(path(sub), { method: "POST", body: { revision: state.view.revision, ...body } });
       take(res.redraft, false);
       return true;
     } catch (err) {
       if (statusOf(err) === 409) {
         const msg = errorText(err, "The redraft changed.");
-        await load(state.leagueId, state.teamId);
+        await load(state.leagueId, state.teamId, state.ladderId);
         state.message = `${msg} Reloaded.`;
       } else state.message = errorText(err, "That did not save.");
       return false;

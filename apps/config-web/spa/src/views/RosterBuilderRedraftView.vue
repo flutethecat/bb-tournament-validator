@@ -22,7 +22,7 @@ import { usePageTitle } from "../shell/pageTitle";
 import { categoryClass } from "../teams/builder";
 
 import LeagueGateBanner from "../components/LeagueGateBanner.vue";
-const props = defineProps<{ leagueId: string; teamId: string }>();
+const props = defineProps<{ leagueId: string; teamId: string; ladderId?: string }>();
 const fetcher = inject(API_KEY)!;
 const team = inject(REDRAFT_TEAM_KEY, null) ?? createRedraftTeam({ api: fetcher });
 provide(REDRAFT_TEAM_KEY, team);
@@ -65,9 +65,9 @@ onMounted(() => {
 });
 onBeforeUnmount(() => { narrowMq?.removeEventListener?.("change", placeTabs); narrowMq = null; });
 
-function load(): void { if (props.teamId && (state.leagueId !== props.leagueId || state.teamId !== props.teamId || !state.loaded)) void team.load(props.leagueId, props.teamId); }
+function load(): void { if (props.teamId && (state.leagueId !== props.leagueId || state.teamId !== props.teamId || state.ladderId !== (props.ladderId ?? "") || !state.loaded)) void team.load(props.leagueId, props.teamId, props.ladderId ?? ""); }
 onMounted(load);
-watch(() => `${props.leagueId}|${props.teamId}`, load);
+watch(() => `${props.leagueId}|${props.teamId}|${props.ladderId ?? ""}`, load);
 usePageTitle(() => (view.value ? `Redraft: ${view.value.name}` : "Redraft"));
 
 const editable = computed(() => state.step === "draft");
@@ -137,7 +137,7 @@ const budgetLines = computed(() => {
     <p v-else-if="!view" class="hm-empty" role="status">Loading the redraft...</p>
     <template v-else>
       <!-- gates (lane 8c): the redraft window, rest rolls and submissions count down while shut -->
-      <LeagueGateBanner :league-id="leagueId" :kinds="['redraft-window', 'redraft-rest', 'redraft-submit']" />
+      <LeagueGateBanner v-if="!ladderId" :league-id="leagueId" :kinds="['redraft-window', 'redraft-rest', 'redraft-submit']" />
       <p class="tb-locked rd-locked">
         <span class="sf-chip" data-tone="info">Redraft</span>
         <span>{{ view.name }} · {{ view.race }} · from {{ view.sourceSeason.name }} · {{ view.targetSeason ? `into ${view.targetSeason.name}` : "kept until the next season starts" }}</span>

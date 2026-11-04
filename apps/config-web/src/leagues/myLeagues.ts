@@ -9,6 +9,10 @@
  * CLEARED assignment means nobody does, whatever the display or NAF name says); otherwise the team's account; only a
  * team with neither falls back to the coach aliases (identity.ts) built from the league's active seasons.
  *
+ * Ladders (cleanup lane 11-03): a coach whose only seat is in an active ladder still gets the league row. Ladder teams (active
+ * members only: a team that moved out has left) are listed after the season teams, linking to the league's Ladder tab; their
+ * next fixture is the team's next open ladder game. A league with ladder seats only has no `season`, and `ladders` names them.
+ *
  * Cost: the seat index (coach key -> rows) is built once from the active seasons only and reused until the league store
  * reports a write through it (LeagueStore.version(): league, season, artwork, account-deletion invalidate), or after
  * INDEX_TTL_MS for writes made by another process (an import run). A cached request is one map lookup.
@@ -19,6 +23,7 @@ import { effectiveDeadline, fixtureOpenForDeadline } from "./deadlines.js";
 import type { LeagueStore } from "./store.js";
 import type { LeagueFixture, LeagueTeam, SeasonRecord } from "./types.js";
 import { publishedLeagues } from "./lifecycle.js";
+import { activeMembers, ladderState, supersededTeams } from "./ladder.js";
 
 export interface MyLeagueFixture {
   id: string;
@@ -59,8 +64,11 @@ export interface MyLeague {
   id: string;
   name: string;
   logoUrl?: string;
-  season: { id: string; number: number; name: string };
-  /** SPA path of the league page on that season. */
+  /** The active season the coach's season teams play in (absent when the coach is only in ladders). */
+  season?: { id: string; number: number; name: string };
+  /** Active ladders the coach holds a seat in (absent when none). */
+  ladders?: Array<{ id: string; name: string }>;
+  /** SPA path of the league page on that season (or its Ladder tab for a ladder-only seat). */
   to: string;
   teams: MyLeagueTeam[];
 }
@@ -94,7 +102,7 @@ export function fixtureOrder(season: Pick<SeasonRecord, "phases" | "fixtures">):
   return (a, b) => (rank.get(a.phaseId)! - rank.get(b.phaseId)!) || day(a).localeCompare(day(b)) || a.round - b.round || a.table - b.table;
 }
 
-export function myLeagueTeam(leagueId: string, season: SeasonRecord, latestId: string | undefined, team: LeagueTeam): MyLeagueTeam {
+export function myLeagueTeam(leagueId: string, season: SeasonRecord, latestId: string | undefined, team: LeagueTeam, teamTo?: string): MyLeagueTeam {
   const record = { wins: 0, draws: 0, losses: 0 };
   const order = fixtureOrder(season);
   let next: LeagueFixture | undefined;
@@ -118,7 +126,7 @@ export function myLeagueTeam(leagueId: string, season: SeasonRecord, latestId: s
     name: team.name,
     race: team.race,
     record,
-    to: `${base}${seasonQuery(season.id, latestId, { tab: "teams", team: team.id })}`,
+    to: teamTo ?? `${base}${seasonQuery(season.id, latestId, { tab: "teams", team: team.id })}`,
     next: next
       ? {
           id: next.id,
@@ -184,18 +192,41 @@ function buildIndex(store: LeagueStore): Pick<SeatIndex, "byCoach" | "deadlines"
     const seasons = store.seasons(lg.id);
     const activeSeasons = seasons.filter((s) => s.status === "active");
     const active = activeSeasons[0];
-    if (!active) continue;
-    const aliases = buildCoachAliases((function* () { for (const s of activeSeasons) yield* seasonCoachFacets(s); })());
+    // Active ladders (never one still in setup: organisers only), with their active members.
+    let ladders: SeasonRecord[] = [];
+    try { ladders = store.ladders(lg.id).filter((l) => ladderState(l) === "active"); } catch { ladders = []; }
+    if (!active && !ladders.length) continue;
+    const seatComps = [...activeSeasons, ...ladders];
+    const aliases = buildCoachAliases((function* () { for (const s of seatComps) yield* seasonCoachFacets(s); })());
     const observed = new Set<string>();
-    for (const s of activeSeasons) for (const f of seasonCoachFacets(s)) if (norm(f.coachId)) observed.add(f.coachId!.trim());
+    for (const s of seatComps) for (const f of seasonCoachFacets(s)) if (norm(f.coachId)) observed.add(f.coachId!.trim());
     const latestId = seasons[0]?.id;
     const logoUrl = artUrl(lg, "logo");
     const perCoach = new Map<string, MyLeagueTeam[]>();
-    for (const t of active.teams) {
-      const owners = seatOwners(t, aliases, observed);
-      if (!owners.length) continue;
-      const row = myLeagueTeam(lg.id, active, latestId, t);
-      for (const o of owners) perCoach.set(o, [...(perCoach.get(o) ?? []), row]);
+    const ladderSeats = new Map<string, Array<{ id: string; name: string }>>();
+    const seasonSeats = new Set<string>();
+    if (active) {
+      for (const t of active.teams) {
+        const owners = seatOwners(t, aliases, observed);
+        if (!owners.length) continue;
+        const row = myLeagueTeam(lg.id, active, latestId, t);
+        for (const o of owners) { perCoach.set(o, [...(perCoach.get(o) ?? []), row]); seasonSeats.add(o); }
+      }
+    }
+    const superseded = ladders.length ? supersededTeams(store.competitions(lg.id)) : new Set<string>();
+    for (const l of ladders) {
+      const ladderTo = `/leagues/${enc(lg.id)}?${new URLSearchParams({ tab: "ladder", ladder: l.id }).toString()}`;
+      for (const { team: t } of activeMembers(l, superseded)) {
+        const owners = seatOwners(t, aliases, observed);
+        if (!owners.length) continue;
+        const row = myLeagueTeam(lg.id, l, latestId, t, ladderTo);
+        for (const o of owners) {
+          perCoach.set(o, [...(perCoach.get(o) ?? []), row]);
+          const seats = ladderSeats.get(o) ?? [];
+          if (!seats.some((x) => x.id === l.id)) seats.push({ id: l.id, name: l.name });
+          ladderSeats.set(o, seats);
+        }
+      }
     }
     // Deadlines: every active season the coach holds a seat in (the sidebar shows the newest one only).
     for (const s of activeSeasons) {
@@ -208,12 +239,16 @@ function buildIndex(store: LeagueStore): Pick<SeatIndex, "byCoach" | "deadlines"
     }
     for (const [coach, teams] of perCoach) {
       const list = byCoach.get(coach) ?? [];
+      const inSeason = seasonSeats.has(coach);
+      const seats = ladderSeats.get(coach);
+      const firstLadder = seats?.[0];
       list.push({
         id: lg.id,
         name: lg.name,
         ...(logoUrl ? { logoUrl } : {}),
-        season: { id: active.id, number: active.number, name: active.name },
-        to: `/leagues/${enc(lg.id)}${seasonQuery(active.id, latestId, {})}`,
+        ...(inSeason && active ? { season: { id: active.id, number: active.number, name: active.name } } : {}),
+        ...(seats?.length ? { ladders: seats } : {}),
+        to: inSeason && active ? `/leagues/${enc(lg.id)}${seasonQuery(active.id, latestId, {})}` : `/leagues/${enc(lg.id)}?${new URLSearchParams({ tab: "ladder", ladder: firstLadder!.id }).toString()}`,
         teams,
       });
       byCoach.set(coach, list);

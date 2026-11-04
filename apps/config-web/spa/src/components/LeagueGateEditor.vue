@@ -2,18 +2,21 @@
 // One gate's editor (lane 8c, owner: "each gate sits next to the step it gates"): Off / At a time (a date and time in the
 // league's zone) / With a League Event (+ an offset, so it moves with the event), Save, and Open now while it is shut. Season
 // start adds "start the season by itself". PUT / POST /api/leagues/:id/gates/:kind/:target (organisers; the server is the
-// authority and answers a stale revision with 409, when the editor reloads).
+// authority and answers a stale revision with 409, when the editor reloads). With `tournamentId` (cleanup lane 11-03) it edits a
+// tournament's Registration gate instead: the same model under /api/tournaments/:id, "At a time" only (no League Events), in
+// the tournament's zone.
 import { computed, inject, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { API_KEY } from "../app";
 import { ApiError, api as defaultApi } from "../shared/api";
 import {
-  countdownText, GATE_TEXT, gateForm, gateShort, gateFormError, gatePayload, gatesApi, gateWhen, OFFSET_PRESETS, offsetText, useLeagueGates, type GateForm, type GateKind,
+  countdownText, GATE_TEXT, gateForm, gateShort, gateFormError, gatePayload, gatesApiAt, gateWhen, OFFSET_PRESETS, offsetText, useLeagueGates, useTournamentGates, type GateForm, type GateKind,
 } from "../leagues/gates";
 import "../leagues/gates.css";
 
-const props = defineProps<{ leagueId: string; kind: GateKind; target: string; label?: string; help?: string }>();
+const props = defineProps<{ leagueId?: string; tournamentId?: string; kind: GateKind; target: string; label?: string; help?: string }>();
 const api = inject(API_KEY, null) ?? defaultApi;
-const store = useLeagueGates(api, props.leagueId);
+const tournament = Boolean(props.tournamentId);
+const store = tournament ? useTournamentGates(api, props.tournamentId!) : useLeagueGates(api, props.leagueId ?? "");
 const gate = computed(() => store.gate(props.kind, props.target));
 const zone = computed(() => store.state.read?.timeZone ?? "UTC");
 const events = computed(() => store.state.read?.events ?? []);
@@ -53,7 +56,7 @@ async function save(): Promise<void> {
   error.value = "";
   notice.value = "";
   try {
-    const res = await gatesApi.save(api, props.leagueId, props.kind, props.target, store.baseRevision(props.kind, props.target), gatePayload(form, props.kind));
+    const res = await gatesApiAt.save(api, store.base, props.kind, props.target, store.baseRevision(props.kind, props.target), gatePayload(form, props.kind));
     await store.reload();
     notice.value = res.gate ? "Gate saved." : "Gate off: the step is open as usual.";
     if (res.warning) error.value = res.warning;
@@ -68,15 +71,17 @@ async function openNow(): Promise<void> {
   error.value = "";
   notice.value = "";
   try {
-    await gatesApi.open(api, props.leagueId, props.kind, props.target, gate.value.revision);
+    await gatesApiAt.open(api, store.base, props.kind, props.target, gate.value.revision);
     await store.reload();
-    notice.value = "Opened. Coaches have been told.";
+    notice.value = tournament ? "Opened. Registration is open now." : "Opened. Coaches have been told.";
   } catch (err) {
     if (err instanceof ApiError && err.status === 409) await store.reload();
     error.value = err instanceof Error && err.message ? err.message : "That did not open.";
   } finally { busy.value = ""; }
 }
-const MODES: ReadonlyArray<{ id: GateForm["mode"]; label: string }> = [{ id: "off", label: "Off" }, { id: "time", label: "At a time" }, { id: "event", label: "With a League Event" }];
+const MODES: ReadonlyArray<{ id: GateForm["mode"]; label: string }> = tournament
+  ? [{ id: "off", label: "Off" }, { id: "time", label: "At a time" }]
+  : [{ id: "off", label: "Off" }, { id: "time", label: "At a time" }, { id: "event", label: "With a League Event" }];
 </script>
 
 <template>
@@ -97,7 +102,7 @@ const MODES: ReadonlyArray<{ id: GateForm["mode"]; label: string }> = [{ id: "of
       <div v-if="form.mode === 'time'" class="gt-fields">
         <label class="ls-field"><span>Opens at ({{ zone.replace(/_/g, " ") }})</span><input v-model="form.wall" type="datetime-local" :data-gate-wall="kind" /></label>
       </div>
-      <div v-else-if="form.mode === 'event'" class="gt-fields">
+      <div v-else-if="form.mode === 'event' && !tournament" class="gt-fields">
         <p v-if="!events.length" class="hm-small hm-empty">No League Events yet: add one on the Schedule page, or pick a time.</p>
         <template v-else>
           <label class="ls-field"><span>League Event</span>

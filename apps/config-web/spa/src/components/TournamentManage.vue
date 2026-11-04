@@ -2,12 +2,14 @@
 // Manage tab (owner, organisers, admins): Summary pane with the event's actions (Start Tournament until it has
 // started, then Edit Tournament; Generate round; Lock / Unlock rosters; Finish), the Start Tournament sub-modal,
 // the Edit Tournament pane (settings + roles), the Tournament page pane (banner, location, dates, summary, notes),
-// the Participants table and Rounds (recorded results with Edit result).
+// the Participants table and Rounds (recorded results with Edit result). The Registration gate (cleanup lane 11-03) sits
+// beside Registrations: the league gate editor, scoped to this tournament.
 import { computed, inject, nextTick, ref } from "vue";
 import CompetitionDiscordPanel from "./CompetitionDiscordPanel.vue";
 import TournamentPageForm from "./TournamentPageForm.vue";
 import TournamentParticipants from "./TournamentParticipants.vue";
 import TournamentRegistrations from "./TournamentRegistrations.vue";
+import LeagueGatesPanel from "./LeagueGatesPanel.vue";
 import TournamentResultsEditor from "./TournamentResultsEditor.vue";
 import TournamentSettingsForm from "./TournamentSettingsForm.vue";
 import TournamentStartModal from "./TournamentStartModal.vue";
@@ -105,6 +107,10 @@ async function editTournament() {
       <TournamentStartModal v-if="open && canWrite" @close="open = false" />
 
       <TournamentRegistrations />
+      <LeagueGatesPanel
+        v-if="canWrite && t.status !== 'completed' && t.status !== 'cancelled'" :key="`tn-gate-${t.id}`" :tournament-id="t.id" title="Registration gate"
+        :items="[{ kind: 'registration', target: 'tournament', label: 'Registration opens', help: 'Coaches can register from then.' }]"
+      />
 
       <section ref="editPane" class="hm-panel" aria-labelledby="tn-edit-h">
         <header class="hm-band" data-tone="admin"><h2 id="tn-edit-h">{{ started ? "Edit Tournament" : "Settings" }}</h2></header>

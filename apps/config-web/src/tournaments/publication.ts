@@ -14,6 +14,7 @@
 
 import { resolveRegistrationWindow, windowStatus, type CompetitionSnapshot, type RegistrationWindow, type WindowStatus } from "../registration/index.js";
 import { isTournamentManager, TournamentStoreError, type TournamentStore } from "./store.js";
+import { registrationGateShut } from "./registrationGate.js";
 import type { TournamentDataFileV4, TournamentRecord, TournamentRegistrationSettings } from "./types.js";
 
 export interface TournamentViewer { coach: string; admin?: boolean }
@@ -160,6 +161,9 @@ export function tournamentRegistrationWindow(t: TournamentRecord): RegistrationW
 /** The core's view of a tournament (registration window checks). */
 export function tournamentCompetition(t: TournamentRecord, round1: boolean): CompetitionSnapshot {
   const managers = [t.ownerCoachId ?? t.organizerCoachId, ...(t.organizerCoachIds ?? [])].filter((c): c is string => typeof c === "string" && c !== "");
+  // The Registration gate while its stored state is shut (the core compares the time with `now`; an unreadable gate fails
+  // closed with no time). Epoch 0 = "now" for the read: only the stored state decides whether the snapshot carries it.
+  const shut = registrationGateShut(t, new Date(0));
   return {
     kind: "tournament",
     id: t.id,
@@ -171,6 +175,7 @@ export function tournamentCompetition(t: TournamentRecord, round1: boolean): Com
     test: t.test === true,
     window: tournamentRegistrationWindow(t),
     managers,
+    ...(shut ? { gate: { ...(shut.opensAt ? { opensAt: shut.opensAt } : {}), message: shut.message } } : {}),
     ...(t.startsAt ? { startAt: t.startsAt } : {}),
   };
 }

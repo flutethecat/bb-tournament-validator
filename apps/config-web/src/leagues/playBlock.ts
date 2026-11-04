@@ -33,6 +33,7 @@ export function fixturePlayRefusal(store: CompetitionsSource, leagueId: string, 
   }
   const moved = supersededTeams(store.competitions(leagueId));
   for (const side of [f.home, f.away]) if (side.teamId && moved.has(teamKey(seasonId, side.teamId))) return { message: `${side.team} has moved to another competition of the league: it plays there now.` };
-  const redraft = fixtureRedraftBlock(store.seasons(leagueId), f, now);
+  // Season redrafts and ladder redrafts alike (a ladder's redraft window: ladderRedraft.ts).
+  const redraft = fixtureRedraftBlock(store.competitions(leagueId), f, now);
   return redraft ? { message: redraft } : undefined;
 }

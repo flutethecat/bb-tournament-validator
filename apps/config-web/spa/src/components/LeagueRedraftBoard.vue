@@ -4,7 +4,8 @@
 // set budget (cap noted) and what the coach may spend. Before confirmation: a checkbox per team (the row is shaded), Check
 // all on the Active tab, the cap, the window (Opens at + days) and per-team overrides with a reason; Confirm redraft
 // creates the coaches' tasks. After: a status column (Not started / In progress / Submitted / Needs redraft), overrides,
-// Lift to budget per team and for all, Skip, the window, the redraft log and Close redraft.
+// Lift to budget per team and for all, Skip, the window, the redraft log and Close redraft. Ladders (cleanup lane 11-03): the
+// Competition picker runs a ladder's redraft on the same board (in place: no Inactive tab, no season pickers, no league gates).
 import { computed, inject, onMounted, ref } from "vue";
 import { API_KEY } from "../app";
 import { api as defaultApi } from "../shared/api";
@@ -56,6 +57,8 @@ const shownNote = (r: RedraftBoardRow): string => {
   if (!started.value && r.liftApplies && rules.value?.liftToBudget) return "Lifts on open";
   return budgetNote(r);
 };
+// A ladder team with no task is not due yet (the per-team trigger or the next period hands it one), not "not selected".
+const phaseText = (r: RedraftBoardRow): string => (ladder.value && phaseOf(r) === "not-selected" ? "Not due" : PHASE_LABEL[phaseOf(r)]);
 const phaseOf = (r: RedraftBoardRow): RedraftPhase => r.phase ?? (!r.selected ? "not-selected" : r.status === "pending" ? "not-started" : (r.status as RedraftPhase) ?? "not-started");
 
 const confirmClose = ref(false);
@@ -69,7 +72,10 @@ const fmtWhen = (iso: string): string => `${gateWhen(iso, zone.value)} (${zoneTe
 // The Redraft window gate (beside the board) decides the Opens at while it is shut.
 const gates = useLeagueGates(inject(API_KEY, null) ?? defaultApi, view.value.leagueId);
 onMounted(() => { void gates.ensure(); });
+const ladder = computed(() => view.value.ladder ?? null);
+const TRIGGER_TEXT = { "period-end": "Period end", schedule: "Fixed schedule", games: "After games" } as const;
 const windowGate = computed(() => {
+  if (ladder.value) return undefined;
   const g = gates.gate("redraft-window", "league");
   return g && g.state === "shut" ? g : undefined;
 });
@@ -89,8 +95,17 @@ const COLS = computed(() => (started.value ? 11 : 10));
     <section class="hm-panel" aria-labelledby="rd-board-h">
       <header class="hm-band">
         <h2 id="rd-board-h">Redraft board</h2>
-        <span class="hm-cap">{{ view.source ? `From ${view.source.name}` : "No finished season" }}</span>
+        <span class="hm-cap">{{ ladder ? `${ladder.name} · ${TRIGGER_TEXT[ladder.trigger]}${ladder.trigger === "games" ? ` ${ladder.everyGames}` : ""}` : view.source ? `From ${view.source.name}` : "No finished season" }}</span>
       </header>
+      <div v-if="view.ladders?.length" class="lg-toolbar rd-picks rd-comp">
+        <label class="lg-select">
+          <span>Competition</span>
+          <select :value="ladder?.id ?? ''" :disabled="busy" data-redraft-competition @change="board.pickLadder(($event.target as HTMLSelectElement).value)">
+            <option value="">Seasons</option>
+            <option v-for="l in view.ladders" :key="l.id" :value="l.id">{{ l.name }} (ladder)</option>
+          </select>
+        </label>
+      </div>
       <p v-if="!view.source" class="hm-empty">{{ view.note }}</p>
       <template v-else>
         <p class="hm-small">
@@ -136,7 +151,7 @@ const COLS = computed(() => (started.value ? 11 : 10));
         <div class="lg-toolbar">
           <div class="lg-tabs ls-tabs rd-tabs" role="tablist" aria-label="Teams">
             <button type="button" role="tab" class="lg-tab" :aria-selected="tab === 'active' ? 'true' : 'false'" @click="tab = 'active'">Active teams ({{ view.active.length }})</button>
-            <button type="button" role="tab" class="lg-tab" :aria-selected="tab === 'inactive' ? 'true' : 'false'" @click="tab = 'inactive'">Inactive ({{ view.inactive.length }})</button>
+            <button v-if="!ladder" type="button" role="tab" class="lg-tab" :aria-selected="tab === 'inactive' ? 'true' : 'false'" @click="tab = 'inactive'">Inactive ({{ view.inactive.length }})</button>
           </div>
           <label v-if="!started && tab === 'active'" class="ls-check">
             <input type="checkbox" :checked="allChecked" @change="board.checkAll(view.active, ($event.target as HTMLInputElement).checked)" /> Check all
@@ -174,7 +189,7 @@ const COLS = computed(() => (started.value ? 11 : 10));
                   <td class="lg-num">{{ goldK(r.treasury) }}</td>
                   <td class="lg-num" :data-below="r.earned !== undefined && r.earned < setBudget ? 'true' : undefined">{{ goldK(r.earned ?? r.budget.capped) }}<small v-if="r.earned !== undefined && setBudget && r.earned < setBudget" class="rd-sub rd-nowrap">below {{ goldK(setBudget) }}</small></td>
                   <td class="lg-num"><b>{{ goldK(shownBudget(r)) }}</b><small v-if="shownNote(r)" class="rd-sub">{{ shownNote(r) }}</small></td>
-                  <td v-if="started"><span class="sf-chip rd-status" :data-status="phaseOf(r)" :data-tone="PHASE_TONE[phaseOf(r)]" :title="r.needsRedraft?.reason">{{ PHASE_LABEL[phaseOf(r)] }}</span></td>
+                  <td v-if="started"><span class="sf-chip rd-status" :data-status="phaseOf(r)" :data-tone="PHASE_TONE[phaseOf(r)]" :title="r.needsRedraft?.reason">{{ phaseText(r) }}</span></td>
                   <td class="rd-acts">
                     <template v-if="!closed && (started ? r.selected && r.status === 'pending' : state.picked[r.teamId])">
                       <button type="button" class="sf-btn small" :aria-expanded="editing === r.teamId ? 'true' : 'false'" @click="edit(r)">Override</button>
@@ -203,7 +218,7 @@ const COLS = computed(() => (started.value ? 11 : 10));
         <div class="ls-actions ls-savebar">
           <template v-if="!started">
             <button class="sf-btn primary" type="button" :disabled="busy || board.selectedCount() === 0" @click="board.confirm()">Confirm redraft ({{ board.selectedCount() }})</button>
-            <span class="hm-small">Each selected coach gets a redraft task and builds next season's roster in the Roster Builder.</span>
+            <span class="hm-small">{{ ladder ? `Each selected coach gets a redraft task and rebuilds the team in the Roster Builder; it stays in ${ladder.name}.` : "Each selected coach gets a redraft task and builds next season's roster in the Roster Builder." }}</span>
           </template>
           <template v-else-if="!closed">
             <button v-if="!confirmClose" class="sf-btn" type="button" :disabled="busy" @click="confirmClose = true">Close redraft</button>

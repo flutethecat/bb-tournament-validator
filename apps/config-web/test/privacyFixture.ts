@@ -9,6 +9,7 @@ import { coachSaveKey } from "../src/teamBuilderSaves.js";
 import { notificationFileName } from "../src/notifications.js";
 import type { PrivacyDeps } from "../src/privacy/collectors.js";
 import { seasonAwardId } from "../src/leagues/awards.js";
+import { PRIVACY_VERSION } from "../spa/src/privacy/version.js";
 
 export const ALICE_DISCORD = "900000000000000001";
 export const BOB_DISCORD = "900000000000000002";
@@ -37,7 +38,7 @@ const w = (path: string, value: unknown): void => {
 };
 
 // Every fixture coach has accepted the current privacy notice (otherwise the onboarding gate answers 428).
-export const ACCEPTED = "2026-10-31";
+export const ACCEPTED = PRIVACY_VERSION;
 const rec = (ffbCoachId: string, extra: Record<string, unknown> = {}) => ({
   ffbCoachId, level: "player", banned: false, silenced: false, note: "", profile: {}, identities: {}, updatedAt: "", updatedBy: "",
   consent: { privacy: { acceptedVersion: ACCEPTED, at: "2026-10-31T00:00:00Z" } }, ...extra,

@@ -33,7 +33,7 @@ import { fixturePlayed } from "./tourplay.js";
 import { canMoveStage, isDraftLeague, MIN_TEAMS_TO_START, leagueVisibility, managesLeague, SEASON_STAGE_LABEL, seasonStage, STAGE_ACTION_LABEL, type SeasonStage } from "./lifecycle.js";
 import { seasonTeamEntries } from "./registrationCheck.js";
 import { LEAGUE_FIXTURE_REF } from "./tabletopFixtures.js";
-import { defaultSeasonRegistration, parseSeasonRegistration, seasonRegistrationOf, seasonWindow, seasonWindowStatus, type SeasonRegistration } from "./seasonRegistration.js";
+import { defaultSeasonRegistration, parseSeasonRegistration, seasonRegistrationOf, seasonWindow, seasonWindowStatus, windowWalls, type SeasonRegistration } from "./seasonRegistration.js";
 import {
   DEFAULT_REGISTRATIONS, parseConnections, parseInformation, parseLeagueHouseRules, parseLeagueRegions, parseRegistrations, parseTeamBuilding, registrationsOf, SettingsError, teamBuildingTable,
 } from "./settings.js";
@@ -166,7 +166,7 @@ export function wizardView(league: LeagueRecord, seasons: SeasonRecord[], webhoo
     season: season ? {
       id: season.id, name: season.name, number: season.number, ...(season.startedAt ? { startedAt: season.startedAt } : {}), stage: seasonStage(season),
       divisions: (regular?.groups ?? [""]).filter((g) => g !== ""), playoffs: season.phases.some((p) => p.id === PLAYOFF_PHASE_ID),
-      registration: seasonRegistrationOf(league, season), revision: season.revision ?? 0,
+      registration: (() => { const r = seasonRegistrationOf(league, season); return { ...r, ...windowWalls(r, leagueTimeZone(league)) }; })(), revision: season.revision ?? 0,
       regions: league.regions ?? [],
     } : null,
     connections: { playOnFork: league.playOnFork === true, discord: { configured: Boolean(webhook), maskedUrl: maskWebhookUrl(webhook), events: discordEvents(league) } },
@@ -319,7 +319,8 @@ function patchDraft(league: LeagueRecord, who: LeagueApiIdentity, input: Record<
   const regBase: SeasonRegistration = plan.regs ? { ...seasonRegistrationOf(league, season), ...plan.regs } : seasonRegistrationOf(league, season);
   if (input.season !== undefined && (input.season as Record<string, unknown>).registration !== undefined) {
     const raw = obj((input.season as Record<string, unknown>).registration, "season.registration");
-    plan.registration = parseSeasonRegistration(raw, regBase);
+    // Opens / closes are wall times in the league's zone (the one this same patch sets, else the league's).
+    plan.registration = parseSeasonRegistration(raw, regBase, leagueTimeZone({ timeZone: plan.info?.timeZone ?? league.timeZone }));
     if (raw.payPal !== undefined || raw.venmo !== undefined) plan.payDefaults = { payPal: plan.registration.payPal, venmo: plan.registration.venmo };
   } else if (plan.regs) plan.registration = regBase;
   if (input.connections !== undefined) plan.connections = parseConnections(input.connections, discordEvents(league));
@@ -427,7 +428,10 @@ function moveStage(league: LeagueRecord, seasonId: string, input: Record<string,
 
 /** The season's registration read model (public for a visible league; the organiser view adds the season revision). */
 export function seasonRegistrationView(league: LeagueRecord, season: SeasonRecord, now: Date, manager: boolean) {
-  const settings = seasonRegistrationOf(league, season);
+  const zone = leagueTimeZone(league);
+  const stored = seasonRegistrationOf(league, season);
+  // The form shows (and sends back) the window in the league's zone, labelled with it.
+  const settings = { ...stored, ...windowWalls(stored, zone) };
   const status = seasonWindowStatus(league, season, now);
   const counts = registrationCounts(seasonWindow(settings), seasonTeamEntries(league, season));
   return {
@@ -437,6 +441,7 @@ export function seasonRegistrationView(league: LeagueRecord, season: SeasonRecor
     open: status.open,
     ...(status.open ? {} : { reason: status.reason, message: status.message }),
     settings,
+    timeZone: zone,
     counts: { teams: counts.accepted, cap: counts.cap, placesLeft: counts.placesLeft },
     ...(manager ? { revision: season.revision ?? 0 } : {}),
   };
@@ -452,7 +457,7 @@ function patchSeasonRegistration(league: LeagueRecord, seasonId: string, input: 
   if (asked === "bad") return fail(400, "revision must be a whole number.", "revision");
   if (asked !== current) return res(409, { error: "This season changed since you opened it. Reload to see the latest.", revision: current });
   const { revision: _r, ...fields } = input;
-  season.registration = parseSeasonRegistration(fields, seasonRegistrationOf(league, season));
+  season.registration = parseSeasonRegistration(fields, seasonRegistrationOf(league, season), leagueTimeZone(league));
   deps.store.putSeason(season);
   const saved = deps.store.season(league.id, season.id) ?? season;
   return res(200, { ok: true, registration: seasonRegistrationView(league, saved, deps.now?.() ?? new Date(), true) });

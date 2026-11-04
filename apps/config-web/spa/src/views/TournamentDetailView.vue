@@ -20,6 +20,7 @@ import TournamentEntrants from "../components/TournamentEntrants.vue";
 import TournamentFront from "../components/TournamentFront.vue";
 import TournamentManage from "../components/TournamentManage.vue";
 import TournamentMyEntry from "../components/TournamentMyEntry.vue";
+import LeagueGateBanner from "../components/LeagueGateBanner.vue";
 import TournamentOverview from "../components/TournamentOverview.vue";
 import TournamentRounds from "../components/TournamentRounds.vue";
 import TournamentSectionHeader from "../components/TournamentSectionHeader.vue";
@@ -126,7 +127,7 @@ const writesAllowedHere = computed(() => writesAllowed(session) || state.tournam
       <div v-else class="tn-tab-body sf-fill">
         <template v-if="tab === 'overview'">
           <TournamentFront />
-          <TournamentOverview :tournament="state.tournament"><TournamentMyEntry /></TournamentOverview>
+          <TournamentOverview :tournament="state.tournament"><LeagueGateBanner :key="`tn-gate-${state.tournament.id}`" :tournament-id="state.tournament.id" :kinds="['registration']" /><TournamentMyEntry /></TournamentOverview>
         </template>
         <TournamentEntrants
           v-else-if="tab === 'participants'" :entrants="state.entrants" :organiser="state.capabilities.manage" :check-in="state.capabilities.manage && writesAllowedHere"

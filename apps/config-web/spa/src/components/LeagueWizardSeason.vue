@@ -16,6 +16,8 @@ import CompetitionFormatFields from "./CompetitionFormatFields.vue";
 const wizard = inject(LEAGUE_WIZARD_KEY)!;
 const { state } = wizard;
 const s = computed(() => state.form.season);
+// Registration opens / closes are wall times in the league's zone (set on the General step), never the browser's.
+const zoneText = computed(() => (state.form.identity.timeZone || "UTC").replace(/_/g, " "));
 const APPROVAL = [
   { id: "organiser", title: "Organiser approval", line: "The organisers review every team." },
   { id: "auto", title: "Auto-accept", line: "Teams join while there is room." },
@@ -73,11 +75,11 @@ async function save(input: { name: string; description: string; includePayLinks:
     <div class="lw-col">
       <div class="lw-two">
         <label class="sf-field lw-field">
-          <span class="sf-k">Registration opens</span>
+          <span class="sf-k">Registration opens ({{ zoneText }})</span>
           <input v-model="s.opensAt" type="datetime-local" />
         </label>
         <label class="sf-field lw-field" :data-invalid="state.errors.closesAt ? 'true' : undefined">
-          <span class="sf-k">Registration closes</span>
+          <span class="sf-k">Registration closes ({{ zoneText }})</span>
           <input v-model="s.closesAt" type="datetime-local" />
           <small v-if="state.errors.closesAt" class="sf-error">{{ state.errors.closesAt }}</small>
         </label>

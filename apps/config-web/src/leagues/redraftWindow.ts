@@ -14,9 +14,10 @@
 import type { NotificationInput } from "../notifications.js";
 import { draftAwareNotify } from "./lifecycle.js";
 import {
-  applyDraftTeam, buildDraftTeam, d6, draftContext, draftList, gold, leaguePlayerIds, LIMITS, RedraftError, redraftTarget, restAndRelaxation,
+  buildDraftTeam, d6, draftContext, draftList, gold, inPlaceDraftTeam, isLadderRecord, leaguePlayerIds, LIMITS, placeDraft, RedraftError, redraftReceiver, restAndRelaxation,
   targetConflict, validateDraft, type DraftContext, type DraftInput, type Roller,
 } from "./redraft.js";
+import { forkPlayLock } from "./forkTeam.js";
 import { leagueOwner, type LeagueStore } from "./store.js";
 import { assignSeasonsPlayed } from "./playerIds.js";
 import { leagueTimeZone } from "./timeZone.js";
@@ -37,9 +38,10 @@ export const DAY_MS = 24 * 60 * 60 * 1000;
 export const REMINDER_MS = DAY_MS;
 
 /** Server links (the SPA base is /app/): the coach's Redraft mode in the Roster Builder, or the organiser's board. */
-export const redraftModeLink = (leagueId: string, teamId: string): string =>
-  `/app/tournament-team-builder/redraft/${encodeURIComponent(leagueId)}?team=${encodeURIComponent(teamId)}`;
-export const redraftBoardLink = (leagueId: string): string => `/app/leagues/${encodeURIComponent(leagueId)}/settings?tab=redraft`;
+export const redraftModeLink = (leagueId: string, teamId: string, ladderId?: string): string =>
+  `/app/tournament-team-builder/redraft/${encodeURIComponent(leagueId)}?team=${encodeURIComponent(teamId)}${ladderId ? `&ladder=${encodeURIComponent(ladderId)}` : ""}`;
+export const redraftBoardLink = (leagueId: string, ladderId?: string): string =>
+  `/app/leagues/${encodeURIComponent(leagueId)}/settings?tab=redraft${ladderId ? `&ladder=${encodeURIComponent(ladderId)}` : ""}`;
 
 /** "Nov 9, 2026, 18:00 UTC", or in the league's zone ("Nov 9, 2026, 19:00 Europe/London"; gates lane: the redraft window
  *  reads the league time zone, never the organiser's browser). */
@@ -72,8 +74,10 @@ export function commitDraft(
 ): CommitOutcome & { target?: SeasonRecord } {
   const state = source.redraft!;
   const price = validateDraft(ctx, input);
-  const target = redraftTarget(seasons, source);
-  const conflict = target ? targetConflict(target, ctx.team) : "";
+  const target = redraftReceiver(seasons, source);
+  // A ladder redraft is in place: the ladder holds the team's results by design; only a live Super FUMBBL game stops it.
+  const inPlace = isLadderRecord(source);
+  const conflict = inPlace ? forkPlayLock(source, ctx.team.id) : target ? targetConflict(target, ctx.team) : "";
   if (conflict) {
     ctx.task.status = "expired";
     ctx.task.expiredReason = conflict;
@@ -81,7 +85,8 @@ export function commitDraft(
     state.log.unshift({ at: now, by: actor, text: `${ctx.team.name}'s redraft expired: ${conflict}`, teamId: ctx.team.id });
     return { ok: false, conflict };
   }
-  const newTeam = buildDraftTeam(ctx, price, input, { leagueId, slug: target?.sourceSlug ?? `redraft:${source.id}` }, leaguePlayerIds(seasons));
+  const built = buildDraftTeam(ctx, price, input, { leagueId, slug: target?.sourceSlug ?? `redraft:${source.id}` }, leaguePlayerIds(seasons));
+  const newTeam = inPlace ? inPlaceDraftTeam(ctx.team, built) : built;
   ctx.task.draft = draftList(price, input, newTeam);
   ctx.task.status = "submitted";
   ctx.task.submittedAt = now;
@@ -90,7 +95,7 @@ export function commitDraft(
   if (opts.auto) ctx.task.auto = true;
   // apply: false (the window job's journal step) leaves the list waiting on the task; the job's apply step writes it.
   if (target && opts.apply !== false) {
-    applyDraftTeam(target, newTeam);
+    placeDraft(target, newTeam, now);
     ctx.task.appliedTo = target.id;
   }
   const retired = ctx.team.players.length - price.keep.length;
@@ -209,21 +214,30 @@ export function runRedraftWindowJob(deps: RedraftWindowDeps): RedraftWindowOutco
   const iso = now.toISOString();
   const out: RedraftWindowOutcome = { opened: [], reminded: [], closed: [], failed: [] };
   for (const league of deps.store.list()) {
-    if (!deps.store.seasons(league.id).some((s) => s.redraft && due(s.redraft, ms))) continue;
-    const seasons = redraftSeasons(deps.store, league.id);
-    const source = seasons.find((s) => s.redraft && due(s.redraft, ms));
-    if (!source) continue;
+    // Ladder redrafts (cleanup lane 11-03: period end, fixed schedule or per team) run through the same steps, in place.
+    let ladders: SeasonRecord[] = [];
+    try { ladders = deps.store.ladders(league.id); } catch { ladders = []; }
+    const isDue = (s: SeasonRecord): boolean => Boolean(s.redraft && due(s.redraft, ms));
+    if (!deps.store.seasons(league.id).some(isDue) && !ladders.some(isDue)) continue;
+    const seasonList = redraftSeasons(deps.store, league.id);
+    const sources = [...seasonList.filter(isDue).slice(0, 1), ...ladders.filter(isDue)];
+    for (const source of sources) {
+    const ladderId = isLadderRecord(source) ? source.id : undefined;
+    // A ladder's tasks price from the ladder itself (it is the source and the receiver).
+    const seasons = ladderId ? [source, ...seasonList] : seasonList;
     const state = source.redraft!;
     const w = state.window!;
     const zone = leagueTimeZone(league);
     // Gates (gates.ts), read directly: the window opens only once its gate is open, and the close (with its automatic rest rolls
     // and rebuilds) waits while the rest-roll or submission gate is still shut. Unreadable gates count as shut (fail closed).
-    const shut = (k: "redraft-window" | "redraft-rest" | "redraft-submit"): boolean => Boolean(gateRefusal(deps.store, league, k, "league", now));
+    // The league's redraft gates belong to its season redraft: a ladder redraft has none.
+    const shut = (k: "redraft-window" | "redraft-rest" | "redraft-submit"): boolean => !ladderId && Boolean(gateRefusal(deps.store, league, k, "league", now));
+    const nextRoster = ladderId ? "rebuild the team" : "build next season's roster";
     // (The window gate is read only before the window opens: the open step below is the only place it is asked.)
     const notices: Array<{ coach: string; input: NotificationInput }> = [];
     const pending = state.teams.filter((x) => x.selected && x.status === "pending");
     const coachNote = (coach: string | undefined, teamId: string, title: string, body: string): void => {
-      if (coach) notices.push({ coach, input: { type: "league-broadcast", title, body: `${league.name}: ${body}`, link: redraftModeLink(league.id, teamId), from: league.name, action: true } });
+      if (coach) notices.push({ coach, input: { type: "league-broadcast", title, body: `${league.name}: ${body}`, link: redraftModeLink(league.id, teamId, ladderId), from: league.name, action: true } });
     };
     const write = (s: SeasonRecord): void => { try { deps.store.putSeason(s); } catch { throw new WriteFailed(); } };
     try {
@@ -232,7 +246,7 @@ export function runRedraftWindowJob(deps: RedraftWindowDeps): RedraftWindowOutco
       if (live && !w.openNotifiedAt && ms >= t(w.opensAt) && !shut("redraft-window")) {
         w.openNotifiedAt = iso;
         changed = true;
-        for (const x of pending) coachNote(x.coachId, x.teamId, "Redraft open", `the redraft for ${x.name} is open until ${whenText(w.closesAt, zone)}. Roll Rest & Relaxation, then build next season's roster in the Roster Builder.`);
+        for (const x of pending) coachNote(x.coachId, x.teamId, "Redraft open", `the redraft for ${x.name} is open until ${whenText(w.closesAt, zone)}. Roll Rest & Relaxation, then ${nextRoster} in the Roster Builder.`);
         out.opened.push(`${league.id}/${source.id}`);
       }
       if (live && !w.reminderAt && ms >= t(w.closesAt) - REMINDER_MS && ms < t(w.closesAt)) {
@@ -266,12 +280,12 @@ export function runRedraftWindowJob(deps: RedraftWindowDeps): RedraftWindowOutco
         }
         // 2. apply the journalled lists to the receiving season (resumes after an interrupted tick).
         const closing = w.closing;
-        const target = redraftTarget(seasons, source);
+        const target = redraftReceiver(seasons, source);
         const waiting = state.teams.filter((x) => x.auto && x.status === "submitted" && x.draft && !x.appliedTo);
         if (target && waiting.length) {
           // A journalled rebuild is never expired here: the team stayed blocked from play since the journal (applyingRebuild),
           // so whatever the receiving season holds for it is an earlier attempt of this same roster (placed again).
-          for (const task of waiting) applyDraftTeam(target, task.draft!.team);
+          for (const task of waiting) placeDraft(target, task.draft!.team, closing!);
           write(target);
           for (const task of waiting) task.appliedTo = target.id;
         }
@@ -285,7 +299,7 @@ export function runRedraftWindowJob(deps: RedraftWindowDeps): RedraftWindowOutco
           else if (needs.includes(task.teamId)) coachNote(task.coachId, task.teamId, "Redraft needed", `the redraft window closed and ${task.name}'s current roster does not fit (${task.needsRedraft!.reason}). The team cannot play until you submit a draft list.`);
         }
         for (const coach of organisersOf(league)) {
-          notices.push({ coach, input: { type: "league-broadcast", title: "Redraft window closed", body: `${league.name}: ${rebuilt.length} rebuilt from their current roster, ${needs.length} need a redraft.`, link: redraftBoardLink(league.id), from: league.name } });
+          notices.push({ coach, input: { type: "league-broadcast", title: "Redraft window closed", body: `${league.name}${ladderId ? ` ${source.name}` : ""}: ${rebuilt.length} rebuilt from their current roster, ${needs.length} need a redraft.`, link: redraftBoardLink(league.id, ladderId), from: league.name } });
         }
         out.closed.push({ leagueId: league.id, seasonId: source.id, rebuilt, needsRedraft: needs });
         changed = true;
@@ -302,6 +316,7 @@ export function runRedraftWindowJob(deps: RedraftWindowDeps): RedraftWindowOutco
     if (deps.notify) {
       const send = draftAwareNotify(deps.store, league.id, deps.notify, deps.isAdmin ?? (() => false));
       for (const n of notices) { try { send(n.coach, n.input); } catch { /* fire-and-forget */ } }
+    }
     }
   }
   return out;

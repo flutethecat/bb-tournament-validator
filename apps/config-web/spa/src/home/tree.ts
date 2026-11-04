@@ -48,7 +48,9 @@ export interface MyLeagueTeamView {
 export interface MyLeagueView {
   id: string;
   name: string;
-  season: { id: string; number: number; name: string };
+  /** Absent when the coach's only seats are in ladders (then `ladders` names them; their teams link to the Ladder tab). */
+  season?: { id: string; number: number; name: string };
+  ladders?: Array<{ id: string; name: string }>;
   to: string;
   teams: MyLeagueTeamView[];
 }

@@ -11,6 +11,10 @@
  * Self-registration is open when (seasonWindowStatus): the league is published, the season is not finished, its stage is
  * registration (or active with joining mid-season on), Allow registration is on, and now is in [opensAt, closesAt).
  * The cap check (max teams, max per race) is the core's roomFor; registrationCheck.ts combines both with the roster class.
+ *
+ * Opens / closes (cleanup lane 11-03): the settings forms send a wall-clock time in the LEAGUE's zone (opensAtWall /
+ * closesAtWall, like the redraft board and the gates), never the organiser's browser zone. The instant (opensAt / closesAt) is
+ * what every check reads; the wall time and its zone (windowZone) are kept beside it so the form shows what was typed.
  */
 import {
   normalizeCap, organiserMayAdd, windowStatus, type ApprovalMode, type CompetitionSnapshot, type RegistrationWindow, type WindowStatus,
@@ -19,7 +23,8 @@ import { normalisePayPal, parsePayField, venmoUrl } from "../payments/links.js";
 import { isDraftLeague, seasonStage } from "./lifecycle.js";
 import { DEFAULT_REGISTRATIONS, parseRegistrations, registrationsOf, SettingsError } from "./settings.js";
 import { leagueOwner } from "./store.js";
-import { leagueTimeZone } from "./timeZone.js";
+import { isTimeZone, leagueTimeZone, wallOf } from "./timeZone.js";
+import { parseWall, wallInstant } from "./leagueEvents.js";
 import type { LeagueRecord, LeagueRegistrations, SeasonRecord } from "./types.js";
 
 export interface SeasonRegistration extends LeagueRegistrations {
@@ -27,6 +32,10 @@ export interface SeasonRegistration extends LeagueRegistrations {
   opensAt?: string;
   /** ISO; absent = open until the season starts. */
   closesAt?: string;
+  /** What the organiser typed: the wall-clock times and the zone they were in (the league's, when saved). */
+  opensAtWall?: string;
+  closesAtWall?: string;
+  windowZone?: string;
   approval: ApprovalMode;
   waitlist: boolean;
   allowExistingTeams: boolean;
@@ -100,7 +109,7 @@ const boolField = (v: unknown, field: string): boolean => {
  * max per race) go through the Registrations tab's own parser (settings.ts parseRegistrations), so the wizard, the
  * league defaults and the season settings refuse the same things with the same words.
  */
-export function parseSeasonRegistration(raw: unknown, prior: SeasonRegistration): SeasonRegistration {
+export function parseSeasonRegistration(raw: unknown, prior: SeasonRegistration, zone = "UTC"): SeasonRegistration {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new SettingsError(400, "registration must be an object.", "registration");
   const r = raw as Record<string, unknown>;
   const shared = parseRegistrations(
@@ -108,11 +117,25 @@ export function parseSeasonRegistration(raw: unknown, prior: SeasonRegistration)
     { allowedRosters: prior.allowedRosters, allowRegistration: prior.allowRegistration, maxRegistrations: prior.maxRegistrations, maxPerRace: prior.maxPerRace },
   );
   const next: SeasonRegistration = { ...structuredClone(prior), ...shared };
+  const tz = isTimeZone(zone) ? zone : "UTC";
   for (const [k, label] of [["opensAt", "Registration opens"], ["closesAt", "Registration closes"]] as const) {
+    const wk = k === "opensAt" ? "opensAtWall" : "closesAtWall";
+    if (r[wk] !== undefined) {
+      // A wall-clock time in the league's zone (the settings form and the wizard).
+      if (r[wk] === null || r[wk] === "") { delete next[k]; delete next[wk]; continue; }
+      const wall = parseWall(r[wk]);
+      if (!wall) throw new SettingsError(400, `${label} must be a date and time (2026-11-05T19:00).`, wk);
+      next[k] = isoOrClear(new Date(wallInstant(wall, tz)).toISOString(), wk, label)!;
+      next[wk] = wall;
+      continue;
+    }
     if (r[k] === undefined) continue;
+    // An instant (templates, older clients): the typed wall time is no longer known.
     const v = isoOrClear(r[k], k, label);
+    delete next[wk];
     if (v === null) delete next[k]; else next[k] = v;
   }
+  if (next.opensAtWall || next.closesAtWall) next.windowZone = tz; else delete next.windowZone;
   if (next.opensAt && next.closesAt && Date.parse(next.closesAt) <= Date.parse(next.opensAt))
     throw new SettingsError(400, "Registration must close after it opens.", "closesAt");
   if (r.approval !== undefined) {
@@ -128,6 +151,14 @@ export function parseSeasonRegistration(raw: unknown, prior: SeasonRegistration)
   }
   applyPayFields(r, next);
   return next;
+}
+
+/** The window's opens / closes as wall-clock times in `zone` (the stored typed value when it was typed in that zone). */
+export function windowWalls(reg: Pick<SeasonRegistration, "opensAt" | "closesAt" | "opensAtWall" | "closesAtWall" | "windowZone">, zone: string): { opensAtWall?: string; closesAtWall?: string } {
+  const one = (iso: string | undefined, wall: string | undefined): string | undefined => (!iso ? undefined : wall && reg.windowZone === zone ? wall : wallOf(iso, zone));
+  const o = one(reg.opensAt, reg.opensAtWall);
+  const c = one(reg.closesAt, reg.closesAtWall);
+  return { ...(o ? { opensAtWall: o } : {}), ...(c ? { closesAtWall: c } : {}) };
 }
 
 /** The season's settings as the core's window (max teams = cap, max per race = perRace). */

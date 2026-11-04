@@ -17,6 +17,7 @@
  * turning Discord on, publishing a draft or deploying this never replays history. Markers are written before the post
  * (best effort: a failed post is not retried, like every other Discord post here).
  */
+import { registrationGateShut } from "../tournaments/registrationGate.js";
 import type { DiscordPayload, WebhookPoster } from "../leagues/discord.js";
 import { postWebhook as defaultPoster } from "../leagues/discord.js";
 import { isDraftLeague } from "../leagues/lifecycle.js";
@@ -136,7 +137,8 @@ export class DiscordObserver {
     const rounds = this.deps.tournaments.rounds(t.id);
     if (t.unpublished !== true) out.push({ marker: "published", key: "published", payload: () => simplePost(name, "published", "Now open on the site.", { test }) });
     const opens = t.registration?.opensAt;
-    if (opens && Date.parse(opens) <= now) out.push({ marker: `regopen:${opens}`, key: "registrationOpened", payload: () => simplePost(name, "registrationOpened", "Registration is open.", { test }) });
+    // While a Registration gate is shut nothing is open yet (its opening posts and marks this marker: src/tournaments/gates.ts).
+    if (opens && Date.parse(opens) <= now && !registrationGateShut(t, new Date(now))) out.push({ marker: `regopen:${opens}`, key: "registrationOpened", payload: () => simplePost(name, "registrationOpened", "Registration is open.", { test }) });
     for (const e of entrants) if (e.droppedAt === undefined) out.push({ marker: `entrant:${e.id}`, key: "newRegistration", payload: () => simplePost(name, "newRegistration", `${safe(label(e.id))} registered.`, { test }) });
     const close = t.deadlines?.registration ? Date.parse(t.deadlines.registration) : NaN;
     if (Number.isFinite(close) && close > now && close - now <= 24 * HOUR)

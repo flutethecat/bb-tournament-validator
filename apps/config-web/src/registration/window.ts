@@ -66,6 +66,8 @@ export function windowStatus(c: CompetitionSnapshot, now: Date): WindowStatus {
   if (c.locked) return closed("locked");
   if (c.started && !c.window.allowMidSeason) return closed("started");
   const t = now.getTime();
+  // A shut Registration gate (tournaments): refused until it opens, whatever the window's own dates say.
+  if (c.gate && (c.gate.opensAt === undefined || !(t >= (ms(c.gate.opensAt) ?? Infinity)))) return { open: false, reason: "not-yet-open", message: c.gate.message };
   const opens = ms(c.window.opensAt);
   const closes = ms(c.window.closesAt);
   if (opens !== undefined && t < opens) return closed("not-yet-open");

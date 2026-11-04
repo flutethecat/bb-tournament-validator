@@ -622,6 +622,10 @@ export interface RedraftBoardView {
   active: RedraftBoardRow[];
   inactive: RedraftBoardRow[];
   note: string;
+  /** Cleanup lane 11-03: the ladder this board runs (null / absent = the season redraft) and its trigger. */
+  ladder?: { id: string; name: string; trigger: "period-end" | "schedule" | "games"; everyGames: number } | null;
+  /** The league's running ladders (the board's competition picker). */
+  ladders?: Array<{ id: string; name: string }>;
 }
 
 export interface RestRoll { playerId: string; roll: number; target: number; recovered: boolean; source: "site" | "entered" }
@@ -700,6 +704,8 @@ export interface CoachRedraftView {
 export interface MyRedraftTask {
   leagueId: string; leagueName: string; teamId: string; teamName: string; race: string; status: RedraftTaskStatus; spendable: number; link: string;
   phase?: RedraftPhase; closesAt?: string;
+  /** A ladder's redraft (its Redraft mode carries ?ladder=). */
+  ladderId?: string;
 }
 
 /** The team summary's redraft budget (GET .../seasons/:seasonId/teams/:teamId/redraft-budget). */

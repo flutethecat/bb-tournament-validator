@@ -70,6 +70,14 @@ describe("nav tree: leagues", () => {
     expect(treeLeagues(undefined, { crests: undefined })).toEqual([]);
   });
 
+  it("treeLeagues: a ladder-only league row (no season) lists its ladder team linking to the Ladder tab (cleanup lane 11-03)", () => {
+    const rows = treeLeagues([{
+      id: "eps", name: "Epsilon", ladders: [{ id: "ladder-1", name: "Spring Ladder" }], to: "/leagues/eps?tab=ladder&ladder=ladder-1",
+      teams: [{ id: "orcs", name: "Fay Orcs", race: "Orc", record: { wins: 1, draws: 0, losses: 0 }, to: "/leagues/eps?tab=ladder&ladder=ladder-1", next: null }],
+    }], { crests: undefined });
+    expect(rows).toEqual([{ id: "eps", name: "Epsilon", to: "/leagues/eps?tab=ladder&ladder=ladder-1", teams: [expect.objectContaining({ name: "Fay Orcs", record: "1-0-0", to: "/leagues/eps?tab=ladder&ladder=ladder-1" })] }]);
+  });
+
   it("the controller reads GET /api/me/leagues; a failing read leaves no leagues; sign-out clears them", async () => {
     const tree = createCoachTree({ api: mockFetcher(signedIn()) });
     await tree.load("Alice");

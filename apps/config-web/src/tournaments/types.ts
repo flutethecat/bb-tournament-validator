@@ -56,6 +56,13 @@ export interface TournamentRecord {
   unpublished?: true;
   /** Registration settings (registration spec §2). Absent on legacy records (today's behaviour). */
   registration?: TournamentRegistrationSettings;
+  /** The Registration gate (cleanup lane 11-03, src/tournaments/registrationGate.ts): self-registration stays shut until it
+   *  opens. Absent = off (the default). */
+  registrationGate?: import("./registrationGate.js").TournamentGate;
+  /** The last revision of the Registration gate that was switched off (a re-created gate continues from it). */
+  registrationGateRetired?: number;
+  /** The tournament's IANA time zone (tournamentTimeZone). Absent = UTC, the zone every tournament time is shown in today. */
+  timeZone?: string;
   format: "swiss" | "roundRobin" | "knockout";
   packageName: string;
   /** Zero is accepted only for migrated legacy data and means uncapped. */

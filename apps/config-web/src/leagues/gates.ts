@@ -324,7 +324,8 @@ export function syncGateTargets(store: LeagueStore, leagueId: string, now: Date)
     const rd = c.redraft;
     const win = rd?.window;
     const wg = find("redraft-window", "league");
-    if (rd && win && wg && !rd.closedAt && !win.openNotifiedAt) {
+    // (A ladder's own redraft has no league gate: ladderRedraft.ts.)
+    if (rd && win && wg && !isLadder(c) && !rd.closedAt && !win.openNotifiedAt) {
       const length = Math.max(60_000, Date.parse(win.closesAt) - Date.parse(win.opensAt));
       const at = gateTime(wg, w.events, w.zone);
       let opens: number | undefined;

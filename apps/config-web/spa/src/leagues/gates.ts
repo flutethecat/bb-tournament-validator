@@ -54,16 +54,26 @@ export const GATE_TEXT: Record<GateKind, { label: string; help: string; banner: 
   "honours-reveal": { label: "Honours reveal", help: "Period honours stay hidden until then, then they are revealed and announced.", banner: "Period honours are revealed" },
 };
 
-const base = (leagueId: string): string => `/api/leagues/${encodeURIComponent(leagueId)}`;
+/** Where a scope's gates live: a league's (every gate kind), or a tournament's (its one Registration gate, cleanup lane 11-03:
+ *  the same read model and routes under /api/tournaments/:id, "At a time" only). */
+export const leagueGateBase = (leagueId: string): string => `/api/leagues/${encodeURIComponent(leagueId)}`;
+export const tournamentGateBase = (tournamentId: string): string => `/api/tournaments/${encodeURIComponent(tournamentId)}`;
 
 export interface GatePayload { mode: "off" | "time" | "event"; opensAt?: string; eventId?: string; offsetMinutes?: number; autoStart?: boolean }
 
+/** The gate API over a base path (leagueGateBase / tournamentGateBase). */
+export const gatesApiAt = {
+  list: (api: Fetcher, base: string) => api<GatesRead>(`${base}/gates`),
+  save: (api: Fetcher, base: string, kind: GateKind, target: string, revision: number, body: GatePayload) =>
+    api<{ gate: GateView | null; removed?: boolean; warning?: string }>(`${base}/gates/${kind}/${encodeURIComponent(target)}`, { method: "PUT", body: { ...body, revision } }),
+  open: (api: Fetcher, base: string, kind: GateKind, target: string, revision: number) =>
+    api<{ gate: GateView }>(`${base}/gates/${kind}/${encodeURIComponent(target)}/open`, { method: "POST", body: { revision } }),
+};
+
 export const gatesApi = {
-  list: (api: Fetcher, leagueId: string) => api<GatesRead>(`${base(leagueId)}/gates`),
-  save: (api: Fetcher, leagueId: string, kind: GateKind, target: string, revision: number, body: GatePayload) =>
-    api<{ gate: GateView | null; removed?: boolean; warning?: string }>(`${base(leagueId)}/gates/${kind}/${encodeURIComponent(target)}`, { method: "PUT", body: { ...body, revision } }),
-  open: (api: Fetcher, leagueId: string, kind: GateKind, target: string, revision: number) =>
-    api<{ gate: GateView }>(`${base(leagueId)}/gates/${kind}/${encodeURIComponent(target)}/open`, { method: "POST", body: { revision } }),
+  list: (api: Fetcher, leagueId: string) => gatesApiAt.list(api, leagueGateBase(leagueId)),
+  save: (api: Fetcher, leagueId: string, kind: GateKind, target: string, revision: number, body: GatePayload) => gatesApiAt.save(api, leagueGateBase(leagueId), kind, target, revision, body),
+  open: (api: Fetcher, leagueId: string, kind: GateKind, target: string, revision: number) => gatesApiAt.open(api, leagueGateBase(leagueId), kind, target, revision),
 };
 
 // ---- a per-league store (one read for every editor and banner on the page) ---------------------------------------------
@@ -74,16 +84,26 @@ const stores = new Map<string, { state: GatesState; inflight?: Promise<void> }>(
 
 /** The league's gates, read once per page (reload() after a write). */
 export function useLeagueGates(api: Fetcher, leagueId: string) {
-  let entry = stores.get(leagueId);
+  return useGatesAt(api, leagueGateBase(leagueId), leagueId);
+}
+
+/** A tournament's Registration gate (the same store and editor as a league's). */
+export function useTournamentGates(api: Fetcher, tournamentId: string) {
+  return useGatesAt(api, tournamentGateBase(tournamentId), tournamentId);
+}
+
+/** The gates under a base path, read once per page and shared by every editor and banner on it. */
+export function useGatesAt(api: Fetcher, base: string, id: string) {
+  let entry = stores.get(base);
   if (!entry) {
-    entry = { state: reactive<GatesState>({ leagueId, loaded: false, error: "", read: null, at: 0 }) };
-    stores.set(leagueId, entry);
+    entry = { state: reactive<GatesState>({ leagueId: id, loaded: false, error: "", read: null, at: 0 }) };
+    stores.set(base, entry);
   }
   const e = entry;
   async function reload(): Promise<void> {
     e.inflight = (async () => {
       try {
-        const read = await gatesApi.list(api, leagueId);
+        const read = await gatesApiAt.list(api, base);
         e.state.read = read;
         e.state.at = Date.now();
         e.state.error = "";
@@ -102,7 +122,7 @@ export function useLeagueGates(api: Fetcher, leagueId: string) {
   const gate = (kind: GateKind, target: string): GateView | undefined => e.state.read?.gates.find((g) => g.kind === kind && g.target === target);
   /** The revision a save must name: the gate's, else the last one of the gate switched off here, else 0. */
   const baseRevision = (kind: GateKind, target: string): number => gate(kind, target)?.revision ?? e.state.read?.retired?.[`${kind}:${target}`] ?? 0;
-  return { state: e.state, reload, ensure, gate, baseRevision };
+  return { state: e.state, reload, ensure, gate, baseRevision, base };
 }
 
 /** Tests: forget every cached league. */

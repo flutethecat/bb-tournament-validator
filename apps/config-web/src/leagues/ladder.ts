@@ -636,14 +636,23 @@ export function challengesPaused(league: Pick<LeagueRecord, "redraftRules" | "re
   return "";
 }
 
-/** A team that must redraft before its next challenge ("" = none): over the TV cap, or the per-team N-games trigger. */
+/**
+ * A team that must redraft before its next challenge ("" = none): over the TV cap; a task still to do in the ladder's open
+ * redraft (the per-team rolling redraft, or a window that closed and marked it "needs redraft"); or (cleanup lane 11-03) the
+ * per-team trigger: it played N ladder games since it joined or last redrafted. The ladder job hands such a team its task
+ * (ladderRedraft.ts), which it completes in Redraft mode; the organiser can also skip it from the board.
+ */
 export function teamRedraftBlock(league: Pick<LeagueRecord, "redraftRules" | "redraftCap">, ladder: SeasonRecord, team: LeagueTeam, now: Date): string {
   void league; void now;
   const s = settingsOf(ladder.ladder).redraft;
   if (s.tvCap !== null && typeof team.teamValue === "number" && team.teamValue > s.tvCap) return `${team.name} is over the ladder's TV cap and must redraft before its next challenge.`;
-  // The per-team "after N games" trigger is stored but NOT enforced yet: nothing can redraft a ladder team until the ladder
-  // redraft board exists (a later lane), so enforcing it would block a team for good. ladderTeamGamesSinceRedraft() is the
-  // count that lane will compare. (A team over the TV cap can get under it from its team page, so the cap is enforced.)
+  const st = ladder.redraft;
+  const task = st && !st.closedAt ? st.teams.find((t) => t.teamId === team.id && t.selected && t.status === "pending") : undefined;
+  if (task && (task.needsRedraft || !st!.window)) return `${team.name} must finish its redraft (in the Roster Builder's Redraft mode) before its next challenge.`;
+  if (s.trigger === "games" && s.everyGames > 0) {
+    const n = ladderTeamGamesSinceRedraft(ladder, team.id);
+    if (n >= s.everyGames) return `${team.name} has played ${n} ladder game${n === 1 ? "" : "s"} since its last redraft and must redraft before its next challenge.`;
+  }
   return "";
 }
 
@@ -687,7 +696,7 @@ export const LADDER_PHASES = (): SeasonRecord["phases"] => [
   { id: ROUND_PHASE, category: "Ladder", name: "Rounds", groups: [""], standings: [] },
 ];
 
-/** Games a ladder team has played since it joined (or last redrafted): the per-team redraft trigger's count (not enforced yet). */
+/** Games a ladder team has played since it joined (or last redrafted): the per-team redraft trigger's count. */
 export function ladderTeamGamesSinceRedraft(ladder: SeasonRecord, teamId: string): number {
   const m = (ladder.ladder?.members ?? []).find((x) => x.teamId === teamId);
   const since = Date.parse(m?.redraftedAt ?? m?.joinedAt ?? "") || 0;
