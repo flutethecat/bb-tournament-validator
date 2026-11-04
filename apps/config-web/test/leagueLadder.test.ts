@@ -1120,3 +1120,27 @@ describe("ladders beside team swaps and takeovers", () => {
     expect((r.body as { code: string }).code).toBe("library-source");
   });
 });
+
+// ---- the club pick at join (clubs lane, src/clubs/pick.ts) ----------------------------------------------------------
+describe("club pick at ladder join", () => {
+  it("stores the pick on the ladder entry (own clubs only), shows it to organisers, and fixes it once accepted", async () => {
+    const { setClubDirectory } = await import("../src/clubs/pick.js");
+    setClubDirectory({ membershipsOf: (c) => (c.toLowerCase() === "cara" ? [{ id: "red", name: "Red Club" }, { id: "blue", name: "Blue Club" }] : []), nameOf: (id) => (id === "red" ? "Red Club" : "Blue Club") });
+    try {
+      const h = harness();
+      const id = await h.openLadder();
+      const base = `/api/leagues/${L}/ladders/${id}`;
+      expect((await h.call("POST", `${base}/registrations`, coach("Cara"), { teamRef: "save:new-orc", share: [], acknowledged: true, clubId: "nope" })).body).toMatchObject({ code: "club" });
+      const joined = await h.call("POST", `${base}/registrations`, coach("Cara"), { teamRef: "save:new-orc", share: [], acknowledged: true, clubId: "red" });
+      expect(joined.status, JSON.stringify(joined.body)).toBe(201);
+      const row = (h.ladderOf(id).registrations ?? []).find((r) => r.coach === "Cara")!;
+      expect(row.clubId).toBe("red");
+      const list = (await h.call("GET", `${base}/registrations`, OLGA)).body as { entries: Array<Record<string, unknown>> };
+      expect(list.entries.find((e) => e.coachId === "Cara")).toMatchObject({ clubId: "red", clubName: "Red Club" });
+      // accepted (auto-approve): a second entry asking for another club is refused as fixed
+      const { priorClubEntry, resolveClubPick } = await import("../src/clubs/pick.js");
+      expect(resolveClubPick("Cara", "blue", priorClubEntry(h.ladderOf(id).registrations, "Cara"))).toMatchObject({ ok: false, code: "club-fixed" });
+      expect(resolveClubPick("Cara", undefined, priorClubEntry(h.ladderOf(id).registrations, "Cara"))).toEqual({ ok: true, clubId: "red" });
+    } finally { setClubDirectory(undefined); }
+  });
+});

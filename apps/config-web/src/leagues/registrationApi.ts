@@ -41,6 +41,7 @@ import { parseLeagueTeamRef, snapshotOfLeagueTeam, transferSource } from "./team
 import { leagueOwner } from "./store.js";
 import type { LeagueRecord, SeasonRecord } from "./types.js";
 import { paymentLinksView } from "../payments/links.js";
+import { clubLabel, priorClubEntry, resolveClubPick } from "../clubs/pick.js";
 
 /** The composed, checked sheet of a coach's team (server.ts: the coach's own saves and library only). */
 export interface LeagueTeamSheet {
@@ -163,6 +164,7 @@ export function myRegistrationView(season: SeasonRecord, coach: string) {
   return {
     id: mine.id, state: mine.state, teamName: mine.teamName, race: mine.race, kind: mine.kind, enteredAt: mine.enteredAt,
     ...(mine.region ? { region: mine.region } : {}),
+    ...clubLabel(mine.clubId),
     ...(position ? { position } : {}),
     ...(mine.teamId && mine.state === "accepted" ? { teamId: mine.teamId } : {}),
     ...(mine.midSeason && mine.state === "accepted" ? { midSeason: true } : {}),
@@ -291,7 +293,7 @@ async function route(
 async function join(
   lg: LeagueRecord, season: SeasonRecord, cid: string, auth: LeagueApiIdentity, input: Record<string, unknown>, deps: LeagueApiDeps, now: Date,
 ): Promise<LeagueApiResult> {
-  const extra = Object.keys(input).filter((k) => !["teamRef", "region", "share", "acknowledged"].includes(k));
+  const extra = Object.keys(input).filter((k) => !["teamRef", "region", "clubId", "share", "acknowledged"].includes(k));
   if (extra.length) return fail(400, `Unknown field: ${extra[0]}.`);
   const manager = managesLeague(lg, auth);
   if (!manager) {
@@ -312,6 +314,10 @@ async function join(
     if (typeof input.region !== "string" || !regions.includes(input.region.trim())) return fail(400, "Pick a region from the organisers' list.", { code: "region", field: "region" });
     region = input.region.trim();
   } else if (regions.length) return fail(400, "Pick your region.", { code: "region", field: "region" });
+  // Club (clubs lane): one of the coach's clubs or none; fixed once the entry was accepted (src/clubs/pick.ts).
+  const clubPick = resolveClubPick(auth.coach, input.clubId, priorClubEntry(season.registrations, auth.coach));
+  if (!clubPick.ok) return fail(clubPick.status, clubPick.error, { code: clubPick.code, field: "clubId" });
+  const club = clubPick.clubId ? { clubId: clubPick.clubId } : {};
 
   if (leagueRef) {
     // A league team moves with its record: an existing team, checked against this season (one place at a time).
@@ -325,7 +331,7 @@ async function join(
     if (!ok.allowed) return fail(400, ok.reason, { code: "roster" });
     const ldata: LeagueEntryData = {
       teamRef, kind: "existing", teamName: t.name, race: lrace, teamSnapshot: snapshotOfLeagueTeam(t),
-      validation: { ok: true, problems: [], checkedAt: now.toISOString() }, ...(region ? { region } : {}),
+      validation: { ok: true, problems: [], checkedAt: now.toISOString() }, ...(region ? { region } : {}), ...club,
     };
     return submitJoin(lg, season, cid, auth, lrace, ldata, share, deps);
   }
@@ -345,7 +351,7 @@ async function join(
   const snapshot = snapshotFromRoster(sheet.roster, sheet.teamName);
   const data: LeagueEntryData = {
     teamRef, kind, ...(sheet.libraryTeamId ? { libraryTeamId: sheet.libraryTeamId } : {}), teamName: snapshot.teamName, race,
-    teamSnapshot: snapshot, validation: { ok: true, problems: [], checkedAt: now.toISOString() }, ...(region ? { region } : {}),
+    teamSnapshot: snapshot, validation: { ok: true, problems: [], checkedAt: now.toISOString() }, ...(region ? { region } : {}), ...club,
   };
   return submitJoin(lg, season, cid, auth, race, data, share, deps);
 }
@@ -429,6 +435,7 @@ function organiserView(league: LeagueRecord, season: SeasonRecord, viewer: Leagu
       ...base,
       kind: r.kind, submittedAt: r.submittedAt,
       ...(r.region ? { region: r.region } : {}),
+      ...clubLabel(r.clubId),
       players: r.teamSnapshot.players.length, cost: r.teamSnapshot.cost,
       validation: { ok: r.validation.ok, problems: [...r.validation.problems] },
       ...(contact ? { shared: contact } : {}),

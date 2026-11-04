@@ -95,6 +95,8 @@ export interface LeagueRegistrationRow {
   /** The check against the season's rules at registration (always ok: an invalid team is refused). */
   validation: { ok: boolean; problems: string[]; checkedAt: string };
   region?: string;
+  /** The club the coach represents in this season / ladder (clubs lane, src/clubs/pick.ts): fixed once accepted. */
+  clubId?: string;
   /** The LeagueTeam made on acceptance (kept after a removal, for the record). */
   teamId?: string;
   /** Accepted while the season was in progress: no fixtures were made for the team. */
@@ -120,6 +122,8 @@ export interface LeagueEntryData {
   teamSnapshot: LeagueTeamSnapshot;
   validation: LeagueRegistrationRow["validation"];
   region?: string;
+  /** The coach's club pick (clubs lane). */
+  clubId?: string;
   /** Ladders: the league team to move in (LeagueRegistrationRow.move). */
   move?: LeagueRegistrationRow["move"];
 }
@@ -459,7 +463,7 @@ export class LeagueRegistrationAdapter implements RegistrationAdapter {
           race: canonicalRace(data.race), teamName: data.teamName, teamRef: data.teamRef, kind: data.kind,
           ...(data.libraryTeamId ? { libraryTeamId: data.libraryTeamId } : {}),
           teamSnapshot: structuredClone(data.teamSnapshot), validation: structuredClone(data.validation),
-          ...(data.region ? { region: data.region } : {}), refCode,
+          ...(data.region ? { region: data.region } : {}), ...(data.clubId ? { clubId: data.clubId } : {}), refCode,
           ...(data.move ? { move: structuredClone(data.move) } : {}),
         };
         rows.push(row);
@@ -473,6 +477,7 @@ export class LeagueRegistrationAdapter implements RegistrationAdapter {
         row.teamSnapshot = structuredClone(data.teamSnapshot);
         row.validation = structuredClone(data.validation);
         if (data.region) row.region = data.region; else delete row.region;
+        if (data.clubId) row.clubId = data.clubId; else delete row.clubId;
         if (data.move) row.move = structuredClone(data.move); else delete row.move;
         delete row.teamId;
         delete row.midSeason;

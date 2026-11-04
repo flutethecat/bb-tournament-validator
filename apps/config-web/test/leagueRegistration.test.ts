@@ -670,3 +670,57 @@ describe("blocked legacy library entries in the waitlist", () => {
     expect((await h.join("Gus", "save:new-orc")).body).toMatchObject({ registration: { state: "accepted" } });
   });
 });
+
+// ---- the club pick at join (clubs lane, src/clubs/pick.ts) ----------------------------------------------------------
+describe("club pick at join", () => {
+  const CLUBS: Record<string, Array<{ id: string; name: string }>> = { pat: [{ id: "red", name: "Red Club" }, { id: "blue", name: "Blue Club" }], quinn: [] };
+  const install = async () => {
+    const { setClubDirectory } = await import("../src/clubs/pick.js");
+    setClubDirectory({ membershipsOf: (c) => CLUBS[c.toLowerCase()] ?? [], nameOf: (id) => ({ red: "Red Club", blue: "Blue Club" } as Record<string, string>)[id] });
+    return () => setClubDirectory(undefined);
+  };
+
+  it("stores the picked club (one of the coach's, or none) on the season entry; organisers and the coach see it", async () => {
+    const off = await install();
+    try {
+      const h = harness();
+      expect((await h.join("Pat", "save:new-orc", { clubId: "green" })).body).toMatchObject({ code: "club" });
+      expect((await h.join("Pat", "save:new-orc", { clubId: "red" })).status).toBe(201);
+      expect(h.rowOf("Pat")!.clubId).toBe("red");
+      const panel = (await h.panel()).body as { entries: Array<Record<string, unknown>> };
+      expect(panel.entries.find((e) => e.coachId === "Pat")).toMatchObject({ clubId: "red", clubName: "Red Club" });
+      expect((await h.status(coach("Pat"))).mine).toMatchObject({ clubId: "red", clubName: "Red Club" });
+      // no club is fine (players are not required to join as a club)
+      expect((await h.join("Quinn", "save:new-human")).status).toBe(201);
+      expect(h.rowOf("Quinn")!.clubId).toBeUndefined();
+    } finally { off(); }
+  });
+
+  it("the club is fixed once the entry was accepted: a re-entry keeps it, a different pick is refused", async () => {
+    const off = await install();
+    try {
+      const h = harness();
+      await h.join("Pat", "save:new-orc", { clubId: "red" });
+      expect((await h.decide("Pat", "accept")).status).toBe(200);
+      expect((await h.decide("Pat", "withdraw")).status).toBe(200);
+      const again = await h.join("Pat", "save:new-orc", { clubId: "blue" });
+      expect(again.body).toMatchObject({ code: "club-fixed" });
+      expect((await h.join("Pat", "save:new-orc")).status).toBe(201);
+      expect(h.rowOf("Pat")!.clubId).toBe("red");
+    } finally { off(); }
+  });
+
+  it("before acceptance a re-entry may change the club (withdraw, then join again)", async () => {
+    const off = await install();
+    try {
+      const h = harness();
+      await h.join("Pat", "save:new-orc", { clubId: "red" });
+      expect((await h.call("POST", `${base}/registrations/${h.rowOf("Pat")!.id}/withdraw`, coach("Pat"))).status).toBe(200);
+      expect((await h.join("Pat", "save:new-orc", { clubId: "blue" })).status).toBe(201);
+      expect(h.rowOf("Pat")!.clubId).toBe("blue");
+      expect((await h.call("POST", `${base}/registrations/${h.rowOf("Pat")!.id}/withdraw`, coach("Pat"))).status).toBe(200);
+      expect((await h.join("Pat", "save:new-orc")).status).toBe(201);
+      expect(h.rowOf("Pat")!.clubId).toBeUndefined();
+    } finally { off(); }
+  });
+});

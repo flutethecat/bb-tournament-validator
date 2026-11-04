@@ -42,6 +42,7 @@ import {
   STATE_LABEL, supersededTeams, teamAccount, teamKey, teamRedraftBlock, type LadderRankRow,
 } from "./ladder.js";
 import { copyTeamForMove, ladderRegistrationService, myLadderEntry, snapshotFromTeam } from "./ladderRegistration.js";
+import { clubLabel, priorClubEntry, resolveClubPick } from "../clubs/pick.js";
 import { teamGamesPlayed } from "./teamOps.js";
 import type { LadderChallenge, LadderRanking, LadderRound } from "./ladderTypes.js";
 import { LADDER_RANKINGS } from "./ladderTypes.js";
@@ -494,7 +495,7 @@ async function join(league: LeagueRecord, ladderId: string, auth: LeagueApiIdent
   const lg = deps.store.league(league.id);
   const ladder = lg ? deps.store.season(lg.id, ladderId) : undefined;
   if (!lg || !ladder || !isLadder(ladder) || !ladderVisible(ladder, managesLeague(lg, auth))) return fail(404, "Ladder not found.");
-  const extra = Object.keys(input).filter((k) => !["teamRef", "move", "region", "share", "acknowledged"].includes(k));
+  const extra = Object.keys(input).filter((k) => !["teamRef", "move", "region", "clubId", "share", "acknowledged"].includes(k));
   if (extra.length) return fail(400, `Unknown field: ${extra[0]!.slice(0, 40)}.`);
   if (ladderState(ladder) !== "active") return fail(409, ladderState(ladder) === "closed" ? "The ladder is closed." : "The ladder has not started yet.", { code: "closed" });
   if (!managesLeague(lg, auth)) {
@@ -510,6 +511,9 @@ async function join(league: LeagueRecord, ladderId: string, auth: LeagueApiIdent
     if (typeof input.region !== "string" || !regions.includes(input.region.trim())) return fail(400, "Pick a region from the organisers' list.", { code: "region", field: "region" });
     region = input.region.trim();
   } else if (regions.length) return fail(400, "Pick your region.", { code: "region", field: "region" });
+  // Club (clubs lane): one of the coach's clubs or none; fixed once the entry was accepted (src/clubs/pick.ts).
+  const clubPick = resolveClubPick(auth.coach, input.clubId, priorClubEntry(ladder.registrations, auth.coach));
+  if (!clubPick.ok) return fail(clubPick.status, clubPick.error, { code: clubPick.code, field: "clubId" });
   const s = settingsOf(ladder.ladder);
   const reg = seasonRegistrationOf(lg, ladder);
   let data: LeagueEntryData;
@@ -528,7 +532,7 @@ async function join(league: LeagueRecord, ladderId: string, auth: LeagueApiIdent
     const snapshot = snapshotFromTeam(team);
     data = {
       teamRef: `move:${source.id}:${team.id}`, kind: "existing", teamName: team.name, race: canonicalRace(team.race), teamSnapshot: snapshot,
-      validation: { ok: true, problems: [], checkedAt: now.toISOString() }, ...(region ? { region } : {}),
+      validation: { ok: true, problems: [], checkedAt: now.toISOString() }, ...(region ? { region } : {}), ...(clubPick.clubId ? { clubId: clubPick.clubId } : {}),
       move: { kind: isLadder(source) ? "ladder" : "season", id: source.id, teamId: team.id },
     };
     flag = `moving ${team.name} from ${source.name}`;
@@ -551,7 +555,7 @@ async function join(league: LeagueRecord, ladderId: string, auth: LeagueApiIdent
     const snapshot = snapshotFromRoster(sheet.roster, sheet.teamName);
     data = {
       teamRef, kind, ...(sheet.libraryTeamId ? { libraryTeamId: sheet.libraryTeamId } : {}), teamName: snapshot.teamName, race,
-      teamSnapshot: snapshot, validation: { ok: true, problems: [], checkedAt: now.toISOString() }, ...(region ? { region } : {}),
+      teamSnapshot: snapshot, validation: { ok: true, problems: [], checkedAt: now.toISOString() }, ...(region ? { region } : {}), ...(clubPick.clubId ? { clubId: clubPick.clubId } : {}),
     };
     // A team built and validated in the Roster Builder for this ladder joins straight away when the organisers allow it.
     if (kind === "new" && s.autoApproveValidated) { approval = "auto"; flag = "approved through the validator"; }
@@ -617,6 +621,7 @@ function organiserEntries(league: LeagueRecord, ladder: SeasonRecord, auth: Leag
       ...base, submittedAt: r.submittedAt, players: r.teamSnapshot.players.length, cost: r.teamSnapshot.cost,
       ...(viaValidator ? { viaValidator: true } : {}), ...(review ? { review } : {}), ...(contact ? { shared: contact } : {}),
       ...(r.teamId && r.state === "accepted" ? { teamId: r.teamId } : {}),
+      ...clubLabel(r.clubId),
     };
   });
   const rank: Record<string, number> = { pending: 0, waitlisted: 1, accepted: 2, declined: 3, withdrawn: 4, dropped: 5 };

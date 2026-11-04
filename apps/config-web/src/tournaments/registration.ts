@@ -232,7 +232,7 @@ export class TournamentRegistrationAdapter implements RegistrationAdapter {
           // The row keeps its id, reference code, Paid flag and "I've paid"; everything the coach answers comes from the
           // new submission (an undefined value removes the old one when the file is written).
           write.patch = {
-            submission: undefined, nafNumber: undefined, notNafMember: undefined, nafPending: undefined, region: undefined,
+            submission: undefined, nafNumber: undefined, notNafMember: undefined, nafPending: undefined, region: undefined, clubId: undefined,
             rosterVerifiedOverride: undefined, ...structuredClone(fields),
           };
         }

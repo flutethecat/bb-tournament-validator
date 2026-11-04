@@ -901,3 +901,64 @@ describe("saved teams only (no fork library teams)", () => {
     expect((await h.call("POST", `/api/tournaments/${t.id}/submissions`, coach("Carol"), { saveId: "save:good" }))?.status).toBe(409);
   });
 });
+
+// ---- the club pick at join (clubs lane, src/clubs/pick.ts) and pairing avoidance by it ---------------------------------
+describe("club pick at join", () => {
+  const CLUBS: Record<string, Array<{ id: string; name: string }>> = {
+    alice: [{ id: "red", name: "Red Club" }, { id: "blue", name: "Blue Club" }], bob: [{ id: "red", name: "Red Club" }],
+    carol: [{ id: "blue", name: "Blue Club" }], dee: [{ id: "blue", name: "Blue Club" }],
+  };
+  const install = async () => {
+    const { setClubDirectory } = await import("../src/clubs/pick.js");
+    setClubDirectory({ membershipsOf: (c) => CLUBS[c.toLowerCase()] ?? [], nameOf: (id) => ({ red: "Red Club", blue: "Blue Club" } as Record<string, string>)[id] });
+    return () => setClubDirectory(undefined);
+  };
+
+  it("stores the pick on the entrant (only the coach's own clubs, or none); organisers see it; organisers can't pick for a coach", async () => {
+    const off = await install();
+    try {
+      const h = harness();
+      const t = await h.create();
+      expect((await h.register(t, "Alice", { clubId: "green" }))?.body).toMatchObject({ code: "club" });
+      expect((await h.register(t, "Alice", { clubId: "blue" }))?.status).toBe(201);
+      expect(h.store.entrants(t.id).find((e) => e.coach.ffbCoachId === "Alice")?.clubId).toBe("blue");
+      expect((await h.register(t, "Eve"))?.status).toBe(201);
+      expect(h.store.entrants(t.id).find((e) => e.coach.ffbCoachId === "Eve")?.clubId).toBeUndefined();
+      const rows = ((await h.panel(t)).body as { entries?: Array<Record<string, unknown>>; rows?: Array<Record<string, unknown>> });
+      const list = (rows.entries ?? rows.rows ?? []) as Array<Record<string, unknown>>;
+      expect(list.find((r) => r.coachId === "Alice")).toMatchObject({ clubId: "blue", clubName: "Blue Club" });
+      expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, OWNER, { coach: "Bob", clubId: "red" }))?.status).toBe(400);
+    } finally { off(); }
+  });
+
+  it("fixed once accepted: a re-entry keeps the club and a different pick is refused", async () => {
+    const off = await install();
+    try {
+      const h = harness();
+      const t = await h.create();
+      await h.register(t, "Alice", { clubId: "red" });
+      const entry = h.store.entrants(t.id).find((e) => e.coach.ffbCoachId === "Alice")!;
+      expect((await h.call("DELETE", `/api/tournaments/${t.id}/entrants/${encodeURIComponent(entry.id)}`, coach("Alice")))?.status).toBe(200);
+      expect((await h.register(t, "Alice", { clubId: "blue" }))?.body).toMatchObject({ code: "club-fixed" });
+      expect((await h.register(t, "Alice"))?.status).toBe(201);
+      expect(h.store.registrationEntries(t.id).find((e) => e.coach.ffbCoachId === "Alice")?.clubId).toBe("red");
+    } finally { off(); }
+  });
+
+  it("pairing avoidance (same club) uses the picks made at join", async () => {
+    const off = await install();
+    try {
+      const h = harness();
+      const t = await h.create({ pairingAvoid: "club", format: "swiss" });
+      await h.register(t, "Alice", { clubId: "red" });
+      await h.register(t, "Bob", { clubId: "red" });
+      await h.register(t, "Carol", { clubId: "blue" });
+      await h.register(t, "Dee", { clubId: "blue" });
+      const plan = h.store.previewNextRound(t.id);
+      const club = new Map(h.store.entrants(t.id).map((e) => [e.id, e.clubId]));
+      expect(plan.pairings).toHaveLength(2);
+      for (const p of plan.pairings) expect(club.get(p.homeEntrantId)).not.toBe(club.get(p.awayEntrantId!));
+      expect(plan.pairings.every((p) => !p.clash)).toBe(true);
+    } finally { off(); }
+  });
+});

@@ -22,6 +22,7 @@ import type {
 } from "./types.js";
 import { tournamentLink, type TournamentNotify } from "../notifications.js";
 import { paymentLinksView } from "../payments/links.js";
+import { clubLabel, everAccepted, resolveClubPick } from "../clubs/pick.js";
 import { FormatError, parsePairingAvoid, parsePointsScheme, parseRegions, parseTiebreakerChain, tiebreakerChainOf } from "../competition/format.js";
 import { HouseRulesError, houseRulesOf, houseRulesStamp, parseHouseRules, type HouseRules } from "../competition/houseRules.js";
 import { ChangeMessageError, CONFIRM_AFTER_START_TOURNAMENT, parseChangeMessage, rulesChangeBody, rulesChangeDiff, rulesChangeNews, rulesNotices, type RulesChangeCoalescer, type RulesState } from "../competition/rulesChange.js";
@@ -297,7 +298,7 @@ function clientEntrant(entrant: TournamentEntrantRecord, deps: Pick<TournamentAp
     coach, submission: _submission, flags, rosterVerifiedOverride, manualSeed, nafNumber, notNafMember, nafPending, nafSnapshot: _nafSnapshot, paidUpdated,
     // Registration (lane L4): the state machine's fields, the payment reference and "I've paid" are never public.
     entryState: _state, firstRegisteredAt: _first, waitlistAt: _wAt, waitlistSeq: _wSeq, decided: _decided, registrationLog: _log,
-    refCode: storedCode, coachSaysPaid, checkedInBy, region, nafToldAt: _told, paidClaimNotifiedAt: _paidTold,
+    refCode: storedCode, coachSaysPaid, checkedInBy, region, nafToldAt: _told, paidClaimNotifiedAt: _paidTold, clubId,
     ...rest
   } = entrant;
   const team = deps.teamBuild(entrant.teamId);
@@ -311,6 +312,8 @@ function clientEntrant(entrant: TournamentEntrantRecord, deps: Pick<TournamentAp
     ...(stringField(team, "race") ? { race: stringField(team, "race") } : submission?.race ? { race: submission.race } : {}),
     ...(stringField(team, "logoUrl") ? { logoUrl: stringField(team, "logoUrl") } : {}),
     ...(submission ? { submission } : {}),
+    // The club the coach represents here (public: club results are public too).
+    ...clubLabel(clubId),
     ...(private_ ? {
       flags: { ...DEFAULT_ENTRANT_FLAGS, ...(flags ?? {}) },
       ...(paidUpdated ? { paidUpdated: { ...paidUpdated } } : {}),
@@ -2164,6 +2167,11 @@ async function registrationRoutes(
         return { status: 400, body: { error: "Pick a region from the organisers' list.", code: "region" } };
       region = input.region.trim();
     } else if (regions.length && self) return { status: 400, body: { error: "Pick your region.", code: "region" } };
+    // Club (clubs lane): the coach picks one of their clubs or none; fixed once the entry was accepted (src/clubs/pick.ts).
+    if (!self && input.clubId !== undefined && input.clubId !== null && input.clubId !== "") return { status: 400, body: { error: "Only the coach picks the club they represent.", code: "club" } };
+    const priorEntry = deps.store.registrationEntries(tournament.id).find((r) => coachKey(r.coach.ffbCoachId) === coachKey(targetCoach));
+    const clubPick = resolveClubPick(targetCoach, self ? input.clubId : undefined, priorEntry ? { clubId: priorEntry.clubId, everAccepted: everAccepted(entryStateOf(priorEntry), priorEntry.registrationLog) } : undefined);
+    if (!clubPick.ok) return { status: clubPick.status, body: { error: clubPick.error, code: clubPick.code } };
 
     let teamId = "";
     let submission: TournamentSubmission | undefined;
@@ -2185,6 +2193,7 @@ async function registrationRoutes(
       ...(notNafMember && self ? { notNafMember: true as const } : {}),
       ...(nafPending ? { nafPending: true as const } : {}),
       ...(region ? { region } : {}),
+      ...(clubPick.clubId ? { clubId: clubPick.clubId } : {}),
       // Told about NAF with the entry: the coach filled in the NAF block, or (organiser-made) gets the NAF request or the
       // "your profile NAF details are shared" notice in this same request. Every NAF notice path sets this (law 23a).
       ...(sanctioned ? { nafToldAt: now.toISOString() } : {}),
