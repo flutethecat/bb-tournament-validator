@@ -1,6 +1,7 @@
 // League API shapes the SPA reads (server: src/leagues/types.ts + src/leagues/api.ts + src/leagues/stats.ts).
 
 import type { HouseRules } from "../../../src/competition/houseRules";
+import type { MoneyRules, MoneyRulesView } from "../../../src/leagues/moneyRules";
 
 export type LeagueRuleset = "BB2020" | "BB2025";
 
@@ -46,6 +47,8 @@ export interface LeagueSummary {
   browse?: LeagueBrowseInfo;
   /** The league's IANA time zone (UTC when unset; absent on older servers): the Calendar reads days and times in it. */
   timeZone?: string;
+  /** The money rules for the ruleset card (absent on older servers): the league's, and each overriding competition's. */
+  money?: { version: number; rules: MoneyRules; bySeason: Record<string, MoneyRules> };
 }
 
 export type LeagueBrowseStatus = "in-progress" | "registration" | "finished" | "off-season";
@@ -547,6 +550,8 @@ export interface LeagueSettingsView {
   teamBuilding: { seasonId: string; seasonName: string; ruleset: LeagueRuleset; rules: TeamBuildingRules } | null;
   /** Redraft budget formula and options (absent on older servers). */
   redraft?: { rules: RedraftRules; defaults: RedraftRules; set: Array<keyof RedraftRules> };
+  /** Money rules (League settings -> Money; absent on older servers). */
+  money?: MoneyRulesView;
   regions: Record<LeagueCountry, Array<{ code: string; name: string }>>;
   rulesets: LeagueRuleset[];
   eliteSkills: string[];

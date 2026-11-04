@@ -32,7 +32,8 @@ const caption = computed(() => {
     return "Not locked · browsing their options";
   }
   if (!ind.value.hasStep) return b.role === "overdog" ? "No treasury spending here" : "Nothing to buy";
-  if (b.role === "overdog") return `Treasury ${kGold(b.treasury)} · ${kGold(Math.max(0, left.value))} left`;
+  if (b.role === "overdog" && !b.pettyCash) return `Treasury ${kGold(b.treasury)} · ${kGold(Math.max(0, left.value))} left`;
+  if (b.role !== "underdog") return `Budget ${kGold(b.limit)} · ${kGold(Math.max(0, left.value))} left`;
   return `Petty cash ${kGold(b.pettyCash)} · ${kGold(Math.max(0, left.value))} left`;
 });
 

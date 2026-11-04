@@ -80,6 +80,12 @@ export interface LeagueRecord {
   /** Redraft budget formula and options (League settings -> Redraft; redraftRules.ts). Unset keys take the defaults; unset
    *  liftToBudget = off (leagues made before 11-02 keep the old behaviour; the wizard sets it on for new leagues). */
   redraftRules?: Partial<RedraftRules>;
+  /** Money rules (League settings -> Money; moneyRules.ts). Unset keys take the defaults (the site's behaviour before 11-04). */
+  moneyRules?: Partial<import("./moneyRules.js").MoneyRules>;
+  /** Bumped by every change to the money rules (league or a competition override); each fixture result stores the one it used. */
+  moneyRulesVersion?: number;
+  /** Every money rules change: who, when, before and after (organiser read model only). */
+  moneyRulesLog?: import("./moneyRules.js").MoneyRulesLogEntry[];
   /** Settings revision: every settings write bumps it; a PATCH naming an older revision is refused (409). */
   revision?: number;
   /** Awards an organiser or admin gave (awards.ts); the podium and imported awards stay on their seasons. */
@@ -323,6 +329,8 @@ export interface SeasonRules {
   teamBuilding?: TeamBuildingRules;
   /** League settings, Inducements tab (inducements.ts): standard-table overrides + custom types, with their own revision. */
   inducements?: SeasonInducements;
+  /** This competition's money rules override (moneyRules.ts): unset keys follow the league. Never copied to a new season. */
+  money?: Partial<import("./moneyRules.js").MoneyRules>;
 }
 
 /** One side of a fixture. coachId is set when the coach maps to a fork identity (NAF name match). */
@@ -434,6 +442,8 @@ export interface LeagueFixture {
   defectionRolls?: false;
   /** A ladder fixture (lane 8b): the challenge it was made from, or the organiser's scheduled round. */
   ladder?: { challengeId?: string; roundId?: string; title?: import("./ladderTypes.js").TitleFixtureKind; boutId?: string; rumbleId?: string };
+  /** The money rules version the result used (moneyRules.ts): a recorder result or a forfeit. Absent = before 11-04 (the defaults). */
+  moneyRulesVersion?: number;
 }
 
 /** The public part of a forfeit. */
@@ -466,6 +476,8 @@ export interface FixtureForfeitDetail {
   defections?: { side: "home" | "away"; rolls: ForfeitDefectionRoll[] };
   /** The recorder match this forfeit closed, when entered from the recorder. */
   matchId?: string;
+  /** The money rules version in force when the forfeit was entered (moneyRules.ts). Absent = before 11-04. */
+  moneyRulesVersion?: number;
   /** When the end-of-match report was posted (never twice). */
   announcedAt?: string;
   /** What the undo restores (both rosters and the fixture result before the forfeit) and the rosters' fingerprint after it. */

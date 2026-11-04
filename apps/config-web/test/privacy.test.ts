@@ -388,6 +388,8 @@ describe("export", () => {
     // awards to Alice's account and by her, and the Hall of Fame entries she pinned; never the others'
     expect(leagues[0].awards.map((x: { id: string }) => x.id)).toEqual(["a-1", "a-2"]);
     expect(leagues[0].hallOfFame.map((x: { id: string }) => x.id)).toEqual(["p-1"]);
+    // the money rules changes she made as an organiser, never Bob's
+    expect(leagues[0].moneyRulesChanges).toEqual([{ at: "2026-11-04T00:00:00Z", version: 1, scope: "league", changes: ["Per touchdown: 10k to 20k"] }]);
     expect(JSON.parse(text("tabletop-matches.json")).matches[0].events).toHaveLength(3);
     // a match she forfeited as an organiser is in her export too
     expect(JSON.parse(text("tabletop-matches.json")).matches.map((m: { id: string }) => m.id)).toEqual(["tm1", "tm2", "tm3"]);
@@ -495,6 +497,8 @@ describe("delete", () => {
     expect(lgFile.awards[2]).toMatchObject({ toCoach: "Carol", by: "Bob" });
     expect(lgFile.hallOfFame[0]).toMatchObject({ by: P, text: `Most TDs in a season: ${P}, 31` });
     expect(lgFile.hallOfFame[1]).toMatchObject({ by: "Bob", awardId: "a-3" });
+    // the money rules change log keeps every change; her name as the author becomes the pseudonym
+    expect(lgFile.moneyRulesLog.map((e: { by: string; version: number }) => `${e.version}:${e.by}`)).toEqual([`1:${P}`, "2:Bob"]);
     // the pin to Alice's podium award still resolves after her deletion, now showing the pseudonym
     const seasonsNow = [readJ(join(deps.stateDir, "leagues", "l1", "seasons", "s1.json"))];
     const pinned = honoursView(lgFile, seasonsNow, undefined).pins.find((p) => p.id === "p-3")!;

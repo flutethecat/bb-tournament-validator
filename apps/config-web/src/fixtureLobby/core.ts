@@ -9,6 +9,10 @@
  *     spends grows the underdog's petty cash by the same amount.
  *   - The underdog has petty cash (the gap, plus the overdog's spend once that is final) and, where top-up is allowed,
  *     may add up to 50,000 from its treasury (the recorder's rule: TREASURY_TOP_UP_CAP).
+ *   - League money rules (leagues/moneyRules.ts) may switch the gap off (rules.pettyCash false: no underdog / overdog,
+ *     no hold; each team with a step locks its own list and buys it as locked, treasury spending then has no 50,000 cap)
+ *     and / or give each team a fixed amount per game (rules.fixedBudget, counted as petty cash: unspent is lost).
+ *     Without them (tournaments, leagues on the defaults) everything below is exactly as before.
  *
  * START (§9.1, §9.2, §9.3), resolved in order:
  *   1. The overdog's locked list (treasury spend).
@@ -55,10 +59,20 @@ export function tvRoles(fx: Pick<LobbyFixture, "sides">): TvRoles {
   return h > a ? { gap: h - a, underdog: "away", overdog: "home" } : { gap: a - h, underdog: "home", overdog: "away" };
 }
 
+const gapOn = (fx: Pick<LobbyFixture, "rules">): boolean => fx.rules.pettyCash !== false;
+const fixedOf = (fx: Pick<LobbyFixture, "rules">): number => Math.max(0, fx.rules.fixedBudget ?? 0);
+
+/** The roles the budget uses: the TV roles while the gap pays petty cash, none when the league switched it off. */
+export function budgetRoles(fx: Pick<LobbyFixture, "sides" | "rules">): TvRoles {
+  return gapOn(fx) ? tvRoles(fx) : { gap: 0 };
+}
+
 /** Why the fixture has no inducement step ("" = it has one). */
 export function inducementStep(fx: LobbyFixture): string {
   if (fx.noInducements) return fx.noInducements;
   if (fx.mode === "fork") return "Inducements are bought in the Super FUMBBL client at kick-off.";
+  if (fixedOf(fx) > 0) return "";
+  if (!gapOn(fx)) return fx.rules.treasuryTopUp ? "" : "This league gives no inducement money: petty cash is off and treasury spending is not allowed.";
   const h = fx.sides.home.team.tv, a = fx.sides.away.team.tv;
   if (h === null || a === null) return "A team value is unknown, so petty cash cannot be worked out.";
   if (h === a) return "Team values are equal: neither team gets petty cash.";
@@ -68,7 +82,8 @@ export function inducementStep(fx: LobbyFixture): string {
 /** Does this side buy anything before START? The overdog only with treasury top-up and some treasury. */
 export function sideHasStep(fx: LobbyFixture, side: LobbySide): boolean {
   if (inducementStep(fx)) return false;
-  const r = tvRoles(fx);
+  if (fixedOf(fx) > 0) return true;
+  const r = budgetRoles(fx);
   if (side === r.underdog) return true;
   return fx.rules.treasuryTopUp && fx.sides[side].team.treasury > 0;
 }
@@ -210,14 +225,20 @@ export interface SideBudget {
 }
 
 export function budgetFor(fx: LobbyFixture, rec: Pick<LobbyRecord, "hold">, side: LobbySide): SideBudget {
-  const r = tvRoles(fx);
+  const r = budgetRoles(fx);
   const treasury = Math.max(0, fx.sides[side].team.treasury);
-  if (inducementStep(fx) || !r.underdog) return { role: "equal", pettyCash: 0, treasury, topUpLimit: 0, limit: 0 };
+  if (inducementStep(fx)) return { role: "equal", pettyCash: 0, treasury, topUpLimit: 0, limit: 0 };
+  const fixed = fixedOf(fx);
+  if (!r.underdog) {
+    // no gap roles (money rules): the fixed amount, plus the whole treasury where treasury spending is allowed
+    const topUpLimit = fx.rules.treasuryTopUp ? treasury : 0;
+    return { role: "equal", pettyCash: fixed, treasury, topUpLimit, limit: fixed + topUpLimit };
+  }
   if (side === r.overdog) {
     const topUpLimit = fx.rules.treasuryTopUp ? treasury : 0;
-    return { role: "overdog", pettyCash: 0, treasury, topUpLimit, limit: topUpLimit };
+    return { role: "overdog", pettyCash: fixed, treasury, topUpLimit, limit: fixed + topUpLimit };
   }
-  const pettyCash = r.gap + (rec.hold ? rec.hold.overdogSpend : 0);
+  const pettyCash = fixed + r.gap + (rec.hold ? rec.hold.overdogSpend : 0);
   const topUpLimit = fx.rules.treasuryTopUp ? Math.min(TREASURY_TOP_UP_CAP, treasury) : 0;
   return { role: "underdog", pettyCash, treasury, topUpLimit, limit: pettyCash + topUpLimit };
 }
@@ -229,11 +250,12 @@ export function planSide(fx: LobbyFixture, rec: Pick<LobbyRecord, "hold">, side:
   const b = budgetFor(fx, rec, side);
   const name = fx.sides[side].team.name;
   if (priced.total > b.limit) {
-    if (b.role === "equal") return { error: "Neither team can spend on inducements in this fixture." };
+    if (b.role === "equal") return { error: b.limit === 0 ? "Neither team can spend on inducements in this fixture." : `${name} has ${kGold(b.limit)} to spend on inducements; these cost ${kGold(priced.total)}.` };
     if (b.role === "overdog") return { error: b.topUpLimit === 0 ? `${name} is the higher-value team and this ruleset allows no treasury spending.` : `${name} pays from its treasury (${kGold(b.treasury)}); these cost ${kGold(priced.total)}.` };
     return { error: `Petty cash is ${kGold(b.pettyCash)}${b.topUpLimit ? ` and the treasury can add ${kGold(b.topUpLimit)}` : ""}; these cost ${kGold(priced.total)}.` };
   }
-  const treasury = b.role === "overdog" ? priced.total : Math.max(0, priced.total - b.pettyCash);
+  // petty cash (the gap and / or the fixed amount) pays first; the treasury pays the rest
+  const treasury = Math.max(0, priced.total - b.pettyCash);
   return { picks: priced.lines, total: priced.total, treasury, pettyCash: b.pettyCash };
 }
 
@@ -268,7 +290,7 @@ export interface GateView {
 /** `online`: who is in the lobby now (presence); the underdog must be, even with Auto-Buy (§9.3). Omitted = not checked. */
 export function gateOf(fx: LobbyFixture, rec: LobbyRecord, online?: Record<LobbySide, boolean>): GateView {
   const step = !inducementStep(fx);
-  const r = tvRoles(fx);
+  const r = budgetRoles(fx);
   const rosters = { home: rosterDone(fx, rec, "home"), away: rosterDone(fx, rec, "away") };
   const inducements = {
     home: !step || !sideHasStep(fx, "home") || rec.sides.home.locked,
@@ -285,6 +307,8 @@ export function gateOf(fx: LobbyFixture, rec: LobbyRecord, online?: Record<Lobby
   if (step && r.underdog && rec.hold && !rec.sides[r.underdog].locked) blockers.push(`Waiting for ${name(r.underdog)} to lock inducements.`);
   // §9.3: the underdog must be present at START (Auto-Buy included); nobody forces past it
   else if (step && r.underdog && online && !online[r.underdog]) blockers.push(`Waiting for ${name(r.underdog)} to be in the lobby.`);
+  // no gap roles (money rules): every team with a step locks its own list
+  if (step && !r.underdog) for (const s of LOBBY_SIDES) if (!inducements[s]) blockers.push(`${name(s)} has not locked their inducements.`);
   const hard = [...blockers];
   for (const s of LOBBY_SIDES) if (!ready[s]) blockers.push(`${name(s)} is not ready.`);
   return {
@@ -326,7 +350,18 @@ export function resolveStart(fx: LobbyFixture, rec: LobbyRecord, opts: { force: 
   const empty = (pettyCash = 0): ResolvedSide => ({ picks: [], total: 0, treasury: 0, pettyCash });
   const pre = (s: LobbySide, plan: ResolvedSide): ResolvedSide => (fx.mode === "tabletop" ? withPrefilled(fx, s, plan) : plan);
   if (inducementStep(fx)) return { kind: "go", resolution: { home: pre("home", empty()), away: pre("away", empty()), pettyCash: 0, treasurySpend: 0, stars: [] } };
-  const r = tvRoles(fx);
+  const r = budgetRoles(fx);
+  if (!r.underdog) {
+    // no gap roles (money rules): each team's locked list is bought as locked
+    const plans = {} as Record<LobbySide, ResolvedSide>;
+    for (const s of LOBBY_SIDES) {
+      const plan = sideHasStep(fx, s) ? planSide(fx, rec, s, rec.sides[s].picks) : empty();
+      if ("error" in plan) return { kind: "refused", status: 409, error: `${fx.sides[s].team.name}: ${plan.error} An organiser can unlock the list.` };
+      plans[s] = plan;
+    }
+    const stars = applyStarRule(fx, rec, plans);
+    return { kind: "go", resolution: { home: pre("home", plans.home), away: pre("away", plans.away), pettyCash: fixedOf(fx), treasurySpend: 0, stars } };
+  }
   const over = r.overdog!, under = r.underdog!;
   // (1) the overdog's locked list
   const overPlan = sideHasStep(fx, over) ? planSide(fx, rec, over, rec.sides[over].picks) : empty();
@@ -343,7 +378,7 @@ export function resolveStart(fx: LobbyFixture, rec: LobbyRecord, opts: { force: 
     if ("error" in underPlan) underPlan = undefined; // no longer fits (the table changed): the underdog picks again
   }
   if (!underPlan) {
-    const hold: LobbyHold = { at: opts.now.toISOString(), underdog: under, overdogSpend: spend, pettyCash: r.gap + spend, was: r.gap };
+    const hold: LobbyHold = { at: opts.now.toISOString(), underdog: under, overdogSpend: spend, pettyCash: fixedOf(fx) + r.gap + spend, was: fixedOf(fx) + r.gap };
     return { kind: "held", hold, banner: holdBanner(fx, hold) };
   }
   if ("error" in underPlan) return { kind: "refused", status: 409, error: `${fx.sides[under].team.name}: ${underPlan.error}` };
@@ -384,7 +419,7 @@ export function applyStarRule(fx: LobbyFixture, rec: Pick<LobbyRecord, "sides">,
       if (refunded) {
         plan.total -= line.cost;
         // the refund comes off what the treasury paid first (unspent petty cash is never kept)
-        plan.treasury = s === tvRoles(fx).overdog ? plan.total : Math.max(0, plan.total - plan.pettyCash);
+        plan.treasury = Math.max(0, plan.total - plan.pettyCash);
       }
     }
     clashes.push({ name: id.slice(STAR_PREFIX.length), ...(kept ? { kept } : {}), removedFrom, refunded });
@@ -416,8 +451,8 @@ export interface LobbyConfirmRules {
 export type TvOverride = Partial<Record<LobbySide, number | null>>;
 
 const holdOf = (fx: LobbyFixture, overdogSpend: number): Pick<LobbyRecord, "hold"> => {
-  const r = tvRoles(fx);
-  return r.underdog && overdogSpend > 0 ? { hold: { at: "", underdog: r.underdog, overdogSpend, pettyCash: r.gap + overdogSpend, was: r.gap } } : {};
+  const r = budgetRoles(fx);
+  return r.underdog && overdogSpend > 0 ? { hold: { at: "", underdog: r.underdog, overdogSpend, pettyCash: fixedOf(fx) + r.gap + overdogSpend, was: fixedOf(fx) + r.gap } } : {};
 };
 /** The fixture with the recorder's team values (after journeymen) in place of the lobby's. */
 function withTv(fx: LobbyFixture, tv: TvOverride | undefined): LobbyFixture {
@@ -430,7 +465,7 @@ export function lobbyConfirmRules(base: LobbyFixture): LobbyConfirmRules {
   const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
   return {
     sideOf: (coach) => LOBBY_SIDES.find((s) => base.sides[s].coachId && same(base.sides[s].coachId, coach)),
-    roles: (tv) => tvRoles(withTv(base, tv)),
+    roles: (tv) => budgetRoles(withTv(base, tv)),
     options: (side, tv) => {
       const fx = withTv(base, tv);
       const paidOnly = prefilledLines(fx, side).map((l) => ({ id: l.id, name: l.name, price: 0, max: l.qty, prefilled: l.qty }));

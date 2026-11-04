@@ -112,6 +112,12 @@ export interface LobbyRules {
   highlander: boolean;
   /** A star removed at START is not charged (refund) or is lost (forfeit). */
   starClash: "refund" | "forfeit";
+  /**
+   * League money rules (leagues/moneyRules.ts lobbyBudget). pettyCash false = the team value gap pays nothing (no
+   * underdog / overdog order, no hold); absent = on. fixedBudget = inducement money each team gets per game (absent = 0).
+   */
+  pettyCash?: boolean;
+  fixedBudget?: number;
 }
 
 export interface LobbyTeam {

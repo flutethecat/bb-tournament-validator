@@ -94,6 +94,8 @@ import { teamPageRoutes } from "./teamPage.js";
 import { teamLibraryRoutes, type TeamLibraryApiDeps } from "./teamLibraryApi.js";
 import { myRedraftTasks, redraftRoutes, teamRedraftBudgetRoute } from "./redraftApi.js";
 import { RedraftRulesError, parseRedraftRules } from "./redraftRules.js";
+import { MONEY_LOG_KEEP, MoneyRulesError, effectiveMoneyRules, moneyRulesDiff, parseMoneyRules, publicMoneyRules, type MoneyRules, type MoneyRulesLogEntry } from "./moneyRules.js";
+import { notifyRecordChange } from "./recordChange.js";
 import { leagueParticipantRoutes, myPaymentStatus, participantsForPublic } from "./participants.js";
 import { leagueRegistrationRoutes, type LeagueRegistrationApiDeps } from "./registrationApi.js";
 import {
@@ -152,6 +154,8 @@ export interface LeagueSummary {
   authorised: boolean;
   /** The league's IANA time zone (UTC when unset): the Calendar tab reads every day and time in it. */
   timeZone: string;
+  /** The money rules (moneyRules.ts) for the ruleset card: the league's, and each competition that overrides them. */
+  money: ReturnType<typeof publicMoneyRules>;
 }
 
 export interface SeasonSummary {
@@ -300,6 +304,7 @@ export function leagueSummary(league: LeagueRecord, seasons: SeasonRecord[]): Le
     ...(league.rulesetPackage ? { rulesetPackage: league.rulesetPackage } : {}),
     authorised: league.authorised !== false,
     timeZone: leagueTimeZone(league),
+    money: publicMoneyRules(league, seasons),
   };
 }
 
@@ -874,6 +879,24 @@ function patchSettings(league: LeagueRecord, who: LeagueApiIdentity, input: Reco
   }
   const season = team ? deps.store.season(league.id, team.seasonId) : undefined;
   if (team && !season) return { status: 404, body: { error: "Season not found.", field: "seasonId" } };
+  // Money rules (moneyRules.ts): the league's layer and / or one competition's override, validated here, written below.
+  let moneyLeague: Partial<MoneyRules> | undefined;
+  let moneyOverride: { season: SeasonRecord; rules: Partial<MoneyRules> | undefined } | undefined;
+  try {
+    if (input.money !== undefined) moneyLeague = parseMoneyRules(input.money, league.moneyRules, "money");
+    if (input.moneyOverride !== undefined) {
+      const o = input.moneyOverride;
+      if (!o || typeof o !== "object" || Array.isArray(o)) throw new SettingsError(400, "moneyOverride must be { seasonId, rules }.", "moneyOverride");
+      const { seasonId, rules } = o as Record<string, unknown>;
+      const target = typeof seasonId === "string" ? deps.store.season(league.id, seasonId) : undefined;
+      if (!target) return { status: 404, body: { error: "Season or ladder not found.", field: "moneyOverride.seasonId" } };
+      const next = rules === null ? undefined : parseMoneyRules(rules, target.rules?.money, "moneyOverride.rules");
+      moneyOverride = { season: target, rules: next && Object.keys(next).length ? next : undefined };
+    }
+  } catch (e) {
+    if (e instanceof MoneyRulesError) throw new SettingsError(400, e.message, e.field);
+    throw e;
+  }
 
   // A ruleset / house-rules change with registered coaches (creation wizards v2 Q2): the organiser's message is required
   // (400 without it); once the season has started the "Are you sure?" confirmation is required too (409 without it).
@@ -899,12 +922,42 @@ function patchSettings(league: LeagueRecord, who: LeagueApiIdentity, input: Reco
   if (rulesDiff.length && started && input.confirmAfterStart !== true)
     return { status: 409, body: { error: CONFIRM_AFTER_START_LEAGUE, confirmRequired: true, changes: rulesDiff, coaches: coaches.length, afterStart: true } };
 
+  // Every effective change is logged (who, when, before, after) under a new version; a no-op save logs nothing.
+  let moneyChange: { version: number; entries: MoneyRulesLogEntry[] } | undefined;
+  {
+    const entries: MoneyRulesLogEntry[] = [];
+    let version = league.moneyRulesVersion ?? 0;
+    const leagueAfter = { ...league, moneyRules: moneyLeague ?? league.moneyRules };
+    if (moneyLeague !== undefined) {
+      const before = effectiveMoneyRules(league), after = effectiveMoneyRules(leagueAfter);
+      const changes = moneyRulesDiff(before, after);
+      if (changes.length) entries.push({ at: now.toISOString(), by: who.coach, version: ++version, scope: "league", before, after, changes });
+    }
+    if (moneyOverride) {
+      const s0 = moneyOverride.season;
+      const before = effectiveMoneyRules(leagueAfter, s0);
+      const after = effectiveMoneyRules(leagueAfter, { rules: { ...(s0.rules ?? {}), money: moneyOverride.rules } });
+      const changes = moneyRulesDiff(before, after);
+      const storedChanged = JSON.stringify(s0.rules?.money ?? {}) !== JSON.stringify(moneyOverride.rules ?? {});
+      if (changes.length || storedChanged) {
+        entries.push({ at: now.toISOString(), by: who.coach, version: ++version, scope: { seasonId: s0.id, name: s0.name }, before, after, changes: changes.length ? changes : ["Now follows the league's money rules"] });
+      } else moneyOverride = undefined;
+    }
+    if (entries.length) moneyChange = { version, entries };
+  }
   if (season && team) {
     season.rules = {
       ...(season.rules ?? {}),
       teamBuilding: { rosters: team.rosters, eliteSkills: teamBuildingTable(season).eliteSkills, updatedAt: now.toISOString(), updatedBy: who.coach },
     };
     deps.store.putSeason(season);
+  }
+  if (moneyOverride) {
+    // after the team building write (it may be the same season): read it fresh so neither write drops the other
+    const fresh = deps.store.season(league.id, moneyOverride.season.id) ?? moneyOverride.season;
+    const { money: _m, ...rest } = fresh.rules ?? {};
+    fresh.rules = { ...rest, ...(moneyOverride.rules ? { money: moneyOverride.rules } : {}) };
+    deps.store.putSeason(fresh);
   }
   if (connections?.discordUrl !== undefined) {
     const secrets = deps.store.secrets(league.id);
@@ -934,8 +987,24 @@ function patchSettings(league: LeagueRecord, who: LeagueApiIdentity, input: Reco
     if (connections?.playOnFork !== undefined) l.playOnFork = connections.playOnFork;
     if (connections?.discordEvents) l.discordEvents = connections.discordEvents;
     if (redraftRules) l.redraftRules = redraftRules;
+    if (moneyChange) {
+      if (moneyLeague !== undefined) { if (Object.keys(moneyLeague).length) l.moneyRules = moneyLeague; else delete l.moneyRules; }
+      l.moneyRulesVersion = moneyChange.version;
+      l.moneyRulesLog = [...(l.moneyRulesLog ?? []), ...moneyChange.entries].slice(-MONEY_LOG_KEEP);
+    }
     l.revision = revisionNow + 1;
   }, now);
+  if (moneyChange) {
+    // the other organisers hear about it through the record-change note (draft-aware deps.notify; never the actor)
+    const link = `/app/leagues/${encodeURIComponent(updated.id)}/settings?tab=money`;
+    for (const e of moneyChange.entries) {
+      const where = e.scope === "league" ? "the league" : e.scope.name;
+      notifyRecordChange(updated, who.coach, {
+        title: `${updated.name}: money rules changed`,
+        body: `${who.coach} changed the money rules for ${where} (version ${e.version}), from the next fixture:\n${e.changes.join("\n")}`, link,
+      }, deps.notify);
+    }
+  }
   if (rulesDiff.length && current && (coaches.length || started)) {
     // Coalesced per league: a burst of edits = one combined news post, note and DM per window.
     (deps.rulesNotices ?? rulesNotices).submit(`league:${updated.id}`, { message: changeMessage, diff: rulesDiff, afterStart: started, actor: who.coach, from: rulesBefore, to: rulesAfter }, (n) => {

@@ -75,6 +75,9 @@ export interface MatchRecord {
   inducements?: Record<"home" | "away", LobbyInducements>;
   /** True when the fixture lists the two coaches in the opposite home/away order to this match. */
   fixtureSwap?: boolean;
+  /** League fixtures: the money rules (leagues/moneyRules.ts) in force when the match started. Absent = the site's fixed
+   *  rule (10,000 per touchdown); the post-match always uses this snapshot, never the league's current rules. */
+  money?: import("../leagues/moneyRules.js").MoneySnapshot;
   /** Set on publish when a fixture result was written: what to restore on undo. */
   fixtureLink?: { id: string; priorStatus: string; expectedRevision: number; reportedAt: string; swapped: boolean; opId: string };
   /** Organiser note recorded when a match was reopened. */
@@ -151,7 +154,7 @@ export interface CommitJournal {
   result: { put: StoredTournamentResult } | { remove: string } | null;
   /** Tournaments-store fixture change (idempotent on replay): record a result, or retract it. */
   fixture?:
-    | { op: "record"; id: string; opId: string; expectedRevision: number; homeScore: number; awayScore: number; homeCasualties: number; awayCasualties: number; at: string }
+    | { op: "record"; id: string; opId: string; expectedRevision: number; homeScore: number; awayScore: number; homeCasualties: number; awayCasualties: number; moneyRulesVersion?: number; at: string }
     | { op: "retract"; id: string; opId: string; expectedRevision: number; status: string; at: string };
   /** The match record to write last. */
   match: MatchRecord;

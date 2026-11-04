@@ -22,6 +22,13 @@ const rows = computed(() => [
   { k: "Treasury", v: (s: LobbySide) => kGold(st(s).team.treasury) },
   { k: "Inducement budget", v: (s: LobbySide) => (step.value ? kGold(st(s).inducements.budget.limit) : "-") },
 ]);
+/** The league's money rules when they change the inducement cash (server flags; absent = the usual petty cash). */
+const budgetNote = computed(() => {
+  const r = props.view.inducements.rules;
+  if (r.fixedBudget) return `League money rules: each team gets ${kGold(r.fixedBudget)} for inducements this game${r.treasuryTopUp ? ", and may add from its treasury" : ""}.`;
+  if (r.pettyCash === false) return r.treasuryTopUp ? "League money rules: no petty cash; inducements are paid from the treasury." : "League money rules: no petty cash and no treasury spending.";
+  return "";
+});
 const form = (s: LobbySide) => st(s).standing?.latest ?? st(s).stats.season.form;
 const when = computed(() => scheduleLine(props.view.header));
 const caption = computed(() => [`Round ${props.view.header.round}${props.view.header.rounds ? ` of ${props.view.header.rounds}` : ""}`, props.view.header.phase, props.view.header.table ? `Table ${props.view.header.table}` : ""].filter(Boolean).join(" · "));
@@ -58,6 +65,7 @@ const caption = computed(() => [`Round ${props.view.header.round}${props.view.he
             </tr>
           </tbody>
         </table>
+        <p v-if="budgetNote" class="hm-small fs-budget-note" data-budget-note>{{ budgetNote }}</p>
       </div>
     </div>
   </section>

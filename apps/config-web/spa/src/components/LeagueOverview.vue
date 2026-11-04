@@ -24,6 +24,9 @@ import type { LeagueSummary, SeasonRecord, SeasonSummary } from "../leagues/type
 const props = defineProps<{ league: LeagueSummary; season: SeasonRecord; summary: SeasonSummary; crests: Record<string, string>; canManage?: boolean }>();
 const rulesetName = computed(() => rulesetLabel(props.league.rulesetPackage, props.season.ruleset));
 const houseEdit = computed(() => (props.canManage ? { name: "league-settings", params: { id: props.league.id }, query: { tab: "information" }, hash: "#house-rules" } : null));
+// the money rules this season plays by: its own override, else the league's (server-sent)
+const money = computed(() => props.league.money?.bySeason[props.season.id] ?? props.league.money?.rules ?? null);
+const moneyEdit = computed(() => (props.canManage ? { name: "league-settings", params: { id: props.league.id }, query: { tab: "money" } } : null));
 const route = useRoute();
 const latest = computed(() => latestResults(props.season, 12).map((f) => ({ id: f.id, card: resultCardProps(props.league, props.season, f, props.crests) })));
 const podium = computed(() => props.season.awards.filter((a) => a.type === "Overall Champion" || a.type === "Runner-up" || a.type === "Consolation"));
@@ -117,7 +120,7 @@ const phases = computed(() => props.season.phases.filter((p) => props.season.fix
           :claimable="Boolean(myEntry)" :busy="join?.state.busy === 'claim'" @claim="(paid) => join?.claimPaid(paid)"
         />
       </section>
-      <HouseRulesPanel kind="league" :rules="league.houseRules" :ruleset="rulesetName" id-prefix="lg" :edit-to="houseEdit" />
+      <HouseRulesPanel kind="league" :rules="league.houseRules" :ruleset="rulesetName" id-prefix="lg" :edit-to="houseEdit" :money="money" :money-edit-to="moneyEdit" />
       <section class="hm-panel" aria-labelledby="lg-org-h">
         <header class="hm-band"><h2 id="lg-org-h">Organisers</h2></header>
         <p v-if="!league.organisers.length" class="hm-empty">No organisers listed.</p>

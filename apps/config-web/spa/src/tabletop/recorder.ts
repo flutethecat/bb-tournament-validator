@@ -27,6 +27,8 @@ export interface SummaryView {
   postMatch: PostMatchOption; applied: boolean; score: { for: number; against: number }; outcome: "won" | "drawn" | "lost";
   players: PlayerLineView[]; deaths: string[]; winnings: number; treasuryBefore: number; treasuryAfter: number;
   fansBefore: number; fansAfter: number;
+  /** League money rules (server postMatch.ts PostMatchMoney): how the winnings were made up and the treasury cap. */
+  money?: { version: number; attendance?: number; stalled: boolean; lines: Array<{ what: string; gold: number }>; capLost?: number; capFans?: number };
 }
 
 /** The competition header the server composes for the bar above the hero. */

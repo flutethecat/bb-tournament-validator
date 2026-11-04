@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-04",
+    "title": "League money rules",
+    "body": "League settings has a Money card: the winnings formula (per touchdown, fan attendance, a no-stalling bonus, win and draw bonuses and the BB2025 concession rule, with the rulebook formula one click away), petty cash, the inducement budget rule and an optional treasury cap, per league with an optional override per season or ladder. The defaults keep today's numbers. Changes apply from the next fixture, every change is logged and the other organisers are told, and the league page's house rules panel shows the money rules to coaches.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-04",
     "title": "Message boards for leagues and tournaments",
     "body": "Leagues and tournaments now have a Board tab for their coaches and organisers. Organisers can pin, lock, hide or delete posts, mute a coach for a while, switch the board off or make it public, and see a Reports queue and a moderation log; coaches can report a post.",
     "links": [

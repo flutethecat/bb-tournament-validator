@@ -34,6 +34,23 @@ import { LOBBY_SIDES, type LobbyCoachRating, type LobbyCoachStats, type LobbyFix
 import { publishedLeagues } from "../leagues/lifecycle.js";
 import { competitionPlaysOnFork } from "../leagues/ladder.js";
 import { fixturePlayBlock } from "../leagues/playBlock.js";
+import { effectiveMoneyRules, lobbyBudget, type MoneyRules } from "../leagues/moneyRules.js";
+
+/** The lobby's inducement rules from the league's money rules (the competition's override first; moneyRules.ts). Owner
+ *  ruling §9.2: treasury top-up is on in leagues by default. Highlander is a tournament package option. Only the flags
+ *  that differ from that default are added, so a league on the defaults reads exactly as before. */
+export function leagueLobbyRules(league: Pick<LeagueRecord, "moneyRules">, season: Pick<SeasonRecord, "rules">): LobbyFixture["rules"] {
+  return lobbyRulesFor(effectiveMoneyRules(league, season));
+}
+
+/** The lobby rules for a given money rule set (a started match judges its pre-game picks by its own snapshot). */
+export function lobbyRulesFor(rules: MoneyRules): LobbyFixture["rules"] {
+  const b = lobbyBudget(rules);
+  return {
+    treasuryTopUp: b.treasuryTopUp, highlander: false, starClash: "refund",
+    ...(b.pettyCash ? {} : { pettyCash: false }), ...(b.fixedBudget > 0 ? { fixedBudget: b.fixedBudget } : {}),
+  };
+}
 
 export const LOBBY_BODY_MAX = 16 * 1024;
 
@@ -142,8 +159,8 @@ export function leagueLobbyFixture(
       lobby: `${base}/seasons/${enc(season.id)}/fixtures/${enc(f.id)}/lobby`,
     },
     sides: lobbySides,
-    // Owner ruling §9.2: treasury top-up allowed in leagues by default. Highlander is a tournament package option.
-    rules: { treasuryTopUp: true, highlander: false, starClash: "refund" },
+    // the league's money rules (League settings -> Money): petty cash, treasury top-up, a fixed amount per game
+    rules: leagueLobbyRules(league, season),
     noInducements: "",
     offers, ids, table: effectiveInducements(config),
     isOrganiser: (coach) => isLeagueOrganiser(league, coach) || Boolean(auth?.admin && same(auth.coach, coach)),

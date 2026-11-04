@@ -43,6 +43,7 @@ import type { DiceRuleset } from "../dice/tables.js";
 import { withRosterArt } from "./rosterArt.js";
 import { leagueStandings, type LeaguePoints } from "./standings.js";
 import { customOptionExtras, seasonInducementOffers } from "../leagues/inducements.js";
+import type { MoneySnapshot } from "../leagues/moneyRules.js";
 import type { SeasonInducements } from "../leagues/inducementRules.js";
 import { computeGlicko } from "../coachGlicko.js";
 import { CoachTitleStore, type CoachRatingView } from "../coachRank.js";
@@ -84,6 +85,8 @@ export interface FixtureView {
   clearedOpId?: string;
   /** League fixtures: a gate keeps it shut (the season start gate, src/leagues/gates.ts): answered 409 code "gate-shut". */
   shut?: { code: "gate-shut"; message: string; gate: unknown };
+  /** League fixtures: the money rules in force now (leagues/moneyRules.ts); a match snapshots them when it starts. */
+  money?: MoneySnapshot;
 }
 
 const shutAnswer = (f: Pick<FixtureView, "shut">): TabletopResult | undefined =>
@@ -94,7 +97,7 @@ export interface FixtureGateway {
   get(id: string): FixtureView | undefined;
   /** Every scheduled match (open or not); the fixtures route filters. */
   list?(): FixtureView[];
-  record(id: string, input: { opId?: string; expectedRevision: number; homeScore: number; awayScore: number; homeCasualties: number; awayCasualties: number }, at: Date): void;
+  record(id: string, input: { opId?: string; expectedRevision: number; homeScore: number; awayScore: number; homeCasualties: number; awayCasualties: number; moneyRulesVersion?: number }, at: Date): void;
   retract(id: string, input: { expectedRevision: number; status: string }, at: Date): void;
 }
 
@@ -904,12 +907,15 @@ export async function createMatch(
     leagueSeason = { leagueId: ls.leagueId, seasonId: ls.seasonId };
   }
   let fixtureSwap = false;
+  let money: MoneySnapshot | undefined;
   if (b.fixtureRef) {
     const fixture = deps.fixtures?.get(b.fixtureRef);
     if (!fixture) return err(409, "That fixture does not exist.");
     const gateShut = shutAnswer(fixture);
     if (gateShut) return gateShut;
     if (!fixture.open) return err(409, "That fixture is already resolved or closed.");
+    // a league fixture's money rules apply from the match that starts now; later changes never reach it
+    if (fixture.money) money = structuredClone(fixture.money);
     const k = (s: string) => s.trim().toLowerCase();
     const straight = k(fixture.home.coach) === k(home.coach) && k(fixture.away.coach) === k(away.coach);
     fixtureSwap = k(fixture.home.coach) === k(away.coach) && k(fixture.away.coach) === k(home.coach);
@@ -947,6 +953,7 @@ export async function createMatch(
     ...(league ? { league } : {}),
     ...(leagueSeason ? { leagueSeason } : {}),
     ...(fixtureSwap ? { fixtureSwap } : {}),
+    ...(money ? { money } : {}),
     ...(options.inducementsByCoach ? { inducements: {
       home: options.inducementsByCoach[home.coach.trim().toLowerCase()] ?? { picks: [], total: 0, treasury: 0, pettyCash: 0 },
       away: options.inducementsByCoach[away.coach.trim().toLowerCase()] ?? { picks: [], total: 0, treasury: 0, pettyCash: 0 },
@@ -1163,7 +1170,7 @@ async function computePreview(match: MatchRecord, events: TabletopEvent[], deps:
   if (!chainHome || !chainAway) return { ok: false as const, error: err(409, "Team files are missing.") };
   if (chainHome.head !== match.baseRevision.home || chainAway.head !== match.baseRevision.away)
     return { ok: false as const, error: err(409, "A team changed since this match was created; start a new match.") };
-  const opt = { postMatch: match.postMatch, ruleset: "bb2025" as const, matchId: match.id };
+  const opt = { postMatch: match.postMatch, ruleset: "bb2025" as const, matchId: match.id, ...(match.money ? { money: match.money } : {}) };
   const home = applyPostMatch(headRevision(chainHome).teamFile, events, { ...opt, team: "home" });
   const away = applyPostMatch(headRevision(chainAway).teamFile, events, { ...opt, team: "away" });
   return { ok: true as const, chainHome, chainAway, home, away };
@@ -1400,6 +1407,7 @@ function fixtureForPublish(match: MatchRecord, at: string, deps: TabletopApiDeps
     fixture = {
       op: "record", id: match.fixtureRef, opId: op, expectedRevision: f.revision, at,
       homeScore: h.score.for, awayScore: a.score.for, homeCasualties: cas(h), awayCasualties: cas(a),
+      ...(match.money ? { moneyRulesVersion: match.money.version } : {}),
     };
     fixtureLink = { id: match.fixtureRef, priorStatus: f.status, expectedRevision: f.revision, reportedAt: at, swapped, opId: op };
   }

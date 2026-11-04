@@ -39,6 +39,19 @@ import { fixturePlayed } from "./tourplay.js";
 import type { ForfeitDefectionRoll, LeagueFixture, LeagueRecord, LeagueTeam, SeasonRecord } from "./types.js";
 import type { LeagueApiDeps, LeagueApiIdentity, LeagueApiResult } from "./api.js";
 import { applyTournamentResets } from "./ladder.js";
+import { FAN_ATTENDANCE_UNIT, applyTreasuryCap, effectiveMoneyRules, forfeitWinnings, moneyRulesVersion, winningsFormulaText, type MoneyRules } from "./moneyRules.js";
+import { FANS_MAX } from "../tabletop/postMatch.js";
+
+/** The forfeit suggestions with the league's money rules: the winnings of the team that did not forfeit (moneyRules.ts). */
+function withMoney(sug: ReturnType<typeof suggestForfeit>, rules: MoneyRules, attendance: number): ReturnType<typeof suggestForfeit> {
+  for (const s of FORFEIT_SIDES) {
+    const me = sug[s], them = sug[other(s)];
+    me.winnings = forfeitWinnings(rules, { forfeit: me.forfeit, otherForfeit: them.forfeit, score: me.score, otherScore: them.score, attendance });
+  }
+  if (rules.concession === "rulebook" && sug.home.forfeit !== sug.away.forfeit)
+    sug.notes = [...sug.notes, `The league's money rules: the other team gets the whole fan attendance (both teams' Dedicated Fans, ${attendance}) x ${rules.fanMultiplier * 2} x ${FAN_ATTENDANCE_UNIT / 1000}k plus its touchdowns.`];
+  return sug;
+}
 
 export interface ForfeitDeps {
   store: LeagueStore;
@@ -93,7 +106,10 @@ function blockedReason(f: LeagueFixture): string {
 export function forfeitModel(deps: ForfeitDeps, ids: ForfeitIds, who: ForfeitWho): LeagueApiResult {
   const at = locate(deps.store, ids, who);
   if (isResult(at)) return at;
-  const { season, fixture: f } = at;
+  const { league, season, fixture: f } = at;
+  const rules = effectiveMoneyRules(league, season);
+  const attendance = FORFEIT_SIDES.reduce((n, s) => n + Math.max(0, teamOf(season, f, s)?.fans ?? 0), 0);
+  const sug = (forfeiting: { home: boolean; away: boolean }, legal = false) => withMoney(suggestForfeit(forfeiting, legal), rules, attendance);
   const players = Object.fromEntries(FORFEIT_SIDES.map((s) => {
     const team = teamOf(season, f, s);
     const eligible = new Map((team ? defectionCandidates(team.players, team.race, season.ruleset) : []).map((c) => [c.playerId, c.advancements]));
@@ -114,15 +130,17 @@ export function forfeitModel(deps: ForfeitDeps, ids: ForfeitIds, who: ForfeitWho
     defectionRolls: defectionsOn(f),
     players,
     suggestions: {
-      home: suggestForfeit({ home: true, away: false }),
-      away: suggestForfeit({ home: false, away: true }),
-      both: suggestForfeit({ home: true, away: true }),
+      home: sug({ home: true, away: false }),
+      away: sug({ home: false, away: true }),
+      both: sug({ home: true, away: true }),
     },
+    /** The money rules the suggestions follow (League settings -> Money). */
+    money: { version: moneyRulesVersion(league), winnings: winningsFormulaText(rules), concession: rules.concession, treasuryCap: rules.treasuryCapEnabled ? rules.treasuryCap : null },
     /** The same for a legal concession: no fan loss, no MVP limits, no notes. */
     legalSuggestions: {
-      home: suggestForfeit({ home: true, away: false }, true),
-      away: suggestForfeit({ home: false, away: true }, true),
-      both: suggestForfeit({ home: true, away: true }, true),
+      home: sug({ home: true, away: false }, true),
+      away: sug({ home: false, away: true }, true),
+      both: sug({ home: true, away: true }, true),
     },
     /** A legal concession is locked off once defections are rolled. */
     legalLocked: Boolean(f.forfeitDraft) || defectionsLogged(deps, ids),
@@ -307,6 +325,7 @@ export function undoForfeit(deps: ForfeitDeps, ids: ForfeitIds, who: ForfeitWho,
   if (d.defections) f.forfeitDraft = { side: d.defections.side, rolls: d.defections.rolls, at: d.at, by: d.by };
   delete f.forfeit;
   delete f.forfeitDetail;
+  delete f.moneyRulesVersion;
   if (f.announced) delete f.announced.result;
   // the snapshot is the stored roster as it was (its team value included): nothing is recomputed over it
   season.resultsChangedAt = iso;
@@ -319,7 +338,8 @@ export function undoForfeit(deps: ForfeitDeps, ids: ForfeitIds, who: ForfeitWho,
 export async function applyForfeit(deps: ForfeitDeps, ids: ForfeitIds, who: ForfeitWho, body: Record<string, unknown>, opts: ApplyForfeitOptions = {}): Promise<LeagueApiResult> {
   const at = locate(deps.store, ids, who);
   if (isResult(at)) return at;
-  const { season, fixture: f } = at;
+  const { league, season, fixture: f } = at;
+  const money = { version: moneyRulesVersion(league), rules: effectiveMoneyRules(league, season) };
   // A retry from the same recorder match (its close did not finish) answers the forfeit it already applied.
   if (opts.matchId && f.forfeit && f.forfeitDetail?.matchId === opts.matchId)
     return ok(200, { ok: true, already: true, forfeit: f.forfeit, score: { home: f.home.score ?? 0, away: f.away.score ?? 0 }, revision: season.revision });
@@ -381,7 +401,9 @@ export async function applyForfeit(deps: ForfeitDeps, ids: ForfeitIds, who: Forf
     sides: { home: pickSide(input, "home"), away: pickSide(input, "away") },
     ...(defections ? { defections } : {}),
     ...(opts.matchId ? { matchId: opts.matchId } : {}),
+    moneyRulesVersion: money.version,
   };
+  f.moneyRulesVersion = money.version;
   delete f.forfeitDraft;
 
   // The rosters (the league is the record): applied once, here.
@@ -394,6 +416,16 @@ export async function applyForfeit(deps: ForfeitDeps, ids: ForfeitIds, who: Forf
     const x = input[s];
     if (x.winnings) team.treasury = Math.max(0, (team.treasury ?? 0) + x.winnings);
     if (x.fans) team.fans = Math.max(1, (team.fans ?? 1) + x.fans);
+    // the league's treasury cap (moneyRules.ts) on what the winnings brought in: over it is lost or buys Dedicated Fans
+    let capNote = "";
+    if (x.winnings > 0) {
+      const cap = applyTreasuryCap(money.rules, team.treasury ?? 0, team.fans ?? 1, FANS_MAX);
+      if (cap.lost || cap.fansGained) {
+        team.treasury = cap.treasury;
+        team.fans = Math.max(team.fans ?? 1, cap.fans);
+        capNote = `treasury cap: ${cap.lost ? `${cap.lost} lost` : ""}${cap.lost && cap.fansGained ? ", " : ""}${cap.fansGained ? `+${cap.fansGained} Dedicated Fans` : ""}`;
+      }
+    }
     for (const id of x.mvp) {
       const p = team.players.find((q) => q.playerId === id);
       if (!p) continue;
@@ -420,6 +452,7 @@ export async function applyForfeit(deps: ForfeitDeps, ids: ForfeitIds, who: Forf
       x.forfeit ? "forfeited" : "won by forfeit",
       x.winnings ? `winnings ${x.winnings > 0 ? "+" : ""}${x.winnings}` : "",
       x.fans ? `Dedicated Fans ${x.fans > 0 ? "+" : ""}${x.fans}` : "",
+      capNote,
       x.mvp.length ? `MVP ${x.mvp.map((id) => team.players.find((p) => p.playerId === id)?.name ?? id).join(", ")}` : "",
       x.missNextGame.length ? `miss next game ${x.missNextGame.map((id) => team.players.find((p) => p.playerId === id)?.name ?? id).join(", ")}` : "",
     ].filter(Boolean);
@@ -429,7 +462,7 @@ export async function applyForfeit(deps: ForfeitDeps, ids: ForfeitIds, who: Forf
     addHistory(team, { at: iso, by: who.coach, kind: "forfeit", changes: [
       { what: `${x.forfeit ? "Forfeited" : "Won by forfeit"} v ${f[other(s)].team}` },
       ...(x.winnings ? [{ what: "Treasury", from: String(before.treasury ?? 0), to: String(team.treasury ?? 0) }] : []),
-      ...(x.fans ? [{ what: "Dedicated Fans", from: String(before.fans ?? 1), to: String(team.fans ?? 1) }] : []),
+      ...(x.fans || (team.fans ?? 1) !== (before.fans ?? 1) ? [{ what: "Dedicated Fans", from: String(before.fans ?? 1), to: String(team.fans ?? 1) }] : []),
       ...x.mvp.map((id) => ({ what: `MVP: ${team.players.find((p) => p.playerId === id)?.name ?? id}`, to: `+${MVP_SPP} SPP` })),
       ...x.missNextGame.map((id) => ({ what: `Miss next game: ${team.players.find((p) => p.playerId === id)?.name ?? id}` })),
       ...(defections?.side === s ? defections.rolls.map((r) => ({ what: `Defection roll ${r.roll}: ${r.name}`, to: r.leaves ? "left the team" : "stayed" })) : []),

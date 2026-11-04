@@ -28,6 +28,8 @@ interface Model {
   /** Recorder only: a forfeit whose match close did not finish (Finish forfeit retries it) / the match is closed by one. */
   pending?: boolean;
   closed?: boolean;
+  /** The league's money rules the winnings suggestions follow (absent on an older server). */
+  money?: { version: number; winnings: string; concession: "none" | "rulebook"; treasuryCap: number | null };
 }
 
 const props = defineProps<{ base: string; api: Fetcher; title?: string }>();
@@ -153,6 +155,7 @@ async function submit(): Promise<void> {
           <button class="sf-btn danger" type="button" :disabled="busy" @click="undoForfeit">Confirm undo</button>
         </template>
       </div>
+      <p v-if="model.money" class="muted ff-money" data-forfeit-money>League money rules (version {{ model.money.version }}): winnings {{ model.money.winnings }}<template v-if="model.money.concession === 'rulebook'">; a forfeit win earns the whole fan attendance</template><template v-if="model.money.treasuryCap !== null">; treasuries are capped at {{ Math.round(model.money.treasuryCap / 1000) }}k</template>.</p>
       <div class="ff-grid" role="group" aria-label="Result">
         <span class="ff-corner" /><span class="ff-h">{{ teamOf('home') }}</span><span class="ff-h">{{ teamOf('away') }}</span>
         <span class="ff-label tb-k">Forfeited (F)</span>

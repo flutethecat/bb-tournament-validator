@@ -20,7 +20,7 @@ import { plainText } from "../leagues/inducementRules.js";
 import { SenderRateLimiter, type NotificationInput } from "../notifications.js";
 import {
   budgetFor, CHAT_KEEP, CHAT_MAX_CHARS, fixedTeamStale, gateOf, holdBanner, inducementStep, kGold, menuFor, newLobby, parsePicks, picksVisible, planSide,
-  prefilledLines, priceSide, resolveStart, sideHasStep, tvRoles, type LobbyViewer,
+  prefilledLines, priceSide, resolveStart, sideHasStep, budgetRoles, type LobbyViewer,
 } from "./core.js";
 import type { LobbyPresence } from "./presence.js";
 import type { FixtureLobbyStore } from "./store.js";
@@ -133,7 +133,7 @@ export function lobbyView(fx: LobbyFixture, stored: LobbyRecord | undefined, aut
   const insider = viewer.kind !== "spectator";
   const organiser = Boolean(auth && fx.isOrganiser(auth.coach));
   const step = inducementStep(fx);
-  const roles = tvRoles(fx);
+  const roles = budgetRoles(fx);
   const gate = gateOf(fx, rec, onlineOf(fx, deps));
   // the coaches' messages: the two coaches; the organisers only once a coach asked for one
   const readsChat = Boolean(auth) && (viewer.kind === "side" || (viewer.kind === "organiser" && Boolean(rec.askedOrganiser)));
@@ -444,7 +444,7 @@ async function inducementsWrite(
   const s = target();
   if (typeof s !== "string") return s;
   const st = rec.sides[s];
-  const roles = tvRoles(fx);
+  const roles = budgetRoles(fx);
   const coach = fx.sides[s].coach;
   if (!sideHasStep(fx, s)) return fail(409, `${fx.sides[s].team.name} buys no inducements before kick-off in this fixture (no treasury spending allowed or no treasury).`);
   // An organiser unlocks (any side). Unlocking the overdog reopens its list: a hold built on its spend is dropped.

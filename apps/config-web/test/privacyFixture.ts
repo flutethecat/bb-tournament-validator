@@ -175,6 +175,11 @@ export async function seed(root: string, opts: SeedOptions = {}): Promise<void> 
       // a pin to Alice's podium award: its id must survive her deletion (no coach name in season award ids)
       { id: "p-3", kind: "award", awardId: seasonAwardId("s1", S1_CHAMPION, -1), note: "", by: "Bob", at: "2026-10-05T00:00:00Z" },
     ],
+    // money rules changes (moneyRules.ts): one by Alice, one by Bob
+    moneyRulesLog: [
+      { at: "2026-11-04T00:00:00Z", by: "Alice", version: 1, scope: "league", before: {}, after: {}, changes: ["Per touchdown: 10k to 20k"] },
+      { at: "2026-11-04T01:00:00Z", by: "Bob", version: 2, scope: "league", before: {}, after: {}, changes: ["Win bonus: 0k to 10k"] },
+    ],
   });
   w(join(lg, "secrets.json"), { webhookUrl: "https://discord.example.test/api/webhooks/1/secret" });
   w(join(lg, "seasons", "s1.json"), {

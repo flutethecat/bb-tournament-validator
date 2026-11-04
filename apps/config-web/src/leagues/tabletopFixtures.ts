@@ -9,21 +9,22 @@
  */
 import type { FixtureView } from "../tabletop/api.js";
 import { fixtureOpenForDeadline } from "./deadlines.js";
+import { moneySnapshot } from "./moneyRules.js";
 import { fixturePlayRefusal } from "./playBlock.js";
 import type { LeagueStore } from "./store.js";
 import { fixturePlayed } from "./tourplay.js";
-import type { LeagueFixture, SeasonRecord } from "./types.js";
+import type { LeagueFixture, LeagueRecord, SeasonRecord } from "./types.js";
 
 export const LEAGUE_FIXTURE_REF = /^league:([a-z0-9][a-z0-9-]{0,63}):([a-z0-9][a-z0-9-]{0,63}):([^:\s]{1,80})$/;
 export const leagueFixtureRef = (leagueId: string, seasonId: string, fixtureId: string): string => `league:${leagueId}:${seasonId}:${fixtureId}`;
 
-function locate(store: LeagueStore, ref: string): { season: SeasonRecord; fixture: LeagueFixture; leagueName: string } | undefined {
+function locate(store: LeagueStore, ref: string): { season: SeasonRecord; fixture: LeagueFixture; leagueName: string; league: LeagueRecord } | undefined {
   const m = LEAGUE_FIXTURE_REF.exec(ref);
   if (!m) return undefined;
   const league = store.league(m[1]!);
   const season = league ? store.season(league.id, m[2]!) : undefined;
   const fixture = season?.fixtures.find((f) => f.id === m[3]);
-  return league && season && fixture ? { season, fixture, leagueName: league.name } : undefined;
+  return league && season && fixture ? { season, fixture, leagueName: league.name, league } : undefined;
 }
 
 export function leagueFixtureView(store: LeagueStore, ref: string, now: Date = new Date()): FixtureView | undefined {
@@ -43,13 +44,14 @@ export function leagueFixtureView(store: LeagueStore, ref: string, now: Date = n
     round: f.round,
     ...(played ? { resultReportedAt: f.tabletop?.reportedAt ?? f.finishedAt ?? "recorded" } : {}),
     ...(f.tabletop?.opId ? { resultOpId: f.tabletop.opId } : {}),
+    money: moneySnapshot(at.league, season),
   };
 }
 
 /** The recorder's publish: score + casualties into the league fixture. Throws on a stale revision or a played fixture. */
 export function recordLeagueFixture(
   store: LeagueStore, ref: string,
-  input: { opId?: string; expectedRevision: number; homeScore: number; awayScore: number; homeCasualties: number; awayCasualties: number }, at: Date,
+  input: { opId?: string; expectedRevision: number; homeScore: number; awayScore: number; homeCasualties: number; awayCasualties: number; moneyRulesVersion?: number }, at: Date,
 ): void {
   const found = locate(store, ref);
   if (!found) throw new Error("The league fixture no longer exists.");
@@ -67,6 +69,8 @@ export function recordLeagueFixture(
   delete f.deadlineOutcome;
   delete f.resultEdit;
   f.tabletop = { revision: input.expectedRevision + 1, ...(input.opId ? { opId: input.opId } : {}), reportedAt: at.toISOString() };
+  // the money rules version this result used (the match's snapshot); absent on matches from before 11-04
+  if (input.moneyRulesVersion !== undefined) f.moneyRulesVersion = input.moneyRulesVersion; else delete f.moneyRulesVersion;
   season.resultsChangedAt = at.toISOString();
   store.putSeason(season);
 }
@@ -81,6 +85,7 @@ export function retractLeagueFixture(store: LeagueStore, ref: string, input: { e
   f.home.cas = f.away.cas = null;
   delete f.finishedAt;
   delete f.resultEdit;
+  delete f.moneyRulesVersion;
   f.tabletop = { revision: f.tabletop.revision + 1 };
   season.resultsChangedAt = at.toISOString();
   store.putSeason(season);

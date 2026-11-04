@@ -52,7 +52,8 @@ const total = computed(() => cart.value.reduce((n, l) => n + l.line, 0));
 const available = computed(() => {
   const b = props.budget;
   if (!b) return 0;
-  return b.role === "underdog" ? b.pettyCash + b.topUpLimit : b.role === "favourite" ? b.topUpLimit : 0;
+  // petty cash (the gap and / or a league's fixed amount) plus what the treasury may add
+  return b.pettyCash + b.topUpLimit;
 });
 const left = computed(() => available.value - total.value);
 const roleLine = computed(() => {
@@ -60,6 +61,8 @@ const roleLine = computed(() => {
   if (!b) return "";
   if (b.role === "favourite") return "Higher team value: pays from the treasury and chooses first.";
   if (b.role === "underdog") return "Lower team value: petty cash from the gap, plus up to " + k(b.topUpLimit) + " from the treasury.";
+  // league money rules without the gap: a fixed amount and / or treasury spending
+  if (b.pettyCash || b.topUpLimit) return `The league's money rules: ${[b.pettyCash ? `${k(b.pettyCash)} inducement money` : "", b.topUpLimit ? `up to ${k(b.topUpLimit)} from the treasury` : ""].filter(Boolean).join(", plus ")}.`;
   return "Team values are equal: neither team can buy inducements.";
 });
 const locked = computed(() => !props.canEdit || !!props.waitingFor);
@@ -93,7 +96,7 @@ const submit = (): void => emit("submit", props.side, cart.value.map((l) => ({ i
       </div>
       <aside class="tt-ipk-cart" aria-label="Cart">
         <div class="tt-ipk-totals">
-          <span v-if="budget?.role === 'underdog'">Petty cash <b>{{ k(budget.pettyCash) }}</b></span>
+          <span v-if="budget && (budget.role === 'underdog' || budget.pettyCash > 0)">Petty cash <b>{{ k(budget.pettyCash) }}</b></span>
           <span v-if="budget">Treasury <b>{{ k(budget.treasury) }}</b><small v-if="budget.role === 'underdog'"> (up to {{ k(budget.topUpLimit) }})</small></span>
           <span>Spent <b>{{ k(total) }}</b></span>
           <span :data-low="left < 0">Left <b>{{ k(left) }}</b></span>

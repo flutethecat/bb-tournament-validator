@@ -18,6 +18,9 @@ const signed = (n: number): string => (n > 0 ? `+${n}` : String(n));
       <template v-else-if="summary.applied === false"> · post-match not applied</template>
       <template v-else><template v-if="summary.winnings !== undefined"> · winnings {{ money(summary.winnings) }}</template><template v-if="summary.fanFactor !== undefined"> · fan factor {{ summary.fanFactor }}</template><template v-if="summary.fansChange"> · dedicated fans {{ signed(summary.fansChange) }}</template></template>
     </p>
+    <p v-if="summary.applied === true && summary.money" class="muted tt-money" data-money-lines>
+      Winnings: {{ summary.money.lines.map((l) => `${l.what} ${money(l.gold)}`).join(" + ") || "none" }}<template v-if="summary.money.capLost"> · treasury cap: {{ money(summary.money.capLost) }} lost</template><template v-if="summary.money.capFans"> · treasury cap: +{{ summary.money.capFans }} Dedicated Fans</template> · money rules v{{ summary.money.version }}
+    </p>
     <p v-if="summary.deaths.length" class="sf-error">Killed: {{ summary.deaths.join(", ") }}</p>
     <ul class="tt-players">
       <li v-for="l in summary.players" :key="l.id" class="tt-player">

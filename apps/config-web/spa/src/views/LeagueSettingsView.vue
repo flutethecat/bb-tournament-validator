@@ -24,6 +24,7 @@ import LeagueSettingsSeasonRegistration from "../components/LeagueSettingsSeason
 import LeagueSettingsRegistrations from "../components/LeagueSettingsRegistrations.vue";
 import LeagueSettingsTeamBuilding from "../components/LeagueSettingsTeamBuilding.vue";
 import LeagueSettingsRedraft from "../components/LeagueSettingsRedraft.vue";
+import LeagueSettingsMoney from "../components/LeagueSettingsMoney.vue";
 import LeagueRedraftMine from "../components/LeagueRedraftMine.vue";
 import LeagueSchedule from "../components/LeagueSchedule.vue";
 import LeagueSettingsTemplates from "../components/LeagueSettingsTemplates.vue";
@@ -111,6 +112,7 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} settings` : ""));
       <template v-else-if="tab === 'registrations'"><LeagueSettingsRegistrations /><LeagueSettingsSeasonRegistration /></template>
       <LeagueSettingsTeamBuilding v-else-if="tab === 'team-building'" />
       <LeagueSettingsInducements v-else-if="tab === 'inducements'" />
+      <LeagueSettingsMoney v-else-if="tab === 'money'" />
       <LeagueSettingsRedraft v-else-if="tab === 'redraft'" :league-id="id" />
       <LeagueSchedule v-else-if="tab === 'schedule'" :league-id="id" :seasons="state.seasons" />
       <LeagueSettingsTemplates v-else-if="tab === 'templates'" />

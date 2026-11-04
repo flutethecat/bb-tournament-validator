@@ -346,7 +346,7 @@ import { assertNotFenced, DeletionFenceError, isCoachFenced, isReservedCoachName
 import { adoptLobbyMatch, dropAllSnapshots, clockView, createMatch, isTabletopApiPath, recoverTabletop, tabletopApi, tabletopMatchTeams, type TabletopApiDeps } from "./tabletop/api.js";
 import { FixtureLobbyStore } from "./fixtureLobby/store.js";
 import { LobbyPresence } from "./fixtureLobby/presence.js";
-import { leagueLobbyFixture, type LeagueLobbyDeps } from "./fixtureLobby/league.js";
+import { leagueLobbyFixture, lobbyRulesFor, type LeagueLobbyDeps } from "./fixtureLobby/league.js";
 import { lobbyConfirmRules } from "./fixtureLobby/core.js";
 import { LOBBY_BODY_MAX as TOURNAMENT_LOBBY_BODY_MAX, tournamentLobbyFixture, tournamentLobbyKey, tournamentLobbyPath, tournamentLobbyRoute, type TournamentLobbyDeps } from "./fixtureLobby/tournament.js";
 import { LEAGUE_FIXTURE_REF, leagueFixtureView, recordLeagueFixture, retractLeagueFixture } from "./leagues/tabletopFixtures.js";
@@ -1352,7 +1352,10 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
         const league = leagueStore.league(lg[1]!);
         const season = league ? leagueStore.season(league.id, lg[2]!) : undefined;
         const f = season?.fixtures.find((x) => x.id === lg[3]);
-        return league && season && f ? lobbyConfirmRules(leagueLobbyFixture(league, season, f, undefined, leagueStore, fixtureLobbyDeps())) : undefined;
+        if (!league || !season || !f) return undefined;
+        const lfx = leagueLobbyFixture(league, season, f, undefined, leagueStore, fixtureLobbyDeps());
+        // a started match keeps the money rules it started with (its snapshot), whatever the league changed since
+        return lobbyConfirmRules(match.money ? { ...lfx, rules: lobbyRulesFor(match.money.rules) } : lfx);
       }
       const m = tournamentStore.match(ref);
       const t = m ? tournamentStore.tournament(m.tournamentId) : undefined;

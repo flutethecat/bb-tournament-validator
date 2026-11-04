@@ -459,11 +459,13 @@ export const STORE_COLLECTORS: StoreCollector[] = [
     export: (ctx) => {
       const leagues: unknown[] = [];
       for (const dir of leagueDirs(ctx.deps, false)) {
-        const league = readJsonLoose<{ id?: string; name?: string; owner?: string; organisers?: string[]; awards?: unknown; hallOfFame?: unknown }>(join(dir, "league.json"));
+        const league = readJsonLoose<{ id?: string; name?: string; owner?: string; organisers?: string[]; awards?: unknown; hallOfFame?: unknown; moneyRulesLog?: unknown }>(join(dir, "league.json"));
         if (!league) continue;
         // Awards given on this site to or by the coach, and Hall of Fame entries they pinned.
         const awards = objs(league.awards).filter((a) => customAwardLinked(ctx.keys, a) || isMine(ctx.keys, a.by));
         const pins = objs(league.hallOfFame).filter((p) => isMine(ctx.keys, p.by));
+        // Money rules changes this coach made as an organiser (moneyRules.ts): when, the version and what changed.
+        const moneyChanges = objs(league.moneyRulesLog).filter((e) => isMine(ctx.keys, e.by)).map((e) => ({ at: e.at, version: e.version, scope: e.scope, changes: e.changes }));
         let files: string[] = [];
         try { files = listFiles(join(dir, "seasons"), ".json"); } catch { /* none */ }
         const rows = files.map((p) => readJsonLoose<Obj>(p)).filter(isObj).map((s) => {
@@ -496,8 +498,8 @@ export const STORE_COLLECTORS: StoreCollector[] = [
         // TourPlay import (lane L8): the private rows linked to the coach (their TourPlay name, NAF user and number) and
         // the claims they made. Rows of other coaches never.
         const tourplay = tourplayImportExport(ctx.keys, readJsonLoose<Obj>(join(dir, "tourplay-import.json")));
-        if (rows.length || role || awards.length || pins.length || tourplay)
-          leagues.push({ league: league.name ?? league.id, id: league.id, ...(role ? { role } : {}), seasons: rows, ...(awards.length ? { awards } : {}), ...(pins.length ? { hallOfFame: pins } : {}), ...(tourplay ? { tourplayImport: tourplay } : {}) });
+        if (rows.length || role || awards.length || pins.length || tourplay || moneyChanges.length)
+          leagues.push({ league: league.name ?? league.id, id: league.id, ...(role ? { role } : {}), seasons: rows, ...(awards.length ? { awards } : {}), ...(pins.length ? { hallOfFame: pins } : {}), ...(tourplay ? { tourplayImport: tourplay } : {}), ...(moneyChanges.length ? { moneyRulesChanges: moneyChanges } : {}) });
       }
       return [{ name: "league-teams.json", content: json(leagues) }];
     },
@@ -1039,6 +1041,8 @@ function anonymiseLeagueFile(an: Anonymiser, tx: TextReplacer, l: Obj): boolean 
     mark(tx.texts(a, ["title", "note"]));
   }
   for (const p of objs(l.hallOfFame)) { mark(an.fields(p, ["by"], [])); mark(tx.texts(p, ["text", "note"])); }
+  // the money rules change log (moneyRules.ts): who made each change
+  for (const e of objs(l.moneyRulesLog)) mark(an.fields(e, ["by"], []));
   return changed;
 }
 

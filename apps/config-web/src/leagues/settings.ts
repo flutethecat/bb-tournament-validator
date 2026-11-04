@@ -9,6 +9,8 @@
  *   connections     { playOnFork?, discord?: { url?: string | null, events? } }
  *   redraft         { base?, perGame?, perWin?, perDraw?, perLoss?, agentFee?, capEnabled?, cap?, setBudget?, liftToBudget?, windowDays? }
  *                   the redraft budget formula and options (redraftRules.ts)
+ *   money           { perTouchdown?, fanMultiplier?, ..., treasuryCap? }   the league's money rules (moneyRules.ts; null = default)
+ *   moneyOverride   { seasonId, rules: {...} | null }   a competition's override (null = follow the league again)
  *
  * The Discord URL never appears in the read model (maskWebhookUrl) and never in an error message.
  */
@@ -17,6 +19,7 @@ import { parsePayField } from "../payments/links.js";
 import { FormatError, parseRegions } from "../competition/format.js";
 import { HouseRulesError, houseRulesOf, parseHouseRules, type HouseRules } from "../competition/houseRules.js";
 import { discordEvents, isDiscordWebhookUrl, maskWebhookUrl } from "./discord.js";
+import { moneyRulesView, type MoneyRulesView } from "./moneyRules.js";
 import { redraftRulesView, type RedraftRulesView } from "./redraftRules.js";
 import { leagueOwner } from "./store.js";
 import { isTimeZone, leagueTimeZone, leagueTimeZoneSet } from "./timeZone.js";
@@ -342,6 +345,8 @@ export interface LeagueSettingsView {
   teamBuilding: { seasonId: string; seasonName: string; ruleset: LeagueRuleset; rules: TeamBuildingRules } | null;
   /** Redraft budget formula and options (League settings -> Redraft). */
   redraft: RedraftRulesView;
+  /** Money rules (League settings -> Money): the league's, each competition's override and the change log. */
+  money: MoneyRulesView;
   regions: Record<LeagueCountry, Array<{ code: string; name: string }>>;
   rulesets: readonly LeagueRuleset[];
   eliteSkills: readonly string[];
@@ -387,6 +392,7 @@ export function settingsView(
     },
     teamBuilding: season ? { seasonId: season.id, seasonName: season.name, ruleset: season.ruleset, rules: teamBuildingTable(season) } : null,
     redraft: redraftRulesView(league),
+    money: moneyRulesView(league, seasons),
     regions: { US: US_STATES.map(([code, name]) => ({ code, name })), CA: CA_PROVINCES.map(([code, name]) => ({ code, name })) },
     rulesets: LEAGUE_RULESETS,
     eliteSkills: ELITE_SKILLS,

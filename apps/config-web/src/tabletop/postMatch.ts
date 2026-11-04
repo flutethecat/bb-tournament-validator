@@ -25,6 +25,7 @@
 
 import { effectiveEvents, LASTING_INJURY_RESULTS, otherSide, type Side, type StatName, type TabletopEvent } from "./events.js";
 import { nextCaptainVacancy } from "../captain.js";
+import { applyTreasuryCap, computeWinnings, type MoneyRules, type WinningsLine } from "../leagues/moneyRules.js";
 
 export type PostMatchOption = "none" | "spp-only" | "full";
 export type Ruleset = "bb2025";
@@ -108,6 +109,34 @@ export interface PostMatchOptions {
   postMatch: PostMatchOption;
   ruleset: Ruleset;
   matchId?: string;
+  /**
+   * The league money rules this match started with (leagues/moneyRules.ts snapshot on the match). Absent = the site's
+   * fixed rule (10,000 per touchdown, no cap): every match from before the rules existed keeps exactly its numbers.
+   */
+  money?: { version: number; rules: MoneyRules };
+}
+
+/** The post-game money step under league money rules: how the winnings were made up, and what the treasury cap did. */
+export interface PostMatchMoney {
+  version: number;
+  /** Both teams' Fan Factors added together (the pre-game fans roll); absent when it was not recorded. */
+  attendance?: number;
+  stalled: boolean;
+  lines: WinningsLine[];
+  /** The treasury cap: gold lost over it and Dedicated Fans bought with it. */
+  capLost?: number;
+  capFans?: number;
+}
+
+/** The money facts of a match: each side's Fan Factor (pre-game fans roll), stalling and concession. */
+export function moneyFacts(events: readonly TabletopEvent[]): { fanFactor: Record<Side, number | undefined>; stalled: Record<Side, boolean>; conceded: Record<Side, boolean> } {
+  const out = { fanFactor: { home: undefined, away: undefined } as Record<Side, number | undefined>, stalled: { home: false, away: false }, conceded: { home: false, away: false } };
+  for (const e of effectiveEvents(events)) {
+    if (e.type === "fans" && typeof e.payload.total === "number") out.fanFactor[e.team] = e.payload.total;
+    else if (e.type === "stalling") out.stalled[e.team] = true;
+    else if (e.type === "concede") out.conceded[e.team] = true;
+  }
+  return out;
 }
 
 export interface SppCredit { team: Side; player: string; spp: number }
@@ -177,6 +206,8 @@ export interface PostMatchSummary {
   fansAfter: number;
   /** Casualties this team SUFFERED, bucketed like the fork result (bh / si = MNG, NI, stat loss / rip). */
   casualtiesSuffered: { bh: number; si: number; rip: number };
+  /** Only for a match played under league money rules (options.money). */
+  money?: PostMatchMoney;
 }
 
 export interface MatchTally {
@@ -298,10 +329,31 @@ export function applyPostMatch(
   const againstScore = tally.score[otherSide(side)];
   const lines = [...tally.lines[side].values()];
   const full = options.postMatch === "full";
-  const winnings = full ? forScore * WINNINGS_PER_TOUCHDOWN : 0;
+  let money: PostMatchMoney | undefined;
+  let winnings = full ? forScore * WINNINGS_PER_TOUCHDOWN : 0;
+  if (options.money) {
+    const facts = moneyFacts(events);
+    const ff = facts.fanFactor;
+    const attendance = ff.home !== undefined && ff.away !== undefined ? ff.home + ff.away : undefined;
+    const w = computeWinnings(options.money.rules, {
+      score: { for: forScore, against: againstScore }, attendance, stalled: facts.stalled[side],
+      conceded: { self: facts.conceded[side], other: facts.conceded[otherSide(side)] },
+    });
+    winnings = full ? w.winnings : 0;
+    money = { version: options.money.version, ...(attendance !== undefined ? { attendance } : {}), stalled: facts.stalled[side], lines: w.lines };
+  }
   const spent = full ? Math.min(tally.treasurySpent[side], teamFile.treasury + winnings) : 0;
   const fansBefore = teamFile.dedicatedFans;
-  const fansAfter = full ? Math.min(FANS_MAX, Math.max(FANS_MIN, fansBefore + tally.fanDelta[side])) : fansBefore;
+  let fansAfter = full ? Math.min(FANS_MAX, Math.max(FANS_MIN, fansBefore + tally.fanDelta[side])) : fansBefore;
+  let treasuryAfter = teamFile.treasury + winnings - spent;
+  if (options.money && money && full) {
+    // the treasury cap, after winnings and the inducement spend (moneyRules.ts applyTreasuryCap)
+    const cap = applyTreasuryCap(options.money.rules, treasuryAfter, fansAfter, FANS_MAX);
+    treasuryAfter = cap.treasury;
+    fansAfter = cap.fans;
+    if (cap.lost) money.capLost = cap.lost;
+    if (cap.fansGained) money.capFans = cap.fansGained;
+  }
 
   const summary: PostMatchSummary = {
     ruleset: options.ruleset,
@@ -314,10 +366,11 @@ export function applyPostMatch(
     deaths: lines.filter((l) => l.injury?.result === "DEAD").map((l) => l.id),
     winnings,
     treasuryBefore: teamFile.treasury,
-    treasuryAfter: teamFile.treasury + winnings - spent,
+    treasuryAfter,
     fansBefore,
     fansAfter,
     casualtiesSuffered: tally.casualtiesSuffered[side],
+    ...(money ? { money } : {}),
   };
 
   if (options.postMatch === "none") return { teamFile: structuredClone(teamFile), summary };

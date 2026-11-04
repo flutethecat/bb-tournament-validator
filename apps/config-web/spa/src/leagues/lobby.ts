@@ -65,7 +65,7 @@ export interface LobbyView {
   links: { competition: string; fixture: string; standings: string; rules: string; lobby?: string };
   viewer: { role: LobbyRole; signedIn: boolean; organiser: boolean; canChat: boolean; canStart: boolean; canForce: boolean };
   sides: Record<LobbySide, LobbySideView>;
-  inducements: { step: boolean; reason: string; rules: { treasuryTopUp: boolean; highlander: boolean; starClash: string }; gap: number; underdog: LobbySide | null; overdog: LobbySide | null; overdogFinal: boolean };
+  inducements: { step: boolean; reason: string; rules: { treasuryTopUp: boolean; highlander: boolean; starClash: string; pettyCash?: boolean; fixedBudget?: number }; gap: number; underdog: LobbySide | null; overdog: LobbySide | null; overdogFinal: boolean };
   gate: { rosters: Record<LobbySide, boolean>; inducements: Record<LobbySide, boolean>; ready: Record<LobbySide, boolean>; readyCount: number; armed: boolean; forceArmed: boolean; blockers: string[] };
   hold: { underdog: LobbySide; overdogSpend: number; pettyCash: number; was: number; at: string; banner: string } | null;
   started: { at: string; by: string; mode: "tabletop" | "fork"; matchId?: string; admin?: true; to: string } | null;
