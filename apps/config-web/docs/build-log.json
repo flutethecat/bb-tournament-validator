@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-03",
+    "title": "Ladder titles: belts, Money in the Bank and the Rumble",
+    "body": "Ladders can now have a title belt (Ladder settings, Titles). The champion earns bonus points for defences and every week held, the top two contenders play an eliminator for the mandatory title shot, and the champion must defend within 21 days. Money in the Bank contracts, an interim champion, a Rumble knockout and period honours come with it, and the league Overview shows the Current Champions.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-03",
     "title": "Clubs: join a club and play for it",
     "body": "Create a club or ask to join one in the new Clubs section; its admins approve requests. When you join a league, ladder or tournament you pick which of your clubs you represent, and your results there count for that club on its Members, Results and Stats tabs. Members also get a club board and can choose to hear when a clubmate wins, and admins can connect a Discord webhook for members' results, podiums and league titles.",
     "links": [
