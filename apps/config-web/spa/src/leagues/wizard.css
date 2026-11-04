@@ -147,3 +147,7 @@
 
 /* creation wizards v2: the Rules step opens with the ruleset card picker across the pane */
 .lw-ruleset { margin-bottom: 16px; }
+
+/* Season step: "Save as template" (competition templates). */
+.lw-template { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.lw-template .lw-help { flex: 1 1 220px; min-width: 0; }

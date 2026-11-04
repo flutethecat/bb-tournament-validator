@@ -100,7 +100,7 @@ beforeEach(() => {
     ruleset: "BB2025", rulesetPackage: "Small Gods", regions: ["Upstream", "Downstream"],
     houseRules: { prayers: { mode: "cost", costK: 50 }, brawlingBrutes: "off", maxStatIncreasesTeam: 8, maxStatIncreasesPlayer: 3, mvp: "pick3", hireFire: "enforced" } });
   leagues.setSecrets("river", { discordWebhookUrl: HOOK });
-  leagues.putSeason(season("river", 1, { status: "completed", stage: "completed" }));
+  leagues.putSeason(season("river", 1, { status: "completed", stage: undefined }));
   leagues.upsertLeague({ id: "lake", name: "Lake League", fullName: "Lake League", slug: "lake", organisers: ["Kim"], owner: "Kim" });
   leagues.upsertLeague({ id: "pond", name: "Pond League", fullName: "Pond League", slug: "pond", organisers: ["Jay"], owner: "Jay" });
 });

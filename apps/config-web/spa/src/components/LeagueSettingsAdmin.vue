@@ -8,6 +8,9 @@ import { useRouter } from "vue-router";
 import { LEAGUE_SETTINGS_KEY, nextSeasonDefaults, openSeason, openSeasons, podiumPickError, podiumPicks } from "../leagues/settings";
 import type { PodiumProposal, PodiumSlot } from "../leagues/types";
 import LeagueDialog from "./LeagueDialog.vue";
+import "../shared/templates.css";
+import { API_KEY } from "../app";
+import { leagueTemplates, newSeasonBody } from "../leagues/templates";
 
 const settings = inject(LEAGUE_SETTINGS_KEY)!;
 const { state } = settings;
@@ -34,16 +37,24 @@ async function setOwner(): Promise<void> {
 
 // Start a new season (dialog).
 const dialog = ref(false);
-const form = ref({ name: "", ruleset: "BB2025" });
+const form = ref({ name: "", ruleset: "BB2025", source: "last" as "last" | "template", templateId: "", applyRules: true, usePayLinks: false });
+// "From template" (competition templates): your season templates and those shared with you.
+const templates = leagueTemplates(inject(API_KEY)!);
+const usable = computed(() => templates.state.list.filter((t) => t.content));
+const chosen = computed(() => usable.value.find((t) => t.id === form.value.templateId));
 const defaults = computed(() => nextSeasonDefaults(state.seasons, view.value.information.ruleset));
 const nameInput = ref<HTMLInputElement | null>(null);
 function showDialog(): void {
-  form.value = { name: defaults.value.name, ruleset: defaults.value.ruleset };
+  form.value = { name: defaults.value.name, ruleset: defaults.value.ruleset, source: "last", templateId: "", applyRules: true, usePayLinks: false };
   state.errors.season = "";
+  void templates.load();
   dialog.value = true;
   void nextTick(() => nameInput.value?.focus());
 }
-async function startSeason(): Promise<void> { if (await settings.startSeason({ ...form.value })) dialog.value = false; }
+async function startSeason(): Promise<void> {
+  if (form.value.source === "template" && !chosen.value) return;
+  if (await settings.startSeason(newSeasonBody({ ...form.value, usePayLinks: Boolean(chosen.value?.mine && chosen.value.hasPayLinks && form.value.usePayLinks) }))) dialog.value = false;
+}
 
 // Finish season (dialog): the proposed podium, editable; only a changed pick is sent (the server records the override).
 const confirmFinish = ref(false);
@@ -190,17 +201,39 @@ const openRedraft = (): void => { void router.push({ name: "league-settings", pa
       </template>
     </LeagueDialog>
 
-    <LeagueDialog v-if="dialog" id="ls-new-season-h" title="Start a new season" :cap="`Season ${defaults.number}`" tag="form" @close="dialog = false" @submit="startSeason">
+    <LeagueDialog v-if="dialog" class="tp-dialog" id="ls-new-season-h" title="Start a new season" :cap="`Season ${defaults.number}`" tag="form" @close="dialog = false" @submit="startSeason">
       <label class="ls-field"><span>Name</span><input ref="nameInput" v-model="form.name" type="text" maxlength="60" required data-autofocus /></label>
-      <label class="ls-field">
-        <span>Ruleset</span>
-        <select v-model="form.ruleset"><option v-for="r in view.rulesets" :key="r" :value="r">{{ r }}</option></select>
-      </label>
-      <p class="hm-small hm-empty">The team building rules of the latest season are copied; change them on the Team building tab.</p>
+      <fieldset class="ls-source" data-season-source>
+        <legend class="sf-k">Start from</legend>
+        <div class="sf-tabs small" role="group" aria-label="Start from">
+          <button type="button" class="sf-tab" data-source="last" :aria-pressed="form.source === 'last' ? 'true' : 'false'" @click="form.source = 'last'">Copy last season</button>
+          <button type="button" class="sf-tab" data-source="template" :aria-pressed="form.source === 'template' ? 'true' : 'false'" @click="form.source = 'template'">From template</button>
+        </div>
+      </fieldset>
+      <template v-if="form.source === 'last'">
+        <label class="ls-field">
+          <span>Ruleset</span>
+          <select v-model="form.ruleset"><option v-for="r in view.rulesets" :key="r" :value="r">{{ r }}</option></select>
+        </label>
+        <p class="hm-small hm-empty">Copies the latest season's phases, divisions and registration settings (not its dates or teams), and its team building rules.</p>
+      </template>
+      <template v-else>
+        <label class="ls-field">
+          <span>Template</span>
+          <select v-model="form.templateId" required data-template-select>
+            <option value="" disabled>{{ templates.state.loaded ? (usable.length ? "Pick a template" : "No season templates yet") : "Loading..." }}</option>
+            <option v-for="t in usable" :key="t.id" :value="t.id">{{ t.name }}{{ t.mine ? "" : ` (shared by ${t.owner})` }}</option>
+          </select>
+        </label>
+        <dl v-if="chosen?.summary.length" class="tp-facts"><div v-for="r in chosen.summary" :key="r.k"><dt>{{ r.k }}</dt><dd>{{ r.v }}</dd></div></dl>
+        <label class="sf-check"><input v-model="form.applyRules" type="checkbox" data-apply-rules /> Use its rules and house rules for the league</label>
+        <label v-if="chosen?.mine && chosen.hasPayLinks" class="sf-check"><input v-model="form.usePayLinks" type="checkbox" data-use-pay /> Use its payment links</label>
+        <p class="hm-small hm-empty">Phases, divisions, registration settings and regions come from the template. Save templates under Templates.</p>
+      </template>
       <p v-if="state.errors.season" class="sf-error" role="alert">{{ state.errors.season }}</p>
       <template #foot>
         <button class="sf-btn" type="button" @click="dialog = false">Cancel</button>
-        <button class="sf-btn primary" type="submit" :disabled="busy || !form.name.trim()">Start season</button>
+        <button class="sf-btn primary" type="submit" :disabled="busy || !form.name.trim() || (form.source === 'template' && !chosen)">Start season</button>
       </template>
     </LeagueDialog>
   </div>

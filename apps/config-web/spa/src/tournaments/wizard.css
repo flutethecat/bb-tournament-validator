@@ -97,3 +97,7 @@
 
 /* creation wizards v2: a step made of stacked groups (ruleset cards + house rules; format + points and tiebreakers) */
 .tw-stack { display: grid; gap: 12px; min-width: 0; }
+
+/* Competition templates: "Start from template" (step 1) and "Save as template" (Review). */
+.tw-template { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding-bottom: 4px; }
+.tw-template .tw-help { flex: 1 1 240px; min-width: 0; }

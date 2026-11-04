@@ -198,7 +198,9 @@ export function createLeagueSettings(deps: { api: Fetcher }) {
     state, load, save,
     /** Team building table of another season. */
     loadSeasonRules: (seasonId: string) => load(state.id, seasonId),
-    startSeason: (input: { name: string; ruleset: string }) =>
+    /** Start a new season: { name, ruleset, from: "last" } (Copy last season) or { name, from: "template", templateId,
+     *  applyRules, usePayLinks } (leagues/templates.ts newSeasonBody). */
+    startSeason: (input: Record<string, unknown>) =>
       action("season", async () => {
         await deps.api(`${base()}/seasons`, { method: "POST", body: input });
         // The new season becomes the team building season.

@@ -544,6 +544,13 @@ export function createLeagueWizard(deps: { api: Fetcher; upload?: RawUploader })
       if (stepIndex(id) <= state.reached || id === state.step) { state.step = id; state.error = ""; state.errors = {}; }
     },
     canGo: (id: WizardStepId): boolean => stepIndex(id) <= state.reached || id === state.step,
+    /** "Save as template" on the Season step: saves the step first (the template is captured from the saved draft season),
+     *  then answers the league and season to capture; undefined when the step was refused. */
+    async saveForTemplate(): Promise<{ leagueId: string; seasonId: string } | undefined> {
+      if (!(await saveStep())) return undefined;
+      const seasonId = state.draft?.season?.id;
+      return state.draft && seasonId ? { leagueId: state.draft.id, seasonId } : undefined;
+    },
     loadPackages,
     /** Keep the Rules step's unsaved edits before leaving for the Tournament Creator ("Create a new ruleset"). */
     stashRules(): void { if (state.draft) writeStash(state.draft.id, JSON.parse(JSON.stringify(state.form.rules)) as WizardForm["rules"]); },

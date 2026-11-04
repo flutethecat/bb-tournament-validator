@@ -16,6 +16,10 @@ import {
 } from "../tournaments/detail";
 import { FORMAT_LABEL, STATUS_LABEL, STATUS_TONE } from "../tournaments/list";
 import { SESSION_KEY, writesAllowed } from "../session";
+import { API_KEY } from "../app";
+import TemplateSaveDialog from "./TemplateSaveDialog.vue";
+import TemplatesPanel from "./TemplatesPanel.vue";
+import { tournamentTemplates } from "../tournaments/templates";
 
 const detail = inject(TOURNAMENT_DETAIL_KEY)!;
 const { state } = detail;
@@ -31,6 +35,14 @@ const open = ref(false);
 const editPane = ref<HTMLElement | null>(null);
 const ruleset = computed(() => t.value.rulesetPackName || t.value.packageName || "Not set");
 const entrants = computed(() => (t.value.maxPlayers > 0 ? `${field.value} of ${t.value.maxPlayers}` : String(field.value)));
+
+// Competition templates: "Save as template" captures this tournament's settings on the server (never its webhook).
+const templates = tournamentTemplates(inject(API_KEY)!);
+const savingTemplate = ref(false);
+const hasPay = computed(() => Boolean(t.value.payPal || t.value.venmo));
+async function saveTemplate(input: { name: string; description: string; includePayLinks: boolean }): Promise<void> {
+  if (await templates.save({ ...input, from: { tournamentId: t.value.id } })) savingTemplate.value = false;
+}
 
 async function editTournament() {
   await nextTick();
@@ -76,6 +88,17 @@ async function editTournament() {
         <p v-if="state.actionError && !open && !isPageAction(state.lastAction)" class="sf-error" role="alert">{{ state.actionError }}</p>
         <p v-else-if="state.notice && !open && !isPageAction(state.lastAction)" class="tn-notice" role="status">{{ state.notice }}</p>
       </section>
+
+      <TemplatesPanel :templates="templates" title="Templates" heading-id="tn-tpl-h">
+        <div class="tp-tools">
+          <button class="sf-btn primary" type="button" :disabled="!canWrite || Boolean(templates.state.busy)" aria-haspopup="dialog" data-save-template @click="savingTemplate = true">Save as template</button>
+        </div>
+        <p class="tp-help">Keeps this tournament's settings, with times relative to its start, to start new tournaments from. Share it with other organisers.</p>
+      </TemplatesPanel>
+      <TemplateSaveDialog
+        v-if="savingTemplate" kind="tournament" :default-name="t.name" :pay-links="hasPay" :source="t.name"
+        :busy="templates.state.busy === 'save'" :error="templates.state.error" @close="savingTemplate = false" @save="saveTemplate"
+      />
     </div>
 
     <div class="hm-col tn-main-col">

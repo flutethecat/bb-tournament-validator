@@ -12,7 +12,8 @@ import { reactive, toRaw, type InjectionKey } from "vue";
 import { ApiError } from "../shared/api";
 import type { Fetcher } from "../session";
 import { createBody, type CreateTournamentBody, type TournamentFormat } from "./create";
-import { fromLocalInput, PAIRING_LABEL, SEEDING_LABEL, type TournamentPrimaryTiebreaker } from "./detail";
+import { fromLocalInput, PAIRING_LABEL, SEEDING_LABEL, toLocalInput, type TournamentPrimaryTiebreaker } from "./detail";
+import { minutesBefore, resolveRelative, type RelativeTimes, type TournamentTemplateContent } from "../shared/templates";
 import type { TournamentPairingSystem, TournamentSeedingMode } from "../shared/api";
 import { normalisePayPal, normaliseVenmo } from "../shared/payLinks";
 import {
@@ -298,6 +299,37 @@ export function summaryRows(form: WizardForm, series: readonly WizardSeries[]): 
   };
 }
 
+/** Relative template times and the form fields they fill. */
+export const RELATIVE_FIELDS: ReadonlyArray<[keyof RelativeTimes, "opensAt" | "closesAt" | "rosterBy" | "checkInOpensAt" | "checkInClosesAt"]> = [
+  ["registrationOpens", "opensAt"], ["registrationCloses", "closesAt"], ["rosterBy", "rosterBy"], ["checkInOpens", "checkInOpensAt"], ["checkInCloses", "checkInClosesAt"],
+];
+
+/** The wizard's settings as a tournament template body (Review → "Save as template"): times become minutes before the
+ *  start; the webhook never goes in (only the event toggles); payment links only when kept. */
+export function templateContent(form: WizardForm, events: Record<string, boolean>, includePayLinks: boolean): Record<string, unknown> {
+  const start = form.startsAt ? fromLocalInput(form.startsAt) : "";
+  const rel = (v: string, on = true) => (on && v ? minutesBefore(start, fromLocalInput(v)) : null);
+  const payPal = normalisePayPal(form.payPal);
+  const venmo = normaliseVenmo(form.venmo);
+  const pay = { ...(payPal.ok && payPal.value ? { payPal: payPal.value } : {}), ...(venmo.ok && venmo.value ? { venmo: venmo.value } : {}) };
+  return {
+    packageName: form.packageName, houseRules: structuredClone(toRaw(form.houseRules)), format: form.format,
+    roundCount: form.format === "swiss" && form.roundCount !== "" ? Number(form.roundCount) : null,
+    pairingSystem: form.format === "swiss" && form.pairingSystem ? form.pairingSystem : null,
+    seedingMode: form.seedingMode, turnTimer: form.turnTimer, tiebreakers: [...form.tiebreakerChain],
+    points: { win: Number(form.points.win), draw: Number(form.points.draw), loss: Number(form.points.loss) },
+    pairingAvoid: form.format === "swiss" ? form.pairingAvoid : "none", regions: regionList(form), playOnFork: form.playOnFork,
+    maxPlayers: form.maxPlayers === "" ? 16 : Number(form.maxPlayers), approval: form.approval, waitlist: form.waitlist, rosterLater: form.rosterLater,
+    selfCheckIn: form.selfCheckIn, nafSanctioned: form.nafSanctioned, entryFee: form.entryFee.trim(),
+    relative: {
+      registrationOpens: rel(form.opensAt), registrationCloses: rel(form.closesAt), rosterBy: rel(form.rosterBy, form.rosterLater),
+      checkInOpens: rel(form.checkInOpensAt, form.selfCheckIn), checkInCloses: rel(form.checkInClosesAt, form.selfCheckIn),
+    },
+    discordEvents: { ...events },
+    ...(includePayLinks && Object.keys(pay).length ? { payLinks: pay } : {}),
+  };
+}
+
 export interface WizardState {
   step: WizardStep;
   form: WizardForm;
@@ -311,6 +343,8 @@ export interface WizardState {
   /** Registration step, Discord group: a webhook (a secret: never saved in the browser draft) and the tournament-mode
    *  events, sent to PATCH /api/tournaments/:id/discord right after the tournament is created. */
   discord: { webhook: string; events: Record<string, boolean> };
+  /** "Start from template": the template's name, and its times relative to the start (filled in once Starts is set). */
+  template: { name: string; relative: RelativeTimes; filled: Partial<Record<string, string>> } | null;
 }
 
 /** Tournament mode (requirement 6): what a tournament's Discord setup starts with ticked; the rest starts off. */
@@ -363,7 +397,19 @@ export function createTournamentWizard(deps: { api: Fetcher; onSignedOut?: () =>
   const state = reactive<WizardState>({
     step: "ruleset", form: blankWizardForm(), packages: [], packagesStatus: "idle", series: [], search: "", busy: "", error: "", signedOut: false,
     discord: { webhook: "", events: tournamentModeEvents() },
+    template: null,
   });
+  /** Fill the template's relative times from Starts: a field still blank, or still holding what the template put there. */
+  function resolveTemplateTimes(): void {
+    const t = state.template;
+    if (!t || !state.form.startsAt) return;
+    const start = fromLocalInput(state.form.startsAt);
+    for (const [key, field] of RELATIVE_FIELDS) {
+      const at = toLocalInput(resolveRelative(start, t.relative[key]));
+      if (!at) continue;
+      if (state.form[field] === "" || state.form[field] === t.filled[field]) { state.form[field] = at; t.filled[field] = at; }
+    }
+  }
   const blank = blankWizardForm();
   const keys = Object.keys(blank) as Array<keyof WizardForm>;
 
@@ -429,6 +475,37 @@ export function createTournamentWizard(deps: { api: Fetcher; onSignedOut?: () =>
       } catch { state.series = []; }
     },
     pickPackage(name: string): void { state.form.packageName = name; },
+    resolveTemplateTimes,
+    /** "Start from template": the template's settings over the form (name, dates, venue and summary stay); its times
+     *  relative to the start fill in once Starts is set; payment links only when the organiser said so. */
+    applyTemplate(name: string, c: TournamentTemplateContent, usePayLinks: boolean): void {
+      const f = state.form;
+      f.packageName = c.packageName;
+      f.houseRules = structuredClone(c.houseRules);
+      f.format = c.format;
+      f.roundCount = c.roundCount ?? "";
+      f.pairingSystem = c.pairingSystem ?? "";
+      f.seedingMode = c.seedingMode;
+      f.turnTimer = c.turnTimer;
+      f.tiebreakerChain = [...c.tiebreakers];
+      f.points = { ...c.points };
+      f.pairingAvoid = c.pairingAvoid;
+      f.regions = [...c.regions];
+      f.playOnFork = c.playOnFork;
+      f.maxPlayers = c.maxPlayers;
+      f.approval = c.approval;
+      f.waitlist = c.waitlist;
+      f.rosterLater = c.rosterLater;
+      f.selfCheckIn = c.selfCheckIn;
+      f.nafSanctioned = c.nafSanctioned;
+      f.entryFee = c.entryFee;
+      if (usePayLinks && c.payLinks) { f.payPal = c.payLinks.payPal ?? ""; f.venmo = c.payLinks.venmo ?? ""; }
+      for (const [, field] of RELATIVE_FIELDS) f[field] = "";
+      state.discord.events = { ...tournamentModeEvents(), ...c.discordEvents };
+      state.template = { name, relative: { ...c.relative }, filled: {} };
+      resolveTemplateTimes();
+      state.error = "";
+    },
     /** Move to a step; going forward checks every step before it (the first problem shows and the wizard stays). */
     go(step: WizardStep): boolean {
       const to = WIZARD_STEPS.findIndex((s) => s.id === step);

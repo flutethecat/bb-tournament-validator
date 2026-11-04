@@ -5,7 +5,7 @@
 // Ruleset (+ house rules) -> General -> Format -> Registration -> Review, then Save as draft (unpublished: only its
 // organisers see it) or Publish now.
 // Server: POST /api/tournaments (src/tournaments/api.ts wizardCreateFields). Controller: tournaments/wizard.ts.
-import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import DiscordLoginButton from "../components/DiscordLoginButton.vue";
 import { API_KEY } from "../app";
@@ -14,8 +14,12 @@ import { canCreateTournament, createdLocation, FORMAT_OPTIONS, TOURNAMENT_CREATO
 import { PAIRING_LABEL, SEEDING_LABEL } from "../tournaments/detail";
 import {
   APPROVAL_LABEL, createTournamentWizard, DRAFT_NOTICE, PUBLISHED_NOTICE, summaryRows, TOURNAMENT_WIZARD_KEY,
-  TOURNAMENT_DISCORD_EVENTS, TURN_TIMER_LABEL, WIZARD_STEPS, type WizardStep,
+  templateContent, TOURNAMENT_DISCORD_EVENTS, TURN_TIMER_LABEL, WIZARD_STEPS, type WizardStep,
 } from "../tournaments/wizard";
+import TemplatePickerDialog from "../components/TemplatePickerDialog.vue";
+import TemplateSaveDialog from "../components/TemplateSaveDialog.vue";
+import { tournamentTemplates } from "../tournaments/templates";
+import type { TemplateView, TournamentTemplateContent } from "../shared/templates";
 import CompetitionFormatFields from "../components/CompetitionFormatFields.vue";
 import HouseRulesFields from "../components/HouseRulesFields.vue";
 import PlayedOnToggle from "../components/PlayedOnToggle.vue";
@@ -97,6 +101,24 @@ async function create(publish: boolean): Promise<void> {
 function startOver(): void {
   wizard.forget();
   wizard.start({ restore: false });
+  state.template = null;
+}
+
+// Competition templates: "Start from template" (step 1) and "Save as template" (Review).
+const templates = tournamentTemplates(fetcher);
+const picking = ref(false);
+const savingTemplate = ref(false);
+function useTemplate(t: TemplateView, usePayLinks: boolean): void {
+  if (!t.content) return;
+  wizard.applyTemplate(t.name, t.content as unknown as TournamentTemplateContent, usePayLinks);
+  wizard.remember();
+  picking.value = false;
+}
+watch(() => state.form.startsAt, () => wizard.resolveTemplateTimes());
+const hasPay = computed(() => Boolean(state.form.payPal.trim() || state.form.venmo.trim()));
+async function saveTemplate(input: { name: string; description: string; includePayLinks: boolean }): Promise<void> {
+  const saved = await templates.save({ name: input.name, description: input.description, includePayLinks: input.includePayLinks, content: templateContent(state.form, state.discord.events, input.includePayLinks) });
+  if (saved) savingTemplate.value = false;
 }
 </script>
 
@@ -129,6 +151,11 @@ function startOver(): void {
         <div ref="body" class="tw-body" tabindex="-1">
           <!-- 1. Ruleset: the shared card picker (Featured first, BB2025 preselected) and the house rules group -->
           <div v-if="state.step === 'ruleset'" class="tw-stack">
+            <div class="tw-template" data-template-start>
+              <button type="button" class="sf-btn" aria-haspopup="dialog" data-start-template @click="picking = true">Start from template</button>
+              <p v-if="state.template" class="tw-help" role="status">Started from <strong>{{ state.template.name }}</strong>. Change anything you like; the template stays as it was.</p>
+              <p v-else class="tw-help">Use one of your templates, or one another organiser shared with you.</p>
+            </div>
             <RulesetCardPicker
               kind="tournament" :packages="state.packages" :status="state.packagesStatus" :selected="state.form.packageName"
               @pick="(c) => pick(c.packageName)" @create="newRuleset" @retry="wizard.loadPackages()"
@@ -169,6 +196,7 @@ function startOver(): void {
               </template>
               <p v-else class="tw-help tw-wide">Fixtures are played online: the fixture lobby launches each game.</p>
             </fieldset>
+            <p v-if="state.template && !state.form.startsAt" class="tw-help tw-wide" data-template-times>Set Starts and the template's registration and check-in times fill in relative to it.</p>
           </div>
 
           <!-- 3. Format: format, rounds, pairing, seeding, timer; points, the tiebreaker chain, avoidance, regions -->
@@ -282,6 +310,11 @@ function startOver(): void {
                 <div v-for="r in rows[s.id]" :key="r.k"><dt>{{ r.k }}</dt><dd>{{ r.v }}</dd></div>
               </dl>
             </section>
+            <div class="tw-template" data-template-save-row>
+              <button type="button" class="sf-btn" aria-haspopup="dialog" data-save-template @click="savingTemplate = true">Save as template</button>
+              <p v-if="templates.state.notice && !savingTemplate" class="tw-help" role="status">{{ templates.state.notice }} Times are kept relative to the start.</p>
+              <p v-else class="tw-help">Keep these settings to start future tournaments from. Never the webhook URL.</p>
+            </div>
             <p class="tw-help tw-review-note">
               <strong>Save as draft</strong> keeps it hidden: only you and its organisers see it, and nobody can register. <strong>Publish now</strong> makes it public, and registration opens per its window. Both check every step first. You can also publish later from Manage.
             </p>
@@ -308,6 +341,11 @@ function startOver(): void {
         </footer>
       </section>
 
+      <TemplatePickerDialog v-if="picking" :templates="templates" @close="picking = false" @pick="useTemplate" />
+      <TemplateSaveDialog
+        v-if="savingTemplate" kind="tournament" :default-name="state.form.name.trim()" :pay-links="hasPay"
+        :busy="templates.state.busy === 'save'" :error="templates.state.error" @close="savingTemplate = false" @save="saveTemplate"
+      />
       <aside class="hm-panel tw-side" aria-labelledby="tw-sum-h">
         <header class="hm-band" data-tone="info"><h2 id="tw-sum-h">Tournament summary</h2><span class="hm-cap">{{ state.form.packageName ? "In progress" : "Step 1" }}</span></header>
         <div class="tw-side-body">

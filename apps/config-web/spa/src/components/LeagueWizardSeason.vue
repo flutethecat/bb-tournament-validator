@@ -4,7 +4,10 @@
 // Q5), waitlist (on, Q6), existing teams (off, Q8), joining mid-season (off, Q9), entry fee text (Q17), and the optional
 // payment links (PayPal.Me link, Venmo username; also kept as the league defaults a later season copies). Registration
 // opens only after Publish and Open registration in League settings.
-import { computed, inject } from "vue";
+import { computed, inject, ref } from "vue";
+import { API_KEY } from "../app";
+import { leagueTemplates } from "../leagues/templates";
+import TemplateSaveDialog from "./TemplateSaveDialog.vue";
 import { ENTRY_FEE_MAX, LEAGUE_WIZARD_KEY } from "../leagues/wizard";
 import { PAY_NOTE } from "../shared/payLinks";
 import CompetitionFormatFields from "./CompetitionFormatFields.vue";
@@ -18,6 +21,19 @@ const APPROVAL = [
 ] as const;
 const addDivision = (): void => { if (s.value.divisions.length < 16) s.value.divisions.push(""); };
 const dropDivision = (i: number): void => { s.value.divisions.splice(i, 1); };
+// "Save as template" (competition templates): the step is saved first, then captured from the draft's season.
+const templates = leagueTemplates(inject(API_KEY)!);
+const saving = ref(false);
+const source = ref<{ leagueId: string; seasonId: string } | null>(null);
+async function openSave(): Promise<void> {
+  templates.state.error = "";
+  templates.state.notice = "";
+  source.value = (await wizard.saveForTemplate()) ?? null;
+  if (source.value) saving.value = true;
+}
+async function save(input: { name: string; description: string; includePayLinks: boolean }): Promise<void> {
+  if (source.value && await templates.save({ ...input, from: source.value })) saving.value = false;
+}
 </script>
 
 <template>
@@ -100,6 +116,15 @@ const dropDivision = (i: number): void => { s.value.divisions.splice(i, 1); };
         </label>
       </div>
       <p class="lw-help" data-pay-note="true">The league page shows a "Pay entry fee" block with these links. {{ PAY_NOTE }}</p>
+      <div class="lw-group lw-template" data-wizard-template>
+        <button class="sf-btn" type="button" :disabled="Boolean(state.busy)" aria-haspopup="dialog" data-save-template @click="openSave">Save as template</button>
+        <small class="lw-help">Keep this season's setup to start future seasons from, in any league you run.</small>
+        <small v-if="templates.state.notice && !saving" class="sf-notice" role="status">{{ templates.state.notice }} Find it in League settings, Templates.</small>
+      </div>
     </div>
+    <TemplateSaveDialog
+      v-if="saving" kind="season" :default-name="`${state.form.identity.name} ${s.name}`.trim()" :pay-links="Boolean(s.payPal.trim() || s.venmo.trim())"
+      :busy="templates.state.busy === 'save'" :error="templates.state.error" @close="saving = false" @save="save"
+    />
   </div>
 </template>

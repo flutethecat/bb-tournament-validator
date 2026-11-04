@@ -1,6 +1,21 @@
 [
   {
     "date": "2026-11-03",
+    "title": "Season and tournament templates you can share",
+    "body": "Save a season as a template from League management, Templates (or the wizard's Season step), then start a new season from it or from a copy of the last season. Tournament organisers can save a template from Manage or the wizard's Review, start a new tournament from one with check-in times kept relative to the start, and share templates with other organisers, who can use or copy them but not change yours.",
+    "links": [
+      {
+        "label": "Create a tournament",
+        "href": "/app/tournaments/new"
+      },
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-03",
     "title": "Tournament registration uses saved teams only",
     "body": "The register sheet now offers only your saved teams for the tournament's ruleset, Roster later where the organisers allow it, and Build one now. Super FUMBBL library teams are no longer a team source; a team made in the League Manager is a saved team. Entries already accepted are unchanged, and an old pending entry made with a library team can't be accepted until the coach registers again with a saved team.",
     "links": [
