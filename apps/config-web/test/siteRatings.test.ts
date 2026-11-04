@@ -638,6 +638,33 @@ describe("review 2: a fixture drawn before the reset and first played after it c
   });
 });
 
+describe("review 3: a legacy result (no firstReportedAt) keeps its original time through a clear and re-report", () => {
+  it("a pre-reset legacy game cleared and re-reported after the reset never counts", () => {
+    const root = mkdtempSync(join(tmpdir(), "site-ratings-legacy-")); roots.push(root);
+    const at0 = iso(0);
+    const side = (c: string) => ({ entrantId: `e-${c}`, coach: { coachId: c, ffbCoachId: c, verifiedAt: at0 }, teamId: `t-${c}` });
+    // written raw, as a file from before the stamp existed: a result reported on day 2, no firstReportedAt
+    writeFileSync(join(root, "tournaments.json"), JSON.stringify({
+      version: 4,
+      tournaments: { cup: { id: "cup", name: "Cup", status: "active", format: "swiss", packageName: "p", maxPlayers: 8, roundCount: 3, currentRound: 1, tiebreakers: ["buchholz"], points: { win: 3, draw: 1, loss: 0, bye: 3 }, ownerCoachId: "Org", organizerCoachId: "Org", organizerCoachIds: [], startedAt: at0, createdAt: at0, updatedAt: at0 } },
+      entrants: Object.fromEntries(["ann", "bob"].map((c, i) => [`e-${c}`, { id: `e-${c}`, tournamentId: "cup", seed: i + 1, coach: { coachId: c, ffbCoachId: c, verifiedAt: at0 }, teamId: `t-${c}`, registeredAt: at0 }])),
+      rounds: { r1: { id: "r1", tournamentId: "cup", number: 1, status: "active", scheduledMatchIds: ["m1"], createdAt: at0 } },
+      standings: {}, waitingPresence: {},
+      scheduledMatches: { m1: { id: "m1", tournamentId: "cup", roundId: "r1", roundNumber: 1, home: side("ann"), away: side("bob"), status: "completed", revision: 2, launch: { challengePath: "/api/fork/challenge", jnlpPath: "/api/fork/jnlp", retryCount: 0 }, result: { homeScore: 2, awayScore: 0, reportedAt: iso(2) }, createdAt: at0, updatedAt: iso(2) } },
+    }), "utf8");
+    const store = new TournamentStore(root);
+    const resetAt = T0 + 10 * DAY_MS;
+    expect(store.match("m1")!.firstReportedAt).toBe(iso(2)); // read: stamped in memory from the stored report
+    const cleared = store.clearEditedResult("m1", { expectedRevision: 2, by: "Org", confirmFinished: true } as never, new Date(T0 + 12 * DAY_MS)).match;
+    expect(cleared.firstReportedAt).toBe(iso(2));
+    const again = store.recordResult("m1", { expectedRevision: cleared.revision, homeScore: 0, awayScore: 1 }, new Date(T0 + 14 * DAY_MS));
+    expect(again.firstReportedAt).toBe(iso(2));
+    const games = tournamentGames(store.snapshot());
+    expect(games).toEqual([expect.objectContaining({ at: T0 + 2 * DAY_MS })]);
+    expect(computeSiteRatings(games, { resetAt }).games).toBe(0); // the pre-reset game stays out
+  });
+});
+
 describe("SPA helpers", () => {
   it("coach card: rating with RD, Provisional under 5 games", () => {
     expect(ratingText({ value: 1561, rd: 87, provisional: false })).toBe("1561 ±87");

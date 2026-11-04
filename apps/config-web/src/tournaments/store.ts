@@ -589,9 +589,10 @@ export class TournamentStoreError extends Error {
 }
 
 /**
- * Every write (site ratings, src/ratings/sources.ts): a fixture's first result stamps `firstReportedAt` once. Every writer
- * spreads the stored match, so the stamp survives a manager's clear and every re-report: it is when the game was first
- * played, the rating time of a fixture with no agreed time.
+ * Site ratings (src/ratings/sources.ts): a fixture's first result stamps `firstReportedAt` once: on every read (legacy rows,
+ * before any change is made to them) and after every change (a newly reported result). Every writer spreads the stored
+ * match, so the stamp survives a manager's clear and every re-report: when the game was first played, the rating time of a
+ * fixture with no agreed time.
  */
 export function stampFirstReports(data: TournamentDataFileV4): void {
   for (const m of Object.values(data.scheduledMatches ?? {})) {
@@ -608,7 +609,11 @@ export class TournamentStore {
 
   snapshot(): TournamentDataFileV4 {
     if (!existsSync(this.file)) return emptyData();
-    return migrateTournamentData(JSON.parse(readFileSync(this.file, "utf8")) as unknown);
+    const data = migrateTournamentData(JSON.parse(readFileSync(this.file, "utf8")) as unknown);
+    // Legacy rows (a result, no firstReportedAt) take their stored report time on every read, in memory only (a read never
+    // writes): a change made from this copy (a clear, an edit) then keeps the ORIGINAL time, never a later one.
+    stampFirstReports(data);
+    return data;
   }
 
   /** Intended for migrations, administrative import, and deterministic tests. */
@@ -621,8 +626,8 @@ export class TournamentStore {
 
   private mutate<T>(change: (data: TournamentDataFileV4) => T): T {
     const data = this.snapshot();
-    const result = change(data);
-    stampFirstReports(data); // before the copy: the returned match carries its stamp too
+    const result = change(data); // data came from snapshot(): every legacy result was stamped before the change
+    stampFirstReports(data); // a result this change reported first; before the copy, so the returned match carries it
     this.writeSnapshot(data);
     return structuredClone(result);
   }
