@@ -4,12 +4,13 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
 import {
-  filledGroups, flatItems, initialsOf, isSlashShortcut, moveActive, optionId, routeQuery, routeState, safeImage, searchPageLink, searchPath,
+  createQuickResults, filledGroups, flatItems, initialsOf, isSlashShortcut, moveActive, optionId, routeQuery, routeState, safeImage, searchPageLink, searchPath,
   type SearchResponse,
 } from "../spa/src/search/search";
 import { browseRows, emptyFilters, leagueFacets } from "../spa/src/leagues/browse";
 import { emptyCompetitionFilters, passesCompetitionFilters } from "../src/search/filters";
-import type { LeagueSummary } from "../spa/src/leagues/types";
+import type { LeagueSummary, SeasonRecord } from "../spa/src/leagues/types";
+import { teamByRef } from "../spa/src/leagues/league";
 
 // Global site search in the SPA (owner 11-04): the header bar's helpers (request path, result order, keyboard), the Search
 // page's route state, Browse leagues on the shared filters, and the server-rendered header bar and Search page.
@@ -63,6 +64,63 @@ describe("header search helpers", () => {
     expect(initialsOf("amy")).toBe("AM");
     expect(searchPageLink(" mud ")).toEqual({ name: "search", query: { q: "mud" } });
     expect(searchPageLink("")).toEqual({ name: "search", query: {} });
+  });
+});
+
+describe("quick results are keyed by viewer (Sol review)", () => {
+  function deferred() {
+    const calls: Array<{ path: string; resolve: (v: unknown) => void }> = [];
+    const api = <T>(path: string) => new Promise<T>((resolve) => { calls.push({ path, resolve: resolve as (v: unknown) => void }); });
+    return { api, calls };
+  }
+  it("results never outlive a sign-out or a change of coach, and an answer in flight is dropped", async () => {
+    let who = "Olga";
+    const d = deferred();
+    const quick = createQuickResults({ api: d.api, viewer: () => who });
+    const first = quick.run("mud");
+    d.calls[0]!.resolve(RES);
+    expect(await first).toBe(true);
+    expect(quick.results()?.q).toBe("mud");
+    who = ""; // signed out: the cached results are not shown even before reset()
+    expect(quick.results()).toBeNull();
+    quick.reset();
+    who = "Olga";
+    expect(quick.results()).toBeNull(); // reset dropped them for good
+    // In flight while the coach signs out: the late answer is ignored.
+    const late = quick.run("mud");
+    who = "";
+    d.calls[1]!.resolve(RES);
+    expect(await late).toBe(false);
+    expect(quick.results()).toBeNull();
+    // In flight across a reset (the header resets on a viewer change): ignored too.
+    who = "Bob";
+    const raced = quick.run("mud");
+    quick.reset();
+    d.calls[2]!.resolve(RES);
+    expect(await raced).toBe(false);
+    expect(quick.results()).toBeNull();
+    expect(quick.state.loading).toBe(false);
+  });
+  it("a newer query wins over an older answer", async () => {
+    const d = deferred();
+    const quick = createQuickResults({ api: d.api, viewer: () => "" });
+    const a = quick.run("mu");
+    const b = quick.run("mud");
+    d.calls[1]!.resolve({ ...RES, q: "mud" });
+    d.calls[0]!.resolve({ ...RES, q: "mu" });
+    expect(await b).toBe(true);
+    expect(await a).toBe(false);
+    expect(quick.results()?.q).toBe("mud");
+  });
+});
+
+describe("league page opens a search team link", () => {
+  it("?team= takes the team's lineage id (opaque), as well as its id and a unique name", () => {
+    const t = (id: string, name: string, teamUid?: string) => ({ id, name, ...(teamUid ? { teamUid } : {}) });
+    const s = { teams: [t("bashers--alice42", "Bashers"), t("bashers--bob77", "Bashers", "tm-0a1b2c3d4e5f")] } as unknown as SeasonRecord;
+    expect(teamByRef(s, "tm-0a1b2c3d4e5f")?.id).toBe("bashers--bob77");
+    expect(teamByRef(s, "bashers--alice42")?.id).toBe("bashers--alice42");
+    expect(teamByRef(s, "")).toBeUndefined();
   });
 });
 

@@ -26,7 +26,17 @@ export const FENCE_GRACE_MS = 10 * 60_000;
 /** key hash -> release time (Infinity while the job runs). */
 const fenced = new Map<string, number>();
 
-export function fenceCoachHash(hash: string): void { fenced.set(hash, Number.POSITIVE_INFINITY); }
+/** Told synchronously when a deletion fence starts (the site search drops its index at once). */
+const fenceListeners = new Set<() => void>();
+export function onCoachFenced(listener: () => void): () => void {
+  fenceListeners.add(listener);
+  return () => { fenceListeners.delete(listener); };
+}
+
+export function fenceCoachHash(hash: string): void {
+  fenced.set(hash, Number.POSITIVE_INFINITY);
+  for (const listener of fenceListeners) { try { listener(); } catch { /* a listener never blocks a deletion */ } }
+}
 /** The job finished: keep refusing for the grace period, then forget. */
 export function releaseCoachHash(hash: string, now = Date.now(), graceMs = FENCE_GRACE_MS): void { fenced.set(hash, now + graceMs); }
 

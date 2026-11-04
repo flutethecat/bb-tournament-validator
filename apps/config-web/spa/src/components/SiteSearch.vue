@@ -8,20 +8,27 @@ import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } fr
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { API_KEY } from "../app";
 import { typingTarget } from "../home/shell";
+import { SESSION_KEY } from "../session";
 import {
-  filledGroups, flatItems, initialsOf, isSlashShortcut, moveActive, optionId, QUERY_MAX, QUICK_DELAY_MS, QUICK_LIMIT, safeImage, searchPageLink,
-  searchPath, TYPE_LABEL, type SearchItem, type SearchResponse,
+  createQuickResults, filledGroups, flatItems, initialsOf, isSlashShortcut, moveActive, optionId, QUERY_MAX, QUICK_DELAY_MS, safeImage, searchPageLink,
+  TYPE_LABEL, type SearchItem,
 } from "../search/search";
 import "../search/search.css";
 
 const api = inject(API_KEY)!;
+const session = inject(SESSION_KEY, null);
+/** Who the results were fetched for: results (which can hold drafts) never outlive a sign-out or a change of coach. */
+const viewer = computed(() => session?.coach() ?? "");
 const route = useRoute();
 const router = useRouter();
 
 const q = ref("");
-const res = ref<SearchResponse | null>(null);
-const loading = ref(false);
-const error = ref("");
+// Quick results keyed by viewer (search/search.ts): an answer for another coach, or one still in flight when the coach
+// signs out or changes, is never shown.
+const quick = createQuickResults({ api, viewer: () => viewer.value });
+const res = computed(() => quick.results());
+const loading = computed(() => quick.state.loading);
+const error = computed(() => quick.state.error);
 const open = ref(false);
 const sheet = ref(false);
 const active = ref(-1);
@@ -37,24 +44,8 @@ const showPanel = computed(() => open.value && q.value.trim() !== "");
 const indexOf = (item: SearchItem) => items.value.indexOf(item);
 
 let timer: ReturnType<typeof setTimeout> | undefined;
-let seq = 0;
 async function run(text: string): Promise<void> {
-  const mine = ++seq;
-  if (!text.trim()) { res.value = null; loading.value = false; error.value = ""; return; }
-  loading.value = true;
-  try {
-    const r = await api<SearchResponse>(searchPath({ q: text, type: "all", limit: QUICK_LIMIT }));
-    if (mine !== seq) return;
-    res.value = r;
-    error.value = "";
-    active.value = -1;
-  } catch (e) {
-    if (mine !== seq) return;
-    res.value = null;
-    error.value = (e as { status?: number }).status === 429 ? "Too many searches. Try again in a moment." : "Search is unavailable right now.";
-  } finally {
-    if (mine === seq) loading.value = false;
-  }
+  if (await quick.run(text)) active.value = -1;
 }
 watch(q, (v) => {
   if (timer) clearTimeout(timer);
@@ -129,6 +120,13 @@ onBeforeUnmount(() => {
   document.removeEventListener("pointerdown", onPointer);
 });
 watch(() => route.fullPath, () => closeSheet(false));
+// Sign-out or another coach: drop the results and the query, and ignore any answer still in flight.
+watch(viewer, () => {
+  if (timer) clearTimeout(timer);
+  quick.reset();
+  q.value = "";
+  close();
+});
 // The sheet is a modal on phones: Tab stays inside it.
 function onSheetTab(e: KeyboardEvent): void {
   if (!sheet.value || e.key !== "Tab" || !root.value) return;

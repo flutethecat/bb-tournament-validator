@@ -17,8 +17,9 @@
 //    are never indexed;
 //  - the facet lists (rulesets, countries) come from documents the viewer may see.
 
+import { createHash } from "node:crypto";
 import { countryByCode } from "../auth/countries.js";
-import type { IdentityStore } from "../auth/identitiesStore.js";
+import type { CoachIdentityRecord, IdentityStore } from "../auth/identitiesStore.js";
 import { coachKey } from "../privacy/fence.js";
 import { isReservedCoachName } from "../privacy/reservedNames.js";
 import { regionLabel, storedRegion, type CompetitionRegion } from "../competition/region.js";
@@ -59,13 +60,20 @@ export const SEARCH_RATE = { maxRequests: 120, windowMs: 60_000 } as const;
 
 const TEAMS_PER_LEAGUE_MAX = 2000;
 
-interface DocField { text: string; weight: number; label: string }
+/** personKeys: the coach accounts this text names; it is neither matched nor shown while any of them is hidden. */
+interface DocField { text: string; weight: number; label: string; personKeys?: string[] }
+/** A subtitle piece; personKeys as on DocField. */
+interface SubtitlePart { text: string; personKeys?: string[] }
 
 export interface SearchDoc {
   type: SearchType;
   id: string;
   title: string;
   subtitle?: string;
+  /** Built at query time (team results: a hidden coach is left out); used instead of subtitle when present. */
+  subtitleParts?: SubtitlePart[];
+  /** The whole document names these coach accounts (coach results): dropped while any of them is hidden. */
+  personKeys?: string[];
   /** SPA path (under /app). */
   url: string;
   /** A same-site image route (league logo, club crest, coach avatar). */
@@ -124,7 +132,7 @@ function competitionChips(f: CompetitionFacets, draft: boolean): string[] {
   return [...(draft ? ["Draft"] : []), ...f.formats.map((x) => FORMAT_LABEL[x]), PLAYED_ON_LABEL[f.playedOn], ...(f.registrationOpen ? ["Registration open"] : [])];
 }
 
-function leagueDocs(sources: SearchSources, now: Date, hidden: ReadonlySet<string>): SearchDoc[] {
+function leagueDocs(sources: SearchSources, now: Date): SearchDoc[] {
   const out: SearchDoc[] = [];
   for (const l of sources.leagues.list()) {
     const draft = isDraftLeague(l);
@@ -158,9 +166,11 @@ function leagueDocs(sources: SearchSources, now: Date, hidden: ReadonlySet<strin
     // Ladders: their own result (format "ladder"); one still in setup is seen only by the league's managers.
     for (const s of ladders) {
       const setup = ladderState(s) === "setup";
+      // The ladder's own Played on and ruleset card (copied from the league at creation, editable per ladder).
+      const ladderPlayedOn = (typeof s.ladder?.playOnFork === "boolean" ? s.ladder.playOnFork : l.playOnFork === true) ? "fork" as const : "tabletop" as const;
       const ladderFacets: CompetitionFacets = {
-        rulesets: rulesetsOf(l.rulesetPackage, s.ruleset), ...(where.country ? { country: where.country } : {}), ...(where.text ? { regionText: where.text } : {}),
-        formats: ["ladder"], playedOn, registrationOpen: !draft && !setup && safeOpen(() => seasonWindowStatus(l, s, now).open),
+        rulesets: rulesetsOf(s.ladder?.rulesetPackage ?? l.rulesetPackage, s.ruleset), ...(where.country ? { country: where.country } : {}), ...(where.text ? { regionText: where.text } : {}),
+        formats: ["ladder"], playedOn: ladderPlayedOn, registrationOpen: !draft && !setup && safeOpen(() => seasonWindowStatus(l, s, now).open),
       };
       out.push({
         type: "leagues", id: `${l.id}/${s.id}`, title: s.name, subtitle: `Ladder · ${l.name}`, url: `/leagues/${enc(l.id)}?tab=ladder&ladder=${enc(s.id)}`,
@@ -182,17 +192,25 @@ function leagueDocs(sources: SearchSources, now: Date, hidden: ReadonlySet<strin
         if (count >= TEAMS_PER_LEAGUE_MAX) break;
         const name = typeof t.name === "string" ? t.name.trim() : "";
         if (!name) continue;
-        const coach = typeof t.coach === "string" && !hidden.has(coachKey(t.coach)) && !isReservedCoachName(t.coach) ? t.coach.trim() : "";
-        const dedupe = `${foldText(name)}\0${coachKey(coach)}`;
+        const coach = typeof t.coach === "string" && !isReservedCoachName(t.coach) ? t.coach.trim() : "";
+        // Every identity on the team: the coach name and its linked account. The coach is matched and shown only while
+        // all of them are eligible (checked live at query time).
+        const personKeys = keys(t.coach, t.coachId);
+        const dedupe = `${foldText(name)}\0${personKeys.join("\0")}`;
         if (seen.has(dedupe)) continue;
         seen.add(dedupe);
         count += 1;
-        const tab = ladder ? `tab=ladder&ladder=${enc(s.id)}` : `season=${enc(s.id)}&tab=participants&team=${enc(t.id)}`;
+        // Opaque links (never the team id, which can carry the coach name): the team's lineage id, else its name when it is
+        // unique in the season, else the season's participants.
+        const unique = (s.teams ?? []).filter((x) => typeof x.name === "string" && foldText(x.name.trim()) === foldText(name)).length === 1;
+        const ref = typeof t.teamUid === "string" && t.teamUid ? t.teamUid : unique ? name : "";
+        const tab = ladder ? `tab=ladder&ladder=${enc(s.id)}` : `season=${enc(s.id)}&tab=participants${ref ? `&team=${enc(ref)}` : ""}`;
+        const coachField = field(coach, 4, "coach");
         out.push({
-          type: "teams", id: `${l.id}/${s.id}/${t.id}`, title: name,
-          subtitle: [t.race, coach, `${l.name} ${s.name}`.trim()].filter((x) => typeof x === "string" && x.trim()).join(" · "),
+          type: "teams", id: opaqueId(l.id, s.id, t.id), title: name,
+          subtitleParts: [{ text: t.race }, { text: coach, personKeys }, { text: `${l.name} ${s.name}`.trim() }].filter((p) => typeof p.text === "string" && p.text.trim() !== ""),
           url: `/leagues/${enc(l.id)}?${tab}`,
-          fields: fields(field(name, 10, "name"), field(coach, 4, "coach"), field(t.race, 2, "race")),
+          fields: fields(field(name, 10, "name"), coachField ? { ...coachField, personKeys } : undefined, field(t.race, 2, "race")),
           ...(draft || setupLadder ? { managers, draft: true as const } : {}),
           activity: time(s.resultsChangedAt ?? s.importedAt),
         });
@@ -200,6 +218,11 @@ function leagueDocs(sources: SearchSources, now: Date, hidden: ReadonlySet<strin
     }
   }
   return out;
+}
+
+/** A stable id that names nothing: a hash of the team's place (league, competition, team). */
+function opaqueId(...parts: string[]): string {
+  return `t-${createHash("sha256").update(parts.join("\0"), "utf8").digest("hex").slice(0, 20)}`;
 }
 
 function safeOpen(fn: () => boolean): boolean {
@@ -244,18 +267,35 @@ function clubDocs(sources: SearchSources): SearchDoc[] {
   }));
 }
 
-/** Coaches who never appear: banned, deleted or being deleted, never onboarded (keys). */
-function hiddenCoaches(store: IdentityStore, sources: SearchSources): { shown: Array<{ name: string; updatedAt?: string }>; hidden: Set<string> } {
+/** A coach account never appears in search: banned, deleted or being deleted (reserved pseudonym, deletion fence), or
+ *  never onboarded. One rule for the index build and the live query-time check. */
+export function coachIneligible(record: Pick<CoachIdentityRecord, "ffbCoachId" | "banned" | "consent"> | undefined, name: string, isFenced?: (coach: string) => boolean): boolean {
+  if (isReservedCoachName(name) || isFenced?.(name) === true) return true;
+  if (!record) return false;
+  return record.banned === true || isReservedCoachName(record.ffbCoachId) || isFenced?.(record.ffbCoachId) === true || !record.consent?.privacy?.acceptedVersion;
+}
+
+/** The live check (query time): a coach key -> hidden now, against the current identities and fences. */
+export type AccountGate = (key: string) => boolean;
+export function accountGate(store: IdentityStore, isFenced?: (coach: string) => boolean): AccountGate {
+  // By the identity key of each record's own name (whatever the map is keyed by).
+  const byKey = new Map<string, CoachIdentityRecord>();
+  for (const r of Object.values(store.coaches ?? {})) if (typeof r?.ffbCoachId === "string") byKey.set(coachKey(r.ffbCoachId), r);
+  const memo = new Map<string, boolean>();
+  return (key) => {
+    let hit = memo.get(key);
+    if (hit === undefined) { hit = coachIneligible(byKey.get(key), key, isFenced); memo.set(key, hit); }
+    return hit;
+  };
+}
+
+function eligibleCoaches(store: IdentityStore, sources: SearchSources): Array<{ name: string; updatedAt?: string }> {
   const shown: Array<{ name: string; updatedAt?: string }> = [];
-  const hidden = new Set<string>();
   for (const r of Object.values(store.coaches ?? {})) {
     const name = typeof r?.ffbCoachId === "string" ? r.ffbCoachId.trim() : "";
-    if (!name) continue;
-    const gone = r.banned === true || isReservedCoachName(name) || sources.isFenced?.(name) === true || !r.consent?.privacy?.acceptedVersion;
-    if (gone) hidden.add(coachKey(name));
-    else shown.push({ name, updatedAt: r.updatedAt });
+    if (name && !coachIneligible(r, name, sources.isFenced)) shown.push({ name, updatedAt: r.updatedAt });
   }
-  return { shown, hidden };
+  return shown;
 }
 
 function coachDocs(shown: ReadonlyArray<{ name: string; updatedAt?: string }>, sources: SearchSources): SearchDoc[] {
@@ -265,7 +305,7 @@ function coachDocs(shown: ReadonlyArray<{ name: string; updatedAt?: string }>, s
     // Only the site's own avatar route: never a third-party URL that could carry an id.
     const image = avatar && avatar.startsWith("/api/coach-avatars/") ? avatar : undefined;
     return {
-      type: "coaches" as const, id: name, title: name, url: `/search?type=teams&q=${enc(name)}`,
+      type: "coaches" as const, id: name, title: name, url: `/search?type=teams&q=${enc(name)}`, personKeys: [coachKey(name)],
       ...(image ? { image } : {}),
       fields: fields(field(name, 10, "name")),
       activity: time(updatedAt),
@@ -276,12 +316,12 @@ function coachDocs(shown: ReadonlyArray<{ name: string; updatedAt?: string }>, s
 /** Every document (privacy rules applied at query time). Throws when a store cannot be read. */
 export function buildSearchDocs(sources: SearchSources): SearchDoc[] {
   const now = sources.now?.() ?? new Date();
-  const people = hiddenCoaches(sources.identities(), sources);
+  const people = eligibleCoaches(sources.identities(), sources);
   return [
-    ...leagueDocs(sources, now, people.hidden),
+    ...leagueDocs(sources, now),
     ...tournamentDocs(sources, now),
     ...clubDocs(sources),
-    ...coachDocs(people.shown, sources),
+    ...coachDocs(people, sources),
   ];
 }
 
@@ -336,10 +376,11 @@ export const canSee = (doc: Pick<SearchDoc, "managers">, viewer: SearchViewer | 
 
 /** Relevance of a doc for a folded query: the best field's tier x weight; 0 = no match. A multi-word query that matches
  *  no field whole still matches when every word is found in some field (scored lower). */
-export function scoreDoc(doc: Pick<SearchDoc, "fields">, q: string): { score: number; label?: string } {
+export function scoreDoc(doc: Pick<SearchDoc, "fields">, q: string, hidden?: AccountGate): { score: number; label?: string } {
+  const usable = hidden ? doc.fields.filter((f) => !f.personKeys?.some(hidden)) : doc.fields;
   let best = 0;
   let label: string | undefined;
-  for (const f of doc.fields) {
+  for (const f of usable) {
     const s = matchTier(f.text, q) * f.weight;
     if (s > best) { best = s; label = f.label; }
   }
@@ -349,29 +390,33 @@ export function scoreDoc(doc: Pick<SearchDoc, "fields">, q: string): { score: nu
   let total = Infinity;
   for (const w of words) {
     let wordBest = 0;
-    for (const f of doc.fields) wordBest = Math.max(wordBest, matchTier(f.text, w) * f.weight);
+    for (const f of usable) wordBest = Math.max(wordBest, matchTier(f.text, w) * f.weight);
     if (!wordBest) return { score: 0 };
     total = Math.min(total, wordBest);
   }
-  return { score: total / 2, label: doc.fields[0]?.label };
+  return { score: total / 2, label: usable[0]?.label };
 }
 
 const COMPETITION = new Set<SearchType>(["leagues", "tournaments"]);
 
-function toItem(doc: SearchDoc, label: string | undefined): SearchItem {
+function toItem(doc: SearchDoc, label: string | undefined, hidden?: AccountGate): SearchItem {
+  const subtitle = doc.subtitleParts
+    ? doc.subtitleParts.filter((p) => !(hidden && p.personKeys?.some(hidden))).map((p) => p.text.trim()).join(" · ")
+    : doc.subtitle;
   return {
-    type: doc.type, id: doc.id, title: doc.title, ...(doc.subtitle ? { subtitle: doc.subtitle } : {}), url: doc.url,
+    type: doc.type, id: doc.id, title: doc.title, ...(subtitle ? { subtitle } : {}), url: doc.url,
     ...(doc.image ? { image: doc.image } : {}), ...(doc.chips?.length ? { chips: doc.chips } : {}), ...(doc.draft ? { draft: true as const } : {}),
     ...(label && label !== "name" ? { matched: label } : {}),
   };
 }
 
 /** Runs a request over the documents for this viewer. */
-export function runSearch(docs: readonly SearchDoc[], req: SearchRequest, viewer: SearchViewer | undefined) {
+export function runSearch(docs: readonly SearchDoc[], req: SearchRequest, viewer: SearchViewer | undefined, hidden?: AccountGate) {
   const q = foldQuery(req.q);
   const filtering = competitionFiltersActive(req.filters);
   const types = req.type === "all" ? SEARCH_TYPES : [req.type];
-  const visible = docs.filter((d) => canSee(d, viewer));
+  // The live account check: a coach banned, deleted or revoked since the index was built is gone at once.
+  const visible = docs.filter((d) => canSee(d, viewer) && !(hidden && d.personKeys?.some(hidden)));
   const groups: Partial<Record<SearchType, SearchGroup>> = {};
   for (const type of types) {
     const people = type === "coaches" || type === "teams";
@@ -385,12 +430,12 @@ export function runSearch(docs: readonly SearchDoc[], req: SearchRequest, viewer
       if (doc.type !== type) continue;
       if (COMPETITION.has(type) && filtering && (!doc.facets || !passesCompetitionFilters(doc.facets, req.filters))) continue;
       if (blank) { rows.push({ doc, score: 0 }); continue; }
-      const s = scoreDoc(doc, q);
+      const s = scoreDoc(doc, q, hidden);
       if (s.score > 0) rows.push({ doc, score: s.score, ...(s.label ? { label: s.label } : {}) });
     }
     rows.sort((a, b) => b.score - a.score || b.doc.activity - a.doc.activity || a.doc.title.localeCompare(b.doc.title) || a.doc.id.localeCompare(b.doc.id));
     const page = rows.slice(req.offset, req.offset + req.limit);
-    groups[type] = { items: page.map((r) => toItem(r.doc, r.label)), total: rows.length, more: req.offset + req.limit < rows.length };
+    groups[type] = { items: page.map((r) => toItem(r.doc, r.label, hidden)), total: rows.length, more: req.offset + req.limit < rows.length };
   }
   // The filter options: rulesets and countries of the competitions this viewer may see.
   const rulesets = new Set<string>();
@@ -420,6 +465,9 @@ export interface SearchApiDeps {
   limiter?: Pick<RateLimiter, "take">;
   /** The caller's IP (rate limit key when not signed in). */
   ip?: string;
+  /** The live account check, read per request (identities + deletion fences). Throws when the identities cannot be read
+   *  (the request then answers 503). Unset = only the build-time check (unit tests of other rules). */
+  accounts?: () => AccountGate;
 }
 
 export interface SearchApiResult { status: number; headers?: Record<string, string>; body: unknown }
@@ -455,6 +503,10 @@ export function searchApi(method: string, query: URLSearchParams, viewer: Search
   try { docs = deps.index.docs(); } catch {
     return { status: 503, headers: NO_STORE, body: { error: "Search is unavailable right now. Try again shortly." } };
   }
-  const result = runSearch(docs, { q, type, filters, limit, offset }, viewer);
+  let hidden: AccountGate | undefined;
+  try { hidden = deps.accounts?.(); } catch {
+    return { status: 503, headers: NO_STORE, body: { error: "Search is unavailable right now. Try again shortly." } };
+  }
+  const result = runSearch(docs, { q, type, filters, limit, offset }, viewer, hidden);
   return { status: 200, headers: NO_STORE, body: { q, type, limit, offset, ...result } };
 }

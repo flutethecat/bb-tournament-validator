@@ -7,6 +7,7 @@
 import { computed, inject, onBeforeUnmount, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { API_KEY } from "../app";
+import { SESSION_KEY } from "../session";
 import { COMPETITION_FORMATS, FORMAT_LABEL, PLAYED_ON, PLAYED_ON_LABEL, type CompetitionFormat, type PlayedOn } from "../../../src/search/filters";
 import {
   competitionFiltersActive, emptyCompetitionFilters, FILTERED_TYPES, filledGroups, initialsOf, PAGE_LIMIT, QUERY_MAX, routeQuery, routeState, safeImage,
@@ -16,6 +17,8 @@ import "../leagues/browse.css";
 import "../search/search.css";
 
 const api = inject(API_KEY)!;
+const session = inject(SESSION_KEY, null);
+const viewer = computed(() => session?.coach() ?? "");
 const route = useRoute();
 const router = useRouter();
 
@@ -41,6 +44,7 @@ function push(next: SearchRoute): void {
 let seq = 0;
 async function load(s: SearchRoute, offset = 0): Promise<void> {
   const mine = ++seq;
+  const who = viewer.value;
   if (offset === 0) extra.value = [];
   const quick = s.type === "all";
   // The All tab needs a query or a filter; a single tab lists leagues, tournaments and clubs without one.
@@ -48,7 +52,7 @@ async function load(s: SearchRoute, offset = 0): Promise<void> {
   loading.value = true;
   try {
     const r = await api<SearchResponse>(searchPath({ q: s.q, type: s.type, filters: s.filters, limit: quick ? 8 : PAGE_LIMIT, offset }));
-    if (mine !== seq) return;
+    if (mine !== seq || who !== viewer.value) return;
     if (offset === 0) res.value = r;
     else if (res.value && s.type !== "all") {
       extra.value = [...extra.value, ...(r.groups[s.type]?.items ?? [])];
@@ -79,6 +83,8 @@ watch(text, (v) => {
   timer = setTimeout(() => { if (v.trim() !== state.value.q.trim()) push({ ...state.value, q: v }); }, 250);
 });
 onBeforeUnmount(() => { if (timer) clearTimeout(timer); });
+// Sign-out or another coach: results (which can hold drafts) are dropped and asked for again as the new viewer.
+watch(viewer, () => { res.value = null; extra.value = []; void load(state.value); });
 
 const setType = (type: SearchType | "all") => push({ ...state.value, type });
 function toggleFormat(f: CompetitionFormat): void {

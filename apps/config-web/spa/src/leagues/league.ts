@@ -588,9 +588,10 @@ export const isMyStanding = (r: Pick<StandingRow, "coachId">, coach: string): bo
 
 export const LATEST_LABEL: Record<string, string> = { W: "Win", D: "Draw", L: "Loss" };
 
-/** The team a ?team= value names: its id (exact), else a team name only when exactly one team has it. */
+/** The team a ?team= value names: its id (exact), its lineage id (teamUid: the site search links by it), else a team name
+ *  only when exactly one team has it. */
 export function teamByRef(season: SeasonRecord, ref: string): LeagueTeam | undefined {
-  const byId = season.teams.find((t) => t.id === ref);
+  const byId = season.teams.find((t) => t.id === ref) ?? (ref ? season.teams.find((t) => t.teamUid === ref) : undefined);
   if (byId) return byId;
   const named = season.teams.filter((t) => t.name.trim().toLowerCase() === ref.trim().toLowerCase());
   return named.length === 1 ? named[0] : undefined;

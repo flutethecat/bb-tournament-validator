@@ -343,7 +343,7 @@ import { deletedPseudonymFor, deletedPseudonymForNaf, isDiscordBlocked, isRecent
 import { setReplayCoachFilter } from "./replay/store.js";
 import { setNafIdFilter } from "./nafRecords.js";
 import { clearLeagueStatsCache } from "./leagues/api.js";
-import { assertNotFenced, DeletionFenceError, isCoachFenced, isReservedCoachName, RESERVED_NAME_MESSAGE, ReservedNameError } from "./privacy/fence.js";
+import { assertNotFenced, DeletionFenceError, isCoachFenced, onCoachFenced, isReservedCoachName, RESERVED_NAME_MESSAGE, ReservedNameError } from "./privacy/fence.js";
 import { adoptLobbyMatch, dropAllSnapshots, clockView, createMatch, isTabletopApiPath, recoverTabletop, tabletopApi, tabletopMatchTeams, type TabletopApiDeps } from "./tabletop/api.js";
 import { FixtureLobbyStore } from "./fixtureLobby/store.js";
 import { LobbyPresence } from "./fixtureLobby/presence.js";
@@ -388,7 +388,7 @@ import { tournamentTarget } from "./discord/targets.js";
 import { isTemplatesApiPath, seasonTemplateFor, templatesApi, type TemplatesDeps } from "./templates/api.js";
 import { TemplateStore } from "./templates/store.js";
 import { clubsApi, createClubsLimiters, isClubsApiPath, type ClubsApiDeps } from "./clubs/api.js";
-import { buildSearchDocs, SEARCH_PATH, SEARCH_RATE, SEARCH_SOURCE_PATH, SearchIndex, searchApi } from "./search/index.js";
+import { accountGate, buildSearchDocs, SEARCH_PATH, SEARCH_RATE, SEARCH_SOURCE_PATH, SearchIndex, searchApi } from "./search/index.js";
 import { ClubObserver, CLUB_OBSERVER_TICK_MS } from "./clubs/observer.js";
 import { setClubDirectory } from "./clubs/pick.js";
 import { clubHasHistory, clubLedger, type ClubLedger } from "./clubs/stats.js";
@@ -1082,7 +1082,21 @@ const searchIndex = new SearchIndex(() => buildSearchDocs({
   avatarFor: (coach) => coachAvatars.avatarFor(coach), isFenced: (coach) => isCoachFenced(coach),
 }));
 const searchLimiter = new RateLimiter({ maxRequests: SEARCH_RATE.maxRequests, maxChars: Number.MAX_SAFE_INTEGER, windowMs: SEARCH_RATE.windowMs, maxKeys: 10_000 });
-onIdentitiesWritten(() => searchIndex.invalidate());
+// Bans, deletions and profile changes are identities writes: the index and the live account snapshot drop at once. A
+// deletion fence (the delete job starting) drops the index too, before the identities record is gone.
+let searchAccountsCache: { stamp: string; store: ReturnType<typeof readIdentitiesStrict> } | undefined;
+onIdentitiesWritten(() => { searchIndex.invalidate(); searchAccountsCache = undefined; });
+onCoachFenced(() => searchIndex.invalidate());
+/** The live account check for one search request: the current identities (re-read when the file changes; an unreadable
+ *  store throws, and the request answers 503) and the in-memory deletion fences. */
+function searchAccounts() {
+  let stamp = "missing";
+  try { const st = statSync(identitiesFile()); stamp = `${st.size}:${st.mtimeMs}`; } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+  }
+  if (!searchAccountsCache || searchAccountsCache.stamp !== stamp) searchAccountsCache = { stamp, store: readIdentitiesStrict() };
+  return accountGate(searchAccountsCache.store, (coach) => isCoachFenced(coach));
+}
 const boardStore = new BoardStore(FORK_STATE_DIR);
 setClubDirectory({
   membershipsOf: (coach) => { try { return clubStore.membershipsOf(coach).map((c) => ({ id: c.id, name: c.name })); } catch { return []; } },
@@ -3414,7 +3428,7 @@ async function handleApi(
 
   // Global site search (src/search/index.ts): public read; drafts only for their organisers and admins. Never writes.
   if (path === SEARCH_PATH) {
-    const result = searchApi(method, query, auth ? { coach: auth.coach, admin: auth.admin } : undefined, { index: searchIndex, limiter: searchLimiter, ip: clientIp(req) });
+    const result = searchApi(method, query, auth ? { coach: auth.coach, admin: auth.admin } : undefined, { index: searchIndex, limiter: searchLimiter, ip: clientIp(req), accounts: searchAccounts });
     for (const [name, value] of Object.entries(result.headers ?? {})) res.setHeader(name, value);
     return sendJson(res, result.status, result.body);
   }

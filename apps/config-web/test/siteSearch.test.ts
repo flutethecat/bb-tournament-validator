@@ -9,13 +9,14 @@ import { leagueApi } from "../src/leagues/api";
 import { LeagueStore } from "../src/leagues/store";
 import type { LeagueRecord, LeagueTeam, SeasonRecord } from "../src/leagues/types";
 import {
-  buildSearchDocs, PAGE_LIMIT_MAX, SEARCH_SOURCE_PATH, QUERY_MAX, QUICK_LIMIT_MAX, SearchIndex, searchApi, type SearchGroup, type SearchSources, type SearchViewer,
+  accountGate, buildSearchDocs, PAGE_LIMIT_MAX, SEARCH_SOURCE_PATH, QUERY_MAX, QUICK_LIMIT_MAX, SearchIndex, searchApi, type SearchGroup, type SearchSources, type SearchViewer,
 } from "../src/search/index";
 import { emptyCompetitionFilters, parseCompetitionFilters, passesCompetitionFilters, type CompetitionFacets } from "../src/search/filters";
 import { foldQuery, matchTier } from "../src/search/text";
 import { tournamentApi } from "../src/tournaments/api";
 import { TournamentStore } from "../src/tournaments/store";
 import { RateLimiter } from "../src/translate/guards";
+import { clearFences, fenceCoachHash, onCoachFenced } from "../src/privacy/fence";
 import { requireSession } from "../src/auth/requireSession";
 import type { IncomingMessage } from "node:http";
 
@@ -62,8 +63,10 @@ const sources = (): SearchSources => ({
 const index = () => new SearchIndex(() => buildSearchDocs(sources()));
 
 type Body = { groups: Record<string, SearchGroup>; facets: { rulesets: string[]; countries: Array<{ code: string; name: string }> } };
+/** The live account check exactly as server.ts wires it: the current identities and the deletion fences. */
+const accounts = () => accountGate(people, (c) => fenced.has(c.toLowerCase()));
 function search(params: Record<string, string>, viewer?: SearchViewer, idx = index()) {
-  return searchApi("GET", new URLSearchParams(params), viewer, { index: idx });
+  return searchApi("GET", new URLSearchParams(params), viewer, { index: idx, accounts });
 }
 const body = (params: Record<string, string>, viewer?: SearchViewer) => {
   const r = search(params, viewer);
@@ -318,6 +321,97 @@ describe("limits", () => {
   it("writes to listed things invalidate the index; lobby, chat and notification writes do not", () => {
     for (const p of ["/api/leagues", "/api/leagues/x/settings", "/api/tournaments/t1", "/api/clubs/c/leave", "/api/me/profile", "/api/admin/identities", "/api/series/s"]) expect(SEARCH_SOURCE_PATH.test(p)).toBe(true);
     for (const p of ["/api/lobby/x/chat", "/api/notifications/read", "/api/tabletop/matches/m", "/api/leaguesx"]) expect(SEARCH_SOURCE_PATH.test(p)).toBe(false);
+  });
+});
+
+describe("Sol review fixes", () => {
+  it("a team's linked account (coachId) that is banned or never onboarded hides its coach name from matching and output", () => {
+    people.coaches = {
+      acct: identity("acct42", { banned: true }) as never,
+      fresh: identity("fresh7", { consent: undefined }) as never,
+      ok: identity("okcoach") as never,
+    };
+    addLeague("pub", { name: "Public League" });
+    leagues.putSeason(season("pub", 1, { teams: [
+      team("Imported Bashers", "Imported Name", { coachId: "acct42" }),
+      team("Fresh Bashers", "Fresh Imported", { coachId: "Fresh7" }),
+      team("Fine Bashers", "Fine Imported", { coachId: "okcoach" }),
+    ] }));
+    expect(titles({ q: "imported name" }, "teams")).toEqual([]);
+    expect(titles({ q: "fresh imported" }, "teams")).toEqual([]);
+    expect(titles({ q: "fine imported" }, "teams")).toEqual(["Fine Bashers"]);
+    const items = body({ q: "bashers", type: "teams" }).groups.teams!.items;
+    expect(items.map((i) => i.title).sort()).toEqual(["Fine Bashers", "Fresh Bashers", "Imported Bashers"]);
+    expect(JSON.stringify(items)).not.toMatch(/Imported Name|Fresh Imported|acct42|fresh7/i);
+    expect(items.find((i) => i.title === "Fine Bashers")!.subtitle).toContain("Fine Imported");
+  });
+
+  it("team result ids and links are opaque and stable: never built from a coach name", () => {
+    addLeague("pub", { name: "Public League" });
+    leagues.putSeason(season("pub", 1, { teams: [
+      team("Bashers", "alice42", { id: "bashers--alice42" }),
+      team("Bashers", "bob77", { id: "bashers--bob77", teamUid: "tm-0a1b2c3d4e5f" }),
+      team("Only Team", "carol9", { id: "only-team--carol9" }),
+    ] }));
+    const items = body({ q: "bashers", type: "teams" }).groups.teams!.items;
+    const again = search({ q: "bashers", type: "teams" }).body as Body;
+    expect(items.map((i) => i.id).sort()).toEqual(again.groups.teams!.items.map((i) => i.id).sort());
+    for (const i of items) {
+      expect(i.id).toMatch(/^t-[0-9a-f]{20}$/);
+      expect(`${i.id} ${i.url}`).not.toMatch(/alice|bob/);
+    }
+    expect(items.map((i) => i.url).sort()).toEqual([
+      "/leagues/pub?season=season-1&tab=participants", // a duplicate name without a lineage id: the participants list
+      "/leagues/pub?season=season-1&tab=participants&team=tm-0a1b2c3d4e5f",
+    ]);
+    expect(body({ q: "only team", type: "teams" }).groups.teams!.items[0]!.url).toBe("/leagues/pub?season=season-1&tab=participants&team=Only%20Team");
+  });
+
+  it("bans, deletion fences and privacy revocations apply at once, whatever the index age", () => {
+    people.coaches = { amy: identity("Amy") as never, bob: identity("Bob") as never, cal: identity("Cal") as never };
+    addLeague("pub", { name: "Public League" });
+    leagues.putSeason(season("pub", 1, { teams: [team("Amy Team", "Amy"), team("Bob Team", "Bob"), team("Cal Team", "Cal")] }));
+    let builds = 0;
+    const idx = new SearchIndex(() => { builds += 1; return buildSearchDocs(sources()); }, { ttlMs: 60_000 });
+    const names = (q: string, type: string) => ((search({ q, type }, undefined, idx).body as Body).groups[type]!.items.map((i) => `${i.title}|${i.subtitle ?? ""}`));
+    expect(names("amy", "coaches")).toEqual(["Amy|"]);
+    expect(names("amy team", "teams")[0]).toBe("Amy Team|Orc · Amy · Public League Season 1");
+    expect(builds).toBe(1);
+    fenced.add("amy"); // deletion starts
+    people.coaches = { ...people.coaches, bob: identity("Bob", { banned: true }) as never, cal: identity("Cal", { consent: undefined }) as never };
+    expect(names("amy", "coaches")).toEqual([]);
+    expect(names("bob", "coaches")).toEqual([]);
+    expect(names("cal", "coaches")).toEqual([]);
+    const teams = names("team", "teams");
+    expect(teams.length).toBe(3);
+    for (const t of teams) expect(t.split("|")[1]).not.toMatch(/Amy|Bob|Cal/);
+    expect(builds).toBe(1); // same index: the check is live
+    // An unreadable identities store fails closed (503), never a result without the check.
+    const r = searchApi("GET", new URLSearchParams("q=amy"), undefined, { index: idx, accounts: () => { throw new Error("unreadable"); } });
+    expect(r.status).toBe(503);
+  });
+
+  it("a deletion fence tells its listeners synchronously (server.ts drops the index then)", () => {
+    let told = 0;
+    const off = onCoachFenced(() => { told += 1; });
+    fenceCoachHash("0".repeat(64));
+    expect(told).toBe(1);
+    off();
+    fenceCoachHash("1".repeat(64));
+    expect(told).toBe(1);
+    clearFences();
+  });
+
+  it("a ladder's own Played on (not the league's) drives its facets and chips", () => {
+    addLeague("tt", { name: "Tabletop Ladders" });
+    leagues.putSeason(season("tt", 1, { id: "ladder-1", name: "Online Ladder", competition: "ladder", ladder: { playOnFork: true } as never, stage: "active" }));
+    leagues.putSeason(season("tt", 2, { id: "ladder-2", name: "Table Ladder", competition: "ladder", ladder: { playOnFork: false } as never, stage: "active" }));
+    addLeague("on", { name: "Online Ladders", playOnFork: true });
+    leagues.putSeason(season("on", 1, { id: "ladder-1", name: "Tabletop Night Ladder", competition: "ladder", ladder: { playOnFork: false } as never, stage: "active" }));
+    const ladders = (playedOn: string) => body({ type: "leagues", format: "ladder", playedOn }).groups.leagues!.items.filter((i) => i.subtitle?.startsWith("Ladder")).map((i) => i.title).sort();
+    expect(ladders("fork")).toEqual(["Online Ladder"]);
+    expect(ladders("tabletop")).toEqual(["Table Ladder", "Tabletop Night Ladder"]);
+    expect(body({ q: "online ladder", type: "leagues" }).groups.leagues!.items.find((i) => i.title === "Online Ladder")!.chips).toContain("Super FUMBBL");
   });
 });
 

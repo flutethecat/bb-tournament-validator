@@ -2,6 +2,7 @@
 // header search bar's quick results and the Search page: the request path, the result groups in display order, keyboard
 // movement and the Search page's route query. The filters are the shared ones (src/search/filters.ts). No DOM.
 
+import { reactive } from "vue";
 import {
   competitionFilterParams, competitionFiltersActive, emptyCompetitionFilters, parseCompetitionFilters, type CompetitionFilters,
 } from "../../../src/search/filters";
@@ -139,3 +140,38 @@ export type { CompetitionFilters };
 
 /** The Search page link for a query ("See all results"). */
 export const searchPageLink = (q: string): { name: "search"; query: Record<string, string> } => ({ name: "search", query: q.trim() ? { q: q.trim().slice(0, QUERY_MAX) } : {} });
+
+// ---- the header's quick results ----
+
+/**
+ * Quick results keyed by viewer: results() answers only for the coach they were fetched for, an answer that arrives after
+ * a newer request, a reset() or a change of viewer is dropped, and reset() (sign-out, another coach) clears everything.
+ */
+export function createQuickResults(deps: { api: <T>(path: string) => Promise<T>; viewer: () => string }) {
+  const state = reactive({ data: null as { viewer: string; res: SearchResponse } | null, loading: false, error: "" });
+  let seq = 0;
+  const results = (): SearchResponse | null => (state.data && state.data.viewer === deps.viewer() ? state.data.res : null);
+  /** Fetches the quick results for `text`; true when this answer was applied. */
+  async function run(text: string): Promise<boolean> {
+    const mine = ++seq;
+    const who = deps.viewer();
+    if (!text.trim()) { state.data = null; state.loading = false; state.error = ""; return false; }
+    state.loading = true;
+    try {
+      const res = await deps.api<SearchResponse>(searchPath({ q: text, type: "all", limit: QUICK_LIMIT }));
+      if (mine !== seq || who !== deps.viewer()) return false;
+      state.data = { viewer: who, res };
+      state.error = "";
+      return true;
+    } catch (e) {
+      if (mine !== seq || who !== deps.viewer()) return false;
+      state.data = null;
+      state.error = (e as { status?: number }).status === 429 ? "Too many searches. Try again in a moment." : "Search is unavailable right now.";
+      return false;
+    } finally {
+      if (mine === seq) state.loading = false;
+    }
+  }
+  function reset(): void { seq += 1; state.data = null; state.loading = false; state.error = ""; }
+  return { state, results, run, reset };
+}
