@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { tournamentApi, type TournamentApiDeps, type TournamentApiIdentity } from "../src/tournaments/api.js";
 import { TournamentStore } from "../src/tournaments/store.js";
-import { REF_CODE, referenceCodes, registrationCommitGuard, sweepTournamentRegistrations, toRegistrationEntry, tournamentRegistrationService } from "../src/tournaments/registration.js";
+import { isLegacyLibraryEntry, REF_CODE, referenceCodes, registrationCommitGuard, sweepTournamentRegistrations, toRegistrationEntry, tournamentRegistrationService } from "../src/tournaments/registration.js";
 import { inShareScope } from "../src/auth/contactFor.js";
 import { sharingView } from "../src/auth/sharing.js";
 import { registrationContactFor } from "../src/registration/index.js";
@@ -823,5 +823,81 @@ describe("saved teams only (no fork library teams)", () => {
     await h.register(t, "Carol");
     expect(JSON.stringify(h.store.entrants(t.id).find((e) => e.id === legacy.id))).toBe(before);
     expect(h.store.entrants(t.id).find((e) => e.id === legacy.id)).toMatchObject({ teamId: "team-alice" });
+  });
+  it("a blocked legacy entry ahead in the waitlist is skipped: the next eligible entry is promoted and later registrations still work", async () => {
+    const h = harness();
+    const t = await h.create({ maxPlayers: 2, registration: { approval: "auto", waitlist: true, rosterLater: true } });
+    await h.register(t, "Alice");
+    await h.register(t, "Zed");
+    await h.register(t, "Bob");
+    await h.register(t, "Carol");
+    makeLegacy(h, t, "Bob", "waitlisted");
+    const rowOf = (who: string) => h.store.registrationEntries(t.id).find((r) => r.coach.ffbCoachId === who)!;
+    expect((await h.call("DELETE", `/api/tournaments/${t.id}/entrants/${encodeURIComponent(rowOf("Alice").id)}`, coach("Alice")))?.status).toBe(200);
+    expect(h.stateOf(t, "Bob")).toBe("waitlisted");
+    expect(h.stateOf(t, "Carol")).toBe("accepted");
+    expect((await h.register(t, "Dee"))?.body).toMatchObject({ registration: { state: "waitlisted" } });
+  });
+
+  it("a free place with only a blocked legacy entry waiting never fails an unrelated registration", async () => {
+    const h = harness();
+    const t = await h.create({ maxPlayers: 2, registration: { approval: "auto", waitlist: true, rosterLater: true } });
+    await h.register(t, "Alice");
+    await h.register(t, "Bob");
+    await h.register(t, "Carol"); // waitlisted
+    makeLegacy(h, t, "Carol", "waitlisted");
+    const bob = h.store.registrationEntries(t.id).find((r) => r.coach.ffbCoachId === "Bob")!;
+    await h.call("DELETE", `/api/tournaments/${t.id}/entrants/${encodeURIComponent(bob.id)}`, coach("Bob"));
+    expect(h.stateOf(t, "Carol")).toBe("waitlisted");
+    expect((await h.register(t, "Dee"))?.body).toMatchObject({ registration: { state: "accepted" } });
+  });
+
+  it("a withdrawn legacy library entry can register again with a saved team (the guard judges the incoming roster)", async () => {
+    const h = harness();
+    const t = await h.create({ maxPlayers: 4 });
+    await h.register(t, "Bob");
+    makeLegacy(h, t, "Bob", "accepted");
+    const bob = () => h.store.registrationEntries(t.id).find((r) => r.coach.ffbCoachId === "Bob")!;
+    await h.call("DELETE", `/api/tournaments/${t.id}/entrants/${encodeURIComponent(bob().id)}`, coach("Bob"));
+    expect(h.stateOf(t, "Bob")).toBe("withdrawn");
+    const again = await h.register(t, "Bob");
+    expect(again).toMatchObject({ status: 201, body: { registration: { state: "accepted" } } });
+    expect(bob().submission?.saveId).toBe("save:good");
+    expect(isLegacyLibraryEntry(bob())).toBe(false);
+  });
+
+  it("any library-prefixed saveId, teamRef or teamId in a stored submission counts as a library entry", async () => {
+    expect(isLegacyLibraryEntry({ teamId: "", submission: { saveId: "library:team-x" } })).toBe(true);
+    expect(isLegacyLibraryEntry({ teamId: "", submission: { saveId: "save:s1", teamRef: "library:team-x" } })).toBe(true);
+    expect(isLegacyLibraryEntry({ teamId: "", submission: { saveId: "save:s1", teamId: "library:team-x" } })).toBe(true);
+    expect(isLegacyLibraryEntry({ teamId: "team-x" })).toBe(true);
+    // a saved team linked to a fork team is a saved team
+    expect(isLegacyLibraryEntry({ teamId: "team-x", submission: { saveId: "save:s1", teamId: "team-x" } })).toBe(false);
+    expect(isLegacyLibraryEntry({ teamId: "" })).toBe(false);
+    const h = harness();
+    const t = await h.create({ maxPlayers: 4, registration: { approval: "organiser", waitlist: true, rosterLater: true } });
+    await h.register(t, "Alice");
+    const row = h.store.registrationEntries(t.id)[0]!;
+    h.store.commitRegistration(t.id, [{ id: row.id, reg: { entryState: "pending" }, patch: { teamId: "", submission: { ...row.submission!, saveId: "library:team-alice" } } }], h.clock.now);
+    expect(await h.call("POST", `/api/tournaments/${t.id}/registrations/${encodeURIComponent(row.id)}/accept`, OWNER, {})).toMatchObject({ status: 409, body: { error: expect.stringContaining("saved team") } });
+  });
+
+  it("an entry an organiser added after the roster deadline can submit its FIRST roster (until rosters lock); a coach's own roster-later entry cannot", async () => {
+    const h = harness("2026-12-02T10:00:00.000Z");
+    const t = await h.create({ registration: { approval: "auto", waitlist: true, rosterLater: true, rosterBy: "2026-12-01T18:00:00.000Z" } });
+    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, OWNER, { coach: "Alice" }))?.status).toBe(201);
+    const first = await h.call("POST", `/api/tournaments/${t.id}/submissions`, coach("Alice"), { saveId: "save:good" });
+    expect(first?.status).toBe(201);
+    // the grace is for the first roster only: a change after the deadline is refused as before
+    expect(await h.call("POST", `/api/tournaments/${t.id}/submissions`, coach("Alice"), { saveId: "save:good" })).toMatchObject({ status: 409, body: { code: "roster-deadline" } });
+    // an entry the coach made themselves before the deadline got no grace
+    h.clock.now = new Date("2026-11-30T10:00:00.000Z");
+    await h.call("POST", `/api/tournaments/${t.id}/entrants`, coach("Bob"), { rosterLater: true });
+    h.clock.now = new Date("2026-12-02T10:00:00.000Z");
+    expect(await h.call("POST", `/api/tournaments/${t.id}/submissions`, coach("Bob"), { saveId: "save:good" })).toMatchObject({ status: 409, body: { code: "roster-deadline" } });
+    // rosters locked: even the grace entry cannot submit
+    await h.call("POST", `/api/tournaments/${t.id}/entrants`, OWNER, { coach: "Carol" });
+    expect((await h.call("POST", `/api/tournaments/${t.id}/lock-rosters`, OWNER, {}))?.status).toBe(200);
+    expect((await h.call("POST", `/api/tournaments/${t.id}/submissions`, coach("Carol"), { saveId: "save:good" }))?.status).toBe(409);
   });
 });

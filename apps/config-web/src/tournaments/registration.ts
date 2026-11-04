@@ -71,8 +71,11 @@ export const LEGACY_LIBRARY_MESSAGE = "This entry was made with a Super FUMBBL l
 
 /** An entry made with a fork library team before owner rule 11-03: a team id and no submitted roster (a saved team always
  *  carries its submission). */
-export function isLegacyLibraryEntry(record: Pick<TournamentEntrantRecord, "teamId" | "submission">): boolean {
-  return !record.submission && Boolean(record.teamId);
+export function isLegacyLibraryEntry(record: { teamId?: string; submission?: { saveId?: string; teamRef?: string; teamId?: string } | undefined }): boolean {
+  const lib = (v: unknown) => typeof v === "string" && v.startsWith("library:");
+  const sub = record.submission;
+  if (sub) return lib(sub.saveId) || lib(sub.teamRef) || lib(sub.teamId);
+  return Boolean(record.teamId);
 }
 
 /** The state of a stored entrant row (absent entryState = accepted; droppedAt = withdrawn unless marked dropped). */
@@ -177,6 +180,19 @@ export class TournamentRegistrationAdapter implements RegistrationAdapter {
     return `${id}:entrant:${highest + 1}`;
   }
 
+  /** Is this change accepting an entry that rests on a library team? A re-entry is judged on the incoming (patched)
+   *  record, not the old stored roster; a brand-new entry is judged on its own record (the route already refuses refs). */
+  private legacyLibrary(row: TournamentEntrantRecord | undefined, change: RegistrationChange): boolean {
+    const data = change.after.data as TournamentEntryData | undefined;
+    if (change.transition.action === "reenter" && data?.record) return isLegacyLibraryEntry(data.record);
+    return Boolean(row && isLegacyLibraryEntry(row));
+  }
+
+  promotionBlocked(id: string, entry: RegistrationEntry): boolean {
+    const row = this.store.registrationEntries(id).find((r) => r.id === entry.id);
+    return Boolean(row && isLegacyLibraryEntry(row));
+  }
+
   commit(id: string, changes: readonly RegistrationChange[]): void {
     const tournament = this.store.tournament(id);
     const stored = new Map(this.store.registrationEntries(id).map((r) => [r.id, r]));
@@ -187,9 +203,7 @@ export class TournamentRegistrationAdapter implements RegistrationAdapter {
     // already accepted stay as they are (history is not rewritten); the entry itself stays pending / waitlisted.
     for (const change of changes) {
       if (change.after.state !== "accepted" || change.before?.state === "accepted") continue;
-      const row = stored.get(change.after.id);
-      if (row && isLegacyLibraryEntry(row))
-        throw new RegistrationError(409, "invalid-transition", LEGACY_LIBRARY_MESSAGE);
+      if (this.legacyLibrary(stored.get(change.after.id), change)) throw new RegistrationError(409, "invalid-transition", LEGACY_LIBRARY_MESSAGE);
     }
     const writes: RegistrationWrite[] = changes.map((change) => {
       const after = change.after;
@@ -271,6 +285,14 @@ export function checkInView(t: TournamentRecord, round1: boolean, now: Date) {
 }
 
 /** The roster deadline has passed ("register now, roster later" only). */
+/** An entry an organiser added that has no roster yet: its coach may submit the FIRST roster after the roster deadline
+ *  (until rosters lock), because the entry was made for them and they never had the deadline to meet. */
+export function organiserAddedAwaitingRoster(row: Pick<TournamentEntrantRecord, "coach" | "submission" | "registrationLog">): boolean {
+  if (row.submission) return false;
+  const first = row.registrationLog?.[0];
+  return Boolean(first && first.by.trim().toLowerCase() !== row.coach.ffbCoachId.trim().toLowerCase());
+}
+
 export function rosterDeadlinePassed(t: TournamentRecord, now: Date): boolean {
   const by = t.registration?.rosterLater ? t.registration.rosterBy : undefined;
   return by !== undefined && now.getTime() >= Date.parse(by);

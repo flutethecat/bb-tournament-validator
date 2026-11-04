@@ -41,7 +41,7 @@ import {
 } from "../registration/index.js";
 import { tournamentCompetition, tournamentRegistrationWindow } from "./publication.js";
 import {
-  checkInView, ensureReferenceCodes, entryStateOf, referenceCodes, rosterDeadlinePassed, toRegistrationEntry, tournamentRegistrationService,
+  checkInView, ensureReferenceCodes, entryStateOf, organiserAddedAwaitingRoster, referenceCodes, rosterDeadlinePassed, toRegistrationEntry, tournamentRegistrationService,
   type TournamentEntryData,
 } from "./registration.js";
 
@@ -1169,7 +1169,8 @@ export async function tournamentApi(
         .find((r) => coachKey(r.coach.ffbCoachId) === coachKey(identity.coach) && LIVE_STATES.has(entryStateOf(r)));
       if (!entrant) return { status: 403, body: { error: "You are not entered in this tournament." } };
       // The roster deadline ("register now, roster later"): after it the roster is what it is; organisers can move the deadline.
-      if (rosterDeadlinePassed(tournament, now))
+      // Grace for an entry an organiser added after the deadline: its FIRST roster is still welcome (until rosters lock, below).
+      if (rosterDeadlinePassed(tournament, now) && !organiserAddedAwaitingRoster(entrant))
         return { status: 409, body: { error: "The roster deadline has passed. Ask an organiser if you need to change your roster.", code: "roster-deadline" } };
       // NAF stays non-optional (owner 10-31): an entry still owing its NAF answer cannot submit a roster.
       if (tournament.nafSanctioned && nafOwed(tournament, entrant, profileNaf(deps, entrant.coach.ffbCoachId))) return { status: 400, body: { error: NAF_REQUIRED_MESSAGE } };

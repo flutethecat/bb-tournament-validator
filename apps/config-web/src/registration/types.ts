@@ -140,6 +140,9 @@ export interface RegistrationAdapter {
   entries(id: string): MaybePromise<RegistrationEntry[]>;
   /** A fresh id for a new entry (tournaments: `<id>:entrant:<seed>`). */
   newEntryId(id: string, existing: readonly RegistrationEntry[]): string;
+  /** Entries this adapter will not accept or promote right now (e.g. a tournament entry made with a retired team source). The
+   *  core skips them when promoting from the waitlist, so one blocked entry never stops the next eligible one. */
+  promotionBlocked?(competitionId: string, entry: RegistrationEntry): boolean;
   /** Persist the changes atomically. */
   commit(id: string, changes: readonly RegistrationChange[]): MaybePromise<void>;
   /** Record who got the check-in-open notice for the current window (CompetitionSnapshot.checkInNotice). */

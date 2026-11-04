@@ -110,6 +110,7 @@ export function createRegistrationService(deps: RegistrationServiceDeps) {
     const out: RegistrationChange[] = [];
     for (const next of waitlistOrder(entries)) {
       if (!roomFor(c.window, entries, next).ok) continue;
+      if (adapter.promotionBlocked?.(c.id, next)) continue;
       const change = transition(next, "accepted", "promote", SYSTEM_ACTOR, at);
       put(entries, change.after);
       out.push(change);
@@ -343,7 +344,7 @@ export function createRegistrationService(deps: RegistrationServiceDeps) {
         const planned = [...freed.promotions];
         let tellOrganisers = freed.tellOrganisers;
         if (opts.promoteNext && c.window.approval === "organiser" && organiserMayAdd(c).open) {
-          const next = waitlistOrder(entries).find((e) => roomFor(c.window, entries, e).ok);
+          const next = waitlistOrder(entries).find((e) => roomFor(c.window, entries, e).ok && !adapter.promotionBlocked?.(c.id, e));
           if (next) {
             const p = transition(next, "accepted", "promote", actor.coach, at);
             put(entries, p.after);
