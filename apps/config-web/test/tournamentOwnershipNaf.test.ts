@@ -159,9 +159,9 @@ describe("per-tournament organizer permissions", () => {
     const store = newStore();
     const record = tournament(store);
     const collection = `/api/tournaments/${record.id}/entrants`;
-    expect(await call(store, "POST", collection, otherOrganizer, { teamId: "team-bob", coach: "Bob" }))
+    expect(await call(store, "POST", collection, otherOrganizer, { coach: "Bob" }))
       .toEqual({ status: 403, body: { error: "You are not this tournament's organizer." } });
-    const seeded = await call(store, "POST", collection, owner, { teamId: "team-bob", coach: "Bob" });
+    const seeded = await call(store, "POST", collection, owner, { coach: "Bob" });
     const entrantId = (seeded?.body as { entrant: { id: string } }).entrant.id;
     expect(await call(store, "DELETE", `${collection}/${encodeURIComponent(entrantId)}`, otherOrganizer))
       .toEqual({ status: 403, body: { error: "You are not this tournament's organizer." } });

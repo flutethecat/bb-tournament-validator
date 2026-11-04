@@ -67,6 +67,14 @@ export function registrationCommitGuard(tournamentId: string, changes: readonly 
   };
 }
 
+export const LEGACY_LIBRARY_MESSAGE = "This entry was made with a Super FUMBBL library team, which can't be a tournament source any more. Ask the coach to register again with a saved team.";
+
+/** An entry made with a fork library team before owner rule 11-03: a team id and no submitted roster (a saved team always
+ *  carries its submission). */
+export function isLegacyLibraryEntry(record: Pick<TournamentEntrantRecord, "teamId" | "submission">): boolean {
+  return !record.submission && Boolean(record.teamId);
+}
+
 /** The state of a stored entrant row (absent entryState = accepted; droppedAt = withdrawn unless marked dropped). */
 export function entryStateOf(record: Pick<TournamentEntrantRecord, "entryState" | "droppedAt">): EntryState {
   if (record.droppedAt !== undefined) return record.entryState === "dropped" ? "dropped" : "withdrawn";
@@ -174,6 +182,15 @@ export class TournamentRegistrationAdapter implements RegistrationAdapter {
     const stored = new Map(this.store.registrationEntries(id).map((r) => [r.id, r]));
     const codes = new Set(referenceCodes([...stored.values()]).values());
     const now = this.opts.now?.() ?? new Date();
+    // A fork library team is never a source (owner 11-03). An entry made with one before that rule (a team and no submitted
+    // roster) is not accepted or promoted: the organisers ask the coach to register again with a saved team. Entries that were
+    // already accepted stay as they are (history is not rewritten); the entry itself stays pending / waitlisted.
+    for (const change of changes) {
+      if (change.after.state !== "accepted" || change.before?.state === "accepted") continue;
+      const row = stored.get(change.after.id);
+      if (row && isLegacyLibraryEntry(row))
+        throw new RegistrationError(409, "invalid-transition", LEGACY_LIBRARY_MESSAGE);
+    }
     const writes: RegistrationWrite[] = changes.map((change) => {
       const after = change.after;
       const data = after.data as TournamentEntryData | undefined;

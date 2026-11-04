@@ -38,6 +38,10 @@ async function call(
     store,
     teamBuild: (teamId) => owners[teamId] ? { teamId, coach: owners[teamId] } : undefined,
     teamOwner: (teamId) => owners[teamId],
+    validateSubmission: (c, ref, packageName, at) => ({
+      saveId: ref, revision: "r1", submittedAt: at.toISOString(), teamName: `${c} Save`, race: "Orc", snapshot: { ref },
+      validation: { ok: true, problems: [], checkedAt: at.toISOString(), packageName },
+    }),
     packageExists: (name) => name === "Spike 2026",
     now: () => now,
   });
@@ -117,9 +121,9 @@ describe("entrant registration contract", () => {
     const store = newStore();
     const tournament = await create(store);
     const path = `/api/fork/tournaments/${tournament.id}/entrants`;
-    const first = await call(store, "POST", path, coach("Alice"), { teamId: "team-alice" });
-    expect(first).toMatchObject({ status: 201, body: { entrant: { seed: 1, teamId: "team-alice", coach: { ffbCoachId: "Alice" } } } });
-    const duplicate = await call(store, "POST", path, coach("Alice"), { teamId: "team-alice" });
+    const first = await call(store, "POST", path, coach("Alice"), { teamRef: "save:alice" });
+    expect(first).toMatchObject({ status: 201, body: { entrant: { seed: 1, teamId: "", submission: { saveId: "save:alice" }, coach: { ffbCoachId: "Alice" } } } });
+    const duplicate = await call(store, "POST", path, coach("Alice"), { teamRef: "save:alice" });
     expect(duplicate).toMatchObject({ status: 400, body: { error: "Coach is already entered in this tournament." } });
   });
 
@@ -127,26 +131,26 @@ describe("entrant registration contract", () => {
     const store = newStore();
     const tournament = await create(store, 2);
     const path = `/api/fork/tournaments/${tournament.id}/entrants`;
-    await call(store, "POST", path, coach("Alice"), { teamId: "team-alice" });
-    await call(store, "POST", path, coach("Bob"), { teamId: "team-bob" });
-    const full = await call(store, "POST", path, coach("Carol"), { teamId: "team-carol" });
+    await call(store, "POST", path, coach("Alice"), { teamRef: "save:alice" });
+    await call(store, "POST", path, coach("Bob"), { teamRef: "save:bob" });
+    const full = await call(store, "POST", path, coach("Carol"), { teamRef: "save:carol" });
     expect(full).toEqual({ status: 400, body: { error: "Tournament is full." } });
   });
 
-  it("rejects a team not owned by the target coach", async () => {
+  it("an organiser cannot attach a team for another coach (only the coach registers a saved team)", async () => {
     const store = newStore();
     const tournament = await create(store);
-    const result = await call(store, "POST", `/api/fork/tournaments/${tournament.id}/entrants`, coach("Alice"), { teamId: "team-bob" });
-    expect(result).toMatchObject({ status: 400, body: { error: "Team is not owned by the target coach." } });
+    const result = await call(store, "POST", `/api/fork/tournaments/${tournament.id}/entrants`, organizer, { teamRef: "save:bob", coach: "Bob" });
+    expect(result).toMatchObject({ status: 400, body: { error: "Only the coach can register with their own Roster Builder save." } });
   });
 
   it("allows organizer manual seeding and forbids a plain coach doing it", async () => {
     const store = newStore();
     const tournament = await create(store);
     const path = `/api/fork/tournaments/${tournament.id}/entrants`;
-    const manual = await call(store, "POST", path, organizer, { teamId: "team-bob", coach: "Bob" });
+    const manual = await call(store, "POST", path, organizer, { coach: "Bob" });
     expect(manual).toMatchObject({ status: 201, body: { entrant: { seed: 1, coach: { ffbCoachId: "Bob" } } } });
-    const forbidden = await call(store, "POST", path, coach("Alice"), { teamId: "team-carol", coach: "Carol" });
+    const forbidden = await call(store, "POST", path, coach("Alice"), { coach: "Carol" });
     expect(forbidden).toMatchObject({ status: 403, body: { error: "You are not this tournament's organizer." } });
   });
 
@@ -154,7 +158,7 @@ describe("entrant registration contract", () => {
     const store = newStore();
     const tournament = await create(store);
     const collection = `/api/fork/tournaments/${tournament.id}/entrants`;
-    const registered = await call(store, "POST", collection, coach("Alice"), { teamId: "team-alice" });
+    const registered = await call(store, "POST", collection, coach("Alice"), { teamRef: "save:alice" });
     const entrantId = (registered?.body as { entrant: { id: string } }).entrant.id;
     const dropped = await call(store, "DELETE", `${collection}/${encodeURIComponent(entrantId)}`, coach("Alice"));
     expect(dropped).toMatchObject({ status: 200, body: { entrant: { id: entrantId, droppedAt: now.toISOString() } } });

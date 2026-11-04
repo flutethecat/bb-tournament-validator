@@ -59,25 +59,26 @@ const PANEL: TournamentRegistrationsResponse = {
 };
 
 describe("registration helpers (pure)", () => {
-  it("team choices: saves for this ruleset, library teams, then Roster later when allowed", () => {
+  it("team choices: saved teams for this ruleset, then Roster later when allowed (never a library team)", () => {
     const saves = [
       { id: "s1", name: "Orc sheet", raceName: "Orc", packageName: "nut-cup", teamId: null, updatedAt: "x" },
       { id: "s2", name: "Other sheet", raceName: "Elf", packageName: "other", teamId: null, updatedAt: "x" },
     ];
-    const lib = [{ teamId: "tm7", teamName: "Spare", race: "Human", teamValue: 1 }];
-    expect(registerChoices(saves, lib as never, "nut-cup", { rosterLater: true, rosterBy: "2026-12-01T18:00:00.000Z" }).map((c) => c.ref)).toEqual(["save:s1", "library:tm7", "later"]);
-    expect(registerChoices(saves, lib as never, "nut-cup", { rosterLater: false }).map((c) => c.ref)).toEqual(["save:s1", "library:tm7"]);
+    expect(registerChoices(saves, "nut-cup", { rosterLater: true, rosterBy: "2026-12-01T18:00:00.000Z" }).map((c) => c.ref)).toEqual(["save:s1", "later"]);
+    expect(registerChoices(saves, "nut-cup", { rosterLater: false }).map((c) => c.ref)).toEqual(["save:s1"]);
+    expect(registerChoices(saves, "nut-cup", { rosterLater: false })[0]).toMatchObject({ kind: "save", sub: "Orc · Saved team" });
     expect(registerBody({ teamRef: "later", region: "North", share: ["email"], notNafMember: false }, true)).toEqual({ rosterLater: true, share: ["email"], region: "North" });
     expect(registerBody({ teamRef: "save:s1", region: "North", share: [], notNafMember: true }, false)).toEqual({ teamRef: "save:s1", share: [], notNafMember: true });
   });
 
-  it("review P2-10: a library team linked to a save for ANOTHER ruleset is still offered; one stood for by this ruleset's save is not", () => {
+  it("owner 11-03: a save linked to a fork team is offered as a saved team only; no library: ref is ever a choice", () => {
     const saves = [
       { id: "s1", name: "Orc sheet", raceName: "Orc", packageName: "nut-cup", teamId: "tm1", updatedAt: "x" },
       { id: "s2", name: "Elf sheet", raceName: "Elf", packageName: "other-cup", teamId: "tm2", updatedAt: "x" },
     ];
-    const lib = [{ teamId: "tm1", teamName: "Orcs", race: "Orc", teamValue: 1 }, { teamId: "tm2", teamName: "Elves", race: "Elf", teamValue: 1 }];
-    expect(registerChoices(saves, lib as never, "nut-cup", { rosterLater: false }).map((c) => c.ref)).toEqual(["save:s1", "library:tm2"]);
+    const refs = registerChoices(saves, "nut-cup", { rosterLater: true }).map((c) => c.ref);
+    expect(refs).toEqual(["save:s1", "later"]);
+    expect(refs.some((r) => r.startsWith("library:"))).toBe(false);
   });
 
   it("state, places, outcome, check-in and roster words", () => {
@@ -237,7 +238,7 @@ describe("registration views (server-rendered)", () => {
     const f = mockFetcher({
       ...AS("Bob"),
       "/api/tournaments/t1": body({ tournament: tournament({ regions: ["North", "South"] }) }),
-      "/api/fork/library?coach=Bob": { teams: [] },
+      "/api/fork/library?coach=Bob": { teams: [{ teamId: "tm9", teamName: "Fork Orcs", race: "Orc", teamValue: 1 }] },
       "/api/fork/team-builder/saves": { saves: [{ id: "s1", name: "Orc sheet", raceName: "Orc", packageName: "nut-cup", teamId: null, updatedAt: "x" }] },
     });
     const d = mods.detail.createTournamentDetail({ api: f });
@@ -254,6 +255,12 @@ describe("registration views (server-rendered)", () => {
     expect(html).toContain("Register: Spike Open");
     expect(html).toContain("Step 1 of 3");
     expect(html).toContain('data-ref="save:s1"');
+    expect(html).toContain("Saved team");
+    // Owner 11-03: the fork library is never read or offered, even when the coach has library teams.
+    expect(html).not.toContain("library:");
+    expect(html).not.toContain("Fork Orcs");
+    expect(html).not.toContain("Library team");
+    expect(f.calls.some((c) => c.path.includes("/api/fork/library"))).toBe(false);
     expect(html).toContain('data-kind="later"');
     expect(html).toContain("Submit your roster by 01 Dec 2026, 18:00 UTC");
     expect(html).toContain('href="/tournament-team-builder?package=nut-cup&amp;tournament=t1"');

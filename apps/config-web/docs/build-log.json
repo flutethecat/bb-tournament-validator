@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-03",
+    "title": "Tournament registration uses saved teams only",
+    "body": "The register sheet now offers only your saved teams for the tournament's ruleset, Roster later where the organisers allow it, and Build one now. Super FUMBBL library teams are no longer a team source; a team made in the League Manager is a saved team. Entries already accepted are unchanged, and an old pending entry made with a library team can't be accepted until the coach registers again with a saved team.",
+    "links": [
+      {
+        "label": "Tournaments",
+        "href": "/app/tournaments"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-03",
     "title": "League ladders: challenge ladders beside your seasons",
     "body": "Organisers can start one or more ladders from League management, Ladders: pick rating, points or position swap, league or tournament style, and the challenge rules. Coaches join with a team built for the ladder (straight in when validated) or move a league team in with its progression, then challenge each other from the new Ladder tab; an accepted challenge goes straight to Propose a time. Organisers can also schedule rounds, and the ladder posts results and rank changes to its own Discord webhook.",
     "links": [

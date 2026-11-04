@@ -3,37 +3,32 @@
 // DOM; the server stays the authority for every rule (window, cap, waitlist, NAF, region, roster deadline).
 
 import type {
-  BuilderSaveSummary, EntryState, LibraryTeam, TournamentCheckIn, TournamentEntrant, TournamentMyRegistration,
+  BuilderSaveSummary, EntryState, TournamentCheckIn, TournamentEntrant, TournamentMyRegistration,
   TournamentRegistrationStatus,
 } from "../shared/api";
 import type { ShareField } from "../account/sharing";
 
 export interface TeamChoice {
-  /** "save:<id>", "library:<teamId>", or "later" (register now, roster later). */
+  /** "save:<id>" (a saved team) or "later" (register now, roster later). */
   ref: string;
-  kind: "save" | "library" | "later";
+  kind: "save" | "later";
   label: string;
   sub: string;
 }
 
-/** The register sheet's team step: the coach's Roster Builder saves for this ruleset first, then library teams, then
- *  "Roster later" when the organiser allows it (and the roster deadline has not passed). */
+/** The register sheet's team step: the coach's saved teams (Roster Builder saves) for this ruleset, then "Roster later"
+ *  when the organiser allows it. Fork library teams are never offered (owner 11-03: teams made in the League Manager are
+ *  saved teams; one is a library team only briefly while a "Play on Super FUMBBL" match is declared). */
 export function registerChoices(
   saves: readonly BuilderSaveSummary[],
-  library: readonly LibraryTeam[],
   packageName: string,
   status: Pick<TournamentRegistrationStatus, "rosterLater" | "rosterBy"> | null | undefined,
 ): TeamChoice[] {
   const pkg = packageName.trim().toLowerCase();
   const forThis = saves.filter((s) => (s.packageName ?? "").trim().toLowerCase() === pkg);
-  // A library team is offered on its own merits (the server checks it against this ruleset at registration). It is left
-  // out only when a save for THIS ruleset already stands for it, never because a save for another ruleset links it.
-  const shownBySave = new Set(forThis.map((s) => s.teamId).filter((id): id is string => Boolean(id)));
   const out: TeamChoice[] = [
     ...forThis
-      .map((s) => ({ ref: `save:${s.id}`, kind: "save" as const, label: s.name, sub: s.raceName ? `${s.raceName} · Roster Builder save` : "Roster Builder save" })),
-    ...library.filter((t) => !shownBySave.has(t.teamId))
-      .map((t) => ({ ref: `library:${t.teamId}`, kind: "library" as const, label: t.teamName, sub: t.race ? `${t.race} · Library team` : "Library team" })),
+      .map((s) => ({ ref: `save:${s.id}`, kind: "save" as const, label: s.name, sub: s.raceName ? `${s.raceName} · Saved team` : "Saved team" })),
   ];
   if (status?.rosterLater) {
     out.push({ ref: "later", kind: "later", label: "Roster later", sub: status.rosterBy ? `Submit your roster by ${utcLabel(status.rosterBy)}` : "Submit your roster before the event" });

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Register sheet (registration spec 2026-11-02 §7, wizards v2; lane L4): a dialog (full screen on a phone) in three steps.
-// 1. Team: a Roster Builder save for this ruleset or a library team (cards), "Roster later" when the organiser allows it
+// 1. Team: a saved team for this ruleset (cards), "Roster later" when the organiser allows it
 //    (until the roster deadline), "Build one now" into the Roster Builder, and the region from the organisers' list.
 // 2. Share & NAF: what the organisers see beyond the coach name and team (ShareFieldsPicker, nothing ticked), and on a
 //    NAF-sanctioned tournament the profile NAF block (filled in automatically and the coach told, or "not a NAF member",
@@ -34,7 +34,7 @@ const STEPS: ReadonlyArray<{ id: Step; label: string }> = [{ id: "team", label: 
 const step = ref<Step>("team");
 const stepNo = computed(() => STEPS.findIndex((s) => s.id === step.value) + 1);
 
-const choices = computed(() => registerChoices(state.teamOptions.saves, state.teamOptions.library, t.value.packageName, status.value));
+const choices = computed(() => registerChoices(state.teamOptions.saves, t.value.packageName, status.value));
 const teamRef = ref("");
 watch(choices, (list) => { if (!list.some((c) => c.ref === teamRef.value)) teamRef.value = list[0]?.ref ?? ""; }, { immediate: true });
 const chosen = computed(() => choices.value.find((c) => c.ref === teamRef.value));

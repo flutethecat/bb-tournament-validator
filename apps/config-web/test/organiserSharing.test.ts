@@ -208,6 +208,10 @@ function harness() {
     store,
     teamBuild: (teamId) => (owners[teamId] ? { teamId, coach: owners[teamId] } : undefined),
     teamOwner: (teamId) => owners[teamId],
+    validateSubmission: (c, ref, packageName, at) => ({
+      saveId: ref, revision: "r1", submittedAt: at.toISOString(), teamName: `${c} Save`, race: "Orc", snapshot: { ref },
+      validation: { ok: true, problems: [], checkedAt: at.toISOString(), packageName },
+    }),
     packageExists: (name) => name === "Spike 2026",
     registeredCoach: (c) => c,
     identityRecord: (c) => {
@@ -254,11 +258,11 @@ describe("NAF-sanctioned tournaments (section 5)", () => {
   it("400 without a NAF number and without the box; the box accepts the entry, flags it and tells the organisers", async () => {
     const h = harness();
     const t = await createTournament(h, true);
-    const none = await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamId: "team-alice" });
+    const none = await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamRef: "save:good" });
     expect(none).toMatchObject({ status: 400, body: { error: NAF_REQUIRED_MESSAGE } });
-    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamId: "team-alice", nafNumber: "12ab" }))?.status).toBe(400);
+    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamRef: "save:good", nafNumber: "12ab" }))?.status).toBe(400);
     expect(h.store.entrants(t.id)).toHaveLength(0);
-    const ok = await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamId: "team-alice", notNafMember: true, share: ["email"] });
+    const ok = await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamRef: "save:good", notNafMember: true, share: ["email"] });
     expect(ok?.status).toBe(201);
     expect(h.store.entrants(t.id)[0]).toMatchObject({ notNafMember: true });
     expect(h.store.entrants(t.id)[0]!.nafNumber).toBeUndefined();
@@ -272,10 +276,10 @@ describe("NAF-sanctioned tournaments (section 5)", () => {
     expect(notices[0]!.link).toBe(`/app/tournaments/${t.id}/manage#tn-reg-h`);
     expect(h.grants).toEqual([{ coach: "Alice", scope: `tournament:${t.id}`, fields: ["email"] }]);
     // A number the coach types is not taken on a sanctioned tournament (it belongs on the profile).
-    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Bob"), { teamId: "team-bob", nafNumber: "0042" }))).toMatchObject({ status: 400, body: { error: NAF_REQUIRED_MESSAGE } });
+    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Bob"), { teamRef: "save:good", nafNumber: "0042" }))).toMatchObject({ status: 400, body: { error: NAF_REQUIRED_MESSAGE } });
     // The profile's NAF details (leading zeros dropped) go with the entry, derived on read, shown to managers only.
     h.naf.bob = { nafName: "Bob Fake", nafId: "0042" };
-    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Bob"), { teamId: "team-bob" }))?.status).toBe(201);
+    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Bob"), { teamRef: "save:good" }))?.status).toBe(201);
     expect(h.store.entrants(t.id)[1]!.nafNumber).toBeUndefined();
     const publicView = await h.call("GET", `/api/tournaments/${t.id}`, player("Carol"));
     const pub = JSON.stringify((publicView!.body as { entrants: unknown[] }).entrants);
@@ -292,10 +296,10 @@ describe("NAF-sanctioned tournaments (section 5)", () => {
   it("non-sanctioned: no NAF number needed, the box is ignored, a typed number is still format-checked", async () => {
     const h = harness();
     const t = await createTournament(h);
-    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamId: "team-alice" }))?.status).toBe(201);
-    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Bob"), { teamId: "team-bob", notNafMember: true }))?.status).toBe(201);
+    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamRef: "save:good" }))?.status).toBe(201);
+    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Bob"), { teamRef: "save:good", notNafMember: true }))?.status).toBe(201);
     expect(h.store.entrants(t.id)[1]!.notNafMember).toBeUndefined();
-    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Carol"), { teamId: "team-carol", nafNumber: "x" }))?.status).toBe(400);
+    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Carol"), { teamRef: "save:good", nafNumber: "x" }))?.status).toBe(400);
     expect(h.inbox.filter((n) => n.type === "registration").map((n) => n.title)).toEqual([
       "Alice registered for Veers Open", "Alice registered for Veers Open", "Bob registered for Veers Open", "Bob registered for Veers Open",
     ]);
@@ -306,8 +310,8 @@ describe("registration notices and the organiser-made entry (sections 4 and 6)",
   it("an organiser adding a coach notifies the other managers (not the actor), asks the coach to choose what to share, and stores no grant", async () => {
     const h = harness();
     const t = await createTournament(h);
-    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, co, { teamId: "team-alice", coach: "Alice", share: ["email"] }))?.status).toBe(400);
-    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, co, { teamId: "team-alice", coach: "Alice" }))?.status).toBe(201);
+    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, co, { coach: "Alice", share: ["email"] }))?.status).toBe(400);
+    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, co, { coach: "Alice" }))?.status).toBe(201);
     expect(h.grants).toEqual([]);
     expect(h.inbox.map((n) => [n.coach, n.type, n.title])).toEqual([
       ["Veers", "registration", "Alice registered for Veers Open"],
@@ -315,7 +319,7 @@ describe("registration notices and the organiser-made entry (sections 4 and 6)",
     ]);
     expect(h.inbox[1]!.link).toBe("/app/account#sharing");
     // A refused (duplicate) registration notifies nobody.
-    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamId: "team-alice" }))?.status).toBe(400);
+    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamRef: "save:good" }))?.status).toBe(400);
     expect(h.inbox).toHaveLength(2);
   });
 
@@ -323,7 +327,7 @@ describe("registration notices and the organiser-made entry (sections 4 and 6)",
     const h = harness();
     owners["team-veers"] = "Veers";
     const t = await createTournament(h);
-    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, owner, { teamId: "team-veers" }))?.status).toBe(201);
+    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, owner, { teamRef: "save:good" }))?.status).toBe(201);
     // The organisers' notice skips the actor (law 24); the actor gets only their own entry's confirmation (lane L4).
     expect(h.inbox.filter((n) => n.type === "registration").map((n) => n.coach)).toEqual(["Piett"]);
     expect(h.inbox.filter((n) => n.type !== "registration").map((n) => [n.coach, n.type])).toEqual([["Veers", "registration-outcome"]]);
@@ -333,7 +337,7 @@ describe("registration notices and the organiser-made entry (sections 4 and 6)",
   it("GET .../entrants/<id>/contact: managers only, active entries only, granted fields only", async () => {
     const h = harness();
     const t = await createTournament(h);
-    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamId: "team-alice" });
+    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamRef: "save:good" });
     const id = h.store.entrants(t.id)[0]!.id;
     const path = `/api/tournaments/${t.id}/entrants/${encodeURIComponent(id)}/contact`;
     const ok = await h.call("GET", path, co);
@@ -424,7 +428,7 @@ describe("NAF pending (P2)", () => {
   it("an organiser-made entry on a sanctioned tournament owes the NAF answer: coach asked, submission refused, answer clears it", async () => {
     const h = harness();
     const t = await createTournament(h, true);
-    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, co, { teamId: "team-alice", coach: "Alice", notNafMember: true }))?.status).toBe(201);
+    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, co, { coach: "Alice", notNafMember: true }))?.status).toBe(201);
     const entry = h.store.entrants(t.id)[0]!;
     expect(entry.nafPending).toBe(true);
     expect(entry.notNafMember).toBeUndefined(); // only the coach says that
@@ -448,14 +452,14 @@ describe("NAF pending (P2)", () => {
       ["Veers", "Alice registered for Veers Open — not a NAF member"],
       ["Piett", "Alice registered for Veers Open — not a NAF member"],
     ]);
-    // No longer pending: the submission passes the NAF check (it stops later only for want of a validator here).
-    expect((await h.call("POST", `/api/tournaments/${t.id}/submissions`, player("Alice"), { saveId: "save:x" }))?.status).toBe(503);
+    // No longer pending: the submission passes the NAF check.
+    expect((await h.call("POST", `/api/tournaments/${t.id}/submissions`, player("Alice"), { saveId: "save:x" }))?.status).toBe(201);
   });
 
   it("an organiser who gives the NAF number leaves nothing pending", async () => {
     const h = harness();
     const t = await createTournament(h, true);
-    await h.call("POST", `/api/tournaments/${t.id}/entrants`, co, { teamId: "team-bob", coach: "Bob", nafNumber: "77" });
+    await h.call("POST", `/api/tournaments/${t.id}/entrants`, co, { coach: "Bob", nafNumber: "77" });
     expect(h.store.entrants(t.id)[0]).toMatchObject({ nafNumber: "77" });
     expect(h.store.entrants(t.id)[0]!.nafPending).toBeUndefined();
     expect(h.inbox.find((n) => n.coach === "Bob")?.type).toBe("share-request");
@@ -464,9 +468,9 @@ describe("NAF pending (P2)", () => {
   it("making a tournament NAF sanctioned with entries in: unanswered entries become pending, one notice per coach, none to organisers", async () => {
     const h = harness();
     const t = await createTournament(h);
-    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamId: "team-alice" });
-    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Bob"), { teamId: "team-bob", nafNumber: "12" });
-    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Carol"), { teamId: "team-carol" });
+    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamRef: "save:good" });
+    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Bob"), { teamRef: "save:good", nafNumber: "12" });
+    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Carol"), { teamRef: "save:good" });
     await h.call("DELETE", `/api/tournaments/${t.id}/entrants/${encodeURIComponent(h.store.entrants(t.id)[2]!.id)}`, player("Carol"));
     const before = h.inbox.length;
     expect((await h.call("PATCH", `/api/tournaments/${t.id}`, owner, { nafSanctioned: true }))?.status).toBe(200);
@@ -525,7 +529,7 @@ describe("NAF from the coach's profile (owner 10-31)", () => {
     const h = harness();
     const t = await createTournament(h, true);
     h.naf.alice = { nafName: "Alice Fake", nafId: "0034116", checked: true };
-    const res = await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamId: "team-alice", share: [] });
+    const res = await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamRef: "save:good", share: [] });
     expect(res?.status).toBe(201);
     const stored = h.store.entrants(t.id)[0]!;
     expect(stored.nafNumber).toBeUndefined();
@@ -541,18 +545,18 @@ describe("NAF from the coach's profile (owner 10-31)", () => {
     }
     const contact = await h.call("GET", `/api/tournaments/${t.id}/entrants/${encodeURIComponent(stored.id)}/contact`, co);
     expect(contact?.body).toMatchObject({ nafNumber: "34116", nafName: "Alice Fake" });
-    // The roster submission passes the NAF check (it stops later only for want of a validator here).
-    expect((await h.call("POST", `/api/tournaments/${t.id}/submissions`, player("Alice"), { saveId: "save:x" }))?.status).toBe(503);
+    // The roster submission passes the NAF check.
+    expect((await h.call("POST", `/api/tournaments/${t.id}/submissions`, player("Alice"), { saveId: "save:x" }))?.status).toBe(201);
   });
 
   it("sanctioned + no profile NAF: 400 until the profile has it (the inline add) or the coach is not a NAF member", async () => {
     const h = harness();
     const t = await createTournament(h, true);
-    expect(await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamId: "team-alice" })).toMatchObject({ status: 400, body: { error: NAF_REQUIRED_MESSAGE } });
-    expect(await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamId: "team-alice", nafNumber: "123" })).toMatchObject({ status: 400, body: { error: NAF_REQUIRED_MESSAGE } });
+    expect(await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamRef: "save:good" })).toMatchObject({ status: 400, body: { error: NAF_REQUIRED_MESSAGE } });
+    expect(await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamRef: "save:good", nafNumber: "123" })).toMatchObject({ status: 400, body: { error: NAF_REQUIRED_MESSAGE } });
     h.naf.alice = { nafName: "Alice Fake", nafId: "123" }; // what the inline form saves to the profile (POST /api/me/connections/naf)
-    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamId: "team-alice" }))?.status).toBe(201);
-    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Bob"), { teamId: "team-bob", notNafMember: true }))?.status).toBe(201);
+    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamRef: "save:good" }))?.status).toBe(201);
+    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Bob"), { teamRef: "save:good", notNafMember: true }))?.status).toBe(201);
     const rows = await rowsAs(h, t.id, co);
     expect(rows.find((r) => r.coachId === "Alice")).toMatchObject({ nafNumber: "123", nafName: "Alice Fake" });
     expect(rows.find((r) => r.coachId === "Alice")!.nafChecked).toBeUndefined();
@@ -564,7 +568,7 @@ describe("NAF from the coach's profile (owner 10-31)", () => {
     const h = harness();
     const t = await createTournament(h, true);
     h.naf.alice = { nafName: "Alice Fake", nafId: "77" };
-    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamId: "team-alice" });
+    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamRef: "save:good" });
     h.naf.alice = { nafName: "Alice Renamed", nafId: "78" };
     expect((await rowsAs(h, t.id, co))[0]).toMatchObject({ nafNumber: "78", nafName: "Alice Renamed" });
     delete h.naf.alice;
@@ -592,7 +596,7 @@ describe("NAF from the coach's profile (owner 10-31)", () => {
   it("nafPending answer via the profile: asked to add NAF details, then the profile answers and clears the flag", async () => {
     const h = harness();
     const t = await createTournament(h, true);
-    await h.call("POST", `/api/tournaments/${t.id}/entrants`, co, { teamId: "team-alice", coach: "Alice" });
+    await h.call("POST", `/api/tournaments/${t.id}/entrants`, co, { coach: "Alice" });
     const entry = h.store.entrants(t.id)[0]!;
     expect(entry.nafPending).toBe(true);
     const nafPath = `/api/tournaments/${t.id}/entrants/${encodeURIComponent(entry.id)}/naf`;
@@ -611,7 +615,7 @@ describe("NAF from the coach's profile (owner 10-31)", () => {
     const h = harness();
     const t = await createTournament(h, true);
     h.naf.bob = { nafName: "Bob Fake", nafId: "42" };
-    await h.call("POST", `/api/tournaments/${t.id}/entrants`, co, { teamId: "team-bob", coach: "Bob" });
+    await h.call("POST", `/api/tournaments/${t.id}/entrants`, co, { coach: "Bob" });
     expect(h.store.entrants(t.id)[0]!.nafPending).toBeUndefined();
     const told = h.inbox.find((n) => n.coach === "Bob")!;
     expect(told.type).toBe("share-request");
@@ -622,8 +626,8 @@ describe("NAF from the coach's profile (owner 10-31)", () => {
     const h = harness();
     const t = await createTournament(h);
     h.naf.bob = { nafName: "Bob Fake", nafId: "42" };
-    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamId: "team-alice" });
-    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Bob"), { teamId: "team-bob" });
+    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamRef: "save:good" });
+    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Bob"), { teamRef: "save:good" });
     // Not sanctioned: the profile NAF is not shared.
     expect((await rowsAs(h, t.id, co)).find((r) => r.coachId === "Bob")!.nafNumber).toBeUndefined();
     const before = h.inbox.length;
@@ -668,7 +672,7 @@ describe("profile NAF reaches organisers only for active entrants, and coaches a
     const t = await createTournament(h, true);
     h.naf.alice = { nafName: "Alice Fake", nafId: "77" };
     h.naf.bob = { nafName: "Bob Fake", nafId: "88" };
-    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamId: "team-alice" });
+    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamRef: "save:good" });
     h.store.registerEntrant(t.id, { coachId: "Bob", ffbCoachId: "Bob", verifiedAt: NOW.toISOString() }, "team-bob", NOW, { nafNumber: "12" });
     for (const coach of ["Alice", "Bob"]) {
       const e = h.store.entrants(t.id).find((x) => x.coach.ffbCoachId === coach)!;
@@ -687,9 +691,9 @@ describe("profile NAF reaches organisers only for active entrants, and coaches a
     const t = await createTournament(h);
     h.naf.bob = { nafName: "Bob Fake", nafId: "42" };
     h.naf.carol = { nafName: "Carol Fake", nafId: "43" };
-    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamId: "team-alice" });
-    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Bob"), { teamId: "team-bob", nafNumber: "12" });
-    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Carol"), { teamId: "team-carol" });
+    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamRef: "save:good" });
+    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Bob"), { teamRef: "save:good", nafNumber: "12" });
+    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Carol"), { teamRef: "save:good" });
     await h.call("DELETE", `/api/tournaments/${t.id}/entrants/${encodeURIComponent(h.store.entrants(t.id)[2]!.id)}`, player("Carol"));
     const before = h.inbox.length;
     await h.call("PATCH", `/api/tournaments/${t.id}`, owner, { nafSanctioned: true });
@@ -709,7 +713,7 @@ describe("NAF details frozen when a coach withdraws from a sanctioned tournament
     const h = harness();
     const t = await createTournament(h, true);
     h.naf.alice = { nafName: "Alice Fake", nafId: "77" };
-    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamId: "team-alice" });
+    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Alice"), { teamRef: "save:good" });
     h.store.registerEntrant(t.id, { coachId: "Bob", ffbCoachId: "Bob", verifiedAt: NOW.toISOString() }, "team-bob", NOW, { nafNumber: "12" });
     const [alice, bob] = h.store.entrants(t.id);
     const res = await h.call("DELETE", `/api/tournaments/${t.id}/entrants/${encodeURIComponent(alice!.id)}`, player("Alice"));
@@ -733,11 +737,11 @@ describe("NAF details frozen when a coach withdraws from a sanctioned tournament
     const h = harness();
     const plain = await createTournament(h);
     h.naf.alice = { nafName: "Alice Fake", nafId: "77" };
-    await h.call("POST", `/api/tournaments/${plain.id}/entrants`, player("Alice"), { teamId: "team-alice" });
+    await h.call("POST", `/api/tournaments/${plain.id}/entrants`, player("Alice"), { teamRef: "save:good" });
     await h.call("DELETE", `/api/tournaments/${plain.id}/entrants/${encodeURIComponent(h.store.entrants(plain.id)[0]!.id)}`, player("Alice"));
     expect(h.store.entrants(plain.id)[0]!.nafSnapshot).toBeUndefined();
     const t = await createTournament(h, true);
-    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Bob"), { teamId: "team-bob", notNafMember: true });
+    await h.call("POST", `/api/tournaments/${t.id}/entrants`, player("Bob"), { teamRef: "save:good", notNafMember: true });
     await h.call("DELETE", `/api/tournaments/${t.id}/entrants/${encodeURIComponent(h.store.entrants(t.id)[0]!.id)}`, player("Bob"));
     expect(h.store.entrants(t.id)[0]!.nafSnapshot).toBeUndefined();
   });

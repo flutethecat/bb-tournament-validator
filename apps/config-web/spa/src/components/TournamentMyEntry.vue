@@ -49,7 +49,7 @@ const problems = computed(() => current.value?.submission?.problems ?? []);
 const due = computed(() => (current.value ? rosterDueLine(t.value, current.value) : ""));
 const deadlinePassed = computed(() => Boolean(t.value.registration?.rosterLater && t.value.registration.rosterBy && Date.parse(t.value.registration.rosterBy) <= Date.now()));
 const choices = computed(() => submitChoices(state.teamOptions));
-const groups = computed(() => (["Team Builder saves", "Library teams"] as const)
+const groups = computed(() => (["Saved teams"] as const)
   .map((label) => ({ label, items: choices.value.filter((c) => c.group === label) }))
   .filter((g) => g.items.length));
 const next = computed(() => (mine.value && entered.value ? nextFixtureFor(mine.value.id, state) : null));

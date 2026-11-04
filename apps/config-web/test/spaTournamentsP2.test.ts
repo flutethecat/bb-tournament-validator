@@ -116,20 +116,18 @@ describe("detail controller: player actions", () => {
     expect(d.state.actionError).toBe("Signed out. Sign in and try again.");
   });
 
-  it("team options: library + Team Builder saves; a failed read is an empty list", async () => {
+  it("team options: saved teams only (the fork library is never read); a failed read is an empty list", async () => {
     const f = mockFetcher({
       "/api/fork/library?coach=Alice": { teams: [{ teamId: "tm1", teamName: "Alice Orcs", race: "Orc", teamValue: 1000 }, { teamId: "tm7", teamName: "Spare", race: "Human", teamValue: 1100 }] },
       "/api/fork/team-builder/saves": { saves: [{ id: "s1", name: "Orc sheet", raceName: "Orc", packageName: "nut-cup", teamId: "tm1", updatedAt: "x" }] },
     });
     const d = createTournamentDetail({ api: f });
     await d.loadTeamOptions("Alice");
-    expect(submitChoices(d.state.teamOptions)).toEqual([
-      { ref: "save:s1", label: "Orc sheet (Orc)", group: "Team Builder saves" },
-      { ref: "library:tm7", label: "Spare (Human)", group: "Library teams" },
-    ]);
+    expect(submitChoices(d.state.teamOptions)).toEqual([{ ref: "save:s1", label: "Orc sheet (Orc)", group: "Saved teams" }]);
+    expect(f.calls.some((c) => c.path.includes("/api/fork/library"))).toBe(false);
     const empty = createTournamentDetail({ api: mockFetcher({}) });
     await empty.loadTeamOptions("Alice");
-    expect(empty.state.teamOptions).toEqual({ status: "ok", library: [], saves: [] });
+    expect(empty.state.teamOptions).toEqual({ status: "ok", saves: [] });
   });
 });
 
@@ -366,7 +364,7 @@ describe("phase 2/3 views (server-rendered against a mocked API)", () => {
     expect(loading).not.toContain("<input");
   });
 
-  it("entrant: invalid chip with problems, Submit team from saves and library, Withdraw; opponent link on the next fixture", async () => {
+  it("entrant: invalid chip with problems, Submit team from saved teams, Withdraw; opponent link on the next fixture", async () => {
     const body = detailBody({
       tournament: tournament({ status: "active", currentRound: 1, myEntrantId: "t1:entrant:1" }),
       rounds: [{ id: "r1", number: 1, status: "active", scheduledMatchIds: ["m1"] }],
@@ -376,8 +374,9 @@ describe("phase 2/3 views (server-rendered against a mocked API)", () => {
     expect(html).toContain('data-roster="invalid"');
     expect(html).toContain(">Invalid<");
     expect(html).toContain("Team costs 1,010k; the budget is 1,000k.");
-    expect(html).toContain('label="Team Builder saves"');
-    expect(html).toContain('label="Library teams"');
+    expect(html).toContain('label="Saved teams"');
+    expect(html).not.toContain('label="Library teams"');
+    expect(html).not.toContain("Spare Humans");
     expect(html).toContain("Orc sheet (Orc)");
     expect(html).toContain(">Submit team</button>");
     expect(html).toContain(">Withdraw</button>");

@@ -35,6 +35,10 @@ async function call(store: TournamentStore, method: string, path: string, auth?:
     store,
     teamBuild: (teamId) => (owners[teamId] ? { teamId, coach: owners[teamId] } : undefined),
     teamOwner: (teamId) => owners[teamId],
+    validateSubmission: (c, ref, packageName, at) => ({
+      saveId: ref, revision: "r1", submittedAt: at.toISOString(), teamName: `${c} Save`, race: "Orc", snapshot: { ref },
+      validation: { ok: true, problems: [], checkedAt: at.toISOString(), packageName },
+    }),
     packageExists: (name) => name === "Spike 2026",
     registeredCoach: (name) => name,
     now: () => now,
@@ -135,7 +139,7 @@ describe("draft visibility", () => {
     for (const viewer of [undefined, coach("Alice"), otherOrganiser]) {
       for (const path of READS(t.id)) expect((await call(store, "GET", path, viewer))?.status, `${viewer?.coach} ${path}`).toBe(404);
       // writes too: nobody outside learns it exists
-      expect((await call(store, "POST", `/api/tournaments/${t.id}/entrants`, viewer, { teamId: "team-alice" }))?.status).toBe(404);
+      expect((await call(store, "POST", `/api/tournaments/${t.id}/entrants`, viewer, { teamRef: "save:alice" }))?.status).toBe(404);
       expect(hiddenTournamentPath(store, `/api/tournaments/${t.id}/banner`, viewer)).toBe(true);
       expect(hiddenTournamentPath(store, `/api/tournaments/${t.id}/fixtures/m1/lobby`, viewer)).toBe(true);
     }
@@ -195,7 +199,7 @@ describe("draft visibility", () => {
     const future = (await call(store, "GET", "/api/fork/tournaments", undefined, undefined, "category=future"))!.body as { tournaments: Array<{ id: string }> };
     expect(future.tournaments.map((x) => x.id)).toContain(t.id);
     // and it stays open for registration with today's rules
-    expect((await call(store, "POST", `/api/tournaments/${t.id}/entrants`, coach("Alice"), { teamId: "team-alice" }))?.status).toBe(201);
+    expect((await call(store, "POST", `/api/tournaments/${t.id}/entrants`, coach("Alice"), { teamRef: "save:alice" }))?.status).toBe(201);
   });
 });
 
@@ -223,7 +227,7 @@ describe("publish / unpublish", () => {
     const store = newStore();
     const t = await createDraft(store);
     await call(store, "POST", `/api/tournaments/${t.id}/publish`, owner);
-    expect((await call(store, "POST", `/api/tournaments/${t.id}/entrants`, coach("Alice"), { teamId: "team-alice" }))?.status).toBe(201);
+    expect((await call(store, "POST", `/api/tournaments/${t.id}/entrants`, coach("Alice"), { teamRef: "save:alice" }))?.status).toBe(201);
     const refused = await call(store, "POST", `/api/tournaments/${t.id}/unpublish`, owner);
     expect(refused?.status).toBe(409);
     expect(store.tournament(t.id)!.unpublished).toBeUndefined();
@@ -240,27 +244,27 @@ describe("registration and the publication / window", () => {
     const store = newStore();
     const t = await createDraft(store);
     // the manager sees it, but nobody can enter a hidden draft
-    const added = await call(store, "POST", `/api/tournaments/${t.id}/entrants`, owner, { teamId: "team-alice", coach: "Alice" });
+    const added = await call(store, "POST", `/api/tournaments/${t.id}/entrants`, owner, { coach: "Alice" });
     expect(added?.status).toBe(409);
     expect((added?.body as { error: string }).error).toBe("Registration is not open yet.");
     expect(store.entrants(t.id)).toHaveLength(0);
     await call(store, "POST", `/api/tournaments/${t.id}/publish`, owner);
-    expect((await call(store, "POST", `/api/tournaments/${t.id}/entrants`, coach("Alice"), { teamId: "team-alice" }))?.status).toBe(201);
+    expect((await call(store, "POST", `/api/tournaments/${t.id}/entrants`, coach("Alice"), { teamRef: "save:alice" }))?.status).toBe(201);
   });
 
   it("a tournament with registration settings takes self-entries only inside its window; organisers still add", async () => {
     const store = newStore();
     const future = await createDraft(store, { publish: true, registration: { opensAt: "2026-11-10T00:00:00.000Z" } });
-    const early = await call(store, "POST", `/api/tournaments/${future.id}/entrants`, coach("Alice"), { teamId: "team-alice" });
+    const early = await call(store, "POST", `/api/tournaments/${future.id}/entrants`, coach("Alice"), { teamRef: "save:alice" });
     expect(early?.status).toBe(409);
     expect(early?.body).toMatchObject({ error: "Registration is not open yet.", code: "not-yet-open" });
     const closed = await createDraft(store, { publish: true, registration: {}, deadlines: { registration: "2026-11-01T00:00:00.000Z" } });
-    const late = await call(store, "POST", `/api/tournaments/${closed.id}/entrants`, coach("Alice"), { teamId: "team-alice" });
+    const late = await call(store, "POST", `/api/tournaments/${closed.id}/entrants`, coach("Alice"), { teamRef: "save:alice" });
     expect(late?.status).toBe(409);
     expect(late?.body).toMatchObject({ error: "Registration is closed.", code: "closed" });
-    expect((await call(store, "POST", `/api/tournaments/${closed.id}/entrants`, owner, { teamId: "team-bob", coach: "Bob" }))?.status).toBe(201);
+    expect((await call(store, "POST", `/api/tournaments/${closed.id}/entrants`, owner, { coach: "Bob" }))?.status).toBe(201);
     const open = await createDraft(store, { publish: true, registration: { opensAt: "2026-11-01T00:00:00.000Z" }, deadlines: { registration: "2026-11-20T00:00:00.000Z" } });
-    expect((await call(store, "POST", `/api/tournaments/${open.id}/entrants`, coach("Alice"), { teamId: "team-alice" }))?.status).toBe(201);
+    expect((await call(store, "POST", `/api/tournaments/${open.id}/entrants`, coach("Alice"), { teamRef: "save:alice" }))?.status).toBe(201);
   });
 
   it("Manage PATCH edits the registration settings (validated against the deadlines) and null clears them", async () => {
@@ -289,11 +293,11 @@ describe("registration and the publication / window", () => {
   it("a blank registration close falls back to the start: no self-entry once the tournament has started", async () => {
     const store = newStore();
     const started = await createDraft(store, { publish: true, registration: {}, startsAt: "2026-11-01T09:00:00.000Z" });
-    const late = await call(store, "POST", `/api/tournaments/${started.id}/entrants`, coach("Alice"), { teamId: "team-alice" });
+    const late = await call(store, "POST", `/api/tournaments/${started.id}/entrants`, coach("Alice"), { teamRef: "save:alice" });
     expect(late?.status).toBe(409);
     expect(late?.body).toMatchObject({ code: "closed" });
     const upcoming = await createDraft(store, { publish: true, registration: {}, startsAt: "2026-12-01T09:00:00.000Z" });
-    expect((await call(store, "POST", `/api/tournaments/${upcoming.id}/entrants`, coach("Alice"), { teamId: "team-alice" }))?.status).toBe(201);
+    expect((await call(store, "POST", `/api/tournaments/${upcoming.id}/entrants`, coach("Alice"), { teamRef: "save:alice" }))?.status).toBe(201);
   });
 
   it("a blank close is the start, and the window is checked against it (create and PATCH)", async () => {

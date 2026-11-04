@@ -146,19 +146,21 @@ describe("tournament entry HTTP tiers", () => {
   });
 
   it("lets a coach self-register but not register another coach", async () => {
-    expect((await post(`/api/fork/tournaments/${tournamentId}/entrants`, undefined, { teamId: "501" })).status).toBe(401);
+    expect((await post(`/api/fork/tournaments/${tournamentId}/entrants`, undefined, { rosterLater: true })).status).toBe(401);
+    // Library teams are never a source (owner 11-03), so a coach enters with "roster later" (the organiser allows it).
+    expect((await patch(`/api/fork/tournaments/${tournamentId}`, createSession("OrganizerCoach").token, { registration: { approval: "auto", waitlist: false, rosterLater: true, checkIn: { self: false } } })).status).toBe(200);
     const plain = createSession("PlainCoach");
-    const self = await post(`/api/fork/tournaments/${tournamentId}/entrants`, plain.token, { teamId: "501" });
+    const self = await post(`/api/fork/tournaments/${tournamentId}/entrants`, plain.token, { rosterLater: true });
     expect(self.status).toBe(201);
-    const other = await post(`/api/fork/tournaments/${tournamentId}/entrants`, plain.token, { teamId: "502", coach: "OtherCoach" });
+    const other = await post(`/api/fork/tournaments/${tournamentId}/entrants`, plain.token, { rosterLater: true, coach: "OtherCoach" });
     expect(other.status).toBe(403);
     expect(await other.json()).toEqual({ error: "You are not this tournament's organizer." });
   });
 
   it("lets an organizer register another coach through the same ownership contract", async () => {
     const organizer = createSession("OrganizerCoach");
-    const response = await post(`/api/fork/tournaments/${tournamentId}/entrants`, organizer.token, { teamId: "502", coach: "OtherCoach" });
+    const response = await post(`/api/fork/tournaments/${tournamentId}/entrants`, organizer.token, { coach: "OtherCoach" });
     expect(response.status).toBe(201);
-    expect(await response.json()).toMatchObject({ entrant: { teamId: "502", coach: { ffbCoachId: "OtherCoach" } } });
+    expect(await response.json()).toMatchObject({ entrant: { teamId: "", coach: { ffbCoachId: "OtherCoach" } } });
   });
 });

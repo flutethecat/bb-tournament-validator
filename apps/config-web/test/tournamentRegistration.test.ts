@@ -89,7 +89,7 @@ function harness(start = "2026-11-10T12:00:00.000Z") {
     return store.tournament(t.id)!;
   };
   const register = (t: TournamentRecord, who: string, body: Record<string, unknown> = {}) =>
-    call("POST", `/api/tournaments/${t.id}/entrants`, coach(who), { teamId: `team-${who.toLowerCase()}`, ...body });
+    call("POST", `/api/tournaments/${t.id}/entrants`, coach(who), { teamRef: "save:good", ...body });
   const detail = async (t: TournamentRecord, who?: TournamentApiIdentity) => (await call("GET", `/api/tournaments/${t.id}`, who))!.body as Record<string, unknown> & {
     entrants: Array<Record<string, unknown>>; tournament: Record<string, unknown>; myRegistration?: Record<string, unknown>; registrationStatus: Record<string, unknown>;
   };
@@ -161,7 +161,7 @@ describe("coach registration flow", () => {
     expect((await h.call("PATCH", `/api/tournaments/${old.id}`, OWNER, { deadlines: { registration: "2026-11-10T11:00:00.000Z" } }))?.status).toBe(200);
     expect(await h.register(old, "Alice")).toMatchObject({ status: 409, body: { code: "closed" } });
     // organisers may still add a coach
-    expect((await h.call("POST", `/api/tournaments/${old.id}/entrants`, OWNER, { coach: "Alice", teamId: "team-alice" }))?.status).toBe(201);
+    expect((await h.call("POST", `/api/tournaments/${old.id}/entrants`, OWNER, { coach: "Alice" }))?.status).toBe(201);
   });
 
   it("region: required from the organisers' list, stored, shown to the coach and managers only", async () => {
@@ -338,7 +338,7 @@ describe("organisers are notified on every registration and withdrawal (law 24),
     expect(h.sent.filter((s) => s.input.type === "withdrawal").map((s) => s.coach)).toEqual(["Veers", "Piett"]);
     h.sent.length = 0;
     owners["team-piett"] = "Piett";
-    await h.call("POST", `/api/tournaments/${t.id}/entrants`, CO, { teamId: "team-piett" });
+    await h.call("POST", `/api/tournaments/${t.id}/entrants`, CO, { teamRef: "save:good" });
     expect(h.sent.filter((s) => s.input.type === "registration").map((s) => s.coach)).toEqual(["Veers"]);
     delete owners["team-piett"];
     // a pending withdrawal tells them too
@@ -714,8 +714,8 @@ describe("review round 2", () => {
     // full: an organiser adds Bob (profile NAF) and Carol (none) to the waitlist
     h.naf.bob = { nafName: "Bob Fake", nafId: "42" };
     h.sent.length = 0;
-    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, OWNER, { coach: "Bob", teamId: "team-bob", waitlistIfFull: true }))?.body).toMatchObject({ registration: { state: "waitlisted" } });
-    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, OWNER, { coach: "Carol", teamId: "team-carol", waitlistIfFull: true }))?.body).toMatchObject({ registration: { state: "waitlisted" } });
+    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, OWNER, { coach: "Bob", waitlistIfFull: true }))?.body).toMatchObject({ registration: { state: "waitlisted" } });
+    expect((await h.call("POST", `/api/tournaments/${t.id}/entrants`, OWNER, { coach: "Carol", waitlistIfFull: true }))?.body).toMatchObject({ registration: { state: "waitlisted" } });
     expect(h.sent.filter((s) => s.coach === "Bob").map((s) => s.input.type)).toEqual(["share-request"]);
     expect(h.sent.filter((s) => s.coach === "Carol").map((s) => s.input.type)).toEqual(["naf-request"]);
     expect(h.store.heldEntrants(t.id).every((r) => r.nafToldAt)).toBe(true);
@@ -755,5 +755,73 @@ describe("review round 2", () => {
     expect(logs.join("\n")).toMatch(/promotion skipped after withdraw/);
     expect(told).toContainEqual(["Veers", "A place opened in Spike Open"]);
     expect(told.some(([c]) => c === "Bob")).toBe(false);
+  });
+});
+
+// Owner rule 11-03: teams made in the League Manager are saved teams; a fork library team is never a source (a library team
+// exists only briefly while a "Play on Super FUMBBL" match is declared). Mirrors the league side (commit f9f8cea2).
+describe("saved teams only (no fork library teams)", () => {
+  /** An entry as it was made before the rule: a library team id and no submitted roster. */
+  const makeLegacy = (h: ReturnType<typeof harness>, t: TournamentRecord, who: string, state: "pending" | "accepted" | "waitlisted") => {
+    const row = h.store.registrationEntries(t.id).find((r) => r.coach.ffbCoachId === who)!;
+    h.store.commitRegistration(t.id, [{ id: row.id, reg: { entryState: state }, patch: { teamId: `team-${who.toLowerCase()}`, submission: undefined } }], h.clock.now);
+    return h.store.registrationEntries(t.id).find((r) => r.id === row.id)!;
+  };
+
+  it("registration refuses a library: teamRef and the older teamId field with a clear 400", async () => {
+    const h = harness();
+    const t = await h.create({ maxPlayers: 4 });
+    const lib = await h.call("POST", `/api/tournaments/${t.id}/entrants`, coach("Alice"), { teamRef: "library:team-alice" });
+    expect(lib).toMatchObject({ status: 400, body: { code: "library-team", error: expect.stringContaining("Register with a saved team") } });
+    const old = await h.call("POST", `/api/tournaments/${t.id}/entrants`, coach("Alice"), { teamId: "team-alice" });
+    expect(old).toMatchObject({ status: 400, body: { code: "library-team" } });
+    // an organiser adding a coach cannot slip one in either
+    expect(await h.call("POST", `/api/tournaments/${t.id}/entrants`, OWNER, { coach: "Alice", teamRef: "library:team-alice" })).toMatchObject({ status: 400, body: { code: "library-team" } });
+    expect(h.store.registrationEntries(t.id)).toHaveLength(0);
+    // a saved team still registers
+    expect((await h.register(t, "Alice"))?.status).toBe(201);
+  });
+
+  it("roster submission refuses a library: ref (400) and keeps the saved-team path", async () => {
+    const h = harness();
+    const t = await h.create({ maxPlayers: 4, registration: { approval: "auto", waitlist: true, rosterLater: true } });
+    await h.register(t, "Alice", { teamRef: undefined, rosterLater: true });
+    const refused = await h.call("POST", `/api/tournaments/${t.id}/submissions`, coach("Alice"), { saveId: "library:team-alice" });
+    expect(refused).toMatchObject({ status: 400, body: { code: "library-team", error: expect.stringContaining("saved team") } });
+    expect((await h.call("POST", `/api/tournaments/${t.id}/submissions`, coach("Alice"), { saveId: "save:good" }))?.status).toBe(201);
+  });
+
+  it("a legacy pending or waitlisted entry with a library team is blocked at accept (409) and stays as it is", async () => {
+    const h = harness();
+    const t = await h.create({ maxPlayers: 4, registration: { approval: "organiser", waitlist: true, rosterLater: true } });
+    await h.register(t, "Alice");
+    await h.register(t, "Bob");
+    await h.register(t, "Carol");
+    makeLegacy(h, t, "Alice", "pending");
+    makeLegacy(h, t, "Bob", "waitlisted");
+    const id = (who: string) => encodeURIComponent(h.store.registrationEntries(t.id).find((r) => r.coach.ffbCoachId === who)!.id);
+    const act = (who: string, verb: string) => h.call("POST", `/api/tournaments/${t.id}/registrations/${id(who)}/${verb}`, OWNER, {});
+    expect(await act("Alice", "accept")).toMatchObject({ status: 409, body: { error: expect.stringContaining("register again with a saved team") } });
+    expect(await act("Bob", "promote")).toMatchObject({ status: 409, body: { error: expect.stringContaining("register again with a saved team") } });
+    expect(h.stateOf(t, "Alice")).toBe("pending");
+    expect(h.stateOf(t, "Bob")).toBe("waitlisted");
+    // declining or waitlisting a legacy entry is still allowed, and a saved-team entry is accepted as usual
+    expect((await act("Alice", "decline"))?.body).toMatchObject({ entry: { state: "declined" } });
+    expect((await act("Carol", "accept"))?.body).toMatchObject({ entry: { state: "accepted" } });
+  });
+
+  it("existing accepted entrants that used a library team are left alone", async () => {
+    const h = harness();
+    const t = await h.create({ maxPlayers: 4 });
+    await h.register(t, "Alice");
+    await h.register(t, "Bob");
+    const legacy = makeLegacy(h, t, "Alice", "accepted");
+    const before = JSON.stringify(h.store.entrants(t.id).find((e) => e.id === legacy.id));
+    expect(h.stateOf(t, "Alice")).toBe("accepted");
+    // unrelated registration traffic (another entry, a withdrawal) never rewrites the accepted legacy entrant
+    await h.call("DELETE", `/api/tournaments/${t.id}/entrants/${encodeURIComponent(h.store.registrationEntries(t.id).find((r) => r.coach.ffbCoachId === "Bob")!.id)}`, coach("Bob"));
+    await h.register(t, "Carol");
+    expect(JSON.stringify(h.store.entrants(t.id).find((e) => e.id === legacy.id))).toBe(before);
+    expect(h.store.entrants(t.id).find((e) => e.id === legacy.id)).toMatchObject({ teamId: "team-alice" });
   });
 });

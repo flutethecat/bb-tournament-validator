@@ -56,12 +56,17 @@ swiss-only literal, missing package binding, and missing cap are the gaps this c
 
 ## Entrant registration contract (Veers ruling 2026-08-27, closing the honest-stop gap)
 
-`POST /api/fork/tournaments/:id/entrants` — coach session required. Body `{teamId}`.
-- Binds the AUTHENTICATED coach + their OWN library team (ownership resolved via the fork
-  library, same source the admin teams search uses); an organizer session may instead pass
-  `{teamId, coach}` to register another coach (manual seeding).
+`POST /api/fork/tournaments/:id/entrants` — coach session required. Body `{teamRef: "save:<id>"}` (a saved team) or
+`{rosterLater: true}`; an organizer session may add another coach with `{coach}` (no team: only the coach can attach their
+own saved team, from My entry).
+- **Saved teams only (owner 11-03).** Fork library teams are never a source: `teamRef: "library:<id>"` and the older
+  `{teamId}` field answer 400 (`code: "library-team"`), as does `library:` on `POST .../submissions`. Teams made in the
+  League Manager are saved teams; one is a library team only briefly while a "Play on Super FUMBBL" match is declared.
+- **Existing data is not rewritten.** Entrants already accepted with a library team (a team id and no submitted roster) stay
+  as they are. A pending or waitlisted entry made that way is refused at accept / promote with 409 ("ask the coach to
+  register again with a saved team") and stays held; the organiser can decline it. Same rule as the league side.
 - Rejections (honest 400): tournament not draft/active or round 1 already generated; coach
-  already entered (one seat per coach); team not owned by the target coach; **entrant count
+  already entered (one seat per coach); **entrant count
   at `maxPlayers` ("Tournament is full.")** — this is where the cap binds.
 - Seat shape = the existing `TournamentEntrantRecord` (`VerifiedCoachIdentity` from the
   session; seed = next ordinal at registration; organizer reseeding is a later concern).

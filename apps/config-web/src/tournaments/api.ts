@@ -62,7 +62,7 @@ export interface TournamentApiDeps {
   packageExists?(packageName: string): boolean;
   teamOwner?(teamId: string): string | undefined;
   coachRating?(coach: string): number | undefined;
-  /** v4: snapshot + validate a coach's Team Builder save (`save:<id>`) or library team (`library:<teamId>`) against a package. */
+  /** v4: snapshot + validate a coach's saved team (`save:<id>`) against a package. */
   validateSubmission?(coach: string, ref: string, packageName: string, now: Date, houseRules?: HouseRules): TournamentSubmission | { error: string; status?: 400 | 404 | 409 };
   /** Creation wizards v2: re-check a STORED submission's snapshot against a package after a rules change (never the
    *  coach's live save). Absent = no automatic re-check (the store's "ruleset changed" verdict stays). */
@@ -202,7 +202,9 @@ function stringField(value: unknown, field: string): string | undefined {
   return typeof candidate === "string" && candidate.trim() ? candidate : undefined;
 }
 
-const SUBMISSION_REF = /^(?:save:|library:)?[A-Za-z0-9_.:-]+$/;
+const SUBMISSION_REF = /^(?:save:)?[A-Za-z0-9_.:-]+$/;
+/** Owner rule 11-03: fork library teams are never a source; a team made in the League Manager is a saved team. */
+const LIBRARY_TEAM_REFUSED = "A Super FUMBBL library team can't be used here. Register with a saved team.";
 
 /** Owner-level actions (owner reassignment, organiser list): admin or the tournament owner. */
 function requireTournamentOwner(tournament: TournamentRecord, auth: TournamentApiIdentity): void {
@@ -1159,8 +1161,9 @@ export async function tournamentApi(
       if (!tournament) return { status: 404, body: { error: "Tournament not found." } };
       const input = jsonObject(body);
       const saveId = typeof input.saveId === "string" ? input.saveId.trim() : "";
+      if (saveId.startsWith("library:")) return { status: 400, body: { error: LIBRARY_TEAM_REFUSED, code: "library-team" } };
       if (!saveId || saveId.length > 120 || !SUBMISSION_REF.test(saveId))
-        return { status: 400, body: { error: "saveId must name a Team Builder save (save:<id>) or a library team (library:<teamId>)." } };
+        return { status: 400, body: { error: "saveId must name a saved team (save:<id>)." } };
       // The coach's live entry: in the field, or pending / waitlisted ("register now, roster later" works before acceptance).
       const entrant = deps.store.registrationEntries(tournament.id)
         .find((r) => coachKey(r.coach.ffbCoachId) === coachKey(identity.coach) && LIVE_STATES.has(entryStateOf(r)));
@@ -2086,7 +2089,7 @@ async function registrationRoutes(
   deps: TournamentApiDeps,
   now: Date,
 ): Promise<TournamentApiResult | undefined> {
-  // POST /api/tournaments/:id/entrants  { teamRef: "save:<id>" | "library:<teamId>" (or the older teamId) | rosterLater: true,
+  // POST /api/tournaments/:id/entrants  { teamRef: "save:<id>" (a saved team; library refs are refused, owner 11-03) | rosterLater: true,
   //   share?, notNafMember?, nafNumber? (organisers), region?, coach? (organisers), waitlistIfFull? (organisers) }
   const collection = path.match(/^\/api\/tournaments\/([^/]+)\/entrants$/);
   if (collection && method === "POST") {
@@ -2110,19 +2113,23 @@ async function registrationRoutes(
     }
     if (tournament.unpublished === true) return { status: 409, body: { error: "Registration is not open yet.", code: "unpublished" } };
 
-    // The team: a Roster Builder save, a library team, or none yet ("register now, roster later").
+    // The team: a saved team (Roster Builder save), or none yet ("register now, roster later").
     if (input.rosterLater !== undefined && typeof input.rosterLater !== "boolean")
       return { status: 400, body: { error: "rosterLater must be true or false." } };
-    const teamRef = typeof input.teamRef === "string" && input.teamRef.trim()
-      ? input.teamRef.trim()
-      : typeof input.teamId === "string" && input.teamId.trim() ? `library:${input.teamId.trim().replace(/^library:/, "")}` : "";
-    const later = !teamRef && input.rosterLater === true;
-    if (!teamRef && !later) return { status: 400, body: { error: "teamId is required." } };
-    if (teamRef && (teamRef.length > 120 || !/^(?:save|library):[A-Za-z0-9_.:-]+$/.test(teamRef)))
-      return { status: 400, body: { error: "teamRef must name a Roster Builder save (save:<id>) or a library team (library:<teamId>)." } };
+    // The older `teamId` body field named a library team: refused like `library:` (owner 11-03).
+    if (typeof input.teamId === "string" && input.teamId.trim() && !(typeof input.teamRef === "string" && input.teamRef.trim()))
+      return { status: 400, body: { error: LIBRARY_TEAM_REFUSED, code: "library-team" } };
+    const teamRef = typeof input.teamRef === "string" && input.teamRef.trim() ? input.teamRef.trim() : "";
+    if (teamRef.startsWith("library:")) return { status: 400, body: { error: LIBRARY_TEAM_REFUSED, code: "library-team" } };
+    // An organiser adding a coach has no saved team of theirs to attach (only the coach can), so that entry starts without a
+    // roster and the coach submits it from My entry; a coach registering themselves needs "Roster later" to do the same.
+    const later = !teamRef && (input.rosterLater === true || !self);
+    if (!teamRef && !later) return { status: 400, body: { error: "teamRef is required (a saved team, save:<id>)." } };
+    if (teamRef && (teamRef.length > 120 || !/^save:[A-Za-z0-9_.:-]+$/.test(teamRef)))
+      return { status: 400, body: { error: "teamRef must name a saved team (save:<id>)." } };
     const window = tournamentRegistrationWindow(tournament);
-    if (later && !window.rosterLater) return { status: 400, body: { error: "This tournament needs your roster when you register.", code: "roster-required" } };
-    if (later && rosterDeadlinePassed(tournament, now)) return { status: 409, body: { error: "The roster deadline has passed. Register with a team.", code: "roster-deadline" } };
+    if (later && self && !window.rosterLater) return { status: 400, body: { error: "This tournament needs your roster when you register.", code: "roster-required" } };
+    if (later && self && rosterDeadlinePassed(tournament, now)) return { status: 409, body: { error: "The roster deadline has passed. Register with a team.", code: "roster-deadline" } };
 
     // Share picker (owner 10-31): only the coach chooses; an organiser-made entry carries no grant.
     let share: ShareField[] = [];
@@ -2159,12 +2166,7 @@ async function registrationRoutes(
 
     let teamId = "";
     let submission: TournamentSubmission | undefined;
-    if (teamRef.startsWith("library:")) {
-      teamId = teamRef.slice("library:".length);
-      const owner = deps.teamOwner?.(teamId);
-      if (!owner || coachKey(owner) !== coachKey(targetCoach))
-        return { status: 400, body: { error: "Team is not owned by the target coach." } };
-    } else if (teamRef.startsWith("save:")) {
+    if (teamRef.startsWith("save:")) {
       if (!self) return { status: 400, body: { error: "Only the coach can register with their own Roster Builder save." } };
       if (!deps.validateSubmission) return { status: 503, body: { error: "Team validation is unavailable on this host." } };
       const check = deps.validateSubmission(targetCoach, teamRef, tournament.packageName, now, houseRulesOf(tournament, "tournament"));

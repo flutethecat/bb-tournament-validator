@@ -8,7 +8,6 @@ import { reactive, type InjectionKey } from "vue";
 import {
   ApiError,
   type BuilderSaveSummary,
-  type LibraryTeam,
   type TournamentDetailResponse,
   type TournamentEntrantFlags,
   type TournamentPairingSystem,
@@ -73,8 +72,8 @@ export interface TournamentDetailState {
   notice: string;
   /** The name of the last write ("register", "page", "banner", "news:<id>"...): panels show only their own messages. */
   lastAction: string;
-  /** The signed-in coach's library teams and Team Builder saves for Register / Submit team. */
-  teamOptions: { status: "idle" | "loading" | "ok"; library: LibraryTeam[]; saves: BuilderSaveSummary[] };
+  /** The signed-in coach's saved teams (Roster Builder saves) for Register / Submit team. Never library teams. */
+  teamOptions: { status: "idle" | "loading" | "ok"; saves: BuilderSaveSummary[] };
   /** Generate fixtures preview (organiser), or null. */
   preview: TournamentRoundPreview | null;
   /** The Start Tournament outcome: refused = some roster is not verified (the table shows which). */
@@ -198,7 +197,7 @@ export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () =>
     id: "", tournament: null, series: null, entrants: [], rounds: [], fixtures: [], activity: [], standings: [], standingsStatus: "idle", standingsError: "",
     loaded: false, loading: false, notFound: false, error: "",
     capabilities: { manage: false, assignRoles: false }, busy: "", actionError: "", notice: "", lastAction: "",
-    teamOptions: { status: "idle", library: [], saves: [] }, preview: null, startOutcome: "",
+    teamOptions: { status: "idle", saves: [] }, preview: null, startOutcome: "",
     registrationStatus: null, checkIn: null, myRegistration: null, registrations: { status: "idle", data: null, error: "" },
   });
 
@@ -332,15 +331,12 @@ export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () =>
     }
   }
 
-  /** Library teams + Team Builder saves of the signed-in coach (a failed read is an empty list, never an error). */
+  /** The signed-in coach's saved teams (a failed read is an empty list, never an error). The fork library is never read. */
   async function loadTeamOptions(coach: string): Promise<void> {
     if (!coach) return;
     state.teamOptions.status = "loading";
-    const [library, saves] = await Promise.all([
-      deps.api<{ teams?: LibraryTeam[] }>(`/api/fork/library?coach=${encodeURIComponent(coach)}`).then((r) => r.teams ?? []).catch(() => [] as LibraryTeam[]),
-      deps.api<{ saves?: BuilderSaveSummary[] }>("/api/fork/team-builder/saves").then((r) => r.saves ?? []).catch(() => [] as BuilderSaveSummary[]),
-    ]);
-    state.teamOptions = { status: "ok", library, saves };
+    const saves = await deps.api<{ saves?: BuilderSaveSummary[] }>("/api/fork/team-builder/saves").then((r) => r.saves ?? []).catch(() => [] as BuilderSaveSummary[]);
+    state.teamOptions = { status: "ok", saves };
   }
 
   // ---- player actions ----
@@ -670,15 +666,11 @@ export function fromLocalInput(value: string): string {
   return Number.isNaN(d.getTime()) ? "" : d.toISOString();
 }
 
-export interface SubmitChoice { ref: string; label: string; group: "Team Builder saves" | "Library teams" }
+export interface SubmitChoice { ref: string; label: string; group: "Saved teams" }
 
-/** Submit team choices: Team Builder saves first (save:<id>), then library teams without a sheet (library:<teamId>). */
+/** Submit team choices: the coach's saved teams (save:<id>). Fork library teams are never offered (owner 11-03). */
 export function submitChoices(options: TournamentDetailState["teamOptions"]): SubmitChoice[] {
-  const linked = new Set(options.saves.map((s) => s.teamId).filter((id): id is string => Boolean(id)));
-  return [
-    ...options.saves.map((s) => ({ ref: `save:${s.id}`, label: `${s.name}${s.raceName ? ` (${s.raceName})` : ""}`, group: "Team Builder saves" as const })),
-    ...options.library.filter((t) => !linked.has(t.teamId)).map((t) => ({ ref: `library:${t.teamId}`, label: `${t.teamName} (${t.race})`, group: "Library teams" as const })),
-  ];
+  return options.saves.map((s) => ({ ref: `save:${s.id}`, label: `${s.name}${s.raceName ? ` (${s.raceName})` : ""}`, group: "Saved teams" as const }));
 }
 
 // ---- tournament page helpers (pure) ----
