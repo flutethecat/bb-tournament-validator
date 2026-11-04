@@ -58,9 +58,12 @@ export function newReceipt(): { receipt: string; receiptHash: string } {
 
 /** Constant-time check of a presented receipt against a stored hash. Missing / malformed hash never matches. */
 export function receiptMatches(storedHash: unknown, receipt: string): boolean {
-  if (typeof storedHash !== "string" || !RECEIPT_HASH_PATTERN.test(storedHash)) return false;
-  return timingSafeEqual(sha256(receipt), Buffer.from(storedHash, "hex"));
+  const valid = typeof storedHash === "string" && RECEIPT_HASH_PATTERN.test(storedHash);
+  // A missing hash still pays for one hash + compare, so a miss costs the same as a wrong receipt.
+  const equal = timingSafeEqual(sha256(receipt), valid ? Buffer.from(storedHash, "hex") : DUMMY_HASH);
+  return valid && equal;
 }
+const DUMMY_HASH = Buffer.alloc(32);
 
 /** readBody with a hard cap, enforced WHILE reading — an oversize body is aborted, not buffered. */
 export async function readJsonCapped(req: AsyncIterable<Buffer>, maxBytes: number): Promise<unknown> {
@@ -540,10 +543,13 @@ export function lookupBugReportStatuses(dir: string, entries: ReadonlyArray<{ id
   const rows: ReportStatusRow[] = [];
   const seen = new Set<string>();
   for (const { id, receipt } of entries) {
-    if (seen.has(id) || !REPORT_ID_PATTERN.test(id) || !RECEIPT_PATTERN.test(receipt)) continue;
-    const stored = readStoredReport(dir, id); // id validated above (and again inside) before any path is built
-    if (!stored || !receiptMatches(stored.receiptHash, receipt)) continue;
+    // Each id is looked at once per request (repeats are dropped before any read), so one request cannot amplify a probe.
+    if (seen.has(id)) continue;
     seen.add(id);
+    if (!REPORT_ID_PATTERN.test(id) || !RECEIPT_PATTERN.test(receipt)) continue;
+    const stored = readStoredReport(dir, id); // id validated above (and again inside) before any path is built
+    // Unknown ids still run the hash + compare (against a dummy), like a wrong receipt.
+    if (!receiptMatches(stored?.receiptHash, receipt) || !stored) continue;
     const update = normalizedPlayerUpdate(stored.playerUpdate);
     rows.push({
       id,

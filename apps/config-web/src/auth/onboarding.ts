@@ -20,7 +20,8 @@ export const ONBOARDING_PATH = "/api/me/onboarding";
 export const CONTACT_PATH = "/api/me/contact";
 export const ONBOARDING_REQUIRED_MESSAGE = "Complete your profile first.";
 /** Writes that stay open while onboarding is needed. */
-const GATE_EXEMPT = new Set([ONBOARDING_PATH, "/api/me/delete", "/api/team/checkName"]);
+// /api/bug-reports/status: the reporter status check is a read-only POST that ignores the session (owner 11-04).
+const GATE_EXEMPT = new Set([ONBOARDING_PATH, "/api/me/delete", "/api/team/checkName", "/api/bug-reports/status"]);
 const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 /**

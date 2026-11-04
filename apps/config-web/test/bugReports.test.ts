@@ -386,16 +386,19 @@ describe("reporter receipts + status lookup (owner 11-04)", () => {
     const stored = JSON.parse(readFileSync(legacyFile, "utf8")) as Record<string, unknown>;
     delete stored.receiptHash;
     writeFileSync(legacyFile, JSON.stringify(stored), "utf8");
+    const third = await submit(d, Date.UTC(2026, 10, 4, 12));
     const rows = lookupBugReportStatuses(d, [
-      { id, receipt: newReceipt().receipt },
+      { id: third.id, receipt: newReceipt().receipt }, // wrong receipt
       { id: "2026-01-01T00-00-00-000Z_Nobody_nogame", receipt },
       { id: "../" + id, receipt },
       { id: legacy.id, receipt: legacy.receipt },
-      { id, receipt: receipt.slice(1) },
+      { id: third.id, receipt: third.receipt }, // a repeated id is dropped before any read: first entry wins
       { id, receipt },
-      { id, receipt }, // duplicate answered once
+      { id, receipt },
     ]);
     expect(rows.map((r) => r.id)).toEqual([id]);
+    expect(lookupBugReportStatuses(d, [{ id, receipt: receipt.slice(1) }])).toEqual([]);
+    expect(lookupBugReportStatuses(d, [{ id: third.id, receipt: third.receipt }]).map((r) => r.id)).toEqual([third.id]);
   });
 
   it("validates the request shape and caps it at 50 entries", () => {
@@ -453,5 +456,17 @@ describe("reporter receipts + status lookup (owner 11-04)", () => {
     expect(pruneBugReports(d, Date.UTC(2026, 10, 4))).toEqual([id]);
     expect(existsSync(join(d, id))).toBe(false);
     expect(lookupBugReportStatuses(d, [{ id, receipt }])).toEqual([]);
+  });
+});
+
+describe("status check vs the session middleware (Sol P2)", () => {
+  it("is exempt from the cookie CSRF header and the onboarding 428 gate (it ignores any session)", async () => {
+    const { isStateChangingApiRequest } = await import("../src/auth/csrf.js");
+    const { onboardingGateApplies } = await import("../src/auth/onboarding.js");
+    expect(isStateChangingApiRequest("POST", "/api/bug-reports/status")).toBe(false);
+    expect(onboardingGateApplies("POST", "/api/bug-reports/status")).toBe(false);
+    // The submit route keeps both.
+    expect(isStateChangingApiRequest("POST", "/api/bug-reports")).toBe(true);
+    expect(onboardingGateApplies("POST", "/api/bug-reports")).toBe(true);
   });
 });

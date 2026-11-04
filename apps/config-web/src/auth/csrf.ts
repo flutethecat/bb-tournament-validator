@@ -28,6 +28,7 @@ export const CSRF_EXEMPT_PATHS: ReadonlySet<string> = new Set([
   "/api/mail/postmark/webhook", // Postmark server-to-server; checks its own Basic-auth webhook secret
   "/api/mail/unsubscribe", // signed token in the link; RFC 8058 one-click POST comes from mail clients, no custom header
   "/api/mail/verify", // signed token in the link (GET only)
+  "/api/bug-reports/status", // reporter status check: public read-only POST, ignores any session, receipts authorise it
 ]);
 
 const SAFE_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD", "OPTIONS"]);
