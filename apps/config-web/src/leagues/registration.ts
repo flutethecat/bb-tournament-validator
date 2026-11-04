@@ -105,6 +105,9 @@ export interface LeagueRegistrationRow {
   coachSaysPaid?: { at: string };
   /** The organisers were last told about "I've paid" (once per 24 hours). */
   paidClaimNotifiedAt?: string;
+  /** Ladders (lane 8b, ladderRegistration.ts): the league team this entry moves in with its progression (a season's or another
+   *  ladder's), instead of the snapshot. */
+  move?: { kind: "season" | "ladder"; id: string; teamId: string };
 }
 
 /** What the register route hands the core with a (re)submission (RegistrationEntry.data). */
@@ -117,6 +120,8 @@ export interface LeagueEntryData {
   teamSnapshot: LeagueTeamSnapshot;
   validation: LeagueRegistrationRow["validation"];
   region?: string;
+  /** Ladders: the league team to move in (LeagueRegistrationRow.move). */
+  move?: LeagueRegistrationRow["move"];
 }
 
 const LIVE: ReadonlySet<EntryState> = new Set(["pending", "waitlisted", "accepted"]);
@@ -382,6 +387,11 @@ export interface LeagueAdapterOptions {
   now?: () => Date;
   /** Fault injection (tests): runs inside commit after every check, just before the season is written. */
   beforeWrite?: (season: SeasonRecord) => void;
+  /** Ladders (lane 8b, ladderRegistration.ts): how an accepted row becomes a team (default placeRegisteredTeam), and the
+   *  competition's own follow-up in the same write (a ladder member). Absent = a season, exactly as before. */
+  placeTeam?: (league: LeagueRecord, season: SeasonRecord, row: LeagueRegistrationRow, seasons: readonly SeasonRecord[], now: Date) => LeagueTeam;
+  afterPlace?: (season: SeasonRecord, row: LeagueRegistrationRow, team: LeagueTeam, now: Date) => void;
+  afterUnplace?: (season: SeasonRecord, row: LeagueRegistrationRow, now: Date) => void;
 }
 
 export class LeagueRegistrationAdapter implements RegistrationAdapter {
@@ -442,6 +452,7 @@ export class LeagueRegistrationAdapter implements RegistrationAdapter {
           ...(data.libraryTeamId ? { libraryTeamId: data.libraryTeamId } : {}),
           teamSnapshot: structuredClone(data.teamSnapshot), validation: structuredClone(data.validation),
           ...(data.region ? { region: data.region } : {}), refCode,
+          ...(data.move ? { move: structuredClone(data.move) } : {}),
         };
         rows.push(row);
       } else if (action === "reenter" && data) {
@@ -454,6 +465,7 @@ export class LeagueRegistrationAdapter implements RegistrationAdapter {
         row.teamSnapshot = structuredClone(data.teamSnapshot);
         row.validation = structuredClone(data.validation);
         if (data.region) row.region = data.region; else delete row.region;
+        if (data.move) row.move = structuredClone(data.move); else delete row.move;
         delete row.teamId;
         delete row.midSeason;
       }
@@ -471,11 +483,15 @@ export class LeagueRegistrationAdapter implements RegistrationAdapter {
         if (row.teamRef.startsWith("library:"))
           throw new RegistrationError(409, "invalid-transition", "This entry was made with a Super FUMBBL library team, which can't join a league any more. Ask the coach to withdraw and register again with a saved team.");
         // A league team (transfer permitted when it played elsewhere) joins with its record; a save is built from its sheet.
-        const team = parseLeagueTeamRef(row.teamRef) ? placeTransferredTeam(this.store, league, season, row, now) : placeRegisteredTeam(league, season, row, seasons, now);
+        // A ladder (lane 8b) places its own way (a move with progression, or the sheet): ladderRegistration.ts.
+        const team = this.opts.placeTeam ? this.opts.placeTeam(league, season, row, seasons, now)
+          : parseLeagueTeamRef(row.teamRef) ? placeTransferredTeam(this.store, league, season, row, now) : placeRegisteredTeam(league, season, row, seasons, now);
         row.teamId = team.id;
         if (seasonStage(season) === "active") row.midSeason = true; else delete row.midSeason;
+        this.opts.afterPlace?.(season, row, team, now);
       } else if (from === "accepted" && after.state !== "accepted") {
         unplaceRegisteredTeam(season, row.teamId);
+        this.opts.afterUnplace?.(season, row, now);
       }
       if (after.state === "declined" || after.state === "withdrawn" || after.state === "dropped") released.push(row.coach);
     }

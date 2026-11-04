@@ -22,6 +22,7 @@ import type { TournamentStore } from "../tournaments/store.js";
 import type { ScheduledMatchRecord } from "../tournaments/types.js";
 import { scheduleKey, SLOT_MS } from "./store.js";
 import { publishedLeagues } from "../leagues/lifecycle.js";
+import { isLadder, ladderState } from "../leagues/ladder.js";
 
 /** The agreed time written onto a fixture record by an accepted proposal. */
 export interface AgreedTime { start: string; end: string; agreedAt: string }
@@ -121,7 +122,8 @@ function buildLeagueIndex(store: LeagueStore): Pick<LeagueIndex, "byCoach" | "by
   const byCoach = new Map<string, FixtureEntry[]>();
   const byRef = new Map<string, FixtureEntry>();
   for (const lg of publishedLeagues(store.list())) {
-    const active = store.seasons(lg.id).filter((s) => s.status === "active");
+    // Seasons and open ladders (lane 8b: an accepted ladder challenge goes straight into the time-proposal flow).
+    const active = store.competitions(lg.id).filter((s) => s.status === "active" && (!isLadder(s) || ladderState(s) === "active"));
     if (!active.length) continue;
     const aliases = buildCoachAliases((function* () { for (const s of active) yield* seasonCoachFacets(s); })());
     const observed = new Set<string>();

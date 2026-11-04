@@ -19,7 +19,8 @@ export type CompetitionType = "league" | "tournament";
 export type CompetitionKind = "league" | "season" | "ladder" | "tournament";
 export const typeOfKind = (kind: CompetitionKind): CompetitionType => (kind === "tournament" ? "tournament" : "league");
 
-export type EventScope = "both" | "league" | "tournament" | "inGame";
+/** ladder: league-type events that only a ladder (and the league, its fallback) shows; a season's settings hide them. */
+export type EventScope = "both" | "league" | "tournament" | "inGame" | "ladder";
 
 export const IN_GAME_KEYS = ["touchdown", "casualty", "injury", "death", "foul", "sentOff", "mvp", "hireFire"] as const;
 export type InGameKey = (typeof IN_GAME_KEYS)[number];
@@ -58,6 +59,11 @@ const META: Partial<Record<DiscordEventKey, EventMeta>> = {
   seasonFinished: { scope: "league", league: true, tournament: false },
   // League Events: a new league night / draft / social... (each event's own "Post to Discord" starts ticked for league nights).
   leagueEvent: { scope: "league", league: true, tournament: false },
+  // League ladders (spec Q8): challenge issued off, the rest on.
+  ladderChallengeIssued: { scope: "ladder", league: false, tournament: false },
+  ladderChallengeAccepted: { scope: "ladder", league: true, tournament: false },
+  ladderResult: { scope: "ladder", league: true, tournament: false },
+  ladderRankChanges: { scope: "ladder", league: true, tournament: false },
   touchdown: { scope: "inGame", league: true, tournament: false },
   casualty: { scope: "inGame", league: true, tournament: false },
   injury: { scope: "inGame", league: true, tournament: false },
@@ -74,7 +80,7 @@ export const eventMeta = (k: DiscordEventKey): EventMeta => META[k] ?? FALLBACK;
 /** Does this event apply to a competition of this type? */
 export function appliesTo(k: DiscordEventKey, type: CompetitionType): boolean {
   const s = eventMeta(k).scope;
-  return s === "both" || s === "inGame" || s === type;
+  return s === "both" || s === "inGame" || s === type || (s === "ladder" && type === "league");
 }
 
 /** The event keys a competition of this type shows (in catalogue order). */

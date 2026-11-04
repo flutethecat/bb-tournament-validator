@@ -48,6 +48,8 @@ export interface MembershipSources {
   leagues: {
     league(id: string): LeagueSummary | undefined;
     list(): ReadonlyArray<LeagueSummary>;
+    /** Seasons and ladders (lane 8b): a ladder's coaches are league members too. Absent = seasons only. */
+    competitions?(leagueId: string): ReturnType<MembershipSources["leagues"]["seasons"]>;
     seasons(leagueId: string): ReadonlyArray<{
       teams: ReadonlyArray<{ coachId?: string; coachAssigned?: { cleared?: true } }>;
       participants: ReadonlyArray<{ coachId?: string }>;
@@ -67,7 +69,7 @@ export function isLeagueRosterMember(coach: string, leagueId: string, sources: M
   const key = normalizeFfbCoachId(coach);
   if (!key || !leagueId || !sources.leagues.league(leagueId)) return false;
   const same = sameCoach(key);
-  return sources.leagues.seasons(leagueId).some((season) =>
+  return (sources.leagues.competitions ? sources.leagues.competitions(leagueId) : sources.leagues.seasons(leagueId)).some((season) =>
     season.teams.some((t) => !t.coachAssigned?.cleared && same(t.coachId)) || season.participants.some((p) => same(p.coachId)));
 }
 
@@ -78,7 +80,7 @@ export function hasLiveLeagueRegistration(coach: string, leagueId: string, sourc
   const same = sameCoach(key);
   const live = (r: { state: string; coach: string }): boolean => (r.state === "pending" || r.state === "waitlisted" || r.state === "accepted") && same(r.coach);
   // A takeover application (team library lane, src/leagues/takeover.ts) is a league registration too.
-  return sources.leagues.seasons(leagueId).some((season) => (season.registrations ?? []).some(live) || (season.takeoverApplications ?? []).some(live));
+  return (sources.leagues.competitions ? sources.leagues.competitions(leagueId) : sources.leagues.seasons(leagueId)).some((season) => (season.registrations ?? []).some(live) || (season.takeoverApplications ?? []).some(live));
 }
 
 /** Tournament membership: an entrant who has not dropped. */

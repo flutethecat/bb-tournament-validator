@@ -42,6 +42,10 @@ export const DISCORD_EVENT_LABEL: Record<DiscordEventKey, string> = {
   mvp: "MVP",
   hireFire: "Hire / fire",
   leagueEvent: "New league event",
+  ladderChallengeIssued: "Ladder challenge issued",
+  ladderChallengeAccepted: "Ladder challenge accepted",
+  ladderResult: "Ladder result",
+  ladderRankChanges: "Ladder top-10 rank changes",
 };
 
 export function isDiscordWebhookUrl(url: unknown): url is string {

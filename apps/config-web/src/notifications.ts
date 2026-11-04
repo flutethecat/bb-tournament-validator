@@ -38,6 +38,9 @@ export const NOTIFICATION_TYPES = [
   "fixture-message",
   // Creation wizards v2 Q2: a competition's ruleset or house rules changed (the organiser's message + what changed).
   "ruleset-change",
+  // League ladders (lane 8b): challenges received / accepted (propose a time), scheduled-round fixtures, and the notes
+  // (declined, expired, discarded, counted as a loss).
+  "ladder",
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 

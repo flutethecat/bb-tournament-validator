@@ -475,7 +475,11 @@ export type ScheduleEntry =
   /** A gate ("Opens at" on an online step, league ladder spec, Gates): lane 8c. `eventId` = the League Event it is tied to. */
   | { kind: "gate"; key: string; start: string; title: string; detail: string; gateId: string; step: string; eventId?: string };
 
-export interface ScheduleContext { league: LeagueRecord; seasons: readonly SeasonRecord[]; events: readonly LeagueCalendarEvent[]; zone: string; now: number }
+export interface ScheduleContext {
+  league: LeagueRecord; seasons: readonly SeasonRecord[]; events: readonly LeagueCalendarEvent[]; zone: string; now: number;
+  /** The league's ladders (lane 8b): their challenge gates join the timeline. */
+  ladders?: readonly SeasonRecord[];
+}
 export type ScheduleSource = (ctx: ScheduleContext) => ScheduleEntry[];
 
 /** Upcoming League Event occurrences (under way or still to come). */
@@ -488,9 +492,18 @@ export const leagueEventScheduleSource: ScheduleSource = (ctx) => ctx.events.fla
  * GATES EXTENSION POINT (league ladder spec, Gates; lane 8c): return every gate of the league (redraft window, rest rolls,
  * season start / fixture release, ladder challenges, registration opening, honours reveal) as "gate" entries, each at its
  * "Opens at" instant. A gate tied to a League Event reads its time from that event's occurrence (ctx.events) so it moves
- * with the event. No gate exists yet, so this returns [].
+ * with the event. Lane 8b's hook: a ladder's challenge gate (ladder.gates.challenges, "ladder challenges after a redraft /
+ * period"; off by default, no editor yet) is listed here while it is still to open. Lane 8c adds the other steps and the editor.
  */
-export const gateScheduleSource: ScheduleSource = () => [];
+export const gateScheduleSource: ScheduleSource = (ctx) => (ctx.ladders ?? []).flatMap((l) => {
+  const g = l.ladder?.gates?.challenges;
+  const at = g ? Date.parse(g.opensAt) : NaN;
+  if (!g || !Number.isFinite(at) || at <= ctx.now) return [];
+  return [{
+    kind: "gate" as const, key: `gate:ladder-challenges:${l.id}`, start: new Date(at).toISOString(), title: `${l.name}: challenges open`,
+    detail: "Ladder challenges", gateId: `ladder-challenges:${l.id}`, step: "ladder-challenges", ...(g.eventId ? { eventId: g.eventId } : {}),
+  }];
+});
 
 export const SCHEDULE_SOURCES: readonly ScheduleSource[] = [leagueEventScheduleSource, gateScheduleSource];
 
@@ -548,7 +561,7 @@ export async function leagueCalendarEventRoutes(
     const zone = leagueTimeZone(league);
     let events: LeagueCalendarEvent[];
     try { events = readFile(deps.store, league!.id).events; } catch { return fail(500, "The league's events could not be read."); }
-    const entries = scheduleEntries({ league: league!, seasons: deps.store.seasons(league!.id), events, zone, now });
+    const entries = scheduleEntries({ league: league!, seasons: deps.store.seasons(league!.id), ladders: deps.store.ladders(league!.id), events, zone, now });
     return res(200, { timeZone: zone, entries });
   }
   if (first !== "events" || more.length) return undefined;

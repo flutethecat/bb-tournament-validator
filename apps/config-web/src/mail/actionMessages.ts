@@ -42,11 +42,13 @@ export const ACTION_DM: Partial<Record<NotificationType, ActionMessageBuilder>> 
   // Creation wizards v2 Q2: every registered coach hears about a rules change; an invalid roster after it needs changes.
   "ruleset-change": ({ subject, url }) => `The rules of ${subject} changed. Read the organiser's message and what changed: ${url}`,
   "roster-problems": ({ subject, url }) => `Your roster for ${subject} needs changes. See what to fix: ${url}`,
+  // League ladders (lane 8b): a challenge to answer, or an accepted challenge / scheduled-round game to propose a time for.
+  ladder: ({ title, url }) => `${title}. Open it: ${url}`,
 };
 
 /** Types that DM only when the emitter marks the row actionable (NotificationInput.action). Every other emitter of these
  *  types (today's tournament registration notices) stays bell-only. */
-export const ACTION_DM_WHEN_FLAGGED: ReadonlySet<NotificationType> = new Set<NotificationType>(["registration-outcome", "registration", "check-in", "roster-problems"]);
+export const ACTION_DM_WHEN_FLAGGED: ReadonlySet<NotificationType> = new Set<NotificationType>(["registration-outcome", "registration", "check-in", "roster-problems", "ladder"]);
 
 export const isActionDmType = (type: NotificationType): boolean => Object.hasOwn(ACTION_DM, type);
 

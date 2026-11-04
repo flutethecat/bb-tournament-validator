@@ -368,6 +368,7 @@ import { runLeagueEventReminders, type LeagueEventsDeps } from "./leagues/league
 import { createDiscordSyncRunner } from "./leagues/leagueEventsDiscord.js";
 import { createGuildEventsClient } from "./discord/scheduledEvents.js";
 import { runRedraftWindowJob } from "./leagues/redraftWindow.js";
+import { runLadderJob } from "./leagues/ladderJob.js";
 import { createLeagueForkClient } from "./leagues/forkClient.js";
 import { syncLeagueForkResults } from "./leagues/forkPlay.js";
 import { CLEANUP_BASELINE_FILE, leagueForkCleanupRoute, runForkTeamCleanup } from "./leagues/forkCleanup.js";
@@ -752,6 +753,18 @@ const leagueRedraftTick = (): void => {
 };
 setTimeout(leagueRedraftTick, 7_000).unref();
 setInterval(leagueRedraftTick, 60_000).unref();
+// League ladders (src/leagues/ladderJob.ts): expiries, deadline discards, decline-rule losses, redraft windows, the scheduled
+// end and tournament-style roster resets, each stored before anyone is told. Every minute; never in a GET handler.
+const leagueLadderTick = (): void => {
+  try {
+    const out = runLadderJob({ store: leagueStore, notify: leagueNotify, isAdmin: (c) => isAdmin(c) });
+    const n = out.expired.length + out.discarded.length + out.closed.length + out.windows.length + out.losses.length;
+    if (n) console.log(`[leagues] ladder job: ${out.expired.length} expired, ${out.discarded.length} discarded, ${out.losses.length} decline losses, ${out.windows.length} redraft windows, ${out.closed.length} closed`);
+    if (out.failed.length) console.error(`[leagues] ladder job could not write: ${out.failed.join(", ")}`);
+  } catch (e) { console.error(`[leagues] ladder job failed: ${(e as Error).message}`); }
+};
+setTimeout(leagueLadderTick, 8_000).unref();
+setInterval(leagueLadderTick, 60_000).unref();
 setActiveNotifier(tournamentNotifier);
 // Tournament registration notices (lane L4, src/tournaments/registration.ts): check-in open (inbox + Discord DM through
 // the queue) and roster due, once per entry per window, recorded before anyone is told. Every minute; never from a GET.

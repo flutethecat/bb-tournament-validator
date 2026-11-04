@@ -29,6 +29,11 @@
  * League Events (league nights, drafts, socials; calendar + Schedule page + Discord scheduled events): see leagueEvents.ts.
  *   GET|POST /api/leagues/:id/events, PATCH|DELETE .../events/:eventId, GET|PATCH .../events/discord, POST .../events/discord/cleanup (leagueEventsDiscord.ts), GET .../schedule
  *
+ * League ladders (lane 8b; ranking, challenges, scheduled rounds, joining, the Ladder tab): see ladderApi.ts.
+ *   GET|POST /api/leagues/:id/ladders, GET|PATCH .../ladders/:ladderId, POST .../start|close|challenges|rounds|registrations
+ *   A ladder is read like a season by the fixture / team / recorder routes (.../seasons/<ladderId>/...); season-only routes
+ *   (join, registrations, stage, finish, reopen, podium, participants, deadlines) answer 404 for a ladder id.
+ *
  * League registration (lane L6; join, the Registrations tab, accept -> team, "I've paid"): see registrationApi.ts.
  *   GET .../seasons/:seasonId/join, GET|POST .../seasons/:seasonId/registrations, POST .../registrations/:rid/<verb>
  *   POST   /api/leagues/:id/discord/test                          send a small test embed to the webhook
@@ -99,12 +104,16 @@ import { paymentLinksView } from "../payments/links.js";
 import { createLeagueRoute, leagueLifecycleRoutes } from "./wizard.js";
 import { leagueCalendarEventRoutes, type LeagueEventsDeps } from "./leagueEvents.js";
 import { leagueEventsDiscordRoutes } from "./leagueEventsDiscord.js";
+import { leagueLadderRoutes } from "./ladderApi.js";
+import { isLadder, isLadderId, ladderVisible } from "./ladder.js";
 import { TEST_SESSION_REFUSAL, testSessionMayWrite } from "../registration/testSession.js";
 import { leagueTimeZone } from "./timeZone.js";
 import { isLeagueOrganiser, LEAGUE_ART_DIR, LEAGUE_ART_PATH, leagueOwner, LeagueStore, LeagueStoreError, SEASON_ID } from "./store.js";
 import { LEAGUE_RULESETS, type LeagueFixture, type LeagueNewsPost, type LeagueRecord, type LeagueTeam, type LeagueRuleset, type PodiumSlot, type SeasonRecord, type SeasonStatus } from "./types.js";
 
 export const LOGO_MAX_BYTES = 1024 * 1024;
+/** Season routes a ladder id never answers (ladders join, start and close through ladderApi.ts). */
+const LADDER_BLOCKED_SEASON_ROUTES: ReadonlySet<string> = new Set(["join", "registrations", "registration", "stage", "finish", "reopen", "podium", "participants", "deadlines", "phases"]);
 export const BANNER_MAX_BYTES = 2 * 1024 * 1024;
 export const LOGO_MIN_PX = 64;
 export const LOGO_MAX_PX = 2048;
@@ -424,6 +433,13 @@ export async function leagueApi(
     deps = { ...deps, notify: draftAwareNotify(store, found.id, deps.notify, (c) => admins.has(c.trim().toLowerCase())) };
   }
   const [first, second, ...extra] = route.rest;
+  // A ladder id under /seasons/ (lane 8b): hidden while in setup from all but the league's organisers and site admins, and
+  // the season-only routes are not there for it.
+  if (first === "seasons" && isLadderId(second) && league) {
+    const lad = deps.store.season(league.id, second!);
+    if (lad && isLadder(lad) && !ladderVisible(lad, Boolean(auth && (auth.admin || isLeagueOrganiser(league, auth.coach))))) return { status: 404, body: { error: "Season not found." } };
+    if (extra.length && LADDER_BLOCKED_SEASON_ROUTES.has(extra[0]!)) return { status: 404, body: { error: "Not found." } };
+  }
   const lifecycle = await leagueLifecycleRoutes(method, route.rest, league, auth, deps);
   if (lifecycle) return lifecycle;
   // League Events (leagueEvents.ts): GET|POST .../events, PATCH|DELETE .../events/:eventId, .../events/discord, GET .../schedule.
@@ -431,6 +447,9 @@ export async function leagueApi(
   if (eventsDiscord) return eventsDiscord;
   const calendarEvents = await leagueCalendarEventRoutes(method, route.rest, league, auth, deps);
   if (calendarEvents) return calendarEvents;
+  // League ladders (ladderApi.ts).
+  const ladders = await leagueLadderRoutes(method, route.rest, league, auth, deps);
+  if (ladders) return ladders;
 
   if (first === "logo" || first === "banner") {
     if (second !== undefined) return { status: 404, body: { error: "Not found." } };
@@ -1147,8 +1166,8 @@ async function patchFixture(league: LeagueRecord, seasonId: string, fixtureId: s
 export function seasonForViewer(league: LeagueRecord, full: SeasonRecord, auth: LeagueApiIdentity | undefined, gamePage?: (gameId: string) => boolean): SeasonRecord {
   // Redraft state (budgets, R&R, draft rosters) is served only by the authorised redraft routes, never in a season read.
   // League registration rows (lane L6) are organiser and coach data, served only by the registration routes.
-  // Takeover applications (team library lane) are the applicant's and the organisers', served only by takeover routes.
-  const { redraft: _r, registrations: _reg, takeoverApplications: _ta, ...derived } = withCaptainCandidates(withStandings(full));
+  // Takeover applications (team library lane) are the applicant's and the organisers', served only by takeover routes; a ladder's own record (challenges, members, rounds) by the ladder routes (ladderApi.ts).
+  const { redraft: _r, registrations: _reg, takeoverApplications: _ta, ladder: _lad, ...derived } = withCaptainCandidates(withStandings(full));
   // Team page v2: a team-page MNG the team has served reads as cleared (computed on a copy; the next write stores it), and
   // team histories and injury authors stay with the team's coach and the organisers (GET .../teams/:teamId/manage).
   const teamsCopy = derived.teams.some((t) => t.players.some((p) => p.mngGames !== undefined)) ? structuredClone(derived.teams) : derived.teams;

@@ -549,7 +549,7 @@ describe("notification types and Discord DM rows (Q18)", () => {
   });
 
   it("registration rows DM only when flagged: outcomes accepted/declined/promoted and approval-needed organiser rows", () => {
-    expect([...ACTION_DM_WHEN_FLAGGED].sort()).toEqual(["check-in", "registration", "registration-outcome", "roster-problems"]);
+    expect([...ACTION_DM_WHEN_FLAGGED].sort()).toEqual(["check-in", "ladder", "registration", "registration-outcome", "roster-problems"]);
     const url = "https://site.example.test/app/tournaments/c1";
     const outcome = { type: "registration-outcome" as const, from: "", title: "You're in: Autumn Open", link: "/app/tournaments/c1" };
     expect(actionDmText({ record: outcome, url })).toBeUndefined();

@@ -16,6 +16,7 @@ import type { DiscordEventKey, LeagueRecord } from "../leagues/types.js";
 import type { TournamentRecord } from "../tournaments/types.js";
 import type { DiscordPayload, WebhookPoster } from "../leagues/discord.js";
 import { isDraftLeague } from "../leagues/lifecycle.js";
+import { isLadderId } from "../leagues/ladder.js";
 import { effectiveConfig, type CompetitionKind, type EffectiveDiscordConfig } from "./catalogue.js";
 import { cleanPayload } from "./posts.js";
 import type { DiscordStateStore } from "./store.js";
@@ -38,6 +39,10 @@ export interface DiscordTarget {
 }
 
 export const seasonCompetitionKey = (seasonId: string): string => `season:${seasonId}`;
+/** A ladder's webhook / options key (league ladder spec round 2): "ladder:<ladderId>". */
+export const ladderCompetitionKey = (ladderId: string): string => `ladder:${ladderId}`;
+/** The key of a season or a ladder (ladder ids are `ladder-<n>`). */
+export const competitionKeyOf = (id: string): string => (isLadderId(id) ? ladderCompetitionKey(id) : seasonCompetitionKey(id));
 
 export function leagueEffective(league: Pick<LeagueRecord, "discordEvents" | "discord">): EffectiveDiscordConfig {
   const stored = league.discordEvents ? { ...league.discordEvents } as Partial<Record<DiscordEventKey, boolean>> : undefined;
@@ -56,6 +61,8 @@ export function leagueTarget(store: Pick<LeagueStore, "league" | "secrets">, lea
 }
 
 export function seasonTarget(store: Pick<LeagueStore, "league" | "secrets">, league: LeagueRecord, seasonId: string): DiscordTarget {
+  // A ladder fixture's game (the recorder's digest, a result, a forfeit) posts to the ladder's webhook and options.
+  if (isLadderId(seasonId)) return ladderTarget(store, league, seasonId);
   const fresh = store.league(league.id) ?? league;
   const secrets = store.secrets(league.id);
   const own = secrets.competitionWebhooks?.[seasonCompetitionKey(seasonId)];
@@ -64,6 +71,19 @@ export function seasonTarget(store: Pick<LeagueStore, "league" | "secrets">, lea
     kind: "season", key: `season:${league.id}:${seasonId}`, name: fresh.name, ...(url ? { url } : {}), inherited: !own && Boolean(url),
     config: effectiveConfig("league", fresh.competitionDiscord?.[seasonCompetitionKey(seasonId)], leagueEffective(fresh)),
     draft: isDraftLeague(fresh), test: fresh.test === true, leagueId: league.id, seasonId,
+  };
+}
+
+/** A ladder: its own webhook (blank = the league's) and options (absent = the league's), like a season. */
+export function ladderTarget(store: Pick<LeagueStore, "league" | "secrets">, league: LeagueRecord, ladderId: string): DiscordTarget {
+  const fresh = store.league(league.id) ?? league;
+  const secrets = store.secrets(league.id);
+  const own = secrets.competitionWebhooks?.[ladderCompetitionKey(ladderId)];
+  const url = own || secrets.discordWebhookUrl;
+  return {
+    kind: "ladder", key: `ladder:${league.id}:${ladderId}`, name: fresh.name, ...(url ? { url } : {}), inherited: !own && Boolean(url),
+    config: effectiveConfig("league", fresh.competitionDiscord?.[ladderCompetitionKey(ladderId)], leagueEffective(fresh)),
+    draft: isDraftLeague(fresh), test: fresh.test === true, leagueId: league.id, seasonId: ladderId,
   };
 }
 

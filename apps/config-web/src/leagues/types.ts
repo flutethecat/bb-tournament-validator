@@ -156,6 +156,8 @@ export const DISCORD_EVENT_KEYS = [
   "touchdown", "casualty", "injury", "death", "foul", "sentOff", "mvp", "hireFire",
   // League Events (src/leagues/leagueEvents.ts): "New league event" on the league (or linked season) webhook.
   "leagueEvent",
+  // League ladders (lane 8b): on the ladder's own webhook (league fallback). Challenge issued is off by default.
+  "ladderChallengeIssued", "ladderChallengeAccepted", "ladderResult", "ladderRankChanges",
 ] as const;
 export type DiscordEventKey = (typeof DISCORD_EVENT_KEYS)[number];
 export type DiscordEvents = Record<DiscordEventKey, boolean>;
@@ -366,6 +368,8 @@ export interface LeagueFixture {
   /** Admin per-game setting (the fixture's admin panel, or the recorder's Admin panel): false = a forfeit rolls no
    *  defections. Absent = on (FFB rolls them after an illegal concession). */
   defectionRolls?: false;
+  /** A ladder fixture (lane 8b): the challenge it was made from, or the organiser's scheduled round. */
+  ladder?: { challengeId?: string; roundId?: string };
 }
 
 /** The public part of a forfeit. */
@@ -912,6 +916,9 @@ export interface EntrySpan {
   by?: string;
   /** The replaced team as it was when it left the entry (private: coach and organisers only). */
   outgoing?: LeagueTeam;
+  /** Lane 8b: the team moved here from another competition of the league (a season or a ladder) with its progression. The
+   *  team it came from is superseded (ladder.ts currentTeamRows): a team plays in one place at a time. */
+  movedFrom?: { kind: "season" | "ladder"; id: string; teamId: string; at: string };
 }
 
 /** One team history line: what changed (old -> new), who, when. */
@@ -1049,6 +1056,10 @@ export interface SeasonRecord {
   /** Takeover applications (team library lane, takeover.ts), every listing's, in any state. Organisers and the applicant
    *  only: never in a season read (api.ts seasonForViewer drops it). */
   takeoverApplications?: import("./takeover.js").TakeoverApplicationRow[];
+  /** A league ladder (lane 8b, ladderTypes.ts): stored as a season record with this marker and its `ladder` block. Absent = a
+   *  season. LeagueStore.seasons() leaves ladders out; ladders() / competitions() read them. */
+  competition?: "ladder";
+  ladder?: import("./ladderTypes.js").LadderRecord;
 }
 
 /** What the league page's "Pay entry fee" block shows (api.ts seasonForViewer). */

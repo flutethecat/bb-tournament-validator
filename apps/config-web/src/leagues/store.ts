@@ -326,8 +326,22 @@ export class LeagueStore {
     });
   }
 
-  /** Every season of the league, newest first. A season stored before player ids existed is given the ids (and career links) the importer would assign. */
+  /** Every season of the league, newest first. A season stored before player ids existed is given the ids (and career links) the importer would assign.
+   *  Ladders (lane 8b: season records marked `competition: "ladder"`) are not seasons and are left out: see ladders(). */
   seasons(leagueId: string): SeasonRecord[] {
+    const list = this.rawSeasons(leagueId);
+    if (needsPlayerIds(list)) linkPlayerCareers(list);
+    return list.filter((s) => s.competition !== "ladder");
+  }
+
+  /** The league's ladders (lane 8b, ladderTypes.ts), in creation order. season(leagueId, ladderId) reads one like a season, so
+   *  fixture, team, recorder and Super FUMBBL routes work for ladder fixtures unchanged. */
+  ladders(leagueId: string): SeasonRecord[] {
+    return this.rawSeasons(leagueId).filter((s) => s.competition === "ladder" && s.ladder).sort((a, b) => a.number - b.number);
+  }
+
+  /** Seasons and ladders together (every competition whose fixtures coaches play: schedule proposals, contact sharing). */
+  competitions(leagueId: string): SeasonRecord[] {
     const list = this.rawSeasons(leagueId);
     if (needsPlayerIds(list)) linkPlayerCareers(list);
     return list;
@@ -348,7 +362,7 @@ export class LeagueStore {
     if (!LEAGUE_ID.test(leagueId) || !SEASON_ID.test(seasonId)) return undefined;
     const s = this.readJson<SeasonRecord>(join(this.root, leagueId, "seasons", `${seasonId}.json`));
     if (!s || s.id !== seasonId || s.leagueId !== leagueId) return undefined;
-    return needsPlayerIds([s]) ? this.seasons(leagueId).find((x) => x.id === seasonId) : s;
+    return needsPlayerIds([s]) ? this.competitions(leagueId).find((x) => x.id === seasonId) : s;
   }
 
   /** Writes a season; an existing season with the same sourceSlug (or id) is replaced. Returns the replaced id, if any. */

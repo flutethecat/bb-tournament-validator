@@ -6,6 +6,7 @@
  *   PATCH /api/leagues/:id/discord                          { url?, events?, live?, endOfGameDigest?, comments?, weekly?, timeZone? }
  *   GET   /api/leagues/:id/seasons/:seasonId/discord        a season's own options (blank webhook = the league's)
  *   PATCH /api/leagues/:id/seasons/:seasonId/discord        { url?, events?, live?, endOfGameDigest?, comments?, inherit? }
+ *   GET|PATCH /api/leagues/:id/ladders/:ladderId/discord   a ladder's own options (lane 8b; blank webhook = the league's)
  *   GET   /api/tournaments/:id/discord                      a tournament's options (tournament mode until changed)
  *   PATCH /api/tournaments/:id/discord                      { url?, events?, live?, endOfGameDigest?, comments? }
  *   POST  <any of the three>/discord/test                   one test post (the league's stays on the settings route)
@@ -28,7 +29,8 @@ import {
 import type { DiscordObserver } from "./observer.js";
 import { cleanPayload, post, safe, samplePost } from "./posts.js";
 import type { DiscordStateStore } from "./store.js";
-import { leagueTarget, seasonCompetitionKey, seasonTarget, tournamentTarget, type DiscordTarget } from "./targets.js";
+import { competitionKeyOf, leagueTarget, seasonTarget, tournamentTarget, type DiscordTarget } from "./targets.js";
+import { isLadderId } from "../leagues/ladder.js";
 import { parseWeekly, weeklyOf, WEEKDAYS, type WeeklyDigestSettings } from "./weekly.js";
 import { isTimeZone, leagueTimeZone, leagueTimeZoneSet } from "../leagues/timeZone.js";
 
@@ -70,7 +72,7 @@ function limited(key: string, windowMs: number, now: number): number {
   return 0;
 }
 
-const DISCORD_PATH = /^\/api\/(?:leagues\/([a-z0-9][a-z0-9-]{0,63})(?:\/seasons\/([A-Za-z0-9][A-Za-z0-9_-]{0,80}))?|tournaments\/([A-Za-z0-9_-]{1,80}))\/discord(?:\/(test|samples|weekly-digest(?:\/post)?))?$/;
+const DISCORD_PATH = /^\/api\/(?:leagues\/([a-z0-9][a-z0-9-]{0,63})(?:\/(?:seasons|ladders)\/([A-Za-z0-9][A-Za-z0-9_-]{0,80}))?|tournaments\/([A-Za-z0-9_-]{1,80}))\/discord(?:\/(test|samples|weekly-digest(?:\/post)?))?$/;
 
 /** Is this one of the routes below (the league's own /discord/test stays with the league settings route)? */
 export function discordApiPath(path: string): boolean {
@@ -109,7 +111,8 @@ export interface CompetitionDiscordView {
 
 function viewOf(t: DiscordTarget, ownUrl: string | undefined, parentUrl: string | undefined, extra: Partial<CompetitionDiscordView> = {}): CompetitionDiscordView {
   const type = typeOfKind(t.kind);
-  const keys = eventKeysFor(type);
+  // Ladder-only events (scope "ladder") show on a ladder and on the league (their fallback), never on a season.
+  const keys = eventKeysFor(type).filter((k) => t.kind !== "season" || eventMeta(k).scope !== "ladder");
   const events: Partial<DiscordEvents> = {};
   for (const k of keys) events[k] = t.config.events[k];
   return {
@@ -192,13 +195,15 @@ export function populateSeasonDiscord(store: LeagueStore, leagueId: string, seas
   try {
     const league = store.league(leagueId);
     if (!league) return;
-    const key = seasonCompetitionKey(seasonId);
+    const key = competitionKeyOf(seasonId);
     const secrets = store.secrets(leagueId);
     if (secrets.discordWebhookUrl && !secrets.competitionWebhooks?.[key]) {
       store.setSecrets(leagueId, { ...secrets, competitionWebhooks: { ...(secrets.competitionWebhooks ?? {}), [key]: secrets.discordWebhookUrl } });
     }
     if (!league.competitionDiscord?.[key]) {
-      const base = leagueTarget(store, league).config;
+      const base = structuredClone(leagueTarget(store, league).config);
+      // A ladder's own result post (ladderResult: score + what it did to the ranking) replaces the plain match result.
+      if (isLadderId(seasonId)) base.events.matchResult = false;
       store.updateLeague(leagueId, (l) => { l.competitionDiscord = { ...(l.competitionDiscord ?? {}), [key]: freeze(base) }; });
     }
   } catch { /* best effort */ }
@@ -237,8 +242,10 @@ function resolve(m: RegExpExecArray, auth: DiscordApiIdentity | undefined, deps:
   if (!managesLeague(league, auth)) return isDraftLeague(league) ? fail(404, "League not found.") : fail(403, "Only this league's organisers and site admins can change its Discord settings.");
   const secrets = deps.leagues.secrets(league.id);
   if (m[2]) {
-    if (!deps.leagues.season(league.id, m[2])) return fail(404, "Season not found.");
-    const own = secrets.competitionWebhooks?.[seasonCompetitionKey(m[2])];
+    const s = deps.leagues.season(league.id, m[2]);
+    const ladderPath = m[0].includes("/ladders/");
+    if (!s || ladderPath !== isLadderId(m[2])) return fail(404, ladderPath ? "Ladder not found." : "Season not found.");
+    const own = secrets.competitionWebhooks?.[competitionKeyOf(m[2])];
     return { target: seasonTarget(deps.leagues, league, m[2]), ...(own ? { ownUrl: own } : {}), ...(secrets.discordWebhookUrl ? { parentUrl: secrets.discordWebhookUrl } : {}), league, seasonId: m[2] };
   }
   return { target: leagueTarget(deps.leagues, league), ...(secrets.discordWebhookUrl ? { ownUrl: secrets.discordWebhookUrl } : {}), league };
@@ -258,7 +265,7 @@ function viewFor(r: Resolved, deps: DiscordApiDeps): CompetitionDiscordView {
 
 function ownConfig(r: Resolved, deps: DiscordApiDeps): CompetitionDiscordConfig {
   if (r.tournament) return deps.state.config(`tournament:${r.tournament.id}`) ?? {};
-  if (r.seasonId) return r.league!.competitionDiscord?.[seasonCompetitionKey(r.seasonId)] ?? {};
+  if (r.seasonId) return r.league!.competitionDiscord?.[competitionKeyOf(r.seasonId)] ?? {};
   return { ...(r.league!.discord ?? {}), ...(r.league!.discordEvents ? { events: r.league!.discordEvents } : {}) };
 }
 
@@ -274,7 +281,7 @@ function applyPatch(r: Resolved, p: DiscordPatch, deps: DiscordApiDeps): void {
     const secrets = deps.leagues.secrets(leagueId);
     if (r.seasonId) {
       const hooks = { ...(secrets.competitionWebhooks ?? {}) };
-      if (p.url === null) delete hooks[seasonCompetitionKey(r.seasonId)]; else hooks[seasonCompetitionKey(r.seasonId)] = p.url;
+      if (p.url === null) delete hooks[competitionKeyOf(r.seasonId)]; else hooks[competitionKeyOf(r.seasonId)] = p.url;
       deps.leagues.setSecrets(leagueId, { ...secrets, competitionWebhooks: hooks });
     } else {
       if (p.url === null) delete secrets.discordWebhookUrl; else secrets.discordWebhookUrl = p.url;
@@ -283,7 +290,7 @@ function applyPatch(r: Resolved, p: DiscordPatch, deps: DiscordApiDeps): void {
   }
   deps.leagues.updateLeague(leagueId, (l) => {
     if (r.seasonId) {
-      l.competitionDiscord = { ...(l.competitionDiscord ?? {}), [seasonCompetitionKey(r.seasonId)]: p.config };
+      l.competitionDiscord = { ...(l.competitionDiscord ?? {}), [competitionKeyOf(r.seasonId)]: p.config };
       return;
     }
     if (p.config.events) {

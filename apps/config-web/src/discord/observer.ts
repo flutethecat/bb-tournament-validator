@@ -10,7 +10,8 @@
  *   seasons      registration opened, new registration, registration closing in 24 h, round posted (a generated or
  *                imported round; fixtures made one by one in the editor post "fixture created" instead), fixture start,
  *                standings after each round, final standings + champion, awards
- *   Weekly Digest  per league: the organiser's day / time / every N weeks, or after each round (weekly.ts)
+ *   ladders     challenge issued / accepted, ladder result, top-10 rank changes (ladderPosts.ts; lane 8b)
+ *   Weekly Digest  per league (with a ladder section): the organiser's day / time / every N weeks, or after each round (weekly.ts)
  *
  * First sight of a competition (and every tick while it is a draft or has no webhook) marks what exists WITHOUT posting:
  * turning Discord on, publishing a draft or deploying this never replays history. Markers are written before the post
@@ -33,7 +34,8 @@ import {
   finalStandingsPost, pairingsPost, resultPost, roundSummaryPost, safe, simplePost, standingsPost, weeklyDigestPost, type StandingLine,
 } from "./posts.js";
 import type { DiscordStateStore } from "./store.js";
-import { leagueTarget, postRaw, postTo, seasonTarget, tournamentTarget, type DiscordTarget } from "./targets.js";
+import { ladderTarget, leagueTarget, postRaw, postTo, seasonTarget, tournamentTarget, type DiscordTarget } from "./targets.js";
+import { ladderDigestFields, ladderEvents } from "./ladderPosts.js";
 import { completedRounds, lastSlot, periodFixtures, previousSlot, recordedFixtures, slotDue, weeklyContent, weeklyOf } from "./weekly.js";
 
 export const OBSERVER_TICK_MS = 30_000;
@@ -42,7 +44,7 @@ const HOUR = 3_600_000;
 export const RESULT_SETTLE_MS = 45_000;
 
 export interface ObserverDeps {
-  leagues: Pick<LeagueStore, "list" | "league" | "seasons" | "season" | "secrets">;
+  leagues: Pick<LeagueStore, "list" | "league" | "seasons" | "season" | "secrets"> & Partial<Pick<LeagueStore, "ladders" | "competitions">>;
   tournaments: Pick<TournamentStore, "tournaments" | "entrants" | "rounds" | "matches" | "tournament">;
   state: DiscordStateStore;
   poster?: WebhookPoster;
@@ -81,6 +83,11 @@ export class DiscordObserver {
         try {
           posted += await this.flush(leagueTarget(this.deps.leagues, league), this.leagueEvents(league));
           for (const season of this.deps.leagues.seasons(league.id)) posted += await this.flush(seasonTarget(this.deps.leagues, league, season.id), this.seasonEvents(league, season));
+          const ladders = this.deps.leagues.ladders?.(league.id) ?? [];
+          if (ladders.length) {
+            const comps = this.deps.leagues.competitions?.(league.id) ?? ladders;
+            for (const ladder of ladders) posted += await this.flush(ladderTarget(this.deps.leagues, league, ladder.id), ladderEvents(league, ladder, this.now(), comps));
+          }
           posted += await this.weekly(league);
         } catch (e) { this.deps.log?.(`[discord] league pass failed: ${(e as Error).message}`); }
       }
@@ -263,11 +270,18 @@ export class DiscordObserver {
   /** The digest for (from, to], or why there is none. */
   async digestFor(league: LeagueRecord, from: number, to: number): Promise<{ payload?: DiscordPayload; reason?: string; from: number; to: number }> {
     const season = DiscordObserver.digestSeason(this.deps.leagues.seasons(league.id));
-    if (!season) return { reason: "The league has no season yet.", from, to };
+    // The ladder section (lane 8b): each open ladder with results in the period, its top 5 and the results count.
+    const ladders = this.deps.leagues.ladders?.(league.id) ?? [];
+    const ladderFields = ladders.length ? ladderDigestFields(ladders, from, to, this.now(), this.deps.leagues.competitions?.(league.id) ?? ladders) : [];
+    if (!season && !ladderFields.length) return { reason: "The league has no season yet.", from, to };
     const tz = leagueTimeZone(league);
     // Results list every result of the period; highlights read only the recorded games among them.
-    const fixtures = periodFixtures(season, from, to);
-    const content = weeklyContent(season, from, to, tz, await this.games(league, season, recordedFixtures(fixtures)));
+    const fixtures = season ? periodFixtures(season, from, to) : [];
+    const seasonContent = season ? weeklyContent(season, from, to, tz, await this.games(league, season, recordedFixtures(fixtures))) : undefined;
+    const fmt = (t: number): string => new Intl.DateTimeFormat("en-GB", { timeZone: tz, day: "numeric", month: "short" }).format(new Date(t));
+    const content = seasonContent
+      ? { ...seasonContent, highlights: [...seasonContent.highlights, ...ladderFields] }
+      : ladderFields.length ? { periodLabel: `${fmt(from)} to ${fmt(to)}`, standings: [], movers: [], results: [], highlights: ladderFields } : undefined;
     if (!content) return { reason: "No results were entered in this period, so the digest is skipped.", from, to };
     return { payload: weeklyDigestPost(league.name, content, league.test === true), from, to };
   }
