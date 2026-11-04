@@ -139,8 +139,9 @@ export interface BadgeLedgerSources {
   leagues: { list(): LeagueRecord[]; competitions(leagueId: string): SeasonRecord[] };
   tournaments: Pick<TournamentStore, "snapshot">;
   clubs?: { list(): ClubRecord[] };
-  /** Super FUMBBL tournament results by fork game id (a concession there is a forfeit for earning). */
-  tournamentResults?: { get(gameId: string): { teams?: Array<{ conceded?: boolean }> } | undefined };
+  /** Super FUMBBL tournament results (a concession there is a forfeit for earning): read ONCE per pass and indexed by fork
+   *  game id (buildBadgeLedger), never per match. */
+  tournamentResults?: { listAll(): Array<{ gameId: string; teams?: Array<{ conceded?: boolean }> }> };
   /** fixture ref ("league:<l>:<s>:<f>" or a tournament match id) -> the recorder match that published it. */
   recorder?: ReadonlyMap<string, RecorderResult>;
 }
@@ -346,19 +347,22 @@ function ladderPass(league: LeagueRecord, ladder: SeasonRecord, competitions: Se
 
 // ---- tournaments --------------------------------------------------------------------------------------------------------
 
-function tournamentPass(t: TournamentRecord, field: TournamentEntrantRecord[], matches: ScheduledMatchRecord[], src: BadgeLedgerSources, out: BadgeLedger): void {
+type ForkResultIndex = ReadonlyMap<string, { teams?: Array<{ conceded?: boolean }> }>;
+
+async function tournamentPass(t: TournamentRecord, field: TournamentEntrantRecord[], matches: ScheduledMatchRecord[], src: BadgeLedgerSources, forkResults: ForkResultIndex, out: BadgeLedger, pace: Pacer): Promise<void> {
   if (t.unpublished === true || t.test === true || !authorised(t)) return;
   const byId = new Map(field.map((e) => [e.id, e]));
   const link = `/tournaments/${encodeURIComponent(t.id)}`;
   const uncounted = new Set<string>();
   for (const m of matches) {
+    await pace.tick();
     if (!m.away || !m.result) continue;
     const home = byId.get(m.home.entrantId);
     const away = byId.get(m.away.entrantId);
     if (!home || !away) continue;
     const r = m.result;
     const rec = recordedFor(src.recorder?.get(m.id), r.opId);
-    const fork = m.launch?.gameId ? src.tournamentResults?.get(m.launch.gameId) : undefined;
+    const fork = m.launch?.gameId ? forkResults.get(m.launch.gameId) : undefined;
     const forfeit = recorderConceded(rec) || Boolean(fork?.teams?.some((x) => x.conceded));
     // A manager's first-time typed result counts; an edit of an existing result does not.
     const admin = m.edited?.kind === "result";
@@ -402,6 +406,7 @@ function tournamentPass(t: TournamentRecord, field: TournamentEntrantRecord[], m
 export async function buildBadgeLedger(src: BadgeLedgerSources, now: Date = new Date(), pace: Pacer = noPace): Promise<BadgeLedger> {
   const out: BadgeLedger = { games: [], seasons: [], ladder: [], tournamentWins: [], clubSpans: [], firstSeason: new Map() };
   const data = src.tournaments.snapshot();
+  const forkResults: ForkResultIndex = new Map((src.tournamentResults?.listAll() ?? []).map((r) => [r.gameId, r] as const));
   const entrantsBy = new Map<string, TournamentEntrantRecord[]>();
   for (const e of Object.values(data.entrants ?? {})) entrantsBy.set(e.tournamentId, [...(entrantsBy.get(e.tournamentId) ?? []), e]);
   const matchesBy = new Map<string, ScheduledMatchRecord[]>();
@@ -410,7 +415,7 @@ export async function buildBadgeLedger(src: BadgeLedgerSources, now: Date = new 
     await pace.tick();
     const field = (entrantsBy.get(t.id) ?? []).sort((a, b) => a.seed - b.seed || a.id.localeCompare(b.id));
     const matches = (matchesBy.get(t.id) ?? []).sort((a, b) => a.roundNumber - b.roundNumber || a.id.localeCompare(b.id));
-    tournamentPass(t, field, matches, src, out);
+    await tournamentPass(t, field, matches, src, forkResults, out, pace);
   }
   for (const league of src.leagues.list()) await leaguePass(league, src.leagues.competitions(league.id), src, out, now, pace);
   for (const club of src.clubs?.list() ?? []) {

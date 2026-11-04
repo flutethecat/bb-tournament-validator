@@ -139,23 +139,29 @@ export class BadgeEngine {
   }
 
   private async announce(awards: readonly StoredAward[]): Promise<void> {
+    // One copy of the stored awards for the batch, re-read only when the file's stamp moves; the fence is checked live.
+    const pace = createPacer();
+    let held: { stamp: string; keys: Set<string> } | undefined;
+    const holds = (a: StoredAward): boolean => {
+      if (this.deps.isFenced?.(a.subject.name) === true) return false;
+      try {
+        const stamp = this.deps.store.stamp();
+        if (!held || held.stamp !== stamp) held = { stamp, keys: new Set(this.deps.store.read().auto.map((x) => x.key)) };
+        return held.keys.has(a.key);
+      } catch { return false; } // unreadable store: fail closed, announce nothing
+    };
     for (const a of awards) {
+      await pace.tick();
       if (a.subject.kind !== "coach") continue; // team milestones show on the team page; the coach's own award carries the notice
-      if (!this.stillHolds(a)) continue;
+      if (!holds(a)) continue;
       const notice = awardNotice(a);
       if (notice) { try { this.deps.notify?.(a.subject.name, notice); } catch { /* fire-and-forget */ } }
       const target = this.targetFor(a);
       if (!target) continue;
       const payload = badgePost(target.name, a.subject.name, a, target.test);
       // Re-checked just before the post: an account deletion or a revoke while the queue ran stops it.
-      if (payload && this.stillHolds(a)) await postTo(target, "badgeEarned", payload, this.deps.discord?.poster ?? defaultPoster);
+      if (payload && holds(a)) await postTo(target, "badgeEarned", payload, this.deps.discord?.poster ?? defaultPoster);
     }
-  }
-
-  /** The coach is not under deletion and the award is still stored (fails closed on an unreadable store). */
-  private stillHolds(a: StoredAward): boolean {
-    if (this.deps.isFenced?.(a.subject.name) === true) return false;
-    try { return this.deps.store.read().auto.some((x) => x.key === a.key); } catch { return false; }
   }
 
   private targetFor(a: StoredAward): DiscordTarget | undefined {

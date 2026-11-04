@@ -13,7 +13,7 @@
  * Coach data: subject names and the `by` of a log row / custom award. Exported and removed by the privacy collectors
  * (src/privacy/collectors.ts "badges").
  */
-import { mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { atomicWriteTextFile } from "@bb/fork-ops";
 import type { AwardContext } from "./evaluators.js";
@@ -114,6 +114,14 @@ export class BadgeStore {
       throw new BadgeStoreError(503, "Badges are unavailable right now.");
     }
     return { version: 1, ...(f.initialisedAt ? { initialisedAt: f.initialisedAt } : {}), seeded: Array.isArray(f.seeded) ? f.seeded : [], ...(f.announced && typeof f.announced === "object" ? { announced: f.announced } : {}), auto: f.auto, leagues: f.leagues, log: f.log };
+  }
+
+  /** A cheap stamp (size + mtime) that changes whenever the file does: callers holding a copy re-read only when it moved. */
+  stamp(): string {
+    try { const st = statSync(this.file); return `${st.size}:${st.mtimeMs}`; } catch (e) {
+      if ((e as NodeJS.ErrnoException)?.code === "ENOENT") return "none";
+      throw new BadgeStoreError(503, "Badges are unavailable right now.");
+    }
   }
 
   write(file: BadgeFile): void {

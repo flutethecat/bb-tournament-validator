@@ -1172,7 +1172,7 @@ const statStamp = (p: string): string => { try { const st = statSync(p); return 
 const badgeEngine = new BadgeEngine({
   store: badgeStore,
   // Checked readers only (src/badges/sources.ts): any unreadable league, season, tournament, club or recorder file aborts the pass.
-  sources: async () => ({ leagues: badgeLeagueReader, tournaments: tournamentStore, clubs: clubStore, tournamentResults, recorder: await badgeRecorder(tabletopRepo ?? (badgeTabletopRepo ??= new FileTabletopRepository(TABLETOP_DIR))) }),
+  sources: async () => ({ leagues: badgeLeagueReader, tournaments: tournamentStore, clubs: clubStore, tournamentResults: { listAll: () => tournamentResults.listAll() }, recorder: await badgeRecorder(tabletopRepo ?? (badgeTabletopRepo ??= new FileTabletopRepository(TABLETOP_DIR))) }),
   changeKey: () => `${leagueStore.version()}|${statStamp(join(TOURNAMENTS_DIR, "tournaments.json"))}|${statStamp(join(TABLETOP_DIR, "matches"))}|${statStamp(join(FORK_STATE_DIR, "clubs", "clubs.json"))}`,
   notify: leagueNotify,
   discord: { leagues: leagueStore, tournaments: tournamentStore, state: discordState },

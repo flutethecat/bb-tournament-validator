@@ -296,7 +296,7 @@ describe("forfeits and administrative results never earn", () => {
   it("a Super FUMBBL tournament game one side conceded is a forfeit (its real state, not assumed)", async () => {
     seedTournaments([tournament("t1", { status: "active" })], [entrant("t1", "Cy", 1), entrant("t1", "Dee", 2)],
       [smatch("t1", 1, "Cy", "Dee", 2, 0, { launch: { challengePath: "/api/fork/challenge", jnlpPath: "/api/fork/jnlp", retryCount: 0, gameId: "g9" } })]);
-    const results = { get: (id: string) => (id === "g9" ? { teams: [{ conceded: false }, { conceded: true }] } : undefined) };
+    const results = { listAll: () => [{ gameId: "g9", teams: [{ conceded: false }, { conceded: true }] }] };
     const e = await evaluateCatalog(await buildBadgeLedger({ leagues: new CheckedLeagueReader(dir), tournaments, tournamentResults: results }, new Date(at(1000))), new Date(at(1000)));
     expect(has(e, "first-win", "coach", "Cy")).toBe(false);
   });
@@ -562,16 +562,32 @@ describe("review fixes (Sol 11-04)", () => {
       });
       return season(si + 1, fixtures, { status: si < 3 ? "completed" : "active", ...(si < 3 ? { endedAt: at(si * 1000 + 900) } : {}), teams } as never, l.id);
     })]));
-    const big = { leagues: { list: () => lgs as never, competitions: (id: string) => seasonsOf.get(id) ?? [] }, tournaments };
+    // 256 Super FUMBBL tournament games, each with a row in a large results store that is expensive to read
+    const tcoaches = coaches.slice(0, 32);
+    const tid = "big-cup";
+    seedTournaments([tournament(tid)], tcoaches.map((c, i) => entrant(tid, c, i + 1)),
+      Array.from({ length: 256 }, (_, i) => smatch(tid, i + 1, tcoaches[i % 32]!, tcoaches[(i + 7) % 32]!, i % 3, (i + 1) % 2, { launch: { challengePath: "/api/fork/challenge", jnlpPath: "/api/fork/jnlp", retryCount: 0, gameId: `g${i}` } })));
+    const rows = JSON.stringify(Array.from({ length: 4000 }, (_, i) => ({ gameId: `g${i}`, teams: [{ conceded: false, filler: "x".repeat(200) }, { conceded: i % 50 === 0 }] })));
+    let resultReads = 0;
+    const tournamentResults = { listAll: () => { resultReads += 1; return JSON.parse(rows) as Array<{ gameId: string; teams: Array<{ conceded: boolean }> }>; } };
+    const empty = { leagues: { list: () => [], competitions: () => [] }, tournaments: { snapshot: () => ({ tournaments: {}, entrants: {}, scheduledMatches: {} }) } };
+    const big = { leagues: { list: () => lgs as never, competitions: (id: string) => seasonsOf.get(id) ?? [] }, tournaments, tournamentResults };
     let maxGap = 0; let last = performance.now();
     const timer = setInterval(() => { const t = performance.now(); maxGap = Math.max(maxGap, t - last); last = t; }, 1);
+    let notices = 0;
+    // pass 1 initialises on an empty history; pass 2 awards the whole large history LOUDLY (thousands of notices)
+    const e = new BadgeEngine({ store: new BadgeStore(dir), sources: (() => (pass++ === 0 ? empty : big)) as never, notify: () => { notices += 1; }, now: () => new Date(at(1000)) });
+    let pass = 0;
+    await e.recompute();
     const t0 = performance.now();
-    const out = await engine({ sources: () => big }).recompute();
+    const out = await e.recompute();
     const took = performance.now() - t0;
     clearInterval(timer);
-    expect(out.silent).toBe(true);
+    expect(out.silent).toBe(false);
     expect(new BadgeStore(dir).read().auto.length).toBeGreaterThan(1000);
-    expect(took).toBeLessThan(20_000);
+    expect(notices).toBeGreaterThan(1600);
+    expect(resultReads).toBe(1); // the results store is read once per pass, never per match
+    expect(took).toBeLessThan(30_000);
     expect(maxGap).toBeLessThan(250); // slices are 40 ms; the bound leaves room for a loaded test machine
-  }, 60_000);
+  }, 90_000);
 });
