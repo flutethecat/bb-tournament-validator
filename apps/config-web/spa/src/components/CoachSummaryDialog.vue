@@ -13,6 +13,8 @@ import LeagueDialog from "./LeagueDialog.vue";
 import { createLeagueStats, initials, LEAGUE_STATS_KEY, pct } from "../leagues/league";
 import { coachAvatarSrc, coachSummaryOf, findCoachRecord, wdlLine } from "../leagues/popups";
 import { coachRatingsUrl, raceRatingFor, ratingLine, type CoachRatingsView } from "../ratings/ratings";
+import BadgeStrip from "./BadgeStrip.vue";
+import { coachBadgesPath, type BadgeView } from "../badges/badges";
 
 const props = defineProps<{ leagueId: string; coach: string; coachId?: string; team?: string; race?: string }>();
 const emit = defineEmits<{ close: [] }>();
@@ -36,6 +38,13 @@ async function loadRatings(): Promise<void> {
 }
 onMounted(() => { if (!all.value) void stats.load(props.leagueId, "all"); void loadRatings(); });
 watch(() => props.coachId, () => void loadRatings());
+onMounted(() => { if (!all.value) void stats.load(props.leagueId, "all"); });
+// Badges (badges lane 11-04): the coach's site badges, achievements and league badges (public read; account coaches only).
+const badges = ref<BadgeView[]>([]);
+onMounted(async () => {
+  if (!props.coachId) return;
+  try { const out = await api<{ badges?: BadgeView[] }>(coachBadgesPath(props.coachId)); badges.value = Array.isArray(out?.badges) ? out.badges : []; } catch { badges.value = []; }
+});
 </script>
 
 <template>
@@ -67,6 +76,7 @@ watch(() => props.coachId, () => void loadRatings());
       </div>
       <div v-if="ratings.overall.rank && ratings.overall.of" data-stat="rating-rank"><dt>Site rank</dt><dd>#{{ ratings.overall.rank }} of {{ ratings.overall.of }}</dd></div>
     </dl>
+    <div v-if="badges.length" class="cs-badges" data-coach-badges><span class="tb-k">Badges</span><BadgeStrip :badges="badges" compact :max="12" :label="`${coach} badges`" /></div>
     <p v-if="summary?.seasons.length" class="hm-small muted cs-seasons">Seasons {{ summary.seasons.join(", ") }} · {{ summary.teams }} {{ summary.teams === 1 ? "team" : "teams" }}</p>
     <template #foot>
       <RouterLink class="sf-btn" :to="profile" data-coach-profile-link @click="emit('close')">League record</RouterLink>

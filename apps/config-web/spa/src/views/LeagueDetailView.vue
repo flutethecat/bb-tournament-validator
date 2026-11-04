@@ -13,6 +13,7 @@ import { useRoute, useRouter } from "vue-router";
 import { API_KEY } from "../app";
 import { SESSION_KEY, writesAllowed } from "../session";
 import LeagueAwards from "../components/LeagueAwards.vue";
+import LeagueBadges from "../components/LeagueBadges.vue";
 import LeagueCalendar from "../components/LeagueCalendar.vue";
 import LeagueDraws from "../components/LeagueDraws.vue";
 import LeagueFixtures from "../components/LeagueFixtures.vue";
@@ -219,7 +220,7 @@ usePageTitle(() => state.league?.name);
         <LeagueTeams v-else-if="tab === 'participants' && (teamName || playerRef)" :season="season" :team="teamName" :player="playerRef" :league-id="id" :crests="state.crests" :manage="manage" />
         <LeagueParticipantsList v-else-if="tab === 'participants'" :season="season" :league-id="id" :crests="state.crests" :organiser="manage" />
         <LeagueDraws v-else-if="tab === 'draws'" :season="season" />
-        <div v-else-if="tab === 'awards'" class="lg-stack"><LeagueAwards :manage="manage" :seasons="state.seasons" /></div>
+        <div v-else-if="tab === 'awards'" class="lg-stack bd-awards-split"><LeagueAwards :manage="manage" :seasons="state.seasons" /><LeagueBadges :league-id="id" /></div>
         <LeagueHonours v-else :season="season" :seasons="state.seasons" :manage="manage" :crests="state.crests" :awards="false" />
       </template>
       <!-- a league with no season yet: the Calendar still shows (and deep-links to) its League Events -->

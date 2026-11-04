@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-04",
+    "title": "Badges and achievements",
+    "body": "Coaches now earn badges (first win, 10 / 50 / 100 games, unbeaten season, belt holder, tournament and Rumble winner, a 5-win streak, one per race) and achievements from recorded games and from time in leagues; they show on your coach page, the coach popup and team pages. League organisers can create their own badges and award them by hand on the league's Awards tab.",
+    "links": [
+      {
+        "label": "Coach page",
+        "href": "/app/home#badges"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-04",
     "title": "Coach ratings: Glicko-2 overall and per race",
     "body": "Every coach now has a Glicko-2 rating, overall and for each race they play, from league, ladder, tournament and Super FUMBBL games; forfeits and organiser overrides never count. A new Ratings page ranks coaches overall or by race, with a minimum-games filter and a Show provisional switch (a rating is provisional until 5 games). Coach cards, the fixture summary and the coach popup show the new rating, and ladders ranked by rating use it.",
     "links": [

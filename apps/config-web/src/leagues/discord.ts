@@ -54,6 +54,7 @@ export const DISCORD_EVENT_LABEL: Record<DiscordEventKey, string> = {
   ladderInterim: "Interim champion and unification",
   ladderRumble: "Rumble set, drawn and won",
   ladderHonours: "Ladder period and final honours",
+  badgeEarned: "Badge earned",
 };
 
 export function isDiscordWebhookUrl(url: unknown): url is string {

@@ -168,6 +168,8 @@ export const DISCORD_EVENT_KEYS = [
   "ladderChallengeIssued", "ladderChallengeAccepted", "ladderResult", "ladderRankChanges",
   // Ladder titles (ladderTitles.ts): belt won / defended, vacated, the mandatory and eliminator, cash-ins, interim, Rumble, honours.
   "ladderBeltWon", "ladderBeltDefended", "ladderTitleVacated", "ladderMandatory", "ladderCashIn", "ladderInterim", "ladderRumble", "ladderHonours",
+  // Badges (src/badges): a coach earned a site badge, an achievement or a league badge (off by default).
+  "badgeEarned",
 ] as const;
 export type DiscordEventKey = (typeof DISCORD_EVENT_KEYS)[number];
 export type DiscordEvents = Record<DiscordEventKey, boolean>;

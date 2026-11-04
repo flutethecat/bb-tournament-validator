@@ -754,6 +754,33 @@ export const STORE_COLLECTORS: StoreCollector[] = [
     erase: ["club-boards"],
   },
   {
+    // Badges (src/badges/store.ts): the site badges and achievements the coach earned, the league badges organisers gave
+    // them, and, as an organiser, the custom badges they created and the awards and revokes they made.
+    id: "badges",
+    location: "FORK_STATE_DIR/badges/badges.json",
+    export: (ctx) => {
+      const file = readJsonLoose<Obj>(join(ctx.deps.stateDir, "badges", "badges.json"));
+      if (!file) return [];
+      const coachSubject = (o: unknown): boolean => isObj(o) && o.kind === "coach" && isMine(ctx.keys, o.name);
+      const earned = objs(file.auto).filter((a) => coachSubject(a.subject));
+      const leagueAwards: Obj[] = [];
+      const given: Obj[] = [];
+      const created: Obj[] = [];
+      for (const [leagueId, lb] of Object.entries(isObj(file.leagues) ? file.leagues : {})) {
+        if (!isObj(lb)) continue;
+        for (const a of objs(lb.awards)) {
+          if (coachSubject(a.subject) || isMine(ctx.keys, a.coach)) leagueAwards.push({ leagueId, ...a });
+          if (isMine(ctx.keys, a.by)) given.push({ leagueId, ...a });
+        }
+        for (const b of objs(lb.badges)) if (isMine(ctx.keys, b.createdBy)) created.push({ leagueId, ...b });
+      }
+      const log = objs(file.log).filter((e) => isMine(ctx.keys, e.by) || coachSubject(e.subject));
+      if (!earned.length && !leagueAwards.length && !given.length && !created.length && !log.length) return [];
+      return [{ name: "badges.json", content: json({ earned, leagueAwards, given, created, log }) }];
+    },
+    erase: ["badges"],
+  },
+  {
     id: "mail",
     location: "FORK_STATE_DIR/mail/ (outbox/journal.jsonl, prefs.json, suppression.json, audit.jsonl)",
     export: (ctx) => (ctx.deps.mail ? [{ name: "mail.json", content: json(ctx.deps.mail.exportFor(ctx.coach)) }] : []),
@@ -790,7 +817,7 @@ export const KNOWN_STORES = [
   "team-library", "fork-db", "tournaments", "leagues", "tabletop", "tabletop-teams", "tournament-results", "tournament-matches", "naf-games",
   "coach-titles", "replay-moments", "notifications", "bug-reports", "test-games", "logs", "fork-teams-xml", "bot-registry",
   "privacy-blocklist", "lobby-chat", "desktop-claims", "translation-cache", "mail", "friends", "blocks", "messages",
-  "fixture-lobbies", "schedule-proposals", "organiser-requests", "competition-templates", "clubs", "club-boards", "site-ratings",
+  "fixture-lobbies", "schedule-proposals", "organiser-requests", "competition-templates", "clubs", "club-boards", "site-ratings", "badges",
 ] as const;
 
 /**
@@ -808,7 +835,7 @@ export const INVENTORY_ROWS: Record<(typeof KNOWN_STORES)[number], string[]> = {
   "translation-cache": ["translation-cache"], mail: ["mail"], friends: ["friends"], blocks: ["blocks"], messages: ["messages"],
   "fixture-lobbies": ["fixture-lobbies"], "schedule-proposals": ["schedule-proposals"], "organiser-requests": ["organiser-requests"],
   "competition-templates": ["competition-templates"],
-  clubs: ["clubs"], "club-boards": ["club-boards"], "site-ratings": ["results"],
+  clubs: ["clubs"], "club-boards": ["club-boards"], "site-ratings": ["results"], badges: ["badges"],
 };
 
 /** Team keys whose logos belong to the coach: their builder saves and library teams. */
@@ -860,6 +887,8 @@ game-proposals.json     Game times you proposed to an opponent or were offered, 
 mail.json               Your email settings (confirmed address, an open confirmation, league email choice), your
                         Discord message choice, your Filter profanity choice, and the emails and Discord messages queued or recently sent to you.
 bug-reports-index.json  The bug reports and feedback you sent (id, date, description).
+badges.json             The badges and achievements you earned, league badges organisers gave you, and (as an
+                        organiser) the badges you created and the awards and revokes you made.
 
 Other coaches' private data (their emails, Discord ids) is never included. Opponent names appear where they are public
 on the site (results, fixtures). Questions: see the privacy notice at /app/privacy.
@@ -1411,6 +1440,40 @@ export const DELETE_STEPS: DeleteStep[] = [
           return changed || marks;
         });
       }
+      return "done";
+    },
+  },
+  {
+    // Badges: every award to the coach goes (site and league ones) with the log rows about them; as an organiser, the
+    // badges they created and the awards and revokes they made stay under their pseudonym. Badge names, descriptions and
+    // award notes get the free-text pass. A deleted coach never earns again (the engine skips reserved names).
+    id: "badges",
+    run: ({ deps, an, text }) => {
+      const tx = text();
+      const coachSubject = (o: unknown): boolean => isObj(o) && o.kind === "coach" && an.matches(o.name);
+      rewriteJson(join(deps.stateDir, "badges", "badges.json"), (file) => {
+        let changed = false;
+        const auto = objs(file.auto);
+        const keptAuto = auto.filter((a) => !coachSubject(a.subject));
+        if (keptAuto.length !== auto.length) { file.auto = keptAuto; changed = true; }
+        for (const lb of isObj(file.leagues) ? Object.values(file.leagues) : []) {
+          if (!isObj(lb)) continue;
+          const awards = objs(lb.awards);
+          const kept = awards.filter((a) => !coachSubject(a.subject));
+          if (kept.length !== awards.length) { lb.awards = kept; changed = true; }
+          for (const a of kept) {
+            if (an.matches(a.coach)) { delete a.coach; changed = true; }
+            if (an.fields(a, ["by"], [])) changed = true;
+            if (tx.texts(a, ["note"])) changed = true;
+          }
+          for (const b of objs(lb.badges)) if ([an.fields(b, ["createdBy"], []), tx.texts(b, ["name", "description"])].some(Boolean)) changed = true;
+        }
+        const log = objs(file.log);
+        const keptLog = log.filter((e) => !coachSubject(e.subject));
+        if (keptLog.length !== log.length) { file.log = keptLog; changed = true; }
+        for (const e of keptLog) if ([an.fields(e, ["by"], []), tx.texts(e, ["reason"])].some(Boolean)) changed = true;
+        return changed;
+      });
       return "done";
     },
   },

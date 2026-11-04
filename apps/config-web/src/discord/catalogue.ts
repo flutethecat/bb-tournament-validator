@@ -73,6 +73,8 @@ const META: Partial<Record<DiscordEventKey, EventMeta>> = {
   ladderInterim: { scope: "ladder", league: true, tournament: false },
   ladderRumble: { scope: "ladder", league: true, tournament: false },
   ladderHonours: { scope: "ladder", league: true, tournament: false },
+  // Badges (src/badges): a coach earned a badge or achievement; off by default everywhere (owner 11-04).
+  badgeEarned: { scope: "both", league: false, tournament: false },
   touchdown: { scope: "inGame", league: true, tournament: false },
   casualty: { scope: "inGame", league: true, tournament: false },
   injury: { scope: "inGame", league: true, tournament: false },

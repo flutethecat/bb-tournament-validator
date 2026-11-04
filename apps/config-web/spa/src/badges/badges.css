@@ -1,0 +1,70 @@
+/* Badges and achievements (badges lane, 11-04): the badge strip, the coach page panel, the team milestones panel and the
+   league Badges panel. Tokens only (design.md §3). Glyphs are our own (emoji / symbols drawn by the viewer's font). */
+
+.bd-strip { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; min-width: 0; }
+.bd-chip {
+  display: inline-flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; padding: 4px 10px 4px 4px;
+  background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface);
+  border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--bd-edge, var(--sf-panel-line)); border-radius: 2px;
+  box-shadow: var(--sf-bevel), 0 2px 0 var(--sf-panel-drop); color: var(--ui-text); text-decoration: none;
+}
+a.bd-chip:hover { border-color: var(--ui-heading); }
+a.bd-chip:focus-visible, .bd-chip:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.bd-chip[data-tier="gold"], .bd-chip[data-kind="custom"] { --bd-edge: var(--sf-gold); }
+.bd-chip[data-tier="silver"] { --bd-edge: var(--ui-muted); }
+.bd-chip[data-tier="bronze"] { --bd-edge: var(--ui-accent); }
+.bd-chip[data-kind="achievement"] { --bd-edge: var(--ui-heading); }
+.bd-glyph {
+  flex: none; display: inline-grid; place-items: center; width: 30px; height: 30px; font-size: 18px; line-height: 1;
+  background: var(--ui-surface-2); border: 1px solid var(--sf-panel-line); border-radius: 2px; box-shadow: var(--sf-bevel);
+}
+.bd-text { display: grid; min-width: 0; }
+.bd-name { font: 12px/1.25 var(--sf-band-font); text-transform: uppercase; letter-spacing: .06em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bd-sub { font: 12px/1.3 var(--font-body); color: var(--ui-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bd-chip[data-soon="true"] { opacity: .6; border-style: dashed; box-shadow: none; filter: grayscale(1); }
+.bd-chip[data-soon="true"] .bd-sub { font-style: italic; }
+
+/* compact: glyph tiles only (coach popup) */
+.bd-strip[data-compact="true"] { gap: 6px; }
+.bd-strip[data-compact="true"] .bd-chip { padding: 2px; gap: 0; border-left-width: 3px; }
+.bd-strip[data-compact="true"] .bd-glyph { width: 28px; height: 28px; font-size: 16px; border: 0; background: transparent; box-shadow: none; }
+.bd-more { align-self: center; font: 12px/1 var(--sf-band-font); color: var(--ui-muted); letter-spacing: .06em; }
+
+/* the coach page panel and the team milestones panel */
+.bd-panel .bd-group { display: grid; gap: 8px; margin: 0 0 12px; }
+.bd-panel .bd-group:last-child { margin-bottom: 0; }
+.bd-group-h { margin: 0; font: 11px/1.3 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-muted); }
+.bd-body { min-height: 0; overflow: auto; }
+
+.bd-team { margin-bottom: 10px; }
+.bd-log-wrap summary { cursor: pointer; }
+
+/* the coach summary popup's strip */
+.cs-badges { display: grid; gap: 6px; margin-top: 12px; }
+
+/* league Awards tab: the awards list and the Badges panel side by side on a wide screen */
+.bd-awards-split { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: start; }
+@media (max-width: 1100px) { .bd-awards-split { grid-template-columns: minmax(0, 1fr); } }
+.bd-league .bd-defs { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.bd-def { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: center; padding: 8px; background: color-mix(in srgb, var(--ui-surface-2) 70%, transparent); border: 1px solid var(--sf-panel-line); border-left: 3px solid var(--sf-gold); border-radius: 2px; }
+.bd-def[data-archived="true"] { opacity: .65; border-left-color: var(--ui-muted); }
+.bd-def-name { margin: 0; font: 15px/1.25 var(--font-heading); color: var(--ui-text); overflow-wrap: anywhere; }
+.bd-def-desc { margin: 2px 0 0; font: 13px/1.35 var(--font-body); color: var(--ui-muted); overflow-wrap: anywhere; }
+.bd-def-acts { grid-column: 2; display: flex; flex-wrap: wrap; gap: 6px; }
+.bd-def > .bd-glyph { align-self: start; }
+.bd-recent { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.bd-recent li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 4px 10px; padding: 6px 0; border-bottom: 1px solid var(--sf-panel-line); font: 14px/1.35 var(--font-body); }
+.bd-rec-main { min-width: 0; }
+.bd-rec-main p { margin: 0; overflow-wrap: anywhere; }
+.bd-recent li:last-child { border-bottom: 0; }
+.bd-recent .bd-when { color: var(--ui-muted); font-size: 13px; margin-top: 2px; }
+.bd-recent .bd-who { font-family: var(--font-heading); overflow-wrap: anywhere; }
+.bd-section-h { margin: 14px 0 8px; font: 12px/1.3 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-muted); }
+.bd-tools { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; }
+.bd-log { margin: 0; padding: 0; list-style: none; font: 13px/1.4 var(--font-body); color: var(--ui-muted); }
+.bd-log li { padding: 3px 0; overflow-wrap: anywhere; }
+
+/* the create / award dialogs */
+.bd-icon-glyph { font-size: 22px; line-height: 1; }
+.bd-form { min-width: 0; }
+.bd-form .sf-field input, .bd-form .sf-field select, .bd-form .sf-field textarea { width: 100%; box-sizing: border-box; }

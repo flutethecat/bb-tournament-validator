@@ -132,7 +132,9 @@ function isPublicRequest(method: string, pathname: string): boolean {
       // the board, the admin view and every write stay session-gated.
       pathname === "/api/clubs" ||
       /^\/api\/clubs\/[^/]+$/.test(pathname) ||
-      /^\/api\/clubs\/[^/]+\/(?:stats|crest)$/.test(pathname))
+      /^\/api\/clubs\/[^/]+\/(?:stats|crest)$/.test(pathname) ||
+      // Badges (src/badges/api.ts isPublicBadgeRead): the catalog and a coach's, team's or league's badges are public reads.
+      /^\/api\/badges\/(?:catalog|coach\/[^/]+|team\/[^/]+\/[^/]+\/[^/]+|league\/[^/]+)$/.test(pathname))
   )
     return true;
   return PUBLIC_API_METHODS.get(pathname)?.has(method) === true;

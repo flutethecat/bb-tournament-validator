@@ -8,6 +8,7 @@ import { API_KEY } from "../app";
 import MiniCalendar from "../components/MiniCalendar.vue";
 import NotificationsPanel from "../components/NotificationsPanel.vue";
 import HomeHonours from "../components/HomeHonours.vue";
+import HomeBadges from "../components/HomeBadges.vue";
 import HomeFriends from "../components/HomeFriends.vue";
 import HomeMessages from "../components/HomeMessages.vue";
 import HomeGetStarted from "../components/HomeGetStarted.vue";
@@ -145,6 +146,8 @@ onServerPrefetch(() => Promise.all([loadTeams(), loadLog()]));
         </section>
 
         <HomeHonours />
+
+        <HomeBadges />
       </div>
     </div>
   </div>

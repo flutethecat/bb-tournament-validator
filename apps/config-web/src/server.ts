@@ -392,6 +392,10 @@ import { TemplateStore } from "./templates/store.js";
 import { clubsApi, createClubsLimiters, isClubsApiPath, type ClubsApiDeps } from "./clubs/api.js";
 import { accountGate, buildSearchDocs, SEARCH_PATH, SEARCH_RATE, SEARCH_SOURCE_PATH, SearchIndex, searchApi } from "./search/index.js";
 import { ClubObserver, CLUB_OBSERVER_TICK_MS } from "./clubs/observer.js";
+import { badgesApi, isBadgesApiPath } from "./badges/api.js";
+import { BadgeEngine, BADGE_TICK_MS, recorderSource } from "./badges/engine.js";
+import { BadgeStore } from "./badges/store.js";
+import { effectiveEvents } from "./tabletop/events.js";
 import { setClubDirectory } from "./clubs/pick.js";
 import { clubHasHistory, clubLedger, type ClubLedger } from "./clubs/stats.js";
 import { ClubStore } from "./clubs/store.js";
@@ -746,7 +750,7 @@ if (forkAdminCfg) {
     leagueSyncing = true;
     const results = sync
       ? syncLeagueForkResults({ store: leagueStore, fork: leagueFork, notify: leagueNotify })
-        .then((out) => { if (out.applied.length) console.log(`[leagues] Super FUMBBL results applied: ${out.applied.join(", ")}`); })
+        .then((out) => { if (out.applied.length) { console.log(`[leagues] Super FUMBBL results applied: ${out.applied.join(", ")}`); badgeEngine.kick(); } })
         .catch(() => { /* retried on the next tick */ })
       : Promise.resolve();
     void results
@@ -1154,6 +1158,26 @@ const clubObserver = new ClubObserver({ store: clubStore, ledger: clubLedgerNow,
 const clubTick = (): void => { clubObserver.tick().catch((e) => console.error(`[clubs] observer tick failed: ${(e as Error).message}`)); };
 setTimeout(clubTick, 25_000).unref();
 setInterval(clubTick, CLUB_OBSERVER_TICK_MS).unref();
+// Badges and achievements (src/badges): recomputed from history after every result write (the handleApi kick below, the
+// fork sync) and on a minute tick when any source changed (season end, belt reigns, club years: a full pass every 15 min).
+// Never from a GET. The first pass ever, and a new catalog entry, award silently.
+const badgeStore = new BadgeStore(FORK_STATE_DIR);
+const badgeRecorder = recorderSource(effectiveEvents as never);
+/** Read-only use of the recorder store (tabletopDeps keeps the first-use recovery of the shared one). */
+let badgeTabletopRepo: FileTabletopRepository | undefined;
+const statStamp = (p: string): string => { try { const st = statSync(p); return `${st.mtimeMs}:${st.size}`; } catch { return "none"; } };
+const badgeEngine = new BadgeEngine({
+  store: badgeStore,
+  sources: async () => ({ leagues: leagueStore, tournaments: tournamentStore, clubs: clubStore, recorder: await badgeRecorder(tabletopRepo ?? (badgeTabletopRepo ??= new FileTabletopRepository(TABLETOP_DIR))) }),
+  changeKey: () => `${leagueStore.version()}|${statStamp(join(TOURNAMENTS_DIR, "tournaments.json"))}|${statStamp(join(TABLETOP_DIR, "matches"))}|${statStamp(join(FORK_STATE_DIR, "clubs", "clubs.json"))}`,
+  notify: leagueNotify,
+  discord: { leagues: leagueStore, tournaments: tournamentStore, state: discordState },
+  isFenced: (coach) => isCoachFenced(coach),
+  log: (line) => console.error(line),
+});
+const badgeTick = (): void => { void badgeEngine.tick(); };
+setTimeout(badgeTick, 35_000).unref();
+setInterval(badgeTick, BADGE_TICK_MS).unref();
 // Discord posts name players only when the game pages do (GAME_PAGES_PUBLIC_PLAYER_LINES), fork digests included.
 setPublicPlayerNames(DISCORD_PUBLIC_NAMES);
 const discordReach = createDiscordReach({
@@ -2083,6 +2107,7 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
   if (seriesPath(pathname) !== undefined) return true; // Tournament Series: public reads, writes gated in-handler
   if (isClubsApiPath(pathname)) return true; // Clubs: public reads (directory, page, stats, crest), writes gated in-handler
   if ((req.method === "GET" || req.method === "HEAD") && pathname === SEARCH_PATH) return true; // site search: public read, viewer-aware in-handler
+  if (isBadgesApiPath(pathname)) return true; // Badges: public reads (catalog, coach, team, league), writes gated in-handler
   // Dynamic coach-scoped route: bypass legacy Basic auth, then enforce the proven session in-handler.
   if (tournamentInstructionsGameId(pathname)) return true;
   if (tournamentResultGameId(pathname)) return true;
@@ -2270,6 +2295,8 @@ async function serveStatic(res: ServerResponse, urlPath: string): Promise<void> 
 }
 
 const WRITE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+/** Write routes that can change a result (badges are recomputed after them). */
+const BADGE_KICK_PATHS = /^\/api\/(?:leagues|tabletop|scheduled-matches|tournaments|fork\/tournaments)(?:\/|$)/;
 
 function isOrganizerWrite(method: string, pathname: string): boolean {
   if (!WRITE_METHODS.has(method)) return false;
@@ -2485,6 +2512,9 @@ async function handleApi(
       if (needed) return sendJson(res, 428, { error: ONBOARDING_REQUIRED_MESSAGE, onboarding: true });
     }
   }
+  // Badges (src/badges/engine.ts): a successful write on a result path (the recorder, tabletop entry, league results and
+  // the TourPlay import merge, tournament results) recomputes badges shortly after, coalesced. Additive: nothing else changes.
+  if (WRITE_METHODS.has(req.method ?? "GET") && BADGE_KICK_PATHS.test(path)) res.once("finish", () => { if (res.statusCode < 400) badgeEngine.kick(); });
   // Web Lobby: authenticates and reads its body BEFORE taking the game-start lock (handleLobbyRequest).
   if (isLobbyApiPath(path)) return handleLobbyRequest(req, res, path, query);
   if (isTabletopApiPath(path)) return handleTabletopRequest(req, res, path, query);
@@ -2949,6 +2979,26 @@ async function handleApi(
         res.end(String(result.body));
         return;
       }
+      return sendJson(res, result.status, result.body);
+    }
+  }
+
+  // Badges (src/badges/api.ts): catalog, a coach's or team's badges and a league's badges are public reads; custom league
+  // badges are organiser writes, gated in-handler (an active account, the CSRF header and onboarding gate above).
+  if (isBadgesApiPath(path)) {
+    const testSession = getSession(sessionTokenFromRequest(req))?.test === true;
+    const body = WRITE_METHODS.has(method) ? await readBody(req, 16 * 1024) : undefined;
+    let actor = auth;
+    if (auth && WRITE_METHODS.has(method)) {
+      const current = requestIdentity(req);
+      if (!current || current.coach !== auth.coach) return sendJson(res, 401, { error: "Authentication required." });
+      actor = current;
+    }
+    const result = await badgesApi(method, path, actor ? { coach: actor.coach, admin: actor.admin, ...(testSession ? { test: true } : {}) } : undefined, body, {
+      store: badgeStore, leagues: leagueStore, isAdmin: (c) => isAdmin(c), notify: leagueNotify, isFenced: (c) => isCoachFenced(c),
+    });
+    if (result) {
+      for (const [name, value] of Object.entries(result.headers ?? {})) res.setHeader(name, value);
       return sendJson(res, result.status, result.body);
     }
   }

@@ -21,6 +21,7 @@ import type { LeaguePlayer, SeasonRecord } from "../leagues/types";
 import LeagueTeamCoach from "./LeagueTeamCoach.vue";
 import LeagueMemberContact from "./LeagueMemberContact.vue";
 import LeagueTeamAwards from "./LeagueTeamAwards.vue";
+import LeagueTeamBadges from "./LeagueTeamBadges.vue";
 import LeagueTeamRedraftBudget from "./LeagueTeamRedraftBudget.vue";
 import TeamSummary from "./TeamSummary.vue";
 import TeamHirePanels from "./TeamHirePanels.vue";
@@ -271,7 +272,7 @@ watch(() => [wantEdit.value, ctx.value?.role.organiser, mayWrite.value] as const
             <LeagueTeamCoach v-if="manage" :season="season" :team="picked" />
             <LeagueMemberContact v-if="manage && picked.coachId" :league-id="leagueId" :coach="picked.coachId" />
           </template>
-          <template #awards><LeagueTeamAwards :season-id="season.id" :team="picked" /></template>
+          <template #awards><LeagueTeamAwards :season-id="season.id" :team="picked" /><LeagueTeamBadges :league-id="leagueId" :season-id="season.id" :team="picked" /></template>
           <!-- the coach's hire / staff accordions sit left of the roster (owner 11-02); in edit mode the organiser gets them
                under the roster instead, so the table keeps its width for the inputs -->
           <template v-if="ctx && mode === 'coach' && cc.hire" #left>
