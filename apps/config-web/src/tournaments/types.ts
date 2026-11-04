@@ -61,6 +61,8 @@ export interface TournamentRecord {
   registrationGate?: import("./registrationGate.js").TournamentGate;
   /** The last revision of the Registration gate that was switched off (a re-created gate continues from it). */
   registrationGateRetired?: number;
+  /** The armedAt the Registration gate had when it was switched off: the "already announced" cutoff while there is no gate. */
+  registrationGateRetiredArmedAt?: string;
   /** The tournament's IANA time zone (tournamentTimeZone). Absent = UTC, the zone every tournament time is shown in today. */
   timeZone?: string;
   format: "swiss" | "roundRobin" | "knockout";

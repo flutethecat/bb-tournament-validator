@@ -243,6 +243,35 @@ describe("tournament Registration gate", () => {
     expect(h.posts).toHaveLength(2);
   });
 
+  it("[review 4] a quiet claim (opened while a draft) never suppresses the first public announcement, even after re-arm + off", async () => {
+    const h = tournamentHarness();
+    const t = await h.create({ publish: false, name: "Draft Cup", registration: { approval: "auto", waitlist: true, rosterLater: true, opensAt: "2026-11-11T09:00:00.000Z" } });
+    h.discord.setWebhook(`tournament:${t.id}`, HOOK);
+    h.discord.setConfig(`tournament:${t.id}`, { events: { registrationOpened: true } } as never);
+    await h.call("PUT", h.gatePath(t), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-12T19:00" });
+    const observer = new DiscordObserver({ leagues: new LeagueStore(tmp("bbtv-tgate-l-")), tournaments: h.store, state: h.discord, now: () => h.clock.now, poster: h.poster } as never);
+    const job = () => runTournamentGateJob({ store: h.store, notify: h.notifier, discord: { state: h.discord, poster: h.poster }, now: () => h.clock.now });
+    await observer.tick();
+    h.clock.now = new Date("2026-11-12T19:01:00.000Z");
+    await job(); // opens while a draft: the marker is claimed quietly, nothing posts
+    await observer.tick();
+    expect(h.posts).toHaveLength(0);
+    expect(Object.keys(h.discord.entry(`tournament:${t.id}`)?.seen ?? {}).some((k) => k.startsWith("regopen") && !k.endsWith("#posted"))).toBe(true);
+    expect((await h.call("POST", `/api/tournaments/${t.id}/publish`, OWNER, {}))?.status).toBe(200);
+    // Re-armed (still shut), then switched off: registration is open now and is announced once.
+    h.clock.now = new Date("2026-11-13T10:00:00.000Z");
+    await h.call("PUT", h.gatePath(t), OWNER, { revision: h.store.tournament(t.id)!.registrationGate!.revision, mode: "time", opensAt: "2026-11-15T19:00" });
+    h.clock.now = new Date("2026-11-13T11:00:00.000Z");
+    expect((await h.call("PUT", h.gatePath(t), OWNER, { revision: h.store.tournament(t.id)!.registrationGate!.revision, mode: "off" }))?.status).toBe(200);
+    expect(h.store.tournament(t.id)!.registrationGateRetiredArmedAt).toBe("2026-11-13T10:00:00.000Z");
+    await observer.tick();
+    await job();
+    await observer.tick();
+    // (Publishing posts its own "Published" notice; exactly one "Registration opened".)
+    expect(h.posts.filter((p) => JSON.stringify(p.payload).includes("Registration opened"))).toHaveLength(1);
+    expect(h.discord.has(`tournament:${t.id}`, "regopen:2026-11-11T09:00:00.000Z#posted")).toBe(true);
+  });
+
   it("[review] a gate that opens before the window says so; the window's own opening posts once, when registration is open", async () => {
     const h = tournamentHarness();
     const t = await h.create({ registration: { approval: "auto", waitlist: true, rosterLater: true, opensAt: "2026-11-20T12:00:00.000Z" } });

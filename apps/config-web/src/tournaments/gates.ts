@@ -23,7 +23,7 @@ import { canSeeTournament, selfRegistrationStatus } from "./publication.js";
 import { isTournamentManager, TournamentStoreError, type TournamentStore } from "./store.js";
 import type { TournamentRecord } from "./types.js";
 import {
-  GATE_ID, gateInstant, gateIsOpen, gateWhenText, regopenAnnounced, regopenMarker, gateWallInstant, parseGateWall, storedGate, tournamentGateView, tournamentTimeZone, type TournamentGate,
+  GATE_ID, gateInstant, gateIsOpen, gateWhenText, postedMarker, regopenAnnounced, regopenMarker, gateWallInstant, parseGateWall, storedGate, tournamentGateView, tournamentTimeZone, type TournamentGate,
 } from "./registrationGate.js";
 
 export interface TournamentGateDeps {
@@ -104,6 +104,8 @@ export async function tournamentGateRoutes(method: string, path: string, auth: W
         const last = existing?.revision ?? base;
         delete t.registrationGate;
         t.registrationGateRetired = last;
+        // The arming it had stays the "already announced" cutoff (switching off is never a re-arm).
+        if (existing?.armedAt) t.registrationGateRetiredArmedAt = existing.armedAt;
         return { result: res(200, { gate: null, removed: true, revision: last }) };
       }
       if (input.mode !== "time") return { result: fail(400, 'mode must be "off" or "time".', { field: "mode" }) };
@@ -168,7 +170,10 @@ async function announceOpening(deps: TournamentGateDeps, id: string, revision: n
   try { fresh = deps.discord.state.mark(target.key, [marker], now.toISOString()); } catch { return; }
   if (!fresh.includes(marker)) return;
   const payload: DiscordPayload = simplePost(t.name, "registrationOpened", "Registration is open: register on the tournament page.", { test: t.test === true });
-  try { await postRaw(target, payload, deps.discord.poster ?? defaultPoster); } catch { /* best effort */ }
+  let posted = false;
+  try { posted = await postRaw(target, payload, deps.discord.poster ?? defaultPoster); } catch { /* best effort */ }
+  // Only a post that went out counts as announced (a draft or no webhook claims the marker quietly).
+  if (posted) { try { deps.discord.state.mark(target.key, [postedMarker(marker)], now.toISOString()); } catch { /* best effort */ } }
 }
 
 /** Every minute (server.ts; never from a GET): due gates open (written first), then each unannounced opening is announced. */

@@ -123,19 +123,28 @@ export function regopenMarker(t: Pick<TournamentRecord, "registration" | "regist
   return suffix ? `regopen${suffix}` : undefined;
 }
 
+/** The ledger record that a "Registration is open" marker was actually POSTED (not claimed quietly: a draft, no webhook,
+ *  the toggle off, a failed post). Only posted claims count as announced. */
+export const POSTED_SUFFIX = "#posted";
+export const postedMarker = (marker: string): string => `${marker}${POSTED_SUFFIX}`;
+
 /**
- * Was this registration opening already announced? Any "Registration is open" marker for the same opensAt (plain or with any
- * gate suffix; without opensAt, any gate marker) claimed after the gate's last arming counts; with no gate, one claimed at any
- * time does. Only a re-arm (an armedAt later than the last claim) allows a new post: switching a gate off never does, and an
- * unreadable gate counts as no re-arm. `seen` is the competition's Discord ledger (marker -> when it was claimed).
+ * Was this registration opening already announced? A POSTED "Registration is open" marker for the same opensAt (plain or with
+ * any gate suffix; without opensAt, any gate marker) claimed after the cutoff counts. The cutoff is the gate's last arming, or,
+ * with the gate switched off, the arming it had then (registrationGateRetiredArmedAt; none = any time). Only a re-arm (an
+ * armedAt later than the last posted claim) allows a new post; switching a gate off never moves the cutoff, and an unreadable
+ * gate counts as no re-arm. `seen` is the competition's Discord ledger (marker -> when it was claimed).
  */
-export function regopenAnnounced(seen: Readonly<Record<string, string>> | undefined, t: Pick<TournamentRecord, "registration" | "registrationGate">): boolean {
+export function regopenAnnounced(seen: Readonly<Record<string, string>> | undefined, t: Pick<TournamentRecord, "registration" | "registrationGate" | "registrationGateRetiredArmedAt">): boolean {
   if (!seen) return false;
   const opens = t.registration?.opensAt;
   const prefix = opens ? `regopen:${opens}` : "regopen:gate:";
   const g = storedGate(t);
-  const since = g && g !== "unreadable" ? Date.parse(g.armedAt) : -Infinity;
-  for (const [marker, at] of Object.entries(seen)) {
+  const cutoff = g && g !== "unreadable" ? g.armedAt : g === "unreadable" ? undefined : t.registrationGateRetiredArmedAt;
+  const since = cutoff ? Date.parse(cutoff) : -Infinity;
+  for (const [key, at] of Object.entries(seen)) {
+    if (!key.endsWith(POSTED_SUFFIX)) continue;
+    const marker = key.slice(0, -POSTED_SUFFIX.length);
     if (marker !== prefix && !marker.startsWith(opens ? `${prefix}:gate:` : prefix)) continue;
     const claimed = Date.parse(at);
     if (!Number.isFinite(since) || !(claimed < since)) return true;
