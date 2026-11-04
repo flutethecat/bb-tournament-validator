@@ -32,6 +32,7 @@ import { leagueFixtureView, recordLeagueFixture } from "../src/leagues/tabletopF
 import { fixturePlayBlock } from "../src/leagues/playBlock.js";
 import { resolveLeaguePackage } from "../src/leagues/leagueBuilder.js";
 import { postTo } from "../src/discord/targets.js";
+import { suggestForfeit } from "../src/forfeit/rules.js";
 import type { IncomingMessage } from "node:http";
 import { onboardingGateApplies } from "../src/auth/onboarding.js";
 
@@ -1002,5 +1003,95 @@ describe("review fixes", () => {
     const g = again.fixtures.find((x) => x.id === "lf-p")!;
     expect(generateBlocker(h.store.league(L)!, again, g)).toContain("tabletop");
     expect(leagueLobbyFixture(h.store.league(L)!, again, g, OLGA, h.store, lobbyDeps, h.clock.now).mode).toBe("tabletop");
+  });
+});
+
+// ---- Sol re-review (11-03, round 3) ----
+
+describe("review fixes, round 3", () => {
+  it("a forfeit on a tournament-style ladder fixture can be undone right away (the undo fingerprint is taken after the in-write reset)", async () => {
+    const h = harness();
+    const id = await h.openLadder("points", { style: "tournament" });
+    const base = `/api/leagues/${L}/ladders/${id}`;
+    expect((await h.call("POST", `${base}/registrations`, coach("Cara"), { teamRef: "save:new-orc", share: [], acknowledged: true })).status).toBe(201);
+    expect((await h.call("POST", `${base}/registrations`, coach("Eve"), { teamRef: "save:new-human", share: [], acknowledged: true })).status).toBe(201);
+    const lad = h.ladderOf(id);
+    const [a, b] = lad.teams;
+    const side = (t: LeagueTeam) => ({ team: t.name, teamId: t.id, coach: t.coach, coachId: t.coachId, race: t.race, score: null, cas: null, conceded: false });
+    lad.fixtures.push({ id: "lf-ff", category: "Ladder", phase: "Challenges", phaseId: "ladder-challenges", group: "", round: 0, table: 0, home: side(a!), away: side(b!), suspended: false } as LeagueFixture);
+    h.store.putSeason(lad);
+    const F = `/api/leagues/${L}/seasons/${id}/fixtures/lf-ff/forfeit`;
+    h.clock.now = new Date(h.clock.now.getTime() + 3_600_000); // the forfeit lands after the teams joined: the reset runs
+    expect((await h.call("POST", `${F}/settings`, OLGA, { defectionRolls: false })).status).toBe(200);
+    const s = suggestForfeit({ home: true, away: false });
+    const applied = await h.call("POST", F, OLGA, { home: s.home, away: { ...s.away, winnings: 40_000 }, noStandings: false, legalConcession: false });
+    expect(applied.status, JSON.stringify(applied.body)).toBe(200);
+    expect(h.ladderOf(id).ladder!.members.every((m) => m.reset?.after)).toBe(true); // the roster reset in that write
+    const undo = await h.call("POST", `${F}/undo`, OLGA, {});
+    expect(undo.status, JSON.stringify(undo.body)).toBe(200);
+    expect(h.ladderOf(id).fixtures.find((f) => f.id === "lf-ff")!.forfeit).toBeUndefined();
+  });
+
+  it("Super FUMBBL banking records the MNG marker, so a move never mistakes a fresh MNG for a served one (stale team-page counter)", async () => {
+    const h = harness();
+    const s1 = h.store.season(L, "season-1")!;
+    const [amy, bob] = s1.teams;
+    // An old team-page MNG left a counter behind (set before game 0, never settled), then a fork game injures the player.
+    amy!.players[3]!.mngGames = 0;
+    const side = (t: LeagueTeam) => ({ team: t.name, teamId: t.id, coach: t.coach, coachId: t.coachId, race: t.race, score: null, cas: null, conceded: false });
+    s1.fixtures.push({
+      id: "fk1", category: "Season", phase: "Regular", phaseId: "season-regular", group: "", round: 1, table: 1, home: side(amy!), away: side(bob!), suspended: false,
+      fork: { status: "scheduled", gameId: "8001", log: [], teams: {
+        home: { teamId: amy!.id, forkTeamId: "fa", coach: "Amy", builtAt: "x", players: amy!.players.map((p, i) => ({ forkPlayerId: `a${i}`, playerId: p.playerId })) },
+        away: { teamId: bob!.id, forkTeamId: "fb", coach: "Bob", builtAt: "x", players: bob!.players.map((p, i) => ({ forkPlayerId: `b${i}`, playerId: p.playerId })) },
+      } },
+    } as LeagueFixture);
+    const fx = s1.fixtures.at(-1)!;
+    expect(applyForkResult(s1, fx, { gameId: "8001", source: "full", playedAt: "2026-11-09T20:00:00.000Z", teams: [
+      { teamId: "fa", score: 0, conceded: false, winnings: 20_000, players: [{ forkPlayerId: "a3", name: "P3", td: 0, cas: 0, completions: 0, interceptions: 0, mvp: 0, fouls: 0, earnedSpps: 0, injuries: ["Seriously Hurt (MNG)"] }] },
+      { teamId: "fb", score: 1, conceded: false, winnings: 30_000, players: [] },
+    ] }, h.clock.now).applied).toBe(true);
+    h.store.putSeason(s1);
+    const banked = h.store.season(L, "season-1")!.teams[0]!.players[3]!;
+    expect(banked).toMatchObject({ missNextGame: true, mngGames: 1 }); // the marker is this game, not the stale 0
+    const id = await h.openLadder("points");
+    const base = `/api/leagues/${L}/ladders/${id}`;
+    await h.call("POST", `${base}/registrations`, coach("Amy"), { move: { id: "season-1", teamId: "t-amy" }, share: [], acknowledged: true });
+    await h.call("POST", `${base}/registrations/${h.ladderOf(id).registrations![0]!.id}/accept`, OLGA, {});
+    expect(h.ladderOf(id).teams[0]!.players[3]).toMatchObject({ missNextGame: true, mngGames: 0 });
+  });
+
+  it("a move that clears a served MNG recomputes the current team value (both move paths)", async () => {
+    const h = harness();
+    const s1 = h.store.season(L, "season-1")!;
+    const amy = s1.teams[0]!;
+    amy.players[2]!.missNextGame = true; amy.players[2]!.mngGames = 0; // served by game 1 below
+    amy.currentTeamValue = 950_000; // what the season read showed while the player sat out
+    const side = (t: LeagueTeam, s: number) => ({ team: t.name, teamId: t.id, coach: t.coach, coachId: t.coachId, race: t.race, score: s, cas: 0, conceded: false });
+    s1.fixtures.push({ id: "g1", category: "Season", phase: "Regular", phaseId: "season-regular", group: "", round: 1, table: 1, home: side(amy, 1), away: side(s1.teams[1]!, 0), suspended: false, finishedAt: "2026-11-01T00:00:00.000Z" });
+    h.store.putSeason(s1);
+    const id = await h.openLadder("points");
+    const base = `/api/leagues/${L}/ladders/${id}`;
+    await h.call("POST", `${base}/registrations`, coach("Amy"), { move: { id: "season-1", teamId: "t-amy" }, share: [], acknowledged: true });
+    await h.call("POST", `${base}/registrations/${h.ladderOf(id).registrations![0]!.id}/accept`, OLGA, {});
+    const moved = h.ladderOf(id).teams[0]!;
+    expect(moved.players[2]!.missNextGame).toBe(false);
+    expect(moved.currentTeamValue).toBe(moved.teamValue);
+    // Back to the season (the organiser's move): a served MNG in the ladder clears with the value recomputed there too.
+    const lad = h.ladderOf(id);
+    lad.teams[0]!.players[4]!.missNextGame = true; lad.teams[0]!.players[4]!.mngGames = 0;
+    lad.teams[0]!.currentTeamValue = 900_000;
+    const side2 = (t: LeagueTeam, s: number) => ({ team: t.name, teamId: t.id, coach: t.coach, coachId: t.coachId, race: t.race, score: s, cas: 0, conceded: false });
+    h.seedMembers(id, ["Zed"]);
+    const lad2 = h.ladderOf(id);
+    lad2.teams[0]!.players[4]!.missNextGame = true; lad2.teams[0]!.players[4]!.mngGames = 0; lad2.teams[0]!.currentTeamValue = 900_000;
+    lad2.fixtures.push({ id: "lg1", category: "Ladder", phase: "Challenges", phaseId: "ladder-challenges", group: "", round: 0, table: 0, home: side2(lad2.teams[0]!, 1), away: side2(lad2.teams.find((t) => t.coach === "Zed")!, 0), suspended: false, finishedAt: "2026-11-09T00:00:00.000Z" });
+    h.store.putSeason(lad2);
+    void lad;
+    const back = await h.call("POST", `${base}/teams/${moved.id}/move`, OLGA, { seasonId: "season-1" });
+    expect(back.status, JSON.stringify(back.body)).toBe(200);
+    const returned = h.store.season(L, "season-1")!.teams.find((t) => t.id === (back.body as { teamId: string }).teamId)!;
+    expect(returned.players[4]!.missNextGame).toBe(false);
+    expect(returned.currentTeamValue).toBe(returned.teamValue);
   });
 });

@@ -38,6 +38,7 @@ import { leagueFixtureRef } from "./tabletopFixtures.js";
 import { fixturePlayed } from "./tourplay.js";
 import type { ForfeitDefectionRoll, LeagueFixture, LeagueRecord, LeagueTeam, SeasonRecord } from "./types.js";
 import type { LeagueApiDeps, LeagueApiIdentity, LeagueApiResult } from "./api.js";
+import { applyTournamentResets } from "./ladder.js";
 
 export interface ForfeitDeps {
   store: LeagueStore;
@@ -435,6 +436,9 @@ export async function applyForfeit(deps: ForfeitDeps, ids: ForfeitIds, who: Forf
     ] });
   }
   if (changed.length) refreshTeamValues(season, changed, { now });
+  // A tournament-style ladder resets its rosters in the write that records a result (LeagueStore.putSeason): reset them
+  // here first, so the undo's "after" fingerprint is the roster as stored (the reset is idempotent; the store finds it done).
+  applyTournamentResets(season);
   f.forfeitDetail.undo = { teams: undoTeams, fixture: undoFixture, afterHash: rosterHash([teamOf(season, f, "home"), teamOf(season, f, "away")]) };
   season.resultsChangedAt = iso;
   const sig = resultSig(f);

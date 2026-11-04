@@ -77,6 +77,8 @@ export function copyTeamForMove(team: LeagueTeam, target: SeasonRecord, from: { 
   delete copy.statusChanged;
   delete copy.registrationId;
   if (copy.captainPlayerId) { const next = remap.get(copy.captainPlayerId); if (next) copy.captainPlayerId = next; else delete copy.captainPlayerId; }
+  // A served MNG cleared above counts the player again: the team value (and current team value) is the league's own recompute.
+  refreshTeamValue(copy, target.ruleset);
   return copy;
 }
 

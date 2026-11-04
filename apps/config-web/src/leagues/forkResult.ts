@@ -33,6 +33,7 @@ import type { ParsedGameResult } from "../site-backend/fumbblResult.js";
 import { kickoffTeamValue, refreshTeamValues, storeFallbackValues } from "./teamValue.js";
 import { markCaptainVacancy } from "./captain.js";
 import { fixturePlayed } from "./tourplay.js";
+import { fixtureOutcome } from "./identity.js";
 import { FORK_PLAYER_COUNTERS } from "./types.js";
 import type {
   CasualtiesSuffered, FixtureForkResult, ForkPlayerCounter, FixtureForkTeam, ForkPlayerLine, ForkSide, ForkSideResult, FormerPlayer, LeagueFixture, LeaguePlayer, LeagueTeam, SeasonRecord,
@@ -301,6 +302,8 @@ export function applyForkResult(season: SeasonRecord, fixture: LeagueFixture, re
   }
   const out = {} as Record<ForkSide, ForkSideResult>;
   const retired = {} as Record<ForkSide, string[]>;
+  // Who missed the next game BEFORE this result (the MNG marker below: a flag this result sets gets its game count).
+  const mngBefore = new Set(season.teams.flatMap((t) => t.players.filter((p) => p.missNextGame).map((p) => `${t.id}/${p.playerId}`)));
   const teamValueDiffs: TeamValueDiff[] = [];
   for (const s of sides) {
     const ft = fork.teams[s]!;
@@ -352,6 +355,18 @@ export function applyForkResult(season: SeasonRecord, fixture: LeagueFixture, re
   delete fixture.resultEdit;
   if (fixture.deadlineOutcome?.auto) delete fixture.deadlineOutcome;
   fixture.finishedAt = result.playedAt ?? now.toISOString();
+  // The MNG marker (teamOps.ts settleServedMng, a move's rebase): a missed-next-game this result gave records the team's game
+  // count now, so a counter left from an older team-page MNG never makes the new one look served. A full result restates
+  // every flag (it recovered the earlier ones first), so a player without one keeps no counter either.
+  for (const s of sides) {
+    const team = season.teams.find((t) => t.id === fork.teams[s]?.teamId);
+    if (!team) continue;
+    const games = season.fixtures.filter((x) => (x.home.teamId === team.id || x.away.teamId === team.id) && fixtureOutcome(x) !== undefined).length;
+    for (const p of team.players) {
+      if (p.missNextGame && (result.source === "full" || !mngBefore.has(`${team.id}/${p.playerId}`))) p.mngGames = games;
+      else if (!p.missNextGame && result.source === "full") delete p.mngGames;
+    }
+  }
   const h = picked.home.penaltyScore;
   const a = picked.away.penaltyScore;
   const applied: FixtureForkResult = {
