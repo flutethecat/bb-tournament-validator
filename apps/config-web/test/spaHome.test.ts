@@ -437,7 +437,7 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     const nav = navOf(html);
     expect(nav).toContain('<nav class="sf-nav" data-collapsed="false" aria-label="Site"');
     // owner 10-30: Home, Leagues, Tournaments, Leaderboards, Help, Resources (Testing only for admins)
-    expect(topLabels(html)).toEqual(["Home", "Leagues", "Tournaments", "Leaderboards", "Help", "Resources"]);
+    expect(topLabels(html)).toEqual(["Home", "Leagues", "Tournaments", "Clubs", "Leaderboards", "Help", "Resources"]);
     for (const icon of ["home", "leagues", "tournaments", "leaderboards", "help", "resources"]) {
       expect(nav).toMatch(new RegExp(`<img class="sf-icon" src="/icons/nav/${icon}\.png" alt(="")? width="26" height="26">`));
     }
@@ -446,10 +446,10 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(nav).toMatch(/<a href="\/app\/leaderboards" class="sf-head-link"/);
     expect(nav).toMatch(/<a href="\/app\/help" class="sf-head-link"/);
     expect(nav).not.toContain("Coach page");
-    // only categories with children carry a caret (Leagues, Tournaments, Resources), at the right end of the header;
+    // only categories with children carry a caret (Leagues, Tournaments, Clubs, Resources), at the right end of the header;
     // Leaderboards and Help are plain header links. Resources is a toggle button, not a link
-    expect((nav.match(/class="sf-caret"/g) ?? []).length).toBe(3);
-    for (const id of ["leagues", "tournaments", "resources"]) expect(nav).toContain(`aria-controls="sf-tree-${id}"`);
+    expect((nav.match(/class="sf-caret"/g) ?? []).length).toBe(4);
+    for (const id of ["leagues", "tournaments", "clubs", "resources"]) expect(nav).toContain(`aria-controls="sf-tree-${id}"`);
     for (const id of ["leaderboards", "help"]) { expect(nav).not.toContain(`sf-tree-${id}`); expect(nav).not.toContain(`Expand ${id[0]!.toUpperCase()}${id.slice(1)}`); }
     expect(nav).not.toContain("Tabletop standings");
     expect(nav).not.toContain('class="sf-label">What');
@@ -500,7 +500,7 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     Object.defineProperty(globalThis, "localStorage", { configurable: true, get() { throw new DOMException("blocked", "SecurityError"); } });
     try {
       expect(() => readNavOpen()).not.toThrow();
-      expect(readNavOpen()).toEqual({ leagues: true, tournaments: true, leaderboards: true, help: true, resources: false, testing: false });
+      expect(readNavOpen()).toEqual({ leagues: true, tournaments: true, clubs: true, leaderboards: true, help: true, resources: false, testing: false });
       expect(() => rememberNavOpen(readNavOpen())).not.toThrow();
     } finally {
       if (had) Object.defineProperty(globalThis, "localStorage", had);
@@ -559,7 +559,7 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     const { html } = await render("/home", signedInRoutes(), (spa) => { spa.ui.collapsed = true; });
     const nav = navOf(html);
     expect(nav).toMatch(/<a href="\/app\/home" class="sf-top-link"[^>]*title="Home"[^>]*><img [^>]*><span class="sf-top-label">Home<\/span>/);
-    for (const label of ["Leagues", "Tournaments", "Leaderboards", "Help", "Resources"]) {
+    for (const label of ["Leagues", "Tournaments", "Clubs", "Leaderboards", "Help", "Resources"]) {
       expect(nav).toMatch(new RegExp(`class="sf-head-link[^"]*"[^>]*title="${label}"[^>]*><img [^>]*><span class="sf-head-label">${label}</span>`));
     }
     const css = readFileSync(new URL("../spa/src/home/home.css", import.meta.url), "utf8");
@@ -573,7 +573,7 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
   it("category open state: defaults, remembered per category, bad storage falls back", () => {
     const store: Record<string, string> = {};
     const storage = { getItem: (k: string) => store[k] ?? null, setItem: (k: string, v: string) => { store[k] = v; } };
-    expect(readNavOpen(storage)).toEqual({ leagues: true, tournaments: true, leaderboards: true, help: true, resources: false, testing: false });
+    expect(readNavOpen(storage)).toEqual({ leagues: true, tournaments: true, clubs: true, leaderboards: true, help: true, resources: false, testing: false });
     rememberNavOpen({ ...readNavOpen(storage), help: false, resources: true }, storage);
     expect(readNavOpen(storage)).toMatchObject({ help: false, resources: true, leagues: true });
     store[NAV_OPEN_STORAGE_KEY] = "{not json";
