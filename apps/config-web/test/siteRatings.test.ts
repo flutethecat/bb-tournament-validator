@@ -10,6 +10,7 @@ import { leagueFixtureVerdict, tournamentMatchVerdict } from "../src/ratings/rul
 import { collectRatedGames, forkGames, leagueGames, tournamentGameTime, tournamentGames, type LeagueSource } from "../src/ratings/sources.js";
 import { createSiteRatings, SiteRatingsService } from "../src/ratings/service.js";
 import { LeagueStore } from "../src/leagues/store.js";
+import { TournamentStore } from "../src/tournaments/store.js";
 import { ratingsOf } from "../src/fixtureLobby/league.js";
 import { ratingsRoute } from "../src/ratings/api.js";
 import { ratingsStateFile, readRatingsState } from "../src/ratings/state.js";
@@ -600,6 +601,40 @@ describe("review: the privacy export uses the production factory (fork races)", 
     // the same numbers the production service (same factory, same stores) gives
     const prod = createSiteRatings({ stateDir: dir, tournamentsDir: dir, libraryDir: join(dir, "library") }, { identities: () => identities(["Ann", "Bob"]) });
     expect(prod.coach("Ann")!.races).toEqual([expect.objectContaining({ race: "orc", games: 1 })]);
+  });
+});
+
+describe("review 2: a fixture drawn before the reset and first played after it counts, at its first report", () => {
+  it("firstReportedAt is stamped by the store on the first report and survives a clear and re-report", () => {
+    const root = mkdtempSync(join(tmpdir(), "site-ratings-first-report-")); roots.push(root);
+    const store = new TournamentStore(root);
+    const at0 = iso(0);
+    const side = (c: string) => ({ entrantId: `e-${c}`, coach: { coachId: c, ffbCoachId: c, verifiedAt: at0 }, teamId: `t-${c}` });
+    store.writeSnapshot({
+      version: 4,
+      tournaments: { cup: { id: "cup", name: "Cup", status: "active", format: "swiss", packageName: "p", maxPlayers: 8, roundCount: 3, currentRound: 1, tiebreakers: ["buchholz"], points: { win: 3, draw: 1, loss: 0, bye: 3 }, ownerCoachId: "Org", organizerCoachId: "Org", organizerCoachIds: [], startedAt: at0, createdAt: at0, updatedAt: at0 } as never },
+      entrants: Object.fromEntries(["ann", "bob"].map((c, i) => [`e-${c}`, { id: `e-${c}`, tournamentId: "cup", seed: i + 1, coach: { coachId: c, ffbCoachId: c, verifiedAt: at0 }, teamId: `t-${c}`, registeredAt: at0 }])) as never,
+      rounds: { r1: { id: "r1", tournamentId: "cup", number: 1, status: "active", scheduledMatchIds: ["m1"], createdAt: at0 } },
+      standings: {}, waitingPresence: {},
+      // drawn on day 0, no agreed time, no result yet
+      scheduledMatches: { m1: { id: "m1", tournamentId: "cup", roundId: "r1", roundNumber: 1, home: side("ann"), away: side("bob"), status: "scheduled", revision: 1, launch: { challengePath: "/api/fork/challenge", jnlpPath: "/api/fork/jnlp", retryCount: 0 }, createdAt: at0, updatedAt: at0 } },
+    } as TournamentDataFileV4);
+    const resetAt = T0 + 10 * DAY_MS;
+    const first = store.recordResult("m1", { expectedRevision: 1, homeScore: 2, awayScore: 0 }, new Date(T0 + 12 * DAY_MS));
+    expect(first.firstReportedAt).toBe(iso(12));
+    const counted = (): RatedGame[] => tournamentGames(store.snapshot());
+    expect(counted()[0]!.at).toBe(T0 + 12 * DAY_MS);
+    expect(computeSiteRatings(counted(), { resetAt }).games).toBe(1); // played after go-live: it counts
+    // a manager clears it, it is reported again later: the game time stays the first report
+    const cleared = store.clearEditedResult("m1", { expectedRevision: first.revision, by: "Org", confirmFinished: true } as never, new Date(T0 + 13 * DAY_MS)).match;
+    expect(cleared.firstReportedAt).toBe(iso(12));
+    expect(counted()).toEqual([]);
+    const again = store.recordResult("m1", { expectedRevision: cleared.revision, homeScore: 0, awayScore: 1 }, new Date(T0 + 20 * DAY_MS));
+    expect(again.firstReportedAt).toBe(iso(12));
+    expect(counted()).toEqual([expect.objectContaining({ at: T0 + 12 * DAY_MS, homeScore: 0 })]);
+    // the agreed time wins when there is one; a legacy row with neither falls back to the draw
+    expect(tournamentGameTime({ scheduledTime: { start: iso(11), end: iso(11, 2), agreedAt: iso(5) }, firstReportedAt: iso(12), createdAt: at0 })).toBe(T0 + 11 * DAY_MS);
+    expect(tournamentGameTime({ createdAt: at0, result: { homeScore: 1, awayScore: 0, reportedAt: iso(30) } })).toBe(T0);
   });
 });
 

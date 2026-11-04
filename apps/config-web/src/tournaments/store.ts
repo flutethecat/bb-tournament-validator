@@ -588,6 +588,17 @@ export class TournamentStoreError extends Error {
   }
 }
 
+/**
+ * Every write (site ratings, src/ratings/sources.ts): a fixture's first result stamps `firstReportedAt` once. Every writer
+ * spreads the stored match, so the stamp survives a manager's clear and every re-report: it is when the game was first
+ * played, the rating time of a fixture with no agreed time.
+ */
+export function stampFirstReports(data: TournamentDataFileV4): void {
+  for (const m of Object.values(data.scheduledMatches ?? {})) {
+    if (!m.firstReportedAt && m.result?.reportedAt && Number.isFinite(Date.parse(m.result.reportedAt))) m.firstReportedAt = m.result.reportedAt;
+  }
+}
+
 export class TournamentStore {
   private readonly file: string;
 
@@ -603,6 +614,7 @@ export class TournamentStore {
   /** Intended for migrations, administrative import, and deterministic tests. */
   writeSnapshot(value: TournamentDataFileV2 | TournamentDataFileV3 | TournamentDataFileV4): TournamentDataFileV4 {
     const normalized = migrateTournamentData(value);
+    stampFirstReports(normalized);
     atomicWriteTextFile(this.file, `${JSON.stringify(normalized, null, 2)}\n`);
     return structuredClone(normalized);
   }
@@ -610,6 +622,7 @@ export class TournamentStore {
   private mutate<T>(change: (data: TournamentDataFileV4) => T): T {
     const data = this.snapshot();
     const result = change(data);
+    stampFirstReports(data); // before the copy: the returned match carries its stamp too
     this.writeSnapshot(data);
     return structuredClone(result);
   }

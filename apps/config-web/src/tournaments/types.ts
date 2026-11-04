@@ -403,6 +403,9 @@ export interface ScheduledMatchRecord {
   revision: number;
   launch: ChallengerLaunchMetadata;
   result?: ScheduledMatchResult;
+  /** When a result was FIRST reported (stamped once by TournamentStore.writeSnapshot, kept across clears and re-reports):
+   *  the site ratings' game time when no time was agreed. */
+  firstReportedAt?: string;
   /** The time both coaches agreed through a game-time proposal (src/schedule): a 2-hour slot, UTC ISO. */
   scheduledTime?: { start: string; end: string; agreedAt: string };
   /** v4: set when an organiser changed this fixture: its pairing (fixtures editor, phase 4) or, with `kind: "result"`,

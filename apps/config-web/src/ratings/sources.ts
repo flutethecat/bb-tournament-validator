@@ -77,10 +77,10 @@ export function tournamentClaims(data: TournamentDataFileV4, into = new Set<stri
   return into;
 }
 
-/** When a tournament fixture was played, for the ratings: its agreed time, else when it was drawn (both survive a clear and a
- *  re-report), else its first report. */
-export const tournamentGameTime = (m: Pick<ScheduledMatchRecord, "scheduledTime" | "createdAt" | "result">): number =>
-  firstTime(m.scheduledTime?.start, m.createdAt, m.result?.reportedAt);
+/** When a tournament fixture was played, for the ratings: its agreed time, else when its result was FIRST reported
+ *  (firstReportedAt, kept across clears and re-reports), else (legacy rows with neither) when it was drawn. */
+export const tournamentGameTime = (m: Pick<ScheduledMatchRecord, "scheduledTime" | "firstReportedAt" | "createdAt" | "result">): number =>
+  firstTime(m.scheduledTime?.start, m.firstReportedAt, m.createdAt, m.result?.reportedAt);
 
 export function tournamentGames(data: TournamentDataFileV4): RatedGame[] {
   const out: RatedGame[] = [];
@@ -95,8 +95,8 @@ export function tournamentGames(data: TournamentDataFileV4): RatedGame[] {
     const homeRace = raceOf(m.home);
     const awayRace = raceOf(m.away);
     out.push({
-      // A stable game time that a clear and re-report never moves (reportedAt does): the agreed time, else when the fixture
-      // was drawn. The reset cutoff and the rating period stay put however often a manager corrects the result.
+      // A stable game time that a clear and re-report never moves (reportedAt does): the agreed time, else the first report.
+      // The reset cutoff and the rating period stay put however often a manager corrects the result.
       key: `tournament:${m.tournamentId}:${m.id}`, source: "tournament", at: tournamentGameTime(m),
       home: { coach: coachOf(m.home), ...(homeRace ? { race: homeRace } : {}) },
       away: { coach: coachOf(m.away), ...(awayRace ? { race: awayRace } : {}) },
