@@ -25,6 +25,7 @@ import { fixtureLockKey, withForkLocks } from "./forkPlay.js";
 import { forkPlayLock, forkTeamIdFor } from "./forkTeam.js";
 import { requestRevision } from "./http.js";
 import { fixturePlayed } from "./tourplay.js";
+import { noteTeamAssignment } from "./tourplayRecord.js";
 import type { LeagueRecord, SeasonRecord } from "./types.js";
 
 const same = (a: string | undefined, b: string | undefined): boolean => (a ?? "").trim().toLowerCase() === (b ?? "").trim().toLowerCase();
@@ -142,6 +143,8 @@ export async function assignTeamCoach(
         changed.push(s.id);
       }
     }
+    // TourPlay import record (lane L8): the Teams-tab assignment becomes the imported coach row's decision.
+    if (changed.length) noteTeamAssignment(deps.store, league.id, changed, teamId, coachId, who.coach, at);
     const saved = deps.store.season(league.id, seasonId)!;
     return { status: 200, body: { ok: true, team: saved.teams.find((t) => t.id === teamId), seasons: changed, revision: saved.revision ?? 0 } };
   });

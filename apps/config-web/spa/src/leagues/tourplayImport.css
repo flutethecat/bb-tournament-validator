@@ -43,6 +43,8 @@
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; padding: 6px 8px;
   border: 1px solid var(--sf-panel-line); border-left: 3px solid var(--sf-gold); border-radius: 2px; background: var(--ui-surface-2);
 }
+.tpi-conflicts { display: grid; gap: 6px; padding: 8px; border: 1px solid var(--sf-panel-line); border-left: 3px solid var(--ui-warn); border-radius: 2px; background: var(--ui-surface-2); }
+.tpi-conflict { display: flex; align-items: flex-start; gap: 8px; font-size: 14px; color: var(--ui-text); min-width: 0; overflow-wrap: anywhere; }
 .tpi-check { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--ui-text); }
 .tpi-actions { justify-content: flex-end; }
 .tpi-toggle { justify-self: start; }

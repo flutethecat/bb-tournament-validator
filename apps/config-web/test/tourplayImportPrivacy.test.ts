@@ -31,6 +31,7 @@ const record = () => ({
   coaches: {
     "naf:allytp": { id: "tp000000000001", key: "naf:allytp", name: "Ally TP", nafUser: "allytp", nafNumber: "81001", seasons: [{ seasonId: "s1", number: 1, teamIds: ["green-orcs"], teams: ["Green Orcs"] }], status: "matched", basis: "naf-number", coachId: "Alice" },
     "naf:bobtp": { id: "tp000000000002", key: "naf:bobtp", name: "Bob TP", nafUser: "bobtp", nafNumber: "82002", seasons: [], status: "conflict", candidates: { byName: ["Alice"], byNumber: ["Bob"] }, decision: { coachId: "Bob", by: "Alice", at: "2026-11-01T00:00:00Z", via: "organiser" } },
+    "naf:allyold": { id: "tp000000000004", key: "naf:allyold", name: "Ally Old", nafUser: "allyold", nafNumber: "81004", seasons: [], status: "unmatched", decision: { coachId: "Alice", by: "Bob", at: "2026-11-01T00:00:00Z", via: "organiser" } },
     "name:nobody": { id: "tp000000000003", key: "name:nobody", name: "No Body", nafNumber: "83003", seasons: [], status: "unmatched" },
   },
   claims: [
@@ -39,6 +40,7 @@ const record = () => ({
     { id: "tc000000000003", row: "tp000000000003", coach: "Bob", at: "2026-11-02T00:00:00Z", state: "declined", decidedBy: "Alice", decidedAt: "2026-11-02T01:00:00Z" },
   ],
   imports: [{ at: "2026-11-01T00:00:00Z", by: "Alice", seasons: [] }],
+  snapshots: { s1: { fixtures: {}, teams: { "green-orcs": { name: "Green Orcs", coach: "Ally TP", roster: "x" } } } },
 });
 
 describe("TourPlay import record and privacy", () => {
@@ -50,7 +52,11 @@ describe("TourPlay import record and privacy", () => {
     const files = new Map((await collectExport(deps, "alice")).map((f) => [f.name, String(f.content)]));
     const leagues = JSON.parse(files.get("league-teams.json")!);
     const tp = leagues.find((l: { id: string }) => l.id === "l1").tourplayImport;
-    expect(tp.coaches).toEqual([expect.objectContaining({ name: "Ally TP", nafUser: "allytp", nafNumber: "81001", basis: "naf-number" })]);
+    // by the account link, and by the decided coach only (a Teams-tab assignment records a decision)
+    expect(tp.coaches).toEqual([
+      expect.objectContaining({ name: "Ally TP", nafUser: "allytp", nafNumber: "81001", basis: "naf-number" }),
+      expect.objectContaining({ name: "Ally Old", nafNumber: "81004", decision: expect.objectContaining({ via: "organiser" }) }),
+    ]);
     expect(tp.claims.map((c: { state: string }) => c.state)).toEqual(["pending", "declined"]);
     expect(files.get("league-teams.json")).not.toContain("82002");
     expect(files.get("league-teams.json")).not.toContain("83003");
@@ -68,6 +74,8 @@ describe("TourPlay import record and privacy", () => {
     const text = readFileSync(path, "utf8");
     expect(text).not.toContain("81001");
     expect(text).not.toContain("allytp");
+    expect(text).not.toContain("81004");
+    expect(text).not.toContain("Ally TP"); // the snapshots went with her rows
     expect(text).not.toMatch(/"Alice"/);
     const f = JSON.parse(text);
     expect(Object.keys(f.coaches)).toEqual(["naf:bobtp", "name:nobody"]);

@@ -7,6 +7,7 @@ import { isStateChangingApiRequest } from "../src/auth/csrf";
 import { leagueApi, type LeagueApiDeps, type LeagueApiResult } from "../src/leagues/api";
 import { LeagueStore } from "../src/leagues/store";
 import { exactMatch, nameSimilarity, resetTourplayLimits, suggestCoaches, UPLOAD_LIMIT } from "../src/leagues/tourplayImport";
+import { firstSeason } from "../src/leagues/wizard";
 import { csvFilesFrom, safeUploadPath, unzipCsv, uploadSeasons, UPLOAD_MAX_FILE_BYTES, UploadError } from "../src/leagues/tourplayUpload";
 import type { NotificationInput } from "../src/notifications";
 import { deflateZip, exportZip, NAF_NUMBERS, PROFILES, seasonFiles, SLUG } from "./tourplayFixture";
@@ -39,6 +40,11 @@ describe("TourPlay import upload", () => {
   };
   const upload = (extra: Record<string, unknown> = {}) => ({ zip: exportZip().toString("base64"), ...extra });
   const json = (r: LeagueApiResult): any => r.body as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+  /** The organiser's explicit "Confirm all exact matches": a decision per proposed row (from a preview). */
+  const confirmAll = async (b: Record<string, unknown> = upload()): Promise<Record<string, string>> => {
+    const view = json(await call("POST", "/tourplay/preview", ORG, b));
+    return Object.fromEntries(view.coaches.filter((c: { proposed?: string; status: string }) => c.proposed && c.status === "matched").map((c: { id: string; proposed: string }) => [c.id, c.proposed]));
+  };
   const rowByName = async (name: string) => json(await call("GET", "/tourplay", ORG)).rows.find((r: { name: string }) => r.name === name);
   const leagueFiles = (): string => {
     const walk = (d: string): string[] => readdirSync(d).flatMap((f) => (statSync(join(d, f)).isDirectory() ? walk(join(d, f)) : [join(d, f)]));
@@ -78,6 +84,9 @@ describe("TourPlay import upload", () => {
       expect(() => unzipCsv(deflateZip({ "a.csv": "1", "A.CSV": "2" }))).toThrow(/twice/);
       expect(() => unzipCsv(Buffer.from("not a zip at all, sorry"))).toThrow(/not a zip/);
       expect(unzipCsv(deflateZip({ "s.csv": "stored" }, { store: true }))[0]!.text).toBe("stored");
+      // CRC-32 is checked for every entry, stored or deflated
+      expect(() => unzipCsv(deflateZip({ "x.csv": "a;b 1;2" }, { badCrc: "x.csv" }))).toThrow(/checksum/);
+      expect(() => unzipCsv(deflateZip({ "x.csv": "a;b" }, { badCrc: "x.csv", store: true }))).toThrow(/checksum/);
     });
 
     it("the route answers 400 for an unsafe upload and 413 for an oversized zip, and writes nothing", async () => {
@@ -112,7 +121,8 @@ describe("TourPlay import upload", () => {
       const view = json(p);
       expect(view.canApply).toBe(true);
       expect(view.seasons[0]).toMatchObject({ number: 1, id: "season-1", action: "new", teams: 5, fixtures: 4, played: 3, status: "active", ruleset: "BB2025" });
-      expect(view.counts).toMatchObject({ matched: 2, conflict: 1, unmatched: 2, linked: 2 });
+      expect(view.counts).toMatchObject({ matched: 2, conflict: 1, unmatched: 2, linked: 0, proposed: 2 });
+      expect(view.coaches.map((c: { basis: string }) => c.basis).sort()).toEqual(["naf-name", "naf-number", "none", "none", "none"]);
       expect(JSON.stringify(view)).not.toContain(NAF_NUMBERS.morgan); // numbers show only as "on file"
       expect(view.coaches.find((c: { name: string }) => c.name === "Morgan Example").hasNafNumber).toBe(true);
       expect(store.seasons("vbl")).toEqual([]);
@@ -124,23 +134,27 @@ describe("TourPlay import upload", () => {
       const s = store.season("vbl", "season-1")!;
       expect(s.source).toBe("tourplay-export");
       expect(s.fixtures).toHaveLength(4);
+      expect(s.teams.every((t) => !t.coachId)).toBe(true); // no automatic links
       expect(existsSync(join(dir, "leagues", "vbl", "tourplay-import.json"))).toBe(true);
       expect(json(await call("GET", "/tourplay", ORG)).imports[0]).toMatchObject({ by: "Organiser1", seasons: [{ id: "season-1", action: "new" }] });
     });
 
-    it("an empty setup season is replaced; a season with teams that was not imported refuses the apply", async () => {
-      store.putSeason({ id: "season-1", leagueId: "vbl", number: 1, name: "Season 1", sourceSlug: "season-1", ruleset: "BB2025", status: "active", stage: "setup",
-        phases: [], fixtures: [], participants: [], teams: [], honours: [], awards: [], unattributedStats: [], importedAt: "2026-11-01T00:00:00Z", source: "manual" });
-      expect(json(await call("POST", "/tourplay/preview", ORG, upload())).seasons[0].action).toBe("replace-empty");
-      expect((await call("POST", "/tourplay/apply", ORG, upload())).status).toBe(200);
-      expect(store.season("vbl", "season-1")!.source).toBe("tourplay-export");
-
-      const s = store.season("vbl", "season-1")!;
-      store.putSeason({ ...s, sourceSlug: "manual-1", source: "manual" });
+    it("only the wizard's untouched Season 1 is replaced; a season made here is never replaced, the export takes the next number", async () => {
+      const lg = store.league("vbl")!;
+      store.putSeason(firstSeason(lg, "2026-11-01T00:00:00.000Z"));
+      expect(json(await call("POST", "/tourplay/preview", ORG, upload())).seasons[0]).toMatchObject({ action: "replace-empty", id: "season-1" });
+      // customised (a division and news): kept, and the export becomes Season 2
+      const custom = firstSeason(lg, "2026-11-01T00:00:00.000Z");
+      custom.phases[0]!.groups = ["North"];
+      store.putSeason(custom);
       const p = json(await call("POST", "/tourplay/preview", ORG, upload()));
-      expect(p.canApply).toBe(false);
-      expect(p.problems[0]).toMatch(/already exists/);
-      expect((await call("POST", "/tourplay/apply", ORG, upload())).status).toBe(409);
+      expect(p.seasons[0]).toMatchObject({ action: "new", id: "season-2", number: 2, renumbered: { from: 1 } });
+      expect((await call("POST", "/tourplay/apply", ORG, upload())).status).toBe(200);
+      expect(store.season("vbl", "season-1")!.phases[0]!.groups).toEqual(["North"]);
+      expect(store.season("vbl", "season-1")!.source).toBe("manual");
+      expect(store.season("vbl", "season-2")!.source).toBe("tourplay-export");
+      // a re-import updates Season 2, never Season 1
+      expect(json(await call("POST", "/tourplay/preview", ORG, upload())).seasons[0]).toMatchObject({ action: "update", id: "season-2" });
     });
   });
 
@@ -150,6 +164,11 @@ describe("TourPlay import upload", () => {
       // the organiser seats an account on the conflicted team through Assign coach account (teamCoach.ts)
       const rev = store.season("vbl", "season-1")!.revision;
       expect((await call("PATCH", "/seasons/season-1/teams/rapid-rascals", ORG, { revision: rev, coachId: "RileyB" })).status).toBe(200);
+      // the Teams-tab assignment became the TourPlay row's decision (record, review list and privacy follow it)
+      expect(await rowByName("Riley Test")).toMatchObject({ needsReview: false, coachId: "RileyB", decision: { coachId: "RileyB", via: "organiser" } });
+      expect(store.tourplayImport("vbl").coaches["naf:rileyt"]!.decision).toMatchObject({ coachId: "RileyB", by: "Organiser1" });
+      expect((await call("POST", "/tourplay/apply", ORG, upload())).status).toBe(200); // settles the decision into every row
+      expect(store.season("vbl", "season-1")!.teams.find((t) => t.id === "rapid-rascals")).toMatchObject({ coachId: "RileyB", coachAssigned: { by: "Organiser1" } });
       const strip = (x: unknown) => JSON.parse(JSON.stringify(x, (k, v) => (k === "importedAt" || k === "revision" ? undefined : v)));
       const before = strip(store.season("vbl", "season-1"));
       const fileBefore = { ...store.tourplayImport("vbl"), imports: [] };
@@ -173,19 +192,30 @@ describe("TourPlay import upload", () => {
   });
 
   describe("matching", () => {
-    it("NAF user (any case) and NAF number (leading zeros) link; a username/number disagreement is never merged", async () => {
+    it("NAF user (any case) and NAF number (leading zeros) only PROPOSE; nothing links until the organiser confirms; a disagreement proposes nobody", async () => {
       await call("POST", "/tourplay/apply", ORG, upload());
-      const s = store.season("vbl", "season-1")!;
-      const side = (team: string) => s.fixtures.flatMap((f) => [f.home, f.away]).find((x) => x.team === team)!;
-      expect(side("Moss Marauders").coachId).toBe("Morgan");
-      expect(s.teams.find((t) => t.name === "Moss Marauders")!.coachId).toBe("Morgan");
-      expect(side("Quarry Quakers").coachId).toBe("QuinnPlays");
-      expect(side("Rapid Rascals").coachId).toBeUndefined();
+      let s = store.season("vbl", "season-1")!;
+      expect(s.teams.every((t) => !t.coachId)).toBe(true);
+      expect(s.fixtures.flatMap((f) => [f.home, f.away]).every((x) => !x.coachId)).toBe(true);
+      const morgan = await rowByName("Morgan Example");
+      expect(morgan).toMatchObject({ status: "matched", basis: "naf-name", needsReview: true });
+      expect(morgan.coachId).toBeUndefined();
+      expect(morgan.nafNumber).toBeUndefined(); // not linked yet
+      expect(morgan.suggestions[0]).toMatchObject({ coach: "Morgan", reasons: expect.arrayContaining(["NAF name matches"]) });
+      expect((await rowByName("Quinn Sample")).suggestions[0]).toMatchObject({ coach: "QuinnPlays", reasons: expect.arrayContaining(["NAF number matches"]) });
       const riley = await rowByName("Riley Test");
       expect(riley).toMatchObject({ status: "conflict", needsReview: true, candidates: { byName: ["RileyA"], byNumber: ["RileyB"] } });
       expect(riley.reason).toMatch(/RileyA.*RileyB/);
-      expect((await rowByName("Morgan Example")).basis).toBe("naf-name");
-      expect((await rowByName("Quinn Sample")).basis).toBe("naf-number");
+      // "Confirm all exact matches" (explicit) links the two proposals, not the conflict
+      const decisions = await confirmAll();
+      expect(Object.values(decisions).sort()).toEqual(["Morgan", "QuinnPlays"]);
+      expect((await call("POST", "/tourplay/apply", ORG, upload({ decisions }))).status).toBe(200);
+      s = store.season("vbl", "season-1")!;
+      const side = (team: string) => s.fixtures.flatMap((f) => [f.home, f.away]).find((x) => x.team === team)!;
+      expect(s.teams.find((t) => t.name === "Moss Marauders")!.coachId).toBe("Morgan");
+      expect(s.teams.find((t) => t.name === "Quarry Quakers")!.coachId).toBe("QuinnPlays");
+      expect(side("Rapid Rascals").coachId).toBeUndefined();
+      expect((await rowByName("Morgan Example"))).toMatchObject({ needsReview: false, coachId: "Morgan", decision: { via: "organiser" } });
     });
 
     it("exactMatch: duplicates are ambiguous, both agreeing is strongest, banned profiles never match", () => {
@@ -196,9 +226,100 @@ describe("TourPlay import upload", () => {
     });
   });
 
+  describe("re-import merges (review round)", () => {
+    const zipOf = (files: Record<string, string>) => exportZip("valley-bowl-export", files).toString("base64");
+    const withoutAvery = (): Record<string, string> => Object.fromEntries(Object.entries(seasonFiles()).filter(([k]) => !k.includes("Avery"))
+      .map(([k, v]) => [k, v.split("\r\n").filter((l) => !l.includes("Avery Placeholder")).join("\r\n")]));
+
+    it("Sol's 5-2: a result recorded here survives a re-import, is listed as a conflict, and the export wins only when the organiser picks it", async () => {
+      await call("POST", "/tourplay/apply", ORG, { zip: zipOf(seasonFiles(SLUG, { round3: "unplayed" })) });
+      let s = store.season("vbl", "season-1")!;
+      const r3 = s.fixtures.find((f) => f.round === 3)!;
+      expect(r3.home.score).toBeNull();
+      // the coaches report 5-2 here (a typed first result carries no marker); a local roster edit too
+      r3.home.score = 5; r3.away.score = 2; r3.home.cas = 0; r3.away.cas = 1;
+      s.teams.find((t) => t.id === "moss-marauders")!.players[0]!.name = "Grub the Renamed";
+      store.putSeason(s);
+      // TourPlay later shows 1-0 for that game and 3-1 (not 2-1) for round 1, which nobody touched here
+      const next = { zip: zipOf(seasonFiles(SLUG, { round3: "1-0", round1Score: "3;1" })) };
+      const p = json(await call("POST", "/tourplay/preview", ORG, next));
+      const conflicts = p.seasons[0].conflicts;
+      expect(conflicts).toEqual([expect.objectContaining({ kind: "fixture", local: "5-2", export: "1-0", reason: "Changed here since the last import" })]);
+      expect((await call("POST", "/tourplay/apply", ORG, next)).status).toBe(200);
+      s = store.season("vbl", "season-1")!;
+      expect(s.fixtures.find((f) => f.round === 3)!).toMatchObject({ home: { score: 5 }, away: { score: 2 } }); // kept
+      expect(s.fixtures.find((f) => f.round === 1 && f.table === 1)!).toMatchObject({ home: { score: 3 }, away: { score: 1 } }); // export update taken
+      expect(s.teams.find((t) => t.id === "moss-marauders")!.players[0]!.name).toBe("Grub the Renamed"); // local roster edit kept
+      expect(s.fixtures).toHaveLength(5);
+      // the organiser picks the export for that row
+      expect((await call("POST", "/tourplay/apply", ORG, { ...next, choices: [conflicts[0].id] })).status).toBe(200);
+      expect(store.season("vbl", "season-1")!.fixtures.find((f) => f.round === 3)!).toMatchObject({ home: { score: 1 }, away: { score: 0 } });
+      expect((await call("POST", "/tourplay/preview", ORG, { ...next, choices: ["not-an-id"] })).status).toBe(400);
+    });
+
+    it("a fixture with a recorder link or Super FUMBBL state is never overwritten, even when unchanged here", async () => {
+      await call("POST", "/tourplay/apply", ORG, { zip: zipOf(seasonFiles(SLUG, { round3: "unplayed" })) });
+      const s = store.season("vbl", "season-1")!;
+      const r1 = s.fixtures.find((f) => f.round === 1 && f.table === 1)!;
+      r1.tabletop = { revision: 1 };
+      store.putSeason(s);
+      const next = { zip: zipOf(seasonFiles(SLUG, { round3: "unplayed", round1Score: "4;0" })) };
+      const p = json(await call("POST", "/tourplay/preview", ORG, next));
+      expect(p.seasons[0].conflicts).toEqual([expect.objectContaining({ kind: "fixture", reason: "Kept: recorded with the match recorder", local: "2-1", export: "4-0" })]);
+      await call("POST", "/tourplay/apply", ORG, next);
+      expect(store.season("vbl", "season-1")!.fixtures.find((f) => f.round === 1 && f.table === 1)!).toMatchObject({ home: { score: 2 }, tabletop: { revision: 1 } });
+    });
+
+    it("an explicit preview decision wins over a carried Teams-tab assignment, and the record follows", async () => {
+      await call("POST", "/tourplay/apply", ORG, upload());
+      const rev = store.season("vbl", "season-1")!.revision;
+      await call("PATCH", "/seasons/season-1/teams/cobble-crushers", ORG, { revision: rev, coachId: "Sam" });
+      const casey = await rowByName("Casey Demo");
+      expect(casey.coachId).toBe("Sam");
+      expect((await call("POST", "/tourplay/apply", ORG, upload({ decisions: { [casey.id]: "CaseyDemo" } }))).status).toBe(200);
+      const t = store.season("vbl", "season-1")!.teams.find((x) => x.id === "cobble-crushers")!;
+      expect(t).toMatchObject({ coachId: "CaseyDemo", coachAssigned: { by: "Organiser1" } });
+      expect(store.season("vbl", "season-1")!.participants.find((p) => p.team === "Cobble Crushers")!.coachId).toBe("CaseyDemo");
+      expect(await rowByName("Casey Demo")).toMatchObject({ coachId: "CaseyDemo", decision: { coachId: "CaseyDemo" } });
+    });
+
+    it("a coach the export no longer names is obsolete: not claimable or assignable, its team refs cleared, its pending claim closed", async () => {
+      await call("POST", "/tourplay/apply", ORG, upload());
+      const avery = await rowByName("Avery Placeholder");
+      await call("POST", "/tourplay/claims", SAM, { row: avery.id });
+      expect((await call("POST", "/tourplay/apply", ORG, { zip: zipOf(withoutAvery()) })).status).toBe(200);
+      const row = await rowByName("Avery Placeholder");
+      expect(row).toMatchObject({ obsolete: true, needsReview: false, seasons: [] });
+      expect(json(await call("GET", "/tourplay/claimable", SAM)).rows.map((r: { name: string }) => r.name)).not.toContain("Avery Placeholder");
+      expect(json(await call("GET", "/tourplay/claimable", SAM)).mine).toEqual([expect.objectContaining({ state: "declined" })]);
+      expect((await call("POST", `/tourplay/coaches/${avery.id}/assign`, ORG, { coachId: "Sam" })).status).toBe(409);
+      expect((await call("POST", "/tourplay/claims", SAM, { row: avery.id })).status).toBe(404);
+    });
+
+    it("missing roster files: teams are derived from the fixtures; a coach with no team at all cannot be linked and stays open", async () => {
+      const zip = zipOf(seasonFiles(SLUG, { noRosters: true, extraParticipant: true }));
+      const p = json(await call("POST", "/tourplay/preview", ORG, { zip }));
+      expect(p.seasons[0].derivedTeams).toHaveLength(5);
+      const jordan = p.coaches.find((c: { name: string }) => c.name === "Jordan Benchwarmer");
+      const bad = json(await call("POST", "/tourplay/preview", ORG, { zip, decisions: { [jordan.id]: "Sam" } }));
+      expect(bad.canApply).toBe(false);
+      expect(bad.problems[0]).toMatch(/no team in the export/);
+      expect((await call("POST", "/tourplay/apply", ORG, { zip })).status).toBe(200);
+      expect(store.season("vbl", "season-1")!.teams).toHaveLength(5);
+      const riley = await rowByName("Riley Test");
+      expect((await call("POST", `/tourplay/coaches/${riley.id}/assign`, ORG, { coachId: "RileyB" })).status).toBe(200);
+      expect(store.season("vbl", "season-1")!.teams.find((t) => t.name === "Rapid Rascals")!.coachId).toBe("RileyB");
+      const j = await rowByName("Jordan Benchwarmer");
+      const r = await call("POST", `/tourplay/coaches/${j.id}/assign`, ORG, { coachId: "Sam" });
+      expect(r.status).toBe(409);
+      expect(json(r).error).toMatch(/roster files/);
+      expect(await rowByName("Jordan Benchwarmer")).toMatchObject({ needsReview: true });
+    });
+  });
+
   describe("NAF numbers stay private", () => {
     it("never on a season, league, stats or export read, nor in the season files; Payment and Observations dropped", async () => {
-      await call("POST", "/tourplay/apply", ORG, upload());
+      await call("POST", "/tourplay/apply", ORG, upload({ decisions: await confirmAll() }));
       const publicReads = [
         await call("GET", "", undefined), await call("GET", "/seasons/season-1", undefined), await call("GET", "/seasons/season-1", SAM),
         await call("GET", "/stats", undefined), await call("GET", "/tourplay/claimable", SAM),
@@ -229,11 +350,11 @@ describe("TourPlay import upload", () => {
       // the organiser picks it in the preview: the apply links it and remembers the pick
       const res = await call("POST", "/tourplay/apply", ORG, upload({ decisions: { [casey.id]: "caseydemo" } }));
       expect(res.status).toBe(200);
-      expect(store.season("vbl", "season-1")!.fixtures.find((f) => f.home.team === "Cobble Crushers")!.home.coachId).toBe("CaseyDemo");
+      expect(store.season("vbl", "season-1")!.teams.find((t) => t.name === "Cobble Crushers")!.coachId).toBe("CaseyDemo");
       expect((await rowByName("Casey Demo")).decision).toMatchObject({ coachId: "CaseyDemo", via: "organiser" });
       // remembered on the next re-import without a decision
       await call("POST", "/tourplay/apply", ORG, upload());
-      expect(store.season("vbl", "season-1")!.fixtures.find((f) => f.home.team === "Cobble Crushers")!.home.coachId).toBe("CaseyDemo");
+      expect(store.season("vbl", "season-1")!.teams.find((t) => t.name === "Cobble Crushers")!.coachId).toBe("CaseyDemo");
       // a decision naming nobody is refused
       expect((await call("POST", "/tourplay/apply", ORG, upload({ decisions: { [casey.id]: "Nobody" } }))).status).toBe(409);
     });
@@ -263,7 +384,7 @@ describe("TourPlay import upload", () => {
 
   describe("coach claims", () => {
     it("claim, organiser notified, approve assigns via teamCoach; duplicates refused; decline notifies", async () => {
-      await call("POST", "/tourplay/apply", ORG, upload());
+      await call("POST", "/tourplay/apply", ORG, upload({ decisions: await confirmAll() }));
       expect((await call("GET", "/tourplay/claimable", undefined)).status).toBe(401);
       const claimable = json(await call("GET", "/tourplay/claimable", SAM));
       const avery = claimable.rows.find((r: { name: string }) => r.name === "Avery Placeholder");

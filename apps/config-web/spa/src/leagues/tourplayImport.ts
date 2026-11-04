@@ -17,24 +17,30 @@ export interface PreviewSeason {
   problem?: string; removes?: string[]; name?: string; ruleset?: string; status?: string;
   teams?: number; players?: number; fixtures?: number; played?: number; phases?: string[]; standings?: number;
   honours?: number; awards?: number; mismatches?: number; ambiguities?: number;
+  renumbered?: { from: number }; derivedTeams?: string[];
+  merge?: { fixturesAdded: number; fixturesUpdated: number; teamsAdded: number; teamsUpdated: number; kept: number };
+  conflicts?: MergeConflict[];
 }
+
+/** A re-import difference kept local by default (tourplayMerge.ts); the organiser may pick the export per row. */
+export interface MergeConflict { id: string; kind: "fixture" | "roster" | "team"; label: string; reason: string; local: string; export: string }
 
 export interface PreviewCoach {
   id: string; name: string; nafUser?: string; hasNafNumber: boolean; teams: string[]; seasons: number[];
-  status: MatchStatus; basis?: MatchBasis; matchedCoach?: string; candidates?: { byName: string[]; byNumber: string[] };
-  reason?: string; coachId?: string; decision?: { coachId: string | null; via: "organiser" | "claim" }; suggestions: TourplaySuggestion[];
+  status: MatchStatus; basis: MatchBasis | "none"; proposed?: string; candidates?: { byName: string[]; byNumber: string[] };
+  reason?: string; coachId?: string; decision?: { coachId: string | null; via: "organiser" | "claim" }; confirmed: boolean; suggestions: TourplaySuggestion[];
 }
 
 export interface TourplayPreview {
   seasons: PreviewSeason[]; coaches: PreviewCoach[];
-  counts: { matched: number; unmatched: number; ambiguous: number; conflict: number; linked: number };
+  counts: { matched: number; unmatched: number; ambiguous: number; conflict: number; linked: number; proposed: number };
   problems: string[]; canApply: boolean;
 }
 
 export interface ReviewRow {
   id: string; name: string; nafUser?: string; hasNafNumber: boolean; nafNumber?: string;
   seasons: Array<{ seasonId: string; number: number; teams: string[] }>;
-  status: MatchStatus; basis?: MatchBasis; coachId?: string; candidates?: { byName: string[]; byNumber: string[] };
+  status: MatchStatus; basis: MatchBasis | "none"; coachId?: string; obsolete?: boolean; candidates?: { byName: string[]; byNumber: string[] };
   reason?: string; decision?: { coachId: string | null; by: string; at: string; via: "organiser" | "claim" };
   assignedOnTeams?: boolean; needsReview: boolean; suggestions: TourplaySuggestion[];
   claims: Array<{ id: string; coach: string; at: string }>;
@@ -55,7 +61,7 @@ export const ZIP_MAX_MB = 8;
 
 export const STATUS_LABEL: Record<MatchStatus, string> = { matched: "Matched", unmatched: "No match", ambiguous: "Several matches", conflict: "Conflict" };
 export const STATUS_TONE: Record<MatchStatus, string> = { matched: "ok", unmatched: "muted", ambiguous: "soon", conflict: "urgent" };
-export const BASIS_LABEL: Record<MatchBasis, string> = { "naf-name": "NAF name", "naf-number": "NAF number", "naf-name+number": "NAF name and number" };
+export const BASIS_LABEL: Record<MatchBasis | "none", string> = { "naf-name": "NAF name", "naf-number": "NAF number", "naf-name+number": "NAF name and number", none: "no NAF match" };
 export const ACTION_LABEL: Record<PreviewSeason["action"], string> = { new: "New season", update: "Updates the imported season", "replace-empty": "Replaces the empty season" };
 
 const base64 = (buf: ArrayBuffer): string => {
@@ -92,6 +98,8 @@ export function createTourplayImport(opts: { api: Fetcher }) {
     preview: null as TourplayPreview | null,
     /** Row id -> the organiser's pick for this apply (a coach, or null = no account). */
     decisions: {} as Record<string, string | null>,
+    /** Merge conflicts resolved to the export (the rest keep the local value). */
+    choices: [] as string[],
     review: null as TourplayReview | null,
     busy: "" as "" | "preview" | "apply" | "review" | "assign" | "claim",
     error: "",
@@ -109,6 +117,7 @@ export function createTourplayImport(opts: { api: Fetcher }) {
     state.files = [...files];
     state.preview = null;
     state.decisions = {};
+    state.choices = [];
     state.notice = "";
     try { state.body = await uploadBody(files); state.error = ""; } catch (e) { state.body = null; state.error = message(e); return; }
     await preview();
@@ -117,7 +126,7 @@ export function createTourplayImport(opts: { api: Fetcher }) {
     if (!state.body) return;
     state.busy = "preview";
     try {
-      state.preview = await opts.api<TourplayPreview>(`${base()}/preview`, { method: "POST", body: { ...state.body, decisions: state.decisions } });
+      state.preview = await opts.api<TourplayPreview>(`${base()}/preview`, { method: "POST", body: { ...state.body, decisions: state.decisions, choices: state.choices } });
       state.error = "";
     } catch (e) { state.error = message(e); } finally { state.busy = ""; }
   }
@@ -126,13 +135,22 @@ export function createTourplayImport(opts: { api: Fetcher }) {
     if (coach === undefined) delete state.decisions[rowId]; else state.decisions[rowId] = coach;
     await preview();
   }
+  /** "Confirm all exact matches": an explicit organiser action that turns every proposal into a decision. */
+  async function confirmAll(): Promise<void> {
+    for (const c of state.preview?.coaches ?? []) if (c.status === "matched" && c.proposed && !c.confirmed) state.decisions[c.id] = c.proposed;
+    await preview();
+  }
+  async function choose(conflictId: string, useExport: boolean): Promise<void> {
+    state.choices = useExport ? [...new Set([...state.choices, conflictId])] : state.choices.filter((x) => x !== conflictId);
+    await preview();
+  }
   async function apply(): Promise<boolean> {
     if (!state.body) return false;
     state.busy = "apply";
     try {
-      const r = await opts.api<{ seasons: Array<{ id: string; number: number }>; counts: { linked: number; review: number } }>(`${base()}/apply`, { method: "POST", body: { ...state.body, decisions: state.decisions } });
+      const r = await opts.api<{ seasons: Array<{ id: string; number: number }>; counts: { linked: number; review: number } }>(`${base()}/apply`, { method: "POST", body: { ...state.body, decisions: state.decisions, choices: state.choices } });
       state.notice = `Imported ${r.seasons.length === 1 ? `Season ${r.seasons[0]!.number}` : `${r.seasons.length} seasons`}: ${r.counts.linked} coaches linked, ${r.counts.review} to review.`;
-      state.body = null; state.files = []; state.preview = null; state.decisions = {}; state.error = "";
+      state.body = null; state.files = []; state.preview = null; state.decisions = {}; state.choices = []; state.error = "";
       await loadReview(state.leagueId);
       return true;
     } catch (e) {
@@ -142,7 +160,7 @@ export function createTourplayImport(opts: { api: Fetcher }) {
       return false;
     } finally { state.busy = ""; }
   }
-  function reset(): void { state.body = null; state.files = []; state.preview = null; state.decisions = {}; state.error = ""; state.notice = ""; }
+  function reset(): void { state.body = null; state.files = []; state.preview = null; state.decisions = {}; state.choices = []; state.error = ""; state.notice = ""; }
   async function assign(rowId: string, coachId: string | null, allSeasons = true): Promise<void> {
     state.busy = "assign";
     try {
@@ -159,7 +177,7 @@ export function createTourplayImport(opts: { api: Fetcher }) {
       await loadReview(state.leagueId);
     } catch (e) { state.error = message(e); } finally { if (state.busy === "claim") state.busy = ""; }
   }
-  return { state, loadReview, pick, preview, decide, apply, reset, assign, decideClaim };
+  return { state, loadReview, pick, preview, decide, confirmAll, choose, apply, reset, assign, decideClaim };
 }
 export type TourplayImportController = ReturnType<typeof createTourplayImport>;
 

@@ -341,7 +341,10 @@ export class LeagueStore {
     if (!raw || typeof raw !== "object" || !raw.coaches || typeof raw.coaches !== "object" || !Array.isArray(raw.claims)) {
       throw new LeagueStoreError(500, "The league's TourPlay import record could not be read.");
     }
-    return { version: 1, coaches: raw.coaches, claims: raw.claims, imports: Array.isArray(raw.imports) ? raw.imports : [] };
+    return {
+      version: 1, coaches: raw.coaches, claims: raw.claims, imports: Array.isArray(raw.imports) ? raw.imports : [],
+      ...(raw.snapshots && typeof raw.snapshots === "object" ? { snapshots: raw.snapshots } : {}),
+    };
   }
 
   putTourplayImport(id: string, file: TourplayImportFile): void {

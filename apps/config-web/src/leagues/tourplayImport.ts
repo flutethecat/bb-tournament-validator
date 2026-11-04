@@ -41,7 +41,10 @@ import { readJsonObject } from "./http.js";
 import { carryParticipantFlags } from "./participants.js";
 import { assertUniquePlayerIds, linkPlayerCareers } from "./playerIds.js";
 import { isLeagueOrganiser, LeagueStoreError } from "./store.js";
-import { applyTeamCoach, carryCoachAssignments } from "./teamCoach.js";
+import { applyTeamCoach } from "./teamCoach.js";
+import { refreshTeamValues } from "./teamValue.js";
+import { mergeSeason, snapshotOf, type MergeResult } from "./tourplayMerge.js";
+import { firstSeason } from "./wizard.js";
 import {
   buildSeason, fixturePlayed, nameKey, parseFixtures, parseParticipantNaf, parseRoster, parseStandings, type BuildSeasonResult, type CoachMapper,
 } from "./tourplay.js";
@@ -162,9 +165,10 @@ export function exactMatch(c: Pick<ImportCoach, "nafUser" | "nafNumbers">, profi
   if (byNumber.length > 1) return { status: "ambiguous", candidates, reason: "Several site coaches have this NAF number." };
   const [n, m] = [byName[0], byNumber[0]];
   if (n && m && !sameCoach(n, m)) return { status: "conflict", candidates, reason: `The NAF name matches ${n} but the NAF number matches ${m}.` };
-  if (n && m) return { status: "matched", basis: "naf-name+number", coachId: m };
-  if (m) return { status: "matched", basis: "naf-number", coachId: m };
-  if (n) return { status: "matched", basis: "naf-name", coachId: n };
+  // A match is a PROPOSAL (profile NAF details are self-entered, unverified): it links only once the organiser confirms it.
+  if (n && m) return { status: "matched", basis: "naf-name+number", coachId: m, candidates };
+  if (m) return { status: "matched", basis: "naf-number", coachId: m, candidates };
+  if (n) return { status: "matched", basis: "naf-name", coachId: n, candidates };
   return { status: "unmatched" };
 }
 
@@ -258,8 +262,15 @@ export const seasonNumberFromSlug = (slug: string): number | undefined => {
   return n !== undefined && Number.isSafeInteger(n) && n > 0 && n < 10_000 ? n : undefined;
 };
 
-/** An empty season (no teams, fixtures, participants or registrations): one the import may replace. */
-const emptySeason = (s: SeasonRecord): boolean => !s.teams.length && !s.fixtures.length && !s.participants.length && !(s.registrations ?? []).length;
+/**
+ * The wizard's untouched Season 1: exactly what firstSeason made (no custom phases, registration, news, teams, rules).
+ * The only season an import may replace that it did not import itself.
+ */
+export function untouchedFirstSeason(s: SeasonRecord, league: LeagueRecord): boolean {
+  if (s.source !== "manual" || s.id !== "season-1") return false;
+  const strip = (x: SeasonRecord): string => JSON.stringify({ ...x, revision: undefined, importedAt: undefined });
+  try { return strip(s) === strip(firstSeason(league, s.importedAt)); } catch { return false; }
+}
 
 export interface PlannedSeason {
   /** The season's position in the upload (ImportCoach.teams keys). */
@@ -269,25 +280,57 @@ export interface PlannedSeason {
   number: number;
   id: string;
   action: "new" | "update" | "replace-empty";
+  /** The TourPlay number was taken by a season made here, so the export lands under another number. */
+  renumbered?: { from: number };
   problem?: string;
   prior?: SeasonRecord;
-  /** Stored seasons this import removes (an empty season under another id with the same number). */
+  /** Stored seasons this import removes (the wizard's untouched Season 1 under another id). */
   removes: string[];
   built?: BuildSeasonResult;
+  /** A re-import: the merged season, its conflicts and the new snapshot (tourplayMerge.ts). */
+  merge?: MergeResult;
+  /** Teams the export had no roster for (made from the participants / fixtures). */
+  derivedTeams: string[];
 }
 
 export interface PlannedCoach {
   coach: ImportCoach;
   match: ExactMatch;
-  /** The account the import links: the organiser's decision, else an exact match. */
+  /** The account the import links: ONLY an organiser's decision (this preview, remembered, the Teams tab, a claim). */
   coachId?: string;
   decision?: TourplayCoachRecord["decision"];
+  /** This request's decision (applied over every carried assignment). */
+  asked: boolean;
   suggestions: TourplaySuggestion[];
 }
 
 export interface ImportPlan { seasons: PlannedSeason[]; coaches: PlannedCoach[]; problems: string[]; file: TourplayImportFile }
 
-/** Builds everything an apply would write, writing nothing. `decisions`: row id -> account (null = none), from the organiser. */
+/** Teams the fixtures / standings / participants name but no roster file gives: a team record without players, so the
+ *  coach can still be seated (review P2). */
+function deriveMissingTeams(season: SeasonRecord): string[] {
+  const added: string[] = [];
+  const seen = new Set(season.teams.map((t) => t.id));
+  const add = (teamId: string | undefined, name: string, race: string, coach: string, nafUser: string | undefined, coachId: string | undefined): void => {
+    if (!teamId || seen.has(teamId) || !name.trim()) return;
+    seen.add(teamId);
+    added.push(name);
+    season.teams.push({
+      id: teamId, name, race, coach, ...(coachId ? { coachId } : {}), ...(nafUser ? { nafUser } : {}),
+      teamValue: null, importedTeamValue: null, treasury: null, rerolls: null, fans: null, assistantCoaches: null, cheerleaders: null,
+      apothecary: false, tier: "", raceLeague: "", players: [], formerPlayers: [],
+    });
+  };
+  for (const f of season.fixtures) for (const sd of [f.home, f.away]) add(sd.teamId, sd.team, sd.race, sd.coach, sd.nafUser, sd.coachId);
+  for (const p of season.phases) for (const r of p.standings) add(r.teamId, r.team, r.race, r.coach, undefined, r.coachId);
+  season.teams.sort((a, b) => a.name.localeCompare(b.name) || a.coach.localeCompare(b.coach));
+  return added;
+}
+
+/**
+ * Builds everything an apply would write, writing nothing. `decisions`: row id -> account (null = none), from the
+ * organiser; `choices`: merge conflict ids the organiser resolved to the export.
+ */
 export function planImport(input: {
   league: LeagueRecord;
   stored: SeasonRecord[];
@@ -295,60 +338,66 @@ export function planImport(input: {
   upload: UploadSeason[];
   profiles: TourplayProfile[];
   decisions: Record<string, string | null>;
+  choices?: readonly string[];
   by: string;
   now: Date;
 }): ImportPlan {
   const { league, stored, file, upload, profiles, now } = input;
+  const choices = new Set(input.choices ?? []);
   const problems: string[] = [];
-  // Seasons: an earlier upload of the same slug is updated; else the slug's season number, else the next free number.
+  const seasonsOnly = stored.filter((s) => s.competition !== "ladder");
+  // Seasons: an earlier upload of the same slug is updated (merged); else the slug's season number when it is free (or
+  // the wizard's untouched Season 1), else the next free number. A season made here is never replaced.
   const ordered = upload.map((u, i) => ({ u, i, n: seasonNumberFromSlug(u.files.slug) })).sort((a, b) => (a.n ?? 1e9) - (b.n ?? 1e9) || a.i - b.i);
-  const taken = new Set(stored.filter((s) => s.competition !== "ladder").map((s) => s.number));
   const seasons: PlannedSeason[] = [];
   const seenSlug = new Set<string>();
+  const usedNumbers = (): Set<number> => new Set([...seasonsOnly.filter((s) => !(untouchedFirstSeason(s, league) && seasons.some((p) => p.removes.includes(s.id) || p.id === s.id))).map((s) => s.number), ...seasons.map((s) => s.number)]);
+  const idTaken = (id: string): boolean => stored.some((s) => s.id === id) || seasons.some((s) => s.id === id);
+  const nextFree = (): number => { const used = usedNumbers(); let n = 1; while (used.has(n) || idTaken(`season-${n}`)) n += 1; return n; };
   for (const { u, i, n } of ordered) {
     const slug = u.files.slug;
-    const prior = stored.find((s) => s.sourceSlug === slug);
-    let number = prior?.number ?? n;
-    if (number === undefined) { number = Math.max(0, ...taken, ...seasons.map((s) => s.number)) + 1; }
-    const id = prior?.id ?? `season-${number}`;
-    const plan: PlannedSeason = { index: i, folder: u.folder, slug, number, id, action: prior ? "update" : "new", removes: [], ...(prior ? { prior } : {}) };
+    const prior = stored.find((s) => s.sourceSlug === slug && s.source === "tourplay-export" && s.competition !== "ladder");
+    const plan: PlannedSeason = { index: i, folder: u.folder, slug, number: 0, id: "", action: prior ? "update" : "new", removes: [], derivedTeams: [], ...(prior ? { prior } : {}) };
     if (seenSlug.has(slug.toLowerCase())) plan.problem = `The export ${slug} is in the upload twice.`;
-    else if (seasons.some((s) => s.number === number)) plan.problem = `Two exports in the upload are Season ${number}.`;
-    else if (prior && prior.source !== "tourplay-export") plan.problem = `${prior.name} was not imported from TourPlay, so the export ${slug} cannot update it.`;
-    else if (prior && prior.competition === "ladder") plan.problem = `${slug} names a ladder.`;
+    seenSlug.add(slug.toLowerCase());
+    if (prior) { plan.number = prior.number; plan.id = prior.id; }
     else {
-      const clashes = stored.filter((s) => s !== prior && (s.id === id || (s.competition !== "ladder" && s.number === number)));
-      if (clashes.some((s) => !emptySeason(s) || s.competition === "ladder")) {
-        plan.problem = `Season ${number} already exists in this league with teams or fixtures, and was not imported from this export.`;
-      } else if (clashes.length) {
-        plan.action = "replace-empty";
-        plan.removes = clashes.map((s) => s.id).filter((x) => x !== id);
+      const wanted = n ?? nextFree();
+      const holders = stored.filter((s) => s.id === `season-${wanted}` || (s.competition !== "ladder" && s.number === wanted));
+      const free = !seasons.some((s) => s.number === wanted) && holders.every((s) => untouchedFirstSeason(s, league));
+      if (free) {
+        plan.number = wanted;
+        plan.id = `season-${wanted}`;
+        if (holders.length) { plan.action = "replace-empty"; plan.removes = holders.map((s) => s.id).filter((x) => x !== plan.id); }
+      } else {
+        plan.number = nextFree();
+        plan.id = `season-${plan.number}`;
+        if (n !== undefined) plan.renumbered = { from: n };
       }
     }
-    seenSlug.add(slug.toLowerCase());
     seasons.push(plan);
   }
   for (const s of seasons) if (s.problem) problems.push(s.problem);
 
-  // Coaches: exact matches, then the organiser's decisions (this request, else remembered) win.
+  // Coaches: matches are only proposals; what links is the organiser's decision (this request, else remembered).
   const coachesRaw = collectImportCoaches(upload);
-  const skip = new Set(seasons.flatMap((s) => [s.id, ...(s.prior ? [s.prior.id] : []), ...s.removes]));
+  const skip = new Set(seasons.flatMap((s) => [s.id, ...s.removes]));
   const history = teamHistory(stored, skip);
   const live = profiles.filter((p) => !p.banned);
   const coaches: PlannedCoach[] = coachesRaw.map((coach) => {
     const match = exactMatch(coach, profiles);
     const asked = Object.prototype.hasOwnProperty.call(input.decisions, coach.id) ? input.decisions[coach.id] : undefined;
-    const remembered = file.coaches[coach.key]?.decision;
+    const remembered = file.coaches[coach.key]?.obsolete ? undefined : file.coaches[coach.key]?.decision;
     let decision: TourplayCoachRecord["decision"] | undefined = remembered;
     if (asked !== undefined) {
       const account = asked === null ? null : live.find((p) => sameCoach(p.coach, asked))?.coach;
       if (account === undefined) problems.push(`No site coach called "${String(asked).slice(0, 64)}" (for ${coach.name}).`);
       else decision = { coachId: account, by: input.by, at: now.toISOString(), via: "organiser" };
     }
-    const coachId = decision ? decision.coachId ?? undefined : match.status === "matched" ? match.coachId : undefined;
-    const teams = [...new Set([...coach.teams.values()].flatMap((s) => [...s]))];
-    const suggestions = !decision && match.status !== "matched" ? suggestCoaches({ name: coach.name, ...(coach.nafUser ? { nafUser: coach.nafUser } : {}), teams }, profiles, history, match.candidates) : [];
-    return { coach, match, ...(coachId ? { coachId } : {}), ...(decision ? { decision } : {}), suggestions };
+    const coachId = decision?.coachId ?? undefined;
+    const teams = [...new Set([...coach.teams.values()].flatMap((x) => [...x]))];
+    const suggestions = !decision ? suggestCoaches({ name: coach.name, ...(coach.nafUser ? { nafUser: coach.nafUser } : {}), teams }, profiles, history, match.candidates) : [];
+    return { coach, match, ...(coachId ? { coachId } : {}), ...(decision ? { decision } : {}), asked: asked !== undefined && decision !== remembered, suggestions };
   });
   for (const id of Object.keys(input.decisions)) if (!coaches.some((c) => c.coach.id === id)) problems.push("A decision names a coach row that is not in this upload.");
 
@@ -356,7 +405,7 @@ export function planImport(input: {
   const byName = new Map<string, PlannedCoach[]>();
   for (const c of coaches) {
     if (c.coach.key.startsWith("naf:")) byNaf.set(c.coach.key, c);
-    for (const n of c.coach.names) byName.set(n, [...(byName.get(n) ?? []), c]);
+    for (const nm of c.coach.names) byName.set(nm, [...(byName.get(nm) ?? []), c]);
   }
   const mapCoach: CoachMapper = (coach, nafUser) => {
     if (nafUser?.trim()) return byNaf.get(`naf:${nafUser.trim().toLowerCase()}`)?.coachId;
@@ -364,7 +413,7 @@ export function planImport(input: {
     return hits.length === 1 ? hits[0]!.coachId : undefined;
   };
 
-  const newestStored = Math.max(0, ...stored.filter((s) => !skip.has(s.id) && s.competition !== "ladder").map((s) => s.number));
+  const newestStored = Math.max(0, ...seasonsOnly.filter((s) => !skip.has(s.id)).map((s) => s.number));
   const newestUpload = Math.max(0, ...seasons.filter((s) => !s.problem).map((s) => s.number));
   for (const s of seasons) {
     if (s.problem) continue;
@@ -372,14 +421,24 @@ export function planImport(input: {
     try {
       const built = buildSeason({ leagueId: league.id, number: s.number, files, mapCoach, now });
       built.season.id = s.id;
-      if (s.prior) built.season.name = s.prior.name;
+      s.derivedTeams = deriveMissingTeams(built.season);
       const champion = built.season.awards.some((a) => a.type === "Overall Champion");
-      built.season.status = s.prior?.status === "completed" || champion || s.number !== newestUpload || newestStored > newestUpload ? "completed" : "active";
+      built.season.status = champion || s.number !== newestUpload || newestStored > newestUpload ? "completed" : "active";
       s.built = built;
+      if (s.prior) {
+        s.merge = mergeSeason(s.prior, built.season, file.snapshots?.[s.prior.id], choices, s.slug);
+        if (s.prior.status === "completed") s.merge.season.status = "completed";
+      }
     } catch (err) {
       s.problem = `${s.slug}: ${err instanceof Error ? err.message : "the export could not be read"}`;
       problems.push(s.problem);
     }
+  }
+  // A decision for a coach with no team in this upload (no roster, nothing to derive) cannot be applied.
+  for (const c of coaches) {
+    if (!c.asked || !c.decision?.coachId) continue;
+    const anyTeam = seasons.some((s) => (s.merge?.season ?? s.built?.season)?.teams.some((t) => teamOf(c.coach, t)));
+    if (!anyTeam) problems.push(`${c.coach.name} has no team in the export to link (upload the roster files).`);
   }
   return { seasons, coaches, problems, file };
 }
@@ -392,33 +451,41 @@ function teamOf(c: ImportCoach, t: LeagueTeam): boolean {
   return c.names.has(nameKey(t.coach));
 }
 
-/** The preview the SPA shows before Apply. NAF numbers appear only as "on file". */
+/** The preview the SPA shows before Apply. NAF numbers appear only as "on file". Every row shows its match basis. */
 export function previewView(plan: ImportPlan) {
   const coaches = plan.coaches.map((c) => ({
     id: c.coach.id,
     name: c.coach.name,
     ...(c.coach.nafUser ? { nafUser: c.coach.nafUser } : {}),
     hasNafNumber: c.coach.nafNumbers.size > 0,
-    teams: [...new Set([...c.coach.teams.values()].flatMap((s) => [...s]))].sort(),
+    teams: [...new Set([...c.coach.teams.values()].flatMap((x) => [...x]))].sort(),
     seasons: [...c.coach.teams.keys()].map((i) => plan.seasons.find((s) => s.index === i)?.number).filter((n): n is number => n !== undefined).sort((a, b) => a - b),
     status: c.match.status,
-    ...(c.match.basis ? { basis: c.match.basis } : {}),
-    ...(c.match.coachId ? { matchedCoach: c.match.coachId } : {}),
+    basis: c.match.basis ?? "none",
+    ...(c.match.coachId ? { proposed: c.match.coachId } : {}),
     ...(c.match.candidates && (c.match.candidates.byName.length || c.match.candidates.byNumber.length) ? { candidates: c.match.candidates } : {}),
     ...(c.match.reason ? { reason: c.match.reason } : {}),
     ...(c.coachId ? { coachId: c.coachId } : {}),
     ...(c.decision ? { decision: { coachId: c.decision.coachId, via: c.decision.via } } : {}),
+    confirmed: Boolean(c.decision),
     suggestions: c.suggestions,
   }));
-  const counts = { matched: 0, unmatched: 0, ambiguous: 0, conflict: 0, linked: 0 };
-  for (const c of plan.coaches) { counts[c.match.status] += 1; if (c.coachId) counts.linked += 1; }
+  const counts = { matched: 0, unmatched: 0, ambiguous: 0, conflict: 0, linked: 0, proposed: 0 };
+  for (const c of plan.coaches) {
+    counts[c.match.status] += 1;
+    if (c.coachId) counts.linked += 1;
+    else if (!c.decision && c.match.status === "matched") counts.proposed += 1;
+  }
   return {
     seasons: plan.seasons.map((s) => {
-      const season = s.built?.season;
+      const season = s.merge?.season ?? s.built?.season;
       return {
         folder: s.folder, slug: s.slug, number: s.number, id: s.id, action: s.action,
+        ...(s.renumbered ? { renumbered: s.renumbered } : {}),
         ...(s.problem ? { problem: s.problem } : {}),
         ...(s.removes.length ? { removes: s.removes } : {}),
+        ...(s.derivedTeams.length ? { derivedTeams: s.derivedTeams } : {}),
+        ...(s.merge ? { merge: s.merge.counts, conflicts: s.merge.conflicts } : {}),
         ...(season ? {
           name: season.name, ruleset: season.ruleset, status: season.status,
           teams: season.teams.length, players: season.teams.reduce((n, t) => n + t.players.length, 0),
@@ -436,47 +503,79 @@ export function previewView(plan: ImportPlan) {
   };
 }
 
-/** Writes the plan: seasons through the store (assignments, flags and extra fields carried), then the private record. */
+/**
+ * Writes the plan: new seasons as built, re-imported seasons merged (tourplayMerge.ts), the organiser's assignments
+ * carried, then every decision applied through teamCoach (this request's last, so it wins), then the private record.
+ */
 export function applyPlan(plan: ImportPlan, deps: Pick<LeagueApiDeps, "store">, league: LeagueRecord, by: string, now: Date) {
   const { store } = deps;
   const ready = plan.seasons.filter((s) => s.built);
+  const at = now.toISOString();
+  const target = (s: PlannedSeason): SeasonRecord => s.merge?.season ?? s.built!.season;
+  for (const s of ready) {
+    const season = target(s);
+    if (s.prior) {
+      // Participant rows are the export's again: put back their flags and the organiser's seats (teams kept theirs).
+      carryParticipantFlags(s.prior, season);
+      for (const t of season.teams) {
+        const mark = t.coachAssigned;
+        if (!mark) continue;
+        applyTeamCoach(season, t.id, mark.cleared ? null : t.coachId ?? null, mark.by, mark.at, false);
+        t.coachAssigned = { ...mark };
+      }
+      refreshTeamValues(season, undefined, { fillStoredValues: true, now });
+    }
+    // Decisions: remembered ones first (no log), this request's last (logged); each seats the row's teams via teamCoach.
+    for (const pass of [false, true]) {
+      for (const c of plan.coaches) {
+        if (!c.decision || c.asked !== pass) continue;
+        for (const t of season.teams.filter((x) => teamOf(c.coach, x))) {
+          const already = t.coachAssigned && !t.coachAssigned.cleared ? t.coachId : t.coachAssigned?.cleared ? null : undefined;
+          if (!pass && already !== undefined) continue; // a seat the organiser set since is newer than a remembered decision
+          applyTeamCoach(season, t.id, c.decision.coachId, c.decision.by, pass ? at : c.decision.at, pass);
+        }
+      }
+    }
+  }
   const replacedIds = new Set(ready.flatMap((s) => [...(s.prior ? [s.prior.id] : []), ...s.removes, s.id]));
-  const others = store.seasons(league.id).filter((s) => !replacedIds.has(s.id));
-  const fresh = ready.map((s) => s.built!.season);
+  const others = store.seasons(league.id).filter((x) => !replacedIds.has(x.id));
+  const fresh = ready.map(target);
   linkPlayerCareers([...others, ...fresh]);
   assertUniquePlayerIds([...others, ...fresh]);
-  const at = now.toISOString();
-  const results: Array<{ id: string; number: number; slug: string; action: string; coachAssignmentsKept: number }> = [];
+  const results: Array<{ id: string; number: number; slug: string; action: string; conflictsKept: number }> = [];
   for (const s of ready) {
-    const season = s.built!.season;
-    const prior = s.prior ?? store.season(league.id, s.id);
-    const kept = prior && prior.source === "tourplay-export" ? carryCoachAssignments(prior, season) : [];
-    if (prior && prior.source === "tourplay-export") {
-      carryParticipantFlags(prior, season);
-      // Season fields the export does not produce (news, registration, stage, podium, deadlines, ...) stay as they were.
-      const target = season as unknown as Record<string, unknown>;
-      for (const [k, v] of Object.entries(prior)) if (!(k in target) && k !== "revision") target[k] = v;
-    }
     for (const gone of s.removes) store.removeSeason(league.id, gone);
-    store.putSeason(season);
-    results.push({ id: season.id, number: season.number, slug: s.slug, action: s.action, coachAssignmentsKept: kept.length });
+    store.putSeason(target(s));
+    results.push({ id: s.id, number: s.number, slug: s.slug, action: s.action, conflictsKept: s.merge?.conflicts.length ?? 0 });
   }
 
-  // The private record: one row per TourPlay coach (rows of seasons outside this upload keep their other seasons).
+  // The private record: one row per TourPlay coach; rows of this upload's seasons that the export no longer names lose
+  // those seasons, and a row left with none is obsolete (not claimable or assignable).
   const file: TourplayImportFile = store.tourplayImport(league.id);
-  const uploaded = new Set(fresh.map((s) => s.id));
+  const uploaded = new Set(fresh.map((x) => x.id));
+  const inUpload = new Set(plan.coaches.map((c) => c.coach.key));
+  for (const [key, rec] of Object.entries(file.coaches)) {
+    if (inUpload.has(key)) continue;
+    const kept = rec.seasons.filter((x) => !uploaded.has(x.seasonId));
+    if (kept.length === rec.seasons.length) continue;
+    rec.seasons = kept;
+    if (!kept.length) {
+      rec.obsolete = true;
+      for (const cl of file.claims) if (cl.row === rec.id && cl.state === "pending") { cl.state = "declined"; cl.decidedBy = by; cl.decidedAt = at; }
+    }
+  }
   for (const c of plan.coaches) {
     const prev = file.coaches[c.coach.key];
     const seasons = [
       ...(prev?.seasons ?? []).filter((x) => !uploaded.has(x.seasonId)),
       ...ready.filter((s) => c.coach.teams.has(s.index)).map((s) => {
-        const season = s.built!.season;
+        const season = target(s);
         const teams = season.teams.filter((t) => teamOf(c.coach, t));
         return { seasonId: season.id, number: season.number, teamIds: teams.map((t) => t.id), teams: teams.map((t) => t.name) };
       }),
     ].sort((a, b) => a.number - b.number);
     const numbers = [...c.coach.nafNumbers];
-    const rec: TourplayCoachRecord = {
+    file.coaches[c.coach.key] = {
       id: c.coach.id, key: c.coach.key, name: c.coach.name,
       ...(c.coach.nafUser ? { nafUser: c.coach.nafUser } : {}),
       ...(numbers[0] ? { nafNumber: numbers[0] } : prev?.nafNumber ? { nafNumber: prev.nafNumber } : {}),
@@ -488,11 +587,15 @@ export function applyPlan(plan: ImportPlan, deps: Pick<LeagueApiDeps, "store">, 
       ...(c.match.reason ? { reason: c.match.reason } : {}),
       ...(c.decision ? { decision: c.decision } : {}),
     };
-    file.coaches[c.coach.key] = rec;
+  }
+  file.snapshots = { ...(file.snapshots ?? {}) };
+  for (const s of ready) {
+    for (const gone of s.removes) delete file.snapshots[gone];
+    file.snapshots[s.id] = s.merge?.snapshot ?? snapshotOf(s.built!.season);
   }
   file.imports = [{ at, by, seasons: results.map((r) => ({ id: r.id, slug: r.slug, number: r.number, action: r.action })) }, ...file.imports].slice(0, 20);
   store.putTourplayImport(league.id, file);
-  const counts = { linked: plan.coaches.filter((c) => c.coachId).length, review: plan.coaches.filter((c) => !c.coachId && !c.decision).length };
+  const counts = { linked: plan.coaches.filter((c) => c.coachId).length, review: plan.coaches.filter((c) => !c.decision).length };
   return { seasons: results, counts };
 }
 
@@ -517,14 +620,24 @@ export function teamAssigned(r: TourplayCoachRecord, seasons: readonly SeasonRec
 }
 
 /** A row still waiting for the organiser: no decision, no exact match and no account seated on its teams. */
-export const needsReview = (r: TourplayCoachRecord, seasons: readonly SeasonRecord[] = []): boolean => !r.decision && r.status !== "matched" && !teamAssigned(r, seasons);
+/** Every row needs the organiser (matches are only proposals) until decided, seated on the Teams tab, or obsolete. */
+export const needsReview = (r: TourplayCoachRecord, seasons: readonly SeasonRecord[] = []): boolean => !r.obsolete && !r.decision && !teamAssigned(r, seasons);
+
+/** The row's teams that still exist in the stored seasons (all its seasons, or only the newest). */
+export function rowTeams(r: TourplayCoachRecord, seasons: readonly SeasonRecord[], allSeasons = true): Array<{ seasonId: string; teamIds: string[] }> {
+  const wanted = allSeasons ? r.seasons : r.seasons.slice().sort((a, b) => b.number - a.number).slice(0, 1);
+  return wanted.map((w) => {
+    const season = seasons.find((x) => x.id === w.seasonId);
+    return { seasonId: w.seasonId, teamIds: season ? w.teamIds.filter((id) => season.teams.some((t) => t.id === id)) : [] };
+  }).filter((x) => x.teamIds.length);
+}
 
 /** The organiser's review list. The NAF number shows only on a row linked to a site coach (law 23). */
 export function reviewView(file: TourplayImportFile, profiles: readonly TourplayProfile[], seasons: readonly SeasonRecord[]) {
   const history = teamHistory(seasons, new Set());
   const rows = Object.values(file.coaches).map((r) => {
     const assigned = teamAssigned(r, seasons);
-    const linked = r.decision ? r.decision.coachId ?? undefined : r.coachId ?? assigned;
+    const linked = r.obsolete ? undefined : r.decision ? r.decision.coachId ?? undefined : assigned;
     const open = needsReview(r, seasons);
     const teams = [...new Set(r.seasons.flatMap((s) => s.teams))];
     // "the same team name earlier" excludes the rows' own seasons
@@ -537,12 +650,13 @@ export function reviewView(file: TourplayImportFile, profiles: readonly Tourplay
       ...(linked && r.nafNumber ? { nafNumber: r.nafNumber } : {}),
       seasons: r.seasons.map((s) => ({ seasonId: s.seasonId, number: s.number, teams: s.teams })),
       status: r.status,
-      ...(r.basis ? { basis: r.basis } : {}),
+      basis: r.basis ?? "none",
       ...(linked ? { coachId: linked } : {}),
+      ...(r.obsolete ? { obsolete: true } : {}),
       ...(r.candidates ? { candidates: r.candidates } : {}),
       ...(r.reason ? { reason: r.reason } : {}),
       ...(r.decision ? { decision: { coachId: r.decision.coachId, by: r.decision.by, at: r.decision.at, via: r.decision.via } } : {}),
-      ...(assigned && !r.decision && !r.coachId ? { assignedOnTeams: true } : {}),
+      ...(assigned && !r.decision ? { assignedOnTeams: true } : {}),
       needsReview: open,
       suggestions: open ? suggestCoaches({ name: r.name, ...(r.nafUser ? { nafUser: r.nafUser } : {}), teams }, profiles, hist, r.candidates) : [],
       claims: file.claims.filter((c) => c.row === r.id && c.state === "pending").map((c) => ({ id: c.id, coach: c.coach, at: c.at })),
@@ -591,6 +705,12 @@ function parseDecisions(raw: unknown): Record<string, string | null> {
     else throw new UploadError("Each decision is a coach name, or null for no account.");
   }
   return out;
+}
+
+function parseChoices(raw: unknown): string[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw) || raw.length > 5000 || raw.some((x) => typeof x !== "string" || !/^cf[a-f0-9]{12}$/.test(x))) throw new UploadError("choices must be a list of conflict ids.");
+  return raw as string[];
 }
 
 const parseAllSeasons = (v: unknown): boolean | undefined => (v === undefined ? true : typeof v === "boolean" ? v : undefined);
@@ -740,9 +860,11 @@ export async function tourplayImportRoutes(
     if (!body.ok) return res(body.status, { error: body.status === 413 ? "The upload is too large (zip at most 8 MB)." : body.error }, body.close ? { close: true } : {});
     let upload: UploadSeason[];
     let decisions: Record<string, string | null>;
+    let choices: string[];
     try {
       upload = uploadSeasons(uploadEntries(body.value));
       decisions = parseDecisions(body.value.decisions);
+      choices = parseChoices(body.value.choices);
     } catch (e) {
       if (e instanceof UploadError) return fail(e.status, e.message);
       throw e;
@@ -750,7 +872,7 @@ export async function tourplayImportRoutes(
     const run = async (): Promise<LeagueApiResult> => {
       let file: TourplayImportFile;
       try { file = deps.store.tourplayImport(league.id); } catch (e) { return fail(e instanceof LeagueStoreError ? e.status : 500, "The import record could not be read."); }
-      const plan = planImport({ league, stored: deps.store.seasons(league.id).concat(deps.store.ladders(league.id)), file, upload, profiles: profilesOf(deps), decisions, by: auth.coach, now });
+      const plan = planImport({ league, stored: deps.store.seasons(league.id).concat(deps.store.ladders(league.id)), file, upload, profiles: profilesOf(deps), decisions, choices, by: auth.coach, now });
       const preview = previewView(plan);
       if (second === "preview") return res(200, preview);
       if (!preview.canApply) return res(409, { error: plan.problems[0] ?? "Nothing to import.", preview });
@@ -783,6 +905,8 @@ export async function tourplayImportRoutes(
       const file = deps.store.tourplayImport(league.id);
       const row = Object.values(file.coaches).find((r) => r.id === third);
       if (!row) return fail(404, "Coach row not found.");
+      if (row.obsolete) return fail(409, `${row.name} is no longer in the latest export.`);
+      if (!rowTeams(row, deps.store.seasons(league.id), allSeasons).length) return fail(409, `No team of ${row.name} was found in the imported seasons. Upload the export with its roster files, then link the coach.`);
       const done = await assignRow(league, row, coachId, allSeasons, auth.coach, deps, now);
       if (!done.ok) return done.result;
       const latest = deps.store.tourplayImport(league.id);
@@ -820,6 +944,8 @@ export async function tourplayImportRoutes(
       if (!row) return fail(404, "The claimed name is no longer in the import.");
       const account = lookupCoach(deps, claim.coach);
       if (!account) return fail(409, "The claiming coach no longer has an account.");
+      if (row.obsolete) return fail(409, `${row.name} is no longer in the latest export.`);
+      if (!rowTeams(row, deps.store.seasons(league.id), allSeasons).length) return fail(409, `No team of ${row.name} was found in the imported seasons. Upload the export with its roster files, then approve.`);
       const done = await assignRow(league, row, account, allSeasons, auth.coach, deps, now);
       if (!done.ok) return done.result;
       const latest = deps.store.tourplayImport(league.id);

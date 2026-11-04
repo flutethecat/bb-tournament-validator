@@ -9,7 +9,7 @@
  * "/"-separated, and absolute paths, drive letters, "..", "." and NUL refuse the upload; duplicate paths refuse it; at most
  * UPLOAD_MAX_FILES files, UPLOAD_MAX_FILE_BYTES each and UPLOAD_MAX_TOTAL_BYTES in all. The zip reader understands stored
  * and deflated entries only (no zip64, no encryption), inflates each entry with an output cap equal to its declared size
- * (a zip bomb stops at the cap), and checks the result is exactly that size.
+ * (a zip bomb stops at the cap), and checks the result is exactly that size and its CRC-32 matches.
  *
  * Seasons: every folder holding a `*-fixtures.csv` is one season export (tourplay.ts tourplayFilesFrom); its files are the
  * ones under that folder that no deeper season folder claims.
@@ -51,6 +51,18 @@ export function safeUploadPath(raw: string): string {
 
 const decode = (b: Buffer): string => new TextDecoder("utf-8").decode(b);
 
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n += 1) { let c = n; for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; }
+  return t;
+})();
+/** CRC-32 (zip / IEEE 802.3). */
+export function crc32(b: Uint8Array): number {
+  let c = 0xffffffff;
+  for (let i = 0; i < b.length; i += 1) c = CRC_TABLE[(c ^ b[i]!) & 0xff]! ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
 /**
  * The .csv files of a zip held in memory. Throws UploadError for anything unsafe or unsupported; never touches the disk.
  */
@@ -77,6 +89,7 @@ export function unzipCsv(zip: Buffer): TourplayEntry[] {
     if (p + 46 > eocd || zip.readUInt32LE(p) !== 0x02014b50) throw new UploadError("The zip is damaged (entry list).");
     const flags = zip.readUInt16LE(p + 8);
     const method = zip.readUInt16LE(p + 10);
+    const crc = zip.readUInt32LE(p + 16);
     const compSize = zip.readUInt32LE(p + 20);
     const size = zip.readUInt32LE(p + 24);
     const nameLen = zip.readUInt16LE(p + 28);
@@ -114,6 +127,7 @@ export function unzipCsv(zip: Buffer): TourplayEntry[] {
       }
       if (bytes.length !== size) throw new UploadError(`"${path}" could not be unpacked (its size does not match).`);
     }
+    if (crc32(bytes) !== crc) throw new UploadError(`"${path}" is damaged (its checksum does not match). Zip the export again.`);
     out.push({ path, text: decode(bytes) });
   }
   return out;

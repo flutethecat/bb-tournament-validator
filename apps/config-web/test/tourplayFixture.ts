@@ -15,14 +15,16 @@ export const NAF_NUMBERS = { morgan: "70001", quinn: "70002", riley: "70003" } a
 
 export const SLUG = "valley-bowl-season-1-0001";
 
-export function seasonFiles(slug = SLUG, opts: { quinnTeam?: string; extraRound?: boolean } = {}): Record<string, string> {
+export function seasonFiles(slug = SLUG, opts: { quinnTeam?: string; extraRound?: boolean; round3?: "unplayed" | "1-0"; round1Score?: string; noRosters?: boolean; extraParticipant?: boolean } = {}): Record<string, string> {
   const quinnTeam = opts.quinnTeam ?? "Quarry Quakers";
   const fixtures = crlf([
     FIX_HEAD,
-    `Season;Regular;;1;1;Moss Marauders;${quinnTeam};Morgan Example;Quinn Sample;Orc;Dwarf;morganx;quinns;2;1;1;0;;;;2026-09-01T18:00:00Z;2026-09-01T20:00:00Z`,
+    `Season;Regular;;1;1;Moss Marauders;${quinnTeam};Morgan Example;Quinn Sample;Orc;Dwarf;morganx;quinns;${opts.round1Score ?? "2;1"};1;0;;;;2026-09-01T18:00:00Z;2026-09-01T20:00:00Z`,
     "Season;Regular;;1;2;Rapid Rascals;Cobble Crushers;Riley Test;Casey Demo;Skaven;Human;rileyt;caseyd;1;1;0;2;;;;2026-09-01T18:00:00Z;2026-09-01T20:00:00Z",
     `Season;Regular;;2;1;Moss Marauders;Rapid Rascals;Morgan Example;Riley Test;Orc;Skaven;morganx;rileyt;0;0;0;0;True;;;2026-09-08T18:00:00Z;2026-09-08T18:00:00Z`,
     `Season;Regular;;2;2;Cobble Crushers;Ashen Avengers;Casey Demo;Avery Placeholder;Human;Undead;caseyd;;3;0;0;1;;;;2026-09-08T18:00:00Z;2026-09-08T20:00:00Z`,
+    ...(opts.round3 === "unplayed" ? [`Season;Regular;;3;1;${quinnTeam};Ashen Avengers;Quinn Sample;Avery Placeholder;Dwarf;Undead;quinns;;;;;;;;;;;`] : []),
+    ...(opts.round3 === "1-0" ? [`Season;Regular;;3;1;${quinnTeam};Ashen Avengers;Quinn Sample;Avery Placeholder;Dwarf;Undead;quinns;;1;0;0;0;;;;2026-09-15T18:00:00Z;2026-09-15T20:00:00Z`] : []),
     ...(opts.extraRound ? [`Season;Regular;;3;1;${quinnTeam};Ashen Avengers;Quinn Sample;Avery Placeholder;Dwarf;Undead;quinns;;1;0;0;0;;;;2026-09-15T18:00:00Z;2026-09-15T20:00:00Z`] : []),
   ]);
   const participants = crlf([
@@ -32,6 +34,7 @@ export function seasonFiles(slug = SLUG, opts: { quinnTeam?: string; extraRound?
     `Riley Test;CA;Skaven;Rapid Rascals;2026-08-21T10:00:00Z;True;True;False;${NAF_NUMBERS.riley};rileyt;;;BB2025;late roster`,
     "Casey Demo;US;Human;Cobble Crushers;2026-08-21T10:00:00Z;True;True;True;;caseyd;;;BB2025;",
     "Avery Placeholder;US;Undead;Ashen Avengers;2026-08-22T10:00:00Z;True;True;True;;;;;BB2025;",
+    ...(opts.extraParticipant ? ["Jordan Benchwarmer;US;Elf;;2026-08-22T10:00:00Z;True;True;True;70009;jordanb;;;BB2025;"] : []),
   ]);
   const standings = crlf([
     STAND_HEAD,
@@ -51,10 +54,14 @@ export function seasonFiles(slug = SLUG, opts: { quinnTeam?: string; extraRound?
     " ",
     "Inducement;Quantity;Value",
   ]);
-  return {
+  const core = {
     [`${slug}-fixtures.csv`]: fixtures,
     [`${slug}-participants.csv`]: participants,
     [`${slug}-season-regular-standings.csv`]: standings,
+  };
+  if (opts.noRosters) return core;
+  return {
+    ...core,
     "Moss Marauders-Orc-Morgan Example-roster.csv": roster("Moss Marauders", "Orc", "Morgan Example", "morganx", "Grub Mossfoot", "Blitzer"),
     [`${quinnTeam}-Dwarf-Quinn Sample-roster.csv`]: roster(quinnTeam, "Dwarf", "Quinn Sample", "quinns", "Borin Pebble", "Blocker"),
     "Rapid Rascals-Skaven-Riley Test-roster.csv": roster("Rapid Rascals", "Skaven", "Riley Test", "rileyt", "Skitter Quick", "Gutter Runner"),
@@ -82,7 +89,7 @@ const crcTable = (() => {
 const crc32 = (b: Buffer): number => { let c = 0xffffffff; for (const x of b) c = crcTable[(c ^ x) & 0xff]! ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
 
 /** A deflated zip in memory. `lie` overrides an entry's declared uncompressed size (zip-bomb tests). */
-export function deflateZip(files: Record<string, string | Buffer>, opts: { lie?: Record<string, number>; store?: boolean } = {}): Buffer {
+export function deflateZip(files: Record<string, string | Buffer>, opts: { lie?: Record<string, number>; store?: boolean; badCrc?: string } = {}): Buffer {
   const locals: Buffer[] = [];
   const centrals: Buffer[] = [];
   let offset = 0;
@@ -92,7 +99,7 @@ export function deflateZip(files: Record<string, string | Buffer>, opts: { lie?:
     const data = opts.store ? raw : deflateRawSync(raw);
     const method = opts.store ? 0 : 8;
     const size = opts.lie?.[name] ?? raw.length;
-    const crc = crc32(raw);
+    const crc = opts.badCrc === name ? (crc32(raw) ^ 1) >>> 0 : crc32(raw);
     const local = Buffer.alloc(30);
     local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(20, 4); local.writeUInt16LE(0x0800, 6); local.writeUInt16LE(method, 8);
     local.writeUInt32LE(crc, 14); local.writeUInt32LE(data.length, 18); local.writeUInt32LE(size, 22); local.writeUInt16LE(nameBuf.length, 26);

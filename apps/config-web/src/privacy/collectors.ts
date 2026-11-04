@@ -968,8 +968,9 @@ function tourplayImportExport(keys: ReadonlySet<string>, file: Obj | undefined):
 }
 
 /**
- * The TourPlay import record (private, lane L8): a row linked to the coach is erased (TourPlay name, NAF user and NAF
- * number: private data, not public history); the coach's pending claims go and decided ones keep the pseudonym; their name
+ * The TourPlay import record (private, lane L8): a row linked to the coach (its account link or the decided coach, also
+ * one set on the Teams tab) is erased (TourPlay name, NAF user and NAF number: private data, not public history) with the
+ * league's re-import snapshots; the coach's pending claims go and decided ones keep the pseudonym; their name
  * as a candidate, a decision's organiser, a claim's decider or an importer becomes the pseudonym or is removed.
  */
 function anonymiseTourplayImport(an: Anonymiser, f: Obj): boolean {
@@ -978,7 +979,13 @@ function anonymiseTourplayImport(an: Anonymiser, f: Obj): boolean {
   for (const [key, r] of Object.entries(coaches)) {
     if (!isObj(r)) continue;
     const decision = isObj(r.decision) ? (r.decision as Obj) : undefined;
-    if (an.matches(r.coachId) || an.matches(decision?.coachId)) { delete coaches[key]; changed = true; continue; }
+    if (an.matches(r.coachId) || an.matches(decision?.coachId)) {
+      delete coaches[key];
+      // the re-import snapshots hold the export's names too: dropped (the next re-import treats every difference as a conflict)
+      delete f.snapshots;
+      changed = true;
+      continue;
+    }
     if (isObj(r.candidates)) for (const k of ["byName", "byNumber"]) {
       const list = (r.candidates as Obj)[k];
       if (Array.isArray(list) && list.some((x) => an.matches(x))) { (r.candidates as Obj)[k] = list.filter((x) => !an.matches(x)); changed = true; }

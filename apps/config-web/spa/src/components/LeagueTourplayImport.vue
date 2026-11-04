@@ -31,18 +31,19 @@ const seasonsReady = computed(() => preview.value?.seasons.filter((s) => !s.prob
 const applyLabel = computed(() => (seasonsReady.value === 1 ? `Import ${preview.value?.seasons.find((s) => !s.problem)?.name ?? "season"}` : `Import ${seasonsReady.value} seasons`));
 const coachCaption = computed(() => {
   const c = preview.value?.counts;
-  return c ? `${c.linked} linked · ${c.unmatched + c.ambiguous + c.conflict} to review` : "";
+  return c ? `${c.linked} confirmed · ${c.proposed} proposed · ${c.unmatched + c.ambiguous + c.conflict} without a match` : "";
 });
+const unconfirmed = computed(() => preview.value?.coaches.filter((c) => c.status === "matched" && c.proposed && !c.confirmed).length ?? 0);
 
 /** The account a preview row will get, and the choices its picker offers. */
 const pickValue = (c: PreviewCoach): string => (Object.prototype.hasOwnProperty.call(state.decisions, c.id) ? (state.decisions[c.id] === null ? "__none__" : state.decisions[c.id]!) : "");
-const choices = (c: { matchedCoach?: string; coachId?: string; candidates?: { byName: string[]; byNumber: string[] }; suggestions: Array<{ coach: string }> }): string[] =>
-  [...new Set([c.matchedCoach, c.coachId, ...(c.candidates?.byNumber ?? []), ...(c.candidates?.byName ?? []), ...c.suggestions.map((s) => s.coach)].filter((x): x is string => Boolean(x)))];
+const choices = (c: { proposed?: string; coachId?: string; candidates?: { byName: string[]; byNumber: string[] }; suggestions: Array<{ coach: string }> }): string[] =>
+  [...new Set([c.proposed, c.coachId, ...(c.candidates?.byNumber ?? []), ...(c.candidates?.byName ?? []), ...c.suggestions.map((s) => s.coach)].filter((x): x is string => Boolean(x)))];
 const onChoice = (c: PreviewCoach, e: Event): void => {
   const v = (e.target as HTMLSelectElement).value;
   void ctl.decide(c.id, v === "" ? undefined : v === "__none__" ? null : v);
 };
-const defaultLabel = (c: PreviewCoach): string => (c.decision ? (c.decision.coachId ? `Remembered: ${c.decision.coachId}` : "Remembered: no account") : c.matchedCoach ? `As found: ${c.matchedCoach}` : "As found: no account");
+const defaultLabel = (c: PreviewCoach): string => (c.decision ? (c.decision.coachId ? `Confirmed: ${c.decision.coachId}` : "Confirmed: no account") : "Not linked yet");
 const useOther = (id: string, preview: boolean): void => {
   const name = (other[id] ?? "").trim();
   if (!name) return;
@@ -56,9 +57,11 @@ const linked = computed(() => rows.value.filter((r) => !r.needsReview));
 const seasonsLine = (r: ReviewRow): string => r.seasons.map((s) => `S${s.number}: ${s.teams.join(", ") || "no team"}`).join(" · ");
 const linkLine = (r: ReviewRow): string => {
   if (r.decision) return r.decision.coachId ? `${r.decision.coachId} (${r.decision.via === "claim" ? "claim approved" : "organiser"})` : "No account (organiser)";
+  if (r.obsolete) return "No longer in the latest export";
   if (r.assignedOnTeams) return `${r.coachId} (assigned on the teams)`;
-  return r.coachId ? `${r.coachId} (${r.basis ? BASIS_LABEL[r.basis] : "match"})` : "";
+  return r.coachId ?? "";
 };
+const onChoose = (id: string, e: Event): void => { void ctl.choose(id, (e.target as HTMLInputElement).checked); };
 const when = (iso: string): string => iso.slice(0, 16).replace("T", " ");
 </script>
 
@@ -106,11 +109,23 @@ const when = (iso: string): string => iso.slice(0, 16).replace("T", " ");
             <div><dt>Honours</dt><dd>{{ s.honours }}</dd></div>
             <div><dt>Awards</dt><dd>{{ s.awards }}</dd></div>
           </dl>
+          <p v-if="s.renumbered" class="tpi-muted">Season {{ s.renumbered.from }} is a season made here and is kept: this export becomes Season {{ s.number }}.</p>
+          <p v-if="s.derivedTeams?.length" class="tpi-muted">No roster file for {{ s.derivedTeams.join(", ") }}: added without players.</p>
+          <p v-if="s.merge" class="tpi-muted">Merge: {{ s.merge.fixturesAdded }} fixtures added, {{ s.merge.fixturesUpdated }} updated, {{ s.merge.teamsAdded }} teams added, {{ s.merge.teamsUpdated }} updated; changes made here are kept.</p>
+          <div v-if="s.conflicts?.length" class="tpi-conflicts" data-merge-conflicts>
+            <span class="sf-k">Kept here ({{ s.conflicts.length }}): tick to use the export instead</span>
+            <label v-for="cf in s.conflicts" :key="cf.id" class="sf-check tpi-conflict">
+              <input type="checkbox" :checked="state.choices.includes(cf.id)" :disabled="busy" @change="onChoose(cf.id, $event)" />
+              <span><strong>{{ cf.label }}</strong> <span class="tpi-muted">{{ cf.reason }} · here: {{ cf.local }} · export: {{ cf.export }}</span></span>
+            </label>
+          </div>
           <p v-if="!s.problem && s.phases?.length" class="tpi-muted">{{ s.phases.join(" · ") }}{{ s.mismatches ? ` · ${s.mismatches} standings rows differ from the fixtures` : "" }}</p>
         </li>
       </ul>
 
       <h3 class="tpi-sub">Coaches <span class="tpi-muted">{{ coachCaption }}</span></h3>
+      <p class="tpi-help">A NAF match is only a proposal: NAF details on a profile are typed by the coach. Nothing is linked until you confirm it.</p>
+      <div v-if="unconfirmed" class="sf-btn-row"><button class="sf-btn small" type="button" :disabled="busy" data-confirm-all @click="ctl.confirmAll()">Confirm all exact matches ({{ unconfirmed }})</button></div>
       <ul class="tpi-rows">
         <li v-for="c in preview.coaches" :key="c.id" class="tpi-row" :data-status="c.status" data-preview-coach>
           <div class="tpi-who">
@@ -119,7 +134,8 @@ const when = (iso: string): string => iso.slice(0, 16).replace("T", " ");
           </div>
           <div class="tpi-match">
             <span class="sf-chip" :data-tone="STATUS_TONE[c.status]">{{ STATUS_LABEL[c.status] }}</span>
-            <span v-if="c.basis" class="tpi-muted">by {{ BASIS_LABEL[c.basis] }}</span>
+            <span class="tpi-muted">Basis: {{ BASIS_LABEL[c.basis] }}{{ c.proposed ? `, proposes ${c.proposed}` : "" }}</span>
+            <span v-if="c.confirmed" class="sf-chip" data-tone="info">Confirmed</span>
             <span v-if="c.reason" class="tpi-muted">{{ c.reason }}</span>
             <span v-if="c.suggestions.length" class="tpi-muted">Likely: {{ c.suggestions.map((s) => `${s.coach} (${s.reasons.join(", ")})`).join("; ") }}</span>
           </div>
@@ -165,6 +181,7 @@ const when = (iso: string): string => iso.slice(0, 16).replace("T", " ");
             </div>
             <div class="tpi-match">
               <span class="sf-chip" :data-tone="STATUS_TONE[r.status]">{{ STATUS_LABEL[r.status] }}</span>
+              <span class="tpi-muted">Basis: {{ BASIS_LABEL[r.basis] }}</span>
               <span v-if="r.reason" class="tpi-muted">{{ r.reason }}</span>
             </div>
             <div v-if="r.claims.length" class="tpi-claims">
@@ -197,7 +214,7 @@ const when = (iso: string): string => iso.slice(0, 16).replace("T", " ");
           <li v-for="r in linked" :key="r.id" class="tpi-row tpi-row-done" data-linked-row>
             <div class="tpi-who"><strong>{{ r.name }}</strong><span class="tpi-muted">{{ seasonsLine(r) }}</span></div>
             <div class="tpi-match"><span>{{ linkLine(r) || "No account" }}</span><span v-if="r.nafNumber" class="tpi-muted">NAF number {{ r.nafNumber }}</span></div>
-            <div class="tpi-pickrow">
+            <div v-if="!r.obsolete" class="tpi-pickrow">
               <form class="tpi-other" @submit.prevent="useOther(r.id, false)">
                 <input v-model="other[r.id]" class="sf-input" type="text" maxlength="64" placeholder="Change to" :aria-label="`Change the account for ${r.name}`" />
                 <button class="sf-btn small" type="submit" :disabled="busy || !other[r.id]">Change</button>

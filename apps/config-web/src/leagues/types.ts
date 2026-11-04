@@ -239,6 +239,8 @@ export interface TourplayImportFile {
   claims: TourplayClaim[];
   /** Newest first, at most 20. */
   imports: Array<{ at: string; by: string; seasons: Array<{ id: string; slug: string; number: number; action: string }> }>;
+  /** The last applied export of each season (tourplayMerge.ts): what a re-import compares local edits against. */
+  snapshots?: Record<string, import("./tourplayMerge.js").ExportSnapshot>;
 }
 
 export type TourplayMatchStatus = "matched" | "unmatched" | "ambiguous" | "conflict";
@@ -263,7 +265,9 @@ export interface TourplayCoachRecord {
   /** Site coaches behind an ambiguous / conflicting match. */
   candidates?: { byName: string[]; byNumber: string[] };
   reason?: string;
-  /** An organiser's choice (review list, preview) or an approved claim: wins over matching on every re-import. null = no account. */
+  /** The coach is no longer in the latest export of any of its seasons: not claimable or assignable. */
+  obsolete?: true;
+  /** An organiser's choice (review list, preview, the Teams tab) or an approved claim: wins over matching on every re-import. null = no account. */
   decision?: { coachId: string | null; by: string; at: string; via: "organiser" | "claim" };
 }
 
