@@ -33,7 +33,7 @@ import { seasonStage } from "./lifecycle.js";
 import { playerIdFor } from "./playerIds.js";
 import { seasonRegistrationOf, seasonSnapshot, seasonWindowStatus } from "./seasonRegistration.js";
 import { teamBuildingTable } from "./settings.js";
-import { parseLeagueTeamRef, teamFromLeagueTeam, transferSource } from "./teamLibrary.js";
+import { adoptLineage, parseLeagueTeamRef, teamFromLeagueTeam, transferSource } from "./teamLibrary.js";
 import type { LeagueStore } from "./store.js";
 import { refreshTeamValue } from "./teamValue.js";
 import { EMPTY_PLAYER_STATS, type LeagueParticipant, type LeaguePlayer, type LeagueRecord, type LeagueTeam, type SeasonRecord } from "./types.js";
@@ -305,7 +305,8 @@ export function placeTransferredTeam(store: LeagueStore, league: LeagueRecord, s
   if ("error" in found) throw new RegistrationError(409, "invalid-transition", found.error);
   const used = new Set(store.seasons(league.id).flatMap((s) => (s.teams ?? []).flatMap((t) => [...t.players, ...(t.formerPlayers ?? [])].map((p) => p.playerId))));
   const at = now.toISOString();
-  const team = teamFromLeagueTeam(found.source.team, season, { id: freshTeamId(season), usedIds: used });
+  const moved = adoptLineage(store, found.source, at);
+  const team = teamFromLeagueTeam(moved.team, season, { id: freshTeamId(season), usedIds: used, from: moved.from });
   team.coach = row.coach;
   team.coachId = row.coach;
   team.coachAssigned = { by: row.decided?.by ?? row.coach, at };
@@ -465,6 +466,10 @@ export class LeagueRegistrationAdapter implements RegistrationAdapter {
       row.registrationLog = structuredClone(after.log);
       if (after.state === "accepted" && from !== "accepted") {
         // Acceptance and the team are one write (the putSeason below).
+        // A fork library team is never a source (owner 11-03): an entry made with one before that rule is not accepted; the
+        // organisers ask the coach to register again with a saved team (the entry stays as it is).
+        if (row.teamRef.startsWith("library:"))
+          throw new RegistrationError(409, "invalid-transition", "This entry was made with a Super FUMBBL library team, which can't join a league any more. Ask the coach to withdraw and register again with a saved team.");
         // A league team (transfer permitted when it played elsewhere) joins with its record; a save is built from its sheet.
         const team = parseLeagueTeamRef(row.teamRef) ? placeTransferredTeam(this.store, league, season, row, now) : placeRegisteredTeam(league, season, row, seasons, now);
         row.teamId = team.id;

@@ -23,7 +23,7 @@
  * Atomic: a swap, a listing change and an approval are each ONE season write; the takeover panel is on the league
  * overview only (no Browse leagues filter, round answer Q8).
  */
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { ContactValidationError, parseShareFields, type ShareField } from "../auth/contactSchema.js";
 import type { SharedContact } from "../auth/contactFor.js";
 import { houseRulesOf } from "../competition/houseRules.js";
@@ -44,7 +44,7 @@ import {
   type TakeoverApplicationRow, type TakeoverApproval, type TakeoverEntryData,
 } from "./takeover.js";
 import {
-  applyEntrySwap, entryChangeBlock, entryHistoryLine, leagueTeamProblem, leagueTeamRef, leagueTeamsOf, parseLeagueTeamRef, setTakeoverListing, snapshotOfLeagueTeam, teamFixtures, teamFromLeagueTeam, transferSource,
+  adoptLineage, applyEntrySwap, entryChangeBlock, entryHistoryLine, leagueTeamProblem, leagueTeamRef, leagueTeamsOf, parseLeagueTeamRef, setTakeoverListing, snapshotOfLeagueTeam, teamFixtures, teamFromLeagueTeam, transferSource,
   type CoachTeamRow, type LibraryItem,
 } from "./teamLibrary.js";
 import { addHistory, ensureTeamIdentity, publicTeam, settleServedMng, teamGamesPlayed } from "./teamOps.js";
@@ -65,6 +65,16 @@ const NO_STORE = { "cache-control": "private, no-store" };
 /** A Roster Builder save (fork library teams are per-fixture copies, never a source: owner 11-03). */
 const TEAM_REF = /^save:[A-Za-z0-9_.:-]{1,110}$/;
 const ckey = (c: string | undefined): string => (c ?? "").normalize("NFC").trim().toLowerCase();
+
+/**
+ * Organisers never see the real reference of a team masked from them (a private saved team, another league's team): only an
+ * opaque token, keyed to this league, entry and coach with a per-process secret (a dialog reloaded after a restart simply
+ * gets new tokens). The server maps it back to the coach's own candidates; nothing is stored.
+ */
+const TOKEN_KEY = randomBytes(32);
+const MASK_TOKEN = /^pv-[0-9a-f]{24}$/;
+export const maskToken = (leagueId: string, entryTeamId: string, owner: string, ref: string): string =>
+  `pv-${createHmac("sha256", TOKEN_KEY).update(`${leagueId}\0${entryTeamId}\0${ckey(owner)}\0${ref}`).digest("hex").slice(0, 24)}`;
 const res = (status: number, body: unknown): LeagueApiResult => ({ status, body, headers: { ...NO_STORE } });
 const fail = (status: number, error: string, extra: Record<string, unknown> = {}): LeagueApiResult => res(status, { error, ...extra });
 const actorOf = (auth: LeagueApiIdentity): RegistrationActor => ({ coach: auth.coach, ...(auth.admin ? { admin: true } : {}), ...(auth.test ? { test: true } : {}) });
@@ -113,9 +123,12 @@ export function libraryItems(league: LeagueRecord, season: SeasonRecord, coach: 
     // An organiser never sees anything of a team the coach never shared (no name, race, value or check result): it shows
     // as a private team, and picking it only asks the coach to approve the swap.
     // Only the entry's own coach can be asked; another member's private team is greyed.
-    if (opts.organiser && !r.shared) return opts.requestable
-      ? { ref: r.ref, kind: r.kind, name: "Private saved team", race: "", tv: null, ok: true, private: true }
-      : { ref: r.ref, kind: r.kind, name: "Private saved team", race: "", tv: null, ok: false, private: true, reason: "Not shared with the organisers." };
+    if (opts.organiser && !r.shared) {
+      const token = maskToken(league.id, opts.teamId ?? "", coach, r.ref);
+      return opts.requestable
+        ? { ref: token, kind: r.kind, name: "Private saved team", race: "", tv: null, ok: true, private: true }
+        : { ref: token, kind: r.kind, name: "Private saved team", race: "", tv: null, ok: false, private: true, reason: "Not shared with the organisers." };
+    }
     const c = checkSheet(league, season, coach, r.ref, deps, now);
     return {
       ref: r.ref, kind: r.kind, name: c.name || r.name, race: c.race || r.race, tv: r.tv, ok: c.ok,
@@ -125,9 +138,12 @@ export function libraryItems(league: LeagueRecord, season: SeasonRecord, coach: 
   const lg: LibraryItem[] = !opts.leagueTeams ? [] : leagueTeamsOf(deps.store, coach, { leagueId: league.id }).map((x): LibraryItem => {
     const ref = leagueTeamRef(x.league.id, x.season.id, x.team.id);
     // Another league's team (its coach permitted a transfer) stays masked from these organisers until the coach consents.
-    if (opts.organiser && x.league.id !== league.id) return opts.requestable
-      ? { ref, kind: "league", name: "League team (transfer permitted)", race: "", tv: null, ok: true, private: true }
-      : { ref, kind: "league", name: "League team (transfer permitted)", race: "", tv: null, ok: false, private: true, reason: "Only its coach can offer it." };
+    if (opts.organiser && x.league.id !== league.id) {
+      const token = maskToken(league.id, opts.teamId ?? "", coach, ref);
+      return opts.requestable
+        ? { ref: token, kind: "league", name: "League team (transfer permitted)", race: "", tv: null, ok: true, private: true }
+        : { ref: token, kind: "league", name: "League team (transfer permitted)", race: "", tv: null, ok: false, private: true, reason: "Only its coach can offer it." };
+    }
     const problem = leagueTeamProblem(x, { league, season, ...(opts.teamId ? { teamId: opts.teamId } : {}) });
     return {
       ref: leagueTeamRef(x.league.id, x.season.id, x.team.id), kind: "league" as const, name: x.team.name, race: x.team.race,
@@ -264,18 +280,33 @@ async function swap(seasonId: string, teamId: string, league: LeagueRecord | und
   const own = ckey(owner) === ckey(seat);
   if (!libraryVisible(lg, owner, auth!, deps)) return own ? fail(403, "This coach hasn't shared their teams with this league yet.") : fail(404, "No member of this league by that name.");
   let privateTeam = false;
+  if (MASK_TOKEN.test(ref)) {
+    // A masked team: map the token back to one of the owner's own private candidates (else it never existed).
+    let rows: CoachTeamRow[] = [];
+    try { rows = deps.coachTeams?.(owner) ?? []; } catch { rows = []; }
+    const candidates = [
+      ...rows.filter((r) => TEAM_REF.test(r.ref) && !r.shared).map((r) => r.ref),
+      ...leagueTeamsOf(deps.store, owner, { leagueId: lg.id }).filter((x) => x.league.id !== lg.id).map((x) => leagueTeamRef(x.league.id, x.season.id, x.team.id)),
+    ];
+    const real = candidates.find((c) => maskToken(lg.id, team.id, owner, c) === ref);
+    if (!real) return fail(404, "That team isn't in this coach's library.", { field: "ref" });
+    if (!own) return fail(403, "That team isn't shared with this league's organisers.", { field: "ref" });
+    return requestSwap(lg, season, team, seat, real, auth!, deps);
+  }
   if (TEAM_REF.test(ref)) {
     let rows: CoachTeamRow[] = [];
     try { rows = deps.coachTeams?.(owner) ?? []; } catch { rows = []; }
     const row = rows.find((r) => r.ref === ref);
     if (!row) return fail(404, "That team isn't in this coach's library.", { field: "ref" });
     privateTeam = !row.shared;
+    if (privateTeam) return fail(404, "That team isn't in this coach's library.", { field: "ref" }); // masked teams go by token
   } else {
     const r = parseLeagueTeamRef(ref);
     if (!r) return fail(400, "ref must name a saved team or a league team of the coach.", { field: "ref" });
     if (!leagueTeamsOf(deps.store, owner, { leagueId: lg.id }).some((x) => x.league.id === r.leagueId && x.season.id === r.seasonId && x.team.id === r.teamId))
       return fail(404, "That team isn't in this coach's library.", { field: "ref" });
-    privateTeam = r.leagueId !== lg.id; // another league's team (transfer permitted): the coach consents first
+    privateTeam = r.leagueId !== lg.id; // another league's team (transfer permitted): masked, so it goes by token
+    if (privateTeam) return fail(404, "That team isn't in this coach's library.", { field: "ref" });
   }
   if (privateTeam) {
     // Only the entry's own coach can be asked; nobody else's private team is ever used.
@@ -338,7 +369,8 @@ async function performSwap(
       const found = transferSource(deps.store, owner, ref, { league: lg, season, teamId: team.id });
       if ("error" in found) return fail(found.status, found.error, { code: "invalid-team", field: "ref" });
       const used = new Set(seasons.flatMap((s) => s.teams.flatMap((t) => [...t.players, ...(t.formerPlayers ?? [])].map((p) => p.playerId))));
-      incoming = teamFromLeagueTeam(found.source.team, season, { id: team.id, usedIds: used });
+      const moved = adoptLineage(deps.store, found.source, at);
+      incoming = teamFromLeagueTeam(moved.team, season, { id: team.id, usedIds: used, from: moved.from });
       incoming.coach = owner;
       incoming.coachId = owner;
     } else {
@@ -401,10 +433,20 @@ async function swapRequestRoute(method: string, seasonId: string, teamId: string
     if (!req) return res(200, { request: null });
     let extra: Record<string, unknown> = {};
     if (isCoach) {
-      let row: CoachTeamRow | undefined;
-      try { row = (deps.coachTeams?.(auth.coach) ?? []).find((r) => r.ref === req.ref); } catch { row = undefined; }
-      const c = row ? checkSheet(lg, season, auth.coach, req.ref, deps, deps.now?.() ?? new Date()) : undefined;
-      extra = row ? { ref: req.ref, name: c?.name || row.name, race: c?.race || row.race, ok: Boolean(c?.ok), ...(c && !c.ok ? { reason: c.reason } : {}) } : { ok: false, reason: "That team is no longer in your library." };
+      if (parseLeagueTeamRef(req.ref)) {
+        // One of the coach's league teams from another league (transfer permitted): shown to its coach in full.
+        const r = parseLeagueTeamRef(req.ref)!;
+        const mineNow = leagueTeamsOf(deps.store, auth.coach, { leagueId: lg.id }).find((x) => x.league.id === r.leagueId && x.season.id === r.seasonId && x.team.id === r.teamId);
+        const found = mineNow ? transferSource(deps.store, auth.coach, req.ref, { league: lg, season, teamId: team.id }) : undefined;
+        extra = mineNow
+          ? { ref: req.ref, name: mineNow.team.name, race: mineNow.team.race, source: `${mineNow.league.name} ${mineNow.season.name}`, ok: Boolean(found && !("error" in found)), ...(found && "error" in found ? { reason: found.error } : {}) }
+          : { ok: false, reason: "That team is no longer one of yours that may move (check its Permit league transfer)." };
+      } else {
+        let row: CoachTeamRow | undefined;
+        try { row = (deps.coachTeams?.(auth.coach) ?? []).find((r) => r.ref === req.ref); } catch { row = undefined; }
+        const c = row ? checkSheet(lg, season, auth.coach, req.ref, deps, deps.now?.() ?? new Date()) : undefined;
+        extra = row ? { ref: req.ref, name: c?.name || row.name, race: c?.race || row.race, ok: Boolean(c?.ok), ...(c && !c.ok ? { reason: c.reason } : {}) } : { ok: false, reason: "That team is no longer in your library." };
+      }
     }
     return res(200, { request: { id: req.id, by: req.by, at: req.at, ...extra } });
   }

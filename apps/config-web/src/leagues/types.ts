@@ -861,6 +861,9 @@ export interface LeagueTeam {
   /** The explicit redraft link (redraft.ts buildDraftTeam): the season this roster was drafted from. A redrafted team is
    *  past its first game whatever its roster (team page v2 in-season rules). */
   redraftedFrom?: { seasonId: string };
+  /** The league team this record moved here from (team library lane: a transfer, a swap or an approved application with a
+   *  league team). `played` = that team was past its first game, so this one starts under in-season rules (teamOps.ts). */
+  transferredFrom?: { leagueId: string; seasonId: string; teamId: string; played: boolean; at: string };
   /** League registration (lane L6): the registration entry this team was created from on acceptance, and the coach's
    *  library team it came from (when one was used: its teamUid follows that library team across seasons). */
   registrationId?: string;

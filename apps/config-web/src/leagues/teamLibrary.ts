@@ -24,7 +24,7 @@ import { participantOf } from "./participants.js";
 import { datasetRoster } from "./redraft.js";
 import { seasonRegistrationOf } from "./seasonRegistration.js";
 import type { LeagueStore } from "./store.js";
-import { addHistory, ensureTeamIdentity, rosterLimitErrors, teamGamesPlayed } from "./teamOps.js";
+import { addHistory, ensureTeamIdentity, rosterLimitErrors, teamGamesPlayed, teamHasPlayed } from "./teamOps.js";
 import { refreshTeamValue } from "./teamValue.js";
 import { EMPTY_PLAYER_STATS, type EntrySpan, type FormerPlayer, type LeagueFixture, type LeaguePlayer, type LeagueRecord, type LeagueTeam, type SeasonRecord } from "./types.js";
 
@@ -63,22 +63,44 @@ export interface LibraryItem {
 export function leagueTeamsOf(store: Pick<LeagueStore, "list" | "seasons">, coach: string, target: { leagueId: string }): Array<{ league: LeagueRecord; season: SeasonRecord; team: LeagueTeam }> {
   const key = ckey(coach);
   if (!key) return [];
-  const best = new Map<string, { league: LeagueRecord; season: SeasonRecord; team: LeagueTeam }>();
+  // Judged per LINEAGE (teamUid): only the team's CURRENT copy counts (the newest, whoever owns it, in any league, drafts
+  // included), so an older copy left behind by a move or a takeover is never selectable.
+  const current = new Map<string, { league: LeagueRecord; season: SeasonRecord; team: LeagueTeam }>();
   for (const league of store.list()) {
-    if (league.id !== target.leagueId && isDraftLeague(league)) continue;
     for (const season of store.seasons(league.id)) {
       for (const team of season.teams ?? []) {
-        if (team.coachAssigned?.cleared || ckey(team.coachId) !== key) continue;
-        // A team leaves its league only when its coach permits a league transfer (owner 11-03).
-        if (league.id !== target.leagueId && team.transfer?.permitted !== true) continue;
         const lineage = team.teamUid ?? `${league.id}/${season.id}/${team.id}`;
-        const have = best.get(lineage);
-        const newer = !have || (have.league.id === league.id ? season.number > have.season.number : (season.importedAt ?? "") > (have.season.importedAt ?? ""));
-        if (newer) best.set(lineage, { league, season, team });
+        const have = current.get(lineage);
+        if (!have || isNewerCopy({ league, season, team }, have)) current.set(lineage, { league, season, team });
       }
     }
   }
-  return [...best.values()];
+  return [...current.values()].filter(({ league, team }) => {
+    if (team.coachAssigned?.cleared || ckey(team.coachId) !== key) return false;
+    if (league.id === target.leagueId) return true;
+    // Leaving its league needs the coach's "Permit league transfer" on the current copy (owner 11-03); a draft league's
+    // team does not exist for another league.
+    return !isDraftLeague(league) && team.transfer?.permitted === true;
+  });
+}
+
+/** When a copy of a team took its place: its arrival (a move), else its coach seat, else its season's start / creation. */
+function copyTime(x: { season: SeasonRecord; team: LeagueTeam }): number {
+  for (const t of [x.team.transferredFrom?.at, x.team.coachAssigned?.at, x.season.startedAt, x.season.importedAt]) {
+    const ms = t ? Date.parse(t) : Number.NaN;
+    if (Number.isFinite(ms)) return ms;
+  }
+  return 0;
+}
+const movedFrom = (a: { team: LeagueTeam }, b: { league: LeagueRecord; season: SeasonRecord; team: LeagueTeam }): boolean =>
+  a.team.transferredFrom?.leagueId === b.league.id && a.team.transferredFrom.seasonId === b.season.id && a.team.transferredFrom.teamId === b.team.id;
+/** Is copy `a` newer than copy `b` of the same lineage? A copy moved from the other is newer; within a league the later
+ *  season; otherwise the later arrival / seat. */
+function isNewerCopy(a: { league: LeagueRecord; season: SeasonRecord; team: LeagueTeam }, b: { league: LeagueRecord; season: SeasonRecord; team: LeagueTeam }): boolean {
+  if (movedFrom(a, b)) return true;
+  if (movedFrom(b, a)) return false;
+  if (a.league.id === b.league.id && a.season.number !== b.season.number) return a.season.number > b.season.number;
+  return copyTime(a) > copyTime(b);
 }
 
 /** Why a league team can't enter `season` ("" = it can). */
@@ -87,8 +109,9 @@ export function leagueTeamProblem(source: { league: LeagueRecord; season: Season
   if (league.id === target.league.id && season.id === target.season.id) return target.teamId === team.id ? "This is the team in the entry now." : "Already in this season.";
   if (league.id !== target.league.id && team.transfer?.permitted !== true) return "Its coach hasn't permitted a league transfer.";
   if (season.ruleset !== target.season.ruleset) return `Built for ${season.ruleset}; this season plays ${target.season.ruleset}.`;
-  if (season.fixtures.some((f) => (f.home.teamId === team.id || f.away.teamId === team.id) && fixtureOutcome(f) === undefined && f.deadlineOutcome?.outcome !== "no-result" && team.status !== "inactive"))
-    return `Has open fixtures in ${league.name} ${season.name}.`;
+  // Unresolved fixtures block a move even for an inactive team: its organisers decide them first (cancel or forfeit).
+  if (season.fixtures.some((f) => (f.home.teamId === team.id || f.away.teamId === team.id) && fixtureOutcome(f) === undefined && f.deadlineOutcome?.outcome !== "no-result"))
+    return `Has unresolved fixtures in ${league.name} ${season.name}.`;
   if (season.status === "active" && team.status !== "inactive") return `Still playing in ${league.name} ${season.name}.`;
   const allowed = rosterAllowed(canonicalRace(team.race), seasonRegistrationOf(target.league, target.season).allowedRosters);
   if (!allowed.allowed) return allowed.reason;
@@ -114,6 +137,25 @@ export function transferSource(store: Pick<LeagueStore, "list" | "seasons">, coa
   if (!source) return { error: "That team isn't one of the coach's teams that may move here.", status: 404 };
   const problem = leagueTeamProblem(source, target);
   return problem ? { error: problem, status: 400 } : { source };
+}
+
+/**
+ * A league team about to move (a WRITE path only, never a read): an imported team without a lineage id gets one on its
+ * SOURCE record first (persisted), so the moved copy and the one left behind are the same team. Returns the team to copy
+ * and where it came from (for transferredFrom).
+ */
+export function adoptLineage(store: Pick<LeagueStore, "season" | "putSeason">, source: { league: LeagueRecord; season: SeasonRecord; team: LeagueTeam }, at: string):
+  { team: LeagueTeam; from: { leagueId: string; seasonId: string; played: boolean; at: string } } {
+  let team = source.team;
+  if (!team.teamUid) {
+    const stored = store.season(source.league.id, source.season.id);
+    const t = stored?.teams.find((x) => x.id === team.id);
+    if (stored && t) {
+      if (!t.teamUid) { t.teamUid = mint("tm"); store.putSeason(stored); }
+      team = t;
+    } else team = { ...team, teamUid: mint("tm") };
+  }
+  return { team, from: { leagueId: source.league.id, seasonId: source.season.id, played: teamHasPlayed(source.season, source.team), at } };
 }
 
 /** "league:<leagueId>/<seasonId>/<teamId>". */
@@ -302,7 +344,7 @@ export function applyEntrySwap(season: SeasonRecord, teamId: string, incoming: L
  * enters as the same team (its teamUid, roster, skills, SPP and treasury), with fresh player ids for this season (the old
  * ids in previousIds) and this season's counters at zero.
  */
-export function teamFromLeagueTeam(source: LeagueTeam, season: SeasonRecord, opts: { id: string; usedIds: Set<string> }): LeagueTeam {
+export function teamFromLeagueTeam(source: LeagueTeam, season: SeasonRecord, opts: { id: string; usedIds: Set<string>; from?: { leagueId: string; seasonId: string; played: boolean; at: string } }): LeagueTeam {
   const copy = structuredClone(source);
   const players = copy.players.map((p) => {
     let id = mint("p");
@@ -311,8 +353,11 @@ export function teamFromLeagueTeam(source: LeagueTeam, season: SeasonRecord, opt
     const { pendingAdvance: _pa, advanceRolls: _ar, mngGames: _mg, ...rest } = p;
     return { ...rest, playerId: id, previousIds: [...(p.previousIds ?? []), p.playerId], stats: { ...EMPTY_PLAYER_STATS } };
   });
-  const { history: _h, entryHistory: _e, takeover: _t, registrationId: _r, status: _s, statusChanged: _sc, redraftedFrom: _rf, ...rest } = copy;
-  const team: LeagueTeam = { ...rest, id: opts.id, players, formerPlayers: [] };
+  const { history: _h, entryHistory: _e, takeover: _t, registrationId: _r, status: _s, statusChanged: _sc, redraftedFrom: _rf, swapRequest: _sr, transfer: _tr, transferredFrom: _tf, ...rest } = copy;
+  const team: LeagueTeam = {
+    ...rest, id: opts.id, players, formerPlayers: [],
+    ...(opts.from ? { transferredFrom: { leagueId: opts.from.leagueId, seasonId: opts.from.seasonId, teamId: source.id, played: opts.from.played || source.transferredFrom?.played === true || Boolean(source.redraftedFrom), at: opts.from.at } } : {}),
+  };
   refreshTeamValue(team, season.ruleset);
   return team;
 }

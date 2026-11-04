@@ -157,6 +157,8 @@ export function teamPageView(league: LeagueRecord, stored: SeasonRecord, teamId:
   if (!team) return undefined;
   const organiser = isManager(league, auth);
   const coach = isTeamCoach(team, auth);
+  // A swap request names one of the coach's private teams: only the coach sees which (team library lane).
+  if (team.swapRequest && !coach) team.swapRequest = { id: team.swapRequest.id, ref: "", by: team.swapRequest.by, at: team.swapRequest.at };
   const phase = teamPhase(season, team);
   const roster = datasetRoster(team.race);
   const pregame = phase === "pregame";

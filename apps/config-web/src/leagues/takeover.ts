@@ -27,7 +27,7 @@ import {
 import { isDraftLeague } from "./lifecycle.js";
 import { freshTeamId, lineageFor, teamFromSnapshot, type LeagueTeamSnapshot } from "./registration.js";
 import { leagueOwner, type LeagueStore } from "./store.js";
-import { applyEntrySwap, applyTakeover, entryChangeBlock, parseLeagueTeamRef, teamFromLeagueTeam, transferSource, type EntryChange } from "./teamLibrary.js";
+import { adoptLineage, applyEntrySwap, applyTakeover, entryChangeBlock, parseLeagueTeamRef, teamFromLeagueTeam, transferSource, type EntryChange } from "./teamLibrary.js";
 import type { LeagueRecord, LeagueTeam, SeasonRecord } from "./types.js";
 
 export interface TakeoverApplicationRow {
@@ -230,7 +230,8 @@ export class TakeoverAdapter implements RegistrationAdapter {
           const found = transferSource(this.store, row.coach, row.teamRef, { league, season, teamId: team.id });
           if ("error" in found) throw new RegistrationError(409, "invalid-transition", found.error);
           const used = new Set(this.store.seasons(league.id).flatMap((s) => s.teams.flatMap((t) => [...t.players, ...(t.formerPlayers ?? [])].map((p) => p.playerId))));
-          const incoming = teamFromLeagueTeam(found.source.team, season, { id: team.id, usedIds: used });
+          const moved = adoptLineage(this.store, found.source, at);
+          const incoming = teamFromLeagueTeam(moved.team, season, { id: team.id, usedIds: used, from: moved.from });
           incoming.coach = row.coach;
           incoming.coachId = row.coach;
           entry = applyEntrySwap(season, team.id, incoming, by, at, "apply");

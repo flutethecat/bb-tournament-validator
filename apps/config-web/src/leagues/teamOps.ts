@@ -107,9 +107,11 @@ export function teamGamesPlayed(season: Pick<SeasonRecord, "fixtures">, teamId: 
  * other seasons): an explicit redraft link (redraftedFrom), a result on one of its own fixtures, an imported standings row with games, or any player (rostered or
  * former) carrying game counters, SPP or earlier seasons (an imported or redrafted veteran roster).
  */
-export function teamHasPlayed(season: Pick<SeasonRecord, "fixtures" | "phases">, team: Pick<LeagueTeam, "id" | "players" | "formerPlayers" | "redraftedFrom">): boolean {
+export function teamHasPlayed(season: Pick<SeasonRecord, "fixtures" | "phases">, team: Pick<LeagueTeam, "id" | "players" | "formerPlayers" | "redraftedFrom"> & { transferredFrom?: { played: boolean } }): boolean {
   // Owner rule: a redrafted team starts its new season under in-season rules, even with an all-rookie roster.
   if (team.redraftedFrom) return true;
+  // A veteran team that moved here (its counters start at zero) keeps in-season rules: no pre-game rebuild privileges.
+  if (team.transferredFrom?.played) return true;
   if (season.fixtures.some((f) => playedFor(f, team.id))) return true;
   if (season.phases.some((p) => p.standings.some((r) => r.teamId === team.id && r.played > 0))) return true;
   const used = (s: { td: number; cas: number; mvp: number; spp: number; completions: number; int: number }): boolean => s.td + s.cas + s.mvp + s.spp + s.completions + s.int > 0;
