@@ -391,6 +391,7 @@ import { setClubDirectory } from "./clubs/pick.js";
 import { clubHasHistory, clubLedger, type ClubLedger } from "./clubs/stats.js";
 import { ClubStore } from "./clubs/store.js";
 import { BoardStore } from "./boards/board.js";
+import { competitionBoardApi, competitionBoardPath, createCompetitionBoardLimiters, type CompetitionBoardDeps } from "./boards/competitionApi.js";
 import { forkGame, setPublicPlayerNames, tabletopGame, type GameRecord } from "./discord/games.js";
 import { playerLabel, visibleComments } from "./discord/hub.js";
 import { leagueFixtureRef } from "./leagues/tabletopFixtures.js";
@@ -1102,6 +1103,17 @@ const clubsDeps: Omit<ClubsApiDeps, "readRaw" | "declaredTooLarge"> = {
   // A delete checks the stored competitions strictly (an unreadable file fails closed).
   history: (clubId) => clubHasHistory({ stateDir: FORK_STATE_DIR, tournamentsDir: TOURNAMENTS_DIR }, clubId),
   webhookConnected: (club) => clubObserver.baselineWebhook(club),
+};
+// League and tournament boards (src/boards/competitionApi.ts; owner 11-04): the club Board's store, organiser moderation.
+const competitionBoardDeps: CompetitionBoardDeps = {
+  boards: boardStore,
+  leagues: leagueStore,
+  tournaments: tournamentStore,
+  coach: clubsDeps.coach,
+  isFenced: (coach) => isCoachFenced(coach),
+  isAdmin: (coach) => isAdmin(coach),
+  notify: leagueNotify,
+  limiters: createCompetitionBoardLimiters(),
 };
 const clubObserver = new ClubObserver({ store: clubStore, ledger: clubLedgerNow, state: discordState, notify: leagueNotify, log: (line) => console.error(line) });
 const clubTick = (): void => { clubObserver.tick().catch((e) => console.error(`[clubs] observer tick failed: ${(e as Error).message}`)); };
@@ -2655,6 +2667,27 @@ async function handleApi(
     }
     const result = mail.meRoute(method, path, auth ? { coach: auth.coach, ...(testSession ? { test: true } : {}) } : undefined, body);
     if (result) return sendMailResult(res, method, result);
+  }
+
+  // League and tournament boards (src/boards/competitionApi.ts): readers and moderation are decided in-handler (members,
+  // organisers, admins; public read only when the organisers turned it on); every write needs an active account, not a
+  // test session, the CSRF header and the onboarding gate above. Drafts answer 404 to everyone but their managers.
+  if (competitionBoardPath(path) !== undefined) {
+    const testSession = getSession(sessionTokenFromRequest(req))?.test === true;
+    const body = WRITE_METHODS.has(method) ? await readBody(req, 16 * 1024) : undefined;
+    // Re-resolve the identity after the body read: a session ended meanwhile writes nothing.
+    let actor = auth;
+    if (auth && WRITE_METHODS.has(method)) {
+      const current = requestIdentity(req);
+      if (!current || current.coach !== auth.coach) return sendJson(res, 401, { error: "Authentication required." });
+      actor = current;
+    }
+    const result = await competitionBoardApi(method, path, actor ? { coach: actor.coach, admin: actor.admin, ...(testSession ? { test: true } : {}) } : undefined, body, competitionBoardDeps);
+    if (result) {
+      for (const [name, value] of Object.entries(result.headers ?? {})) res.setHeader(name, value);
+      if (result.status === 204) { res.writeHead(204).end(); return; }
+      return sendJson(res, result.status, result.body);
+    }
   }
 
   if (leaguePath(path) !== undefined) {

@@ -89,9 +89,9 @@ export function createClubDirectory(deps: { api: Fetcher }) {
 
 // ---- one club -----------------------------------------------------------------------------------------------------------
 
-export interface ClubBoardPost { id: string; author: string; text: string; at: string; editedAt?: string; removed?: { by: "author" | "moderator"; at: string }; mine: boolean; canEdit: boolean; canRemove: boolean }
-export interface ClubBoardThread extends ClubBoardPost { title: string; lastAt: string; replies: ClubBoardPost[] }
-export interface ClubBoardView { threads: ClubBoardThread[]; canPost: boolean; canModerate: boolean; seenAt?: string }
+// The board types and controller are shared with league and tournament boards (shared/board.ts).
+export type { BoardPostView as ClubBoardPost, BoardThreadView as ClubBoardThread, BoardView as ClubBoardView } from "../shared/board";
+export { createBoard } from "../shared/board";
 
 export function createClubDetail(deps: { api: Fetcher; upload?: RawUploader }) {
   const upload = deps.upload ?? fetchUpload;
@@ -146,36 +146,6 @@ export function createClubDetail(deps: { api: Fetcher; upload?: RawUploader }) {
     destroy: () => act("delete", async () => deps.api<{ deleted?: boolean; archived?: boolean }>(base(), { method: "DELETE", body: { revision: state.page?.club.revision } })),
     uploadCrest: (file: Blob) => act("crest", async () => { await upload(`${base()}/crest`, file); }, "Crest saved."),
     removeCrest: () => act("crest", async () => { await deps.api(`${base()}/crest`, { method: "DELETE" }); }, "Crest removed."),
-  };
-}
-
-// ---- board (generic: a board lives at <base>/board) -------------------------------------------------------------------
-
-export function createBoard(deps: { api: Fetcher; base: () => string }) {
-  const state = reactive({ view: null as ClubBoardView | null, loaded: false, error: "", code: "", busy: "", actionError: "" });
-  const path = () => `${deps.base()}/board`;
-  async function act(key: string, run: () => Promise<{ board?: ClubBoardView } | undefined>): Promise<boolean> {
-    state.busy = key;
-    state.actionError = "";
-    try { const r = await run(); if (r?.board) state.view = r.board; return true; } catch (err) { state.actionError = message(err, "That didn't work."); return false; } finally { state.busy = ""; }
-  }
-  return {
-    state,
-    async load(): Promise<void> {
-      try {
-        state.view = await deps.api<ClubBoardView>(path());
-        state.error = ""; state.code = "";
-        // Opening the board is a POST (reads never change state): it coalesces the "new posts" notes.
-        void deps.api(`${path()}/seen`, { method: "POST", body: {} }).catch(() => undefined);
-      } catch (err) {
-        state.error = message(err, "Can't load the board.");
-        state.code = err instanceof ApiError ? String(err.status) : "";
-      } finally { state.loaded = true; }
-    },
-    post: (title: string, text: string) => act("post", () => deps.api(path(), { method: "POST", body: { title, text } })),
-    reply: (threadId: string, text: string) => act(`reply:${threadId}`, () => deps.api(`${path()}/${encodeURIComponent(threadId)}/replies`, { method: "POST", body: { text } })),
-    edit: (postId: string, text: string, title?: string) => act(`edit:${postId}`, () => deps.api(`${path()}/${encodeURIComponent(postId)}`, { method: "PATCH", body: { text, ...(title !== undefined ? { title } : {}) } })),
-    remove: (postId: string) => act(`rm:${postId}`, () => deps.api(`${path()}/${encodeURIComponent(postId)}`, { method: "DELETE" })),
   };
 }
 

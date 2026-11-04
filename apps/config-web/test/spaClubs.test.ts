@@ -21,8 +21,9 @@ describe("club section nav", () => {
     expect(manageLocation("club", "harbour")).toEqual({ name: "club-manage", params: { id: "harbour" }, query: {} });
     expect(activeTab("club", { name: "club-manage" })).toBe("manage");
     expect(SECTION_UP.club).toEqual({ to: "/clubs", label: "All clubs", noun: "Club" });
-    // other sections keep Board as "soon"
-    expect(visibleTabs("league", "l", {}).find((t) => t.id === "board")?.soon).toBe(true);
+    // league and tournament boards (owner 11-04): a live tab while the viewer may read the board
+    expect(visibleTabs("league", "l", {}).find((t) => t.id === "board")).toBeUndefined();
+    expect(visibleTabs("league", "l", { board: true }).find((t) => t.id === "board")?.soon).toBeUndefined();
   });
 });
 

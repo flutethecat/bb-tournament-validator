@@ -9,7 +9,7 @@ export type NotificationType =
   | "organiser-message" | "entrant-flag" | "roster-problems" | "withdrawal" | "award"
   | "fixture-created" | "fixture-rescheduled" | "proposal-received" | "proposal-accepted" | "proposal-countered"
   | "result-confirmed" | "result-edited" | "tournament-news" | "league-broadcast" | "registration" | "share-request" | "naf-request"
-  | "private-message" | "friend-request" | "registration-outcome" | "check-in" | "organiser-request" | "fixture-message" | "template-shared" | "club";
+  | "private-message" | "friend-request" | "registration-outcome" | "check-in" | "organiser-request" | "fixture-message" | "template-shared" | "club" | "board-report";
 
 export interface NotificationRow {
   id: string;
@@ -55,6 +55,7 @@ export const NOTIFICATION_ICONS: Record<NotificationType, string> = {
   "fixture-message": "/icons/panel/messages.png",
   "template-shared": "/icons/ui/action-pass.png",
   club: "/icons/panel/friends.png",
+  "board-report": "/icons/panel/messages.png",
 };
 export const notificationIcon = (type: string): string => NOTIFICATION_ICONS[type as NotificationType] ?? "/icons/ui/football-helmet.png";
 

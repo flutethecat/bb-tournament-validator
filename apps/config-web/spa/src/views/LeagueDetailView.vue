@@ -32,6 +32,7 @@ import LeagueClaimPrompt from "../components/LeagueClaimPrompt.vue";
 import { createLeagueJoin, LEAGUE_JOIN_KEY } from "../leagues/registration";
 import LeagueDraftNotice from "../components/LeagueDraftNotice.vue";
 import LeagueGateBanner from "../components/LeagueGateBanner.vue";
+import MessageBoard from "../components/MessageBoard.vue";
 import { SEASON_STAGE_LABEL, seasonStageOf, STAGE_TONE } from "../leagues/lifecycle";
 import {
   canManageLeague, createLeagueDetail, LEAGUE_DETAIL_KEY, pickSeason, playerByRef, RULESET_TONE, seasonDates, seasonRowScroll, teamByRef,
@@ -60,10 +61,11 @@ provide(LEAGUE_JOIN_KEY, inject(LEAGUE_JOIN_KEY, null) ?? createLeagueJoin({ api
 const current = computed(() => pickSeason(state.seasons, route.query.season));
 const season = computed(() => (current.value ? state.season[current.value.id] : undefined));
 const manage = computed(() => writesAllowed(session) && canManageLeague(state.league, session.coach(), session.state.info?.admin === true));
-/** The tab shown: ?tab= (old spellings included); a tab the season has nothing for yet (hidden in the header) shows Overview. */
+/** The tab shown: ?tab= (old spellings included); a tab the season has nothing for yet (hidden in the header) shows Overview.
+ *  The Board always opens (the board itself says when it is off or for members only). */
 const tab = computed<SectionTabId>(() => {
   const asked = tabFromQuery("league", route.query.tab);
-  if (asked === "overview" || !state.loaded) return asked;
+  if (asked === "overview" || asked === "board" || !state.loaded) return asked;
   const facts = leagueFacts({
     seasons: state.seasons, current: current.value ?? null, season: season.value ?? null, events: state.events.length,
     ladders: state.ladders.length, ladderDated: state.ladders.some((l) => (l.fixtures?.length ?? 0) > 0),
@@ -200,7 +202,12 @@ usePageTitle(() => state.league?.name);
         <LeagueOverview v-if="season" :league="state.league" :season="season" :summary="current!" :crests="state.crests" :can-manage="manage" />
       </div>
       <!-- League ladders (lane 8b): their own tab, independent of the season picked -->
-      <LeagueLadder v-if="tab === 'ladder'" :league-id="id" :league-name="state.league.name" />
+      <!-- League board (owner 11-04): league-wide, independent of the season picked; organisers moderate it here -->
+      <MessageBoard
+        v-if="tab === 'board'" moderation :base="`/api/leagues/${encodeURIComponent(id)}`" removed-note="Removed by an organiser."
+        members-only-note="The board is for the league's coaches and organisers." :open-reports="route.query.reports === '1'"
+      />
+      <LeagueLadder v-else-if="tab === 'ladder'" :league-id="id" :league-name="state.league.name" />
       <p v-else-if="current && !season && state.seasonError" class="lobby-error" role="alert">{{ state.seasonError }}</p>
       <p v-else-if="current && !season" class="hm-empty" role="status">Loading {{ current.name }}...</p>
       <template v-else-if="season">

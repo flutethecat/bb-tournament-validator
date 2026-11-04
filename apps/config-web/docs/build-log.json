@@ -1,6 +1,21 @@
 [
   {
     "date": "2026-11-04",
+    "title": "Message boards for leagues and tournaments",
+    "body": "Leagues and tournaments now have a Board tab for their coaches and organisers. Organisers can pin, lock, hide or delete posts, mute a coach for a while, switch the board off or make it public, and see a Reports queue and a moderation log; coaches can report a post.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      },
+      {
+        "label": "Tournaments",
+        "href": "/app/tournaments"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-04",
     "title": "Ladder redrafts, tournament registration gates and league-time registration dates",
     "body": "Ladders now redraft through the same board and Redraft mode as seasons: a team that reaches its set number of ladder games redrafts before its next challenge, and a period end opens a redraft for every team. Tournaments can keep registration shut until a set time with a countdown and Open now; registration opens and closes are typed in the league's time zone; leagues where you only play in a ladder now show in the sidebar.",
     "links": [

@@ -34,19 +34,22 @@ describe("section tabs: lists, order and visibility", () => {
     expect(SECTION_TABS.league.find((t) => t.id === "honours")?.label).toBe("Honours"); // British spelling
   });
 
-  it("everything with data shows; Board is greyed 'coming soon' (no link); league Events never shows", () => {
+  it("everything with data shows; Board is a live tab (owner 11-04); league Events never shows", () => {
     const all = Object.fromEntries(SECTION_TABS.league.map((t) => [t.id, true]));
     const tabs = visibleTabs("league", "tabbl", all);
     expect(ids(tabs)).toEqual(["overview", "fixtures", "standings", "ladder", "board", "calendar", "honours", "statistics", "stars", "participants", "draws", "awards"]);
     const board = tabs.find((t) => t.id === "board")!;
-    expect(board.soon).toBe(true);
-    expect(board.to).toBeUndefined();
+    expect(board.soon).toBeUndefined();
+    expect(board.to).toEqual({ name: "league-detail", params: { id: "tabbl" }, query: { tab: "board" } });
     expect(ids(tabs)).not.toContain("events");
   });
 
-  it("hidden while empty: a new section shows Overview and Board only; organisers also keep Awards (they give awards there)", () => {
-    expect(ids(visibleTabs("tournament", "t1", {}))).toEqual(["overview", "board"]);
-    expect(ids(visibleTabs("tournament", "t1", {}, { manage: true }))).toEqual(["overview", "board", "awards"]);
+  it("hidden while empty: a new section shows Overview only (Board while the viewer may read it); organisers also keep Awards", () => {
+    expect(ids(visibleTabs("tournament", "t1", {}))).toEqual(["overview"]);
+    expect(ids(visibleTabs("tournament", "t1", { board: true }))).toEqual(["overview", "board"]);
+    expect(ids(visibleTabs("tournament", "t1", {}, { manage: true }))).toEqual(["overview", "awards"]);
+    expect(tournamentFacts({ tournament: { status: "draft" }, rounds: [], fixtures: [], entrants: [], board: true }).board).toBe(true);
+    expect(leagueFacts({ seasons: [], board: false }).board).toBe(false);
     expect(ids(visibleTabs("series", "s1", {}))).toEqual(["overview"]);
     // the page being shown always keeps its tab
     expect(ids(visibleTabs("league", "tabbl", {}, { active: "statistics" }))).toContain("statistics");
@@ -84,7 +87,8 @@ describe("section tabs: lists, order and visibility", () => {
     expect(manageLocation("series", "s1")).toMatchObject({ name: "series-manage" });
     expect(tabFromQuery("tournament", "rounds")).toBe("fixtures");
     expect(tabFromQuery("league", "teams")).toBe("participants");
-    expect(tabFromQuery("league", "board")).toBe("overview"); // coming soon: no page
+    expect(tabFromQuery("league", "board")).toBe("board");
+    expect(tabFromQuery("tournament", "board")).toBe("board");
     expect(tabFromQuery("league", "events")).toBe("overview");
     expect(tabFromQuery("tournament", "nonsense")).toBe("overview");
   });

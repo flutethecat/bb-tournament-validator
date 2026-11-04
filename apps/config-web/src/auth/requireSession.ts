@@ -110,6 +110,9 @@ function isPublicRequest(method: string, pathname: string): boolean {
       /^\/api\/fork\/tournaments\/[^/]+\/banner$/.test(pathname) ||
       // Tournament fixture lobby: a read-only view for anyone (drafts 404 except for managers; writes stay session-gated).
       /^\/api\/tournaments\/[^/]+\/fixtures\/[^/]+\/lobby$/.test(pathname) ||
+      // Tournament board (src/boards/competitionApi.ts): its tab status and, when the organisers turned public read on, the
+      // threads. The handler decides; every other board route stays session-gated. (League boards ride /api/leagues/ below.)
+      /^\/api\/tournaments\/[^/]+\/board(?:\/status)?$/.test(pathname) ||
       // Tabletop match view: a read-only spectator view for anyone (owner ruling 10-30); the handler decides the role and
       // refuses an anonymous visitor on a test match. Every other tabletop route stays session-gated.
       /^\/api\/tabletop\/matches\/[\w-]{1,64}$/.test(pathname) ||

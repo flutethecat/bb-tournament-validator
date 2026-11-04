@@ -194,10 +194,10 @@ export const INVENTORY: readonly InventoryRow[] = [
   },
   {
     id: "club-boards", store: "data-store/boards/",
-    data: "Posts and replies you write on a club board (your coach name, the text, when you wrote or edited it), and when you last opened the board.",
-    purpose: "The club message board.",
-    public: "partly", publicNote: "Seen by the club's members and site admins.",
-    retention: `${ACCOUNT_LIFETIME} When you delete your account your posts stay on the board under your pseudonym, and mentions of your name in any post are replaced with it.`,
+    data: "Posts and replies you write on a club, league or tournament board (your coach name, the text, when you wrote or edited it), when you last opened the board, the posts you reported (with your reason), any mute an organiser put on you there, and the board's moderation log entries made by you or about you.",
+    purpose: "The club, league and tournament message boards, and their moderation by organisers.",
+    public: "partly", publicNote: "Seen by the board's members (club members; a league's coaches; a tournament's registered coaches), its organisers and site admins, and by anyone when the organisers make the board public. Reports, mutes and the moderation log are seen only by the organisers and site admins.",
+    retention: `${ACCOUNT_LIFETIME} When you delete your account your posts stay on the board under your pseudonym, mentions of your name in any post are replaced with it, your reports and any mutes on you are removed, and moderation log entries keep only your pseudonym.`,
   },
   {
     id: "blocks", store: "data-store/blocks/",

@@ -1,0 +1,45 @@
+/* The threaded Board (MessageBoard.vue): clubs, leagues and tournaments. Tokens only. */
+.cb-text { resize: vertical; }
+.cb-body { display: grid; gap: 12px; align-content: start; }
+.cb-compose { display: grid; gap: 8px; justify-items: start; }
+.cb-compose .cb-form { justify-self: stretch; }
+.cb-form { display: grid; gap: 8px; }
+.cb-thread { padding: 12px; border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--ui-heading); border-radius: 2px; background: var(--ui-surface-2); display: grid; gap: 8px; }
+.cb-thread[data-new="true"] { border-left-color: var(--sf-gold); }
+.cb-thread-h { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; align-items: baseline; }
+.cb-title { margin: 0; font: 600 17px/1.25 var(--font-heading); overflow-wrap: anywhere; }
+.cb-meta { display: inline-flex; gap: 6px; align-items: center; color: var(--ui-muted); font-size: 13px; }
+.cb-text-view { margin: 0; white-space: pre-line; overflow-wrap: anywhere; }
+.cb-text-view[data-removed="true"] { color: var(--ui-text-dim); font-style: italic; }
+.cb-actions { display: flex; gap: 6px; }
+.cb-replies { list-style: none; margin: 0; padding: 0 0 0 14px; border-left: 2px solid var(--sf-panel-line); display: grid; gap: 8px; }
+.cb-reply { display: grid; gap: 4px; }
+.cb-reply-form { display: flex; gap: 8px; }
+.cb-reply-form .sf-input { flex: 1 1 auto; min-width: 0; }
+
+
+/* Moderation boards (leagues, tournaments): the board and, for organisers, the moderation column beside it. */
+.cb-wrap { display: contents; }
+.cb-wrap[data-moderation="true"] { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 380px); gap: 16px; align-items: start; min-height: 0; flex: 1 1 0; }
+.cb-wrap[data-moderation="true"] > .cb-board { max-height: 100%; }
+.cb-thread[data-pinned="true"] { border-left-color: var(--sf-gold); }
+.cb-thread[data-hidden="true"], .cb-reply[data-hidden="true"] { opacity: .85; }
+.cb-quote { margin: 0; padding: 6px 10px; border-left: 2px solid var(--sf-panel-line); color: var(--ui-muted); font-size: 14px; overflow-wrap: anywhere; white-space: pre-line; }
+.cb-help { margin: 0 0 6px; color: var(--ui-muted); font-size: 13px; }
+.cb-mod { display: grid; gap: 12px; align-content: start; min-width: 0; }
+.cb-mod-body { padding: 10px 12px; display: grid; gap: 8px; }
+.cb-mod-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.cb-mod-row { display: grid; gap: 4px; padding-bottom: 8px; border-bottom: 1px solid var(--sf-panel-line); min-width: 0; overflow-wrap: anywhere; }
+.cb-mod-row:last-child { border-bottom: 0; padding-bottom: 0; }
+.cb-mod-inline { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.cb-mod-reason { margin: 0; overflow-wrap: anywhere; }
+.cb-mod-closed summary { cursor: pointer; color: var(--ui-muted); font-size: 13px; }
+.cb-mod [data-reports]:focus-visible, .cb-mod [data-reports]:focus { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.cb-actions { flex-wrap: wrap; }
+/* The reason / mute dialog: caption above, control below, full width. */
+.cb-ask { display: grid; gap: 10px; }
+.cb-ask .sf-field { display: grid; gap: 4px; justify-items: stretch; }
+.cb-ask .sf-input { width: 100%; box-sizing: border-box; }
+@media (max-width: 1100px) {
+  .cb-wrap[data-moderation="true"] { grid-template-columns: minmax(0, 1fr); }
+}

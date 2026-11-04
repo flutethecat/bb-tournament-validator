@@ -46,6 +46,8 @@ export const NOTIFICATION_TYPES = [
   // Clubs (clubs lane): join requests (to admins), approvals and removals (to the coach), a clubmate's win and new board
   // posts (members who opted in).
   "club",
+  // League and tournament boards (owner 11-04): a coach reported a post (to the organisers).
+  "board-report",
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 

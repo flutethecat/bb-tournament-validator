@@ -710,7 +710,20 @@ export const STORE_COLLECTORS: StoreCollector[] = [
           for (const r of objs(t.replies)) if (isMine(ctx.keys, r.author)) posts.push({ board: b?.scope, thread: t.id, id: r.id, text: r.text, at: r.at, ...(r.editedAt ? { editedAt: r.editedAt } : {}) });
         }
       }
-      return posts.length ? [{ name: "club-board-posts.json", content: json(posts) }] : [];
+      const out = posts.length ? [{ name: "club-board-posts.json", content: json(posts) }] : [];
+      // League and tournament boards (moderation, owner 11-04): the reports the coach filed, mutes on them, and the
+      // moderation log entries they made or that are about them. (Their posts on those boards are in the file above.)
+      const reports: Obj[] = [];
+      const mutes: Obj[] = [];
+      const log: Obj[] = [];
+      for (const p of listFiles(join(ctx.deps.stateDir, "boards"), ".json")) {
+        const b = readJsonLoose<Obj>(p);
+        for (const r of objs(b?.reports)) if (isMine(ctx.keys, r.reporter)) reports.push({ board: b?.scope, id: r.id, post: r.postId, reason: r.reason, at: r.at, ...(isObj(r.resolved) ? { outcome: r.resolved.outcome } : {}) });
+        if (isObj(b?.mutes)) for (const m of Object.values(b!.mutes as Obj)) if (isObj(m) && (isMine(ctx.keys, m.coach) || isMine(ctx.keys, m.by))) mutes.push({ board: b?.scope, ...m });
+        for (const e of objs(b?.log)) if (isMine(ctx.keys, e.by) || isMine(ctx.keys, e.coach)) log.push({ board: b?.scope, ...e });
+      }
+      if (reports.length || mutes.length || log.length) out.push({ name: "board-moderation.json", content: json({ reports, mutes, log }) });
+      return out;
     },
     erase: ["club-boards"],
   },
@@ -1346,6 +1359,25 @@ export const DELETE_STEPS: DeleteStep[] = [
             const map = b[field];
             if (!isObj(map)) continue;
             for (const k of Object.keys(map)) if (an.matches(k)) { delete map[k]; marks = true; }
+          }
+          // Moderation (league / tournament boards): the coach's reports and the mutes on them go; marks they set, mutes
+          // and report decisions they made, and log entries by or about them stay under the pseudonym (the free-text pass
+          // runs over every reason).
+          if (Array.isArray(b.reports)) {
+            const keep = objs(b.reports).filter((r) => !an.matches(r.reporter));
+            if (keep.length !== b.reports.length) { b.reports = keep; marks = true; }
+            for (const r of keep) if ([isObj(r.resolved) ? an.fields(r.resolved, ["by"], []) : false, tx.texts(r, ["reason"])].some(Boolean)) marks = true;
+          }
+          if (isObj(b.mutes)) {
+            for (const [k, m] of Object.entries(b.mutes)) {
+              if (an.matches(k) || (isObj(m) && an.matches(m.coach))) { delete (b.mutes as Obj)[k]; marks = true; continue; }
+              if (isObj(m) && [an.fields(m, ["by"], []), tx.texts(m, ["reason"])].some(Boolean)) marks = true;
+            }
+          }
+          for (const e of objs(b.log)) if ([an.fields(e, ["by", "coach"], []), tx.texts(e, ["reason"])].some(Boolean)) marks = true;
+          for (const t of objs(b.threads)) {
+            for (const p of [t, ...objs(t.replies)]) if (isObj(p.hidden) && an.fields(p.hidden, ["by"], [])) marks = true;
+            for (const f of ["pinned", "locked"] as const) if (isObj(t[f]) && an.fields(t[f], ["by"], [])) marks = true;
           }
           return changed || marks;
         });

@@ -29,6 +29,7 @@ import TournamentStatistics from "../components/TournamentStatistics.vue";
 import TournamentHonours from "../components/TournamentHonours.vue";
 import TournamentAwards from "../components/TournamentAwards.vue";
 import TournamentCheckInBar from "../components/TournamentCheckInBar.vue";
+import MessageBoard from "../components/MessageBoard.vue";
 import type { TournamentEntrant } from "../shared/api";
 import { createTournamentHonours, resultsStamp, TOURNAMENT_HONOURS_KEY } from "../tournaments/honours";
 import { createTournamentDetail, TOURNAMENT_DETAIL_KEY, type DetailTab } from "../tournaments/detail";
@@ -53,7 +54,8 @@ const createdNotice = ref(inject(TOURNAMENT_CREATOR_KEY, null)?.takeNotice(props
 const tab = computed<SectionTabId | "manage">(() => {
   if (props.manage) return state.capabilities.manage ? "manage" : "overview";
   const asked = tabFromQuery("tournament", route.query.tab);
-  if (asked === "overview" || !state.tournament) return asked;
+  // The Board always opens (the board itself says when it is off or for registered coaches only).
+  if (asked === "overview" || asked === "board" || !state.tournament) return asked;
   const facts = tournamentFacts(state);
   return facts[asked] || (asked === "awards" && state.capabilities.manage) ? asked : "overview";
 });
@@ -139,6 +141,11 @@ const writesAllowedHere = computed(() => writesAllowed(session) || state.tournam
         <TournamentStatistics v-else-if="tab === 'statistics'" :id="id" />
         <TournamentHonours v-else-if="tab === 'honours'" :id="id" />
         <TournamentAwards v-else-if="tab === 'awards'" :id="id" :writes="writesAllowed(session)" />
+        <!-- Tournament board (owner 11-04): registered coaches and organisers; organisers moderate it here -->
+        <MessageBoard
+          v-else-if="tab === 'board'" moderation :base="`/api/tournaments/${encodeURIComponent(id)}`" removed-note="Removed by an organiser."
+          members-only-note="The board is for registered coaches and organisers." :open-reports="route.query.reports === '1'"
+        />
       </div>
       <CoachProfileDialog
         v-if="profile && state.capabilities.manage" :coach="profile.coachId ?? ''" :team="profile.teamName || profile.teamId" :race="profile.race"

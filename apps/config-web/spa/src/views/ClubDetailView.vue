@@ -12,7 +12,7 @@ import { SESSION_KEY, writesAllowed } from "../session";
 import { usePageTitle } from "../shell/pageTitle";
 import { tabFromQuery } from "../shell/sectionNav";
 import ClubSectionHeader from "../components/ClubSectionHeader.vue";
-import ClubBoard from "../components/ClubBoard.vue";
+import MessageBoard from "../components/MessageBoard.vue";
 import ResultCard from "../components/ResultCard.vue";
 import LeagueDialog from "../components/LeagueDialog.vue";
 import {
@@ -237,7 +237,7 @@ onMounted(async () => { await detail.load(props.id); await loadTab(); });
       </div>
 
       <!-- Board -->
-      <ClubBoard v-else-if="tab === 'board'" :base="`/api/clubs/${encodeURIComponent(id)}`" members-only-note="The board is for club members. Ask to join to read and post." :read-only-note="club.archivedAt ? 'This club is archived: the board is read-only.' : ''" />
+      <MessageBoard v-else-if="tab === 'board'" :base="`/api/clubs/${encodeURIComponent(id)}`" members-only-note="The board is for club members. Ask to join to read and post." :read-only-note="club.archivedAt ? 'This club is archived: the board is read-only.' : ''" />
 
       <!-- Management (the cog) -->
       <div v-else-if="tab === 'manage'" class="cl-grid cl-manage sf-shrink sf-scroll">

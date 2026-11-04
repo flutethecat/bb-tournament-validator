@@ -77,25 +77,7 @@
 .cl-msg { flex-basis: 100%; color: var(--ui-muted); font-size: 14px; overflow-wrap: anywhere; }
 .cl-masked { font-family: var(--font-body); color: var(--ui-muted); overflow-wrap: anywhere; }
 .cl-art-row { display: flex; gap: 12px; align-items: center; }
-.cl-edit textarea, .cb-text { resize: vertical; }
-
-/* Board */
-.cb-body { display: grid; gap: 12px; align-content: start; }
-.cb-compose { display: grid; gap: 8px; justify-items: start; }
-.cb-compose .cb-form { justify-self: stretch; }
-.cb-form { display: grid; gap: 8px; }
-.cb-thread { padding: 12px; border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--ui-heading); border-radius: 2px; background: var(--ui-surface-2); display: grid; gap: 8px; }
-.cb-thread[data-new="true"] { border-left-color: var(--sf-gold); }
-.cb-thread-h { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; align-items: baseline; }
-.cb-title { margin: 0; font: 600 17px/1.25 var(--font-heading); overflow-wrap: anywhere; }
-.cb-meta { display: inline-flex; gap: 6px; align-items: center; color: var(--ui-muted); font-size: 13px; }
-.cb-text-view { margin: 0; white-space: pre-line; overflow-wrap: anywhere; }
-.cb-text-view[data-removed="true"] { color: var(--ui-text-dim); font-style: italic; }
-.cb-actions { display: flex; gap: 6px; }
-.cb-replies { list-style: none; margin: 0; padding: 0 0 0 14px; border-left: 2px solid var(--sf-panel-line); display: grid; gap: 8px; }
-.cb-reply { display: grid; gap: 4px; }
-.cb-reply-form { display: flex; gap: 8px; }
-.cb-reply-form .sf-input { flex: 1 1 auto; min-width: 0; }
+.cl-edit textarea { resize: vertical; }
 
 /* Fields in club forms stack: caption above, control below (design.md §5 form fields). */
 .cl-page .sf-field, .cl-dialog .sf-field { display: grid; gap: 4px; align-items: start; }

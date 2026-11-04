@@ -12,6 +12,7 @@ import LeagueAnnounce from "./LeagueAnnounce.vue";
 import SectionHeader from "./SectionHeader.vue";
 import { canManageLeague, createLeagueDetail, initials, LEAGUE_DETAIL_KEY, pickSeason, safeArtUrl } from "../leagues/league";
 import { ANNOUNCE_KEY, createAnnounce } from "../leagues/dialog";
+import { boardStatusOf, boardTabShows, ensureBoardStatus } from "../shared/board";
 import {
   activeTab, breadcrumbs, leagueFacts, manageLocation, sectionRole, seasonSwitchQuery, visibleTabs,
   type SectionActive, type SectionHeaderModel, type SectionTabId,
@@ -62,6 +63,9 @@ const keep = computed<Record<string, string>>(() => {
   return q;
 });
 const active = computed<SectionActive>(() => props.active ?? activeTab("league", route));
+// The Board tab (owner 11-04): shows while the viewer may read the board, or moderates it (GET .../board/status).
+const boardBase = computed(() => `/api/leagues/${encodeURIComponent(props.id)}`);
+watch([boardBase, coach], ([base, who]) => { if (typeof window !== "undefined") void ensureBoardStatus(fetcher, base, who); }, { immediate: true });
 
 const model = computed<SectionHeaderModel | null>(() => {
   const league = state.league;
@@ -69,6 +73,7 @@ const model = computed<SectionHeaderModel | null>(() => {
   const facts = leagueFacts({
     seasons: state.seasons, current: current.value ?? null, season: record.value ?? null, events: state.events?.length ?? 0,
     ladders: state.ladders?.length ?? 0, ladderDated: (state.ladders ?? []).some((l) => (l.fixtures?.length ?? 0) > 0),
+    board: boardTabShows(boardStatusOf(boardBase.value, coach.value)),
   });
   const owner = props.crumbOwner ?? (active.value === "manage" ? undefined : active.value);
   return {

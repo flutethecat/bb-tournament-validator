@@ -1,6 +1,6 @@
 // Shared section nav (owner 11-02: "a standard Nav Header bar that is shared across all surfaces of the site when inside
 // of a section"; spec-section-header-2026-11-02). Leagues, Tournaments and Series each list their tabs here in TourPlay
-// order, with the rules for which tabs show (hidden while the section has nothing for them; Board greyed "coming soon";
+// order, with the rules for which tabs show (hidden while the section has nothing for them; Board while the viewer may read it;
 // organiser-only items), which tab a sub-page belongs to, the breadcrumb under the header, the season switch (keeps the
 // tab) and the redirects for old tab URLs. No DOM; SectionHeader.vue renders the result.
 
@@ -31,7 +31,7 @@ export const SECTION_TABS: Readonly<Record<SectionKind, readonly SectionTabDef[]
     { id: "overview", label: "Overview" },
     { id: "fixtures", label: "Fixtures", query: "rounds" },
     { id: "standings", label: "Standings" },
-    { id: "board", label: "Board", soon: true },
+    { id: "board", label: "Board" },
     { id: "calendar", label: "Calendar" },
     { id: "honours", label: "Honours" },
     { id: "statistics", label: "Statistics" },
@@ -46,7 +46,7 @@ export const SECTION_TABS: Readonly<Record<SectionKind, readonly SectionTabDef[]
     { id: "standings", label: "Standings" },
     // League ladders (lane 8b): shown while the league has a ladder the viewer can see.
     { id: "ladder", label: "Ladder" },
-    { id: "board", label: "Board", soon: true },
+    { id: "board", label: "Board" },
     { id: "calendar", label: "Calendar" },
     { id: "honours", label: "Honours" },
     { id: "statistics", label: "Statistics" },
@@ -111,7 +111,7 @@ export function manageLocation(kind: SectionKind, id: string, keep: Record<strin
 
 /**
  * The tabs to show, in order. A tab shows when the section has something for it (`facts[id]`), Overview always; Board
- * shows greyed "coming soon"; unbuilt tabs (league Events) never. `manage` lets organisers see tabs they fill in
+ * when the viewer may read the board (or moderates it: facts.board from GET .../board/status); unbuilt tabs (league Events) never. `manage` lets organisers see tabs they fill in
  * themselves even while empty (Awards: they give awards there). The tab of the page being shown (`active`) always shows.
  */
 export function visibleTabs(kind: SectionKind, id: string, facts: SectionFacts, opts: { manage?: boolean; keep?: Record<string, string>; active?: SectionActive } = {}): SectionTabView[] {
@@ -134,6 +134,8 @@ export function tournamentFacts(s: {
   rounds: readonly unknown[];
   fixtures: readonly unknown[];
   entrants: ReadonlyArray<{ droppedAt?: string }>;
+  /** The Board tab shows (shared/board.ts boardTabShows over the board status). */
+  board?: boolean;
 }): SectionFacts {
   const t = s.tournament;
   const started = Boolean(t && (s.rounds.length > 0 || t.status === "active" || t.status === "completed"));
@@ -146,6 +148,7 @@ export function tournamentFacts(s: {
     // the pairings per round: only from fixtures the server let this viewer see (anonymous visitors get none)
     draws: s.fixtures.length > 0,
     awards: started,
+    board: s.board === true,
     // no dated tournament fixtures and no per-tournament star data on the server yet: Calendar and Stars stay hidden
   };
 }
@@ -160,6 +163,8 @@ export function leagueFacts(s: {
   /** League ladders (lane 8b): how many the viewer can see, and whether any has a dated fixture (the Calendar). */
   ladders?: number;
   ladderDated?: boolean;
+  /** The Board tab shows (shared/board.ts boardTabShows over the board status). */
+  board?: boolean;
 }): SectionFacts {
   const teams = s.season ? s.season.teams.length : s.current?.teamCount ?? 0;
   const tables = s.season ? (s.season.phases ?? []).some((p) => p.standings.length > 0) : false;
@@ -175,6 +180,7 @@ export function leagueFacts(s: {
     participants: teams > 0,
     draws: fixtures > 0,
     awards: s.seasons.length > 0,
+    board: s.board === true,
     // Stars: no star / mercenary data in league seasons yet; Events: not built
   };
 }
