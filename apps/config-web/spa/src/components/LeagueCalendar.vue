@@ -12,7 +12,7 @@ import LeagueDialog from "./LeagueDialog.vue";
 import LeagueEventDialog from "./LeagueEventDialog.vue";
 import { gateItems, leagueEventItems, occurrenceFor, type LeagueEventView } from "../leagues/leagueEvents";
 import {
-  agendaDays, CALENDAR_VIEWS, calendarItems, dayBlocks, dayParts, fixtureItems, heatLevel, hourRange, initialAnchor, itemsByDay, listMonths,
+  agendaDays, CALENDAR_VIEWS, calendarItems, dayBlocks, dayParts, fixtureItems, heatLevel, ladderFixtureItems, hourRange, initialAnchor, itemsByDay, listMonths,
   loadCalendarView, monthWeeks, rangeLabel, saveCalendarView, shiftAnchor, splitOverflow, todayIn, WEEKDAYS_SHORT, yearMonths,
   type CalendarContext, type CalendarItem, type CalendarSource, type CalendarView, type ListDay,
 } from "../leagues/seasonCalendar";
@@ -21,7 +21,11 @@ import { fitMode } from "../shell/fit";
 import type { SeasonRecord } from "../leagues/types";
 import "../leagues/calendar.css";
 
-const props = defineProps<{ season?: SeasonRecord; leagueId: string; zone?: string; now?: number; events?: LeagueEventView[]; manage?: boolean; openEvent?: string }>();
+const props = defineProps<{
+  season?: SeasonRecord; leagueId: string; zone?: string; now?: number; events?: LeagueEventView[]; manage?: boolean; openEvent?: string;
+  /** League ladders (lane 8b): their dated fixtures join the calendar. */
+  ladders?: ReadonlyArray<{ id: string; name: string; fixtures?: SeasonRecord["fixtures"] }>;
+}>();
 const router = useRouter();
 
 const zone = computed(() => (validZone(props.zone) ? props.zone : "UTC"));
@@ -30,7 +34,7 @@ const fixtures = computed(() => props.season?.fixtures ?? []);
 const ctx = computed<CalendarContext>(() => ({ leagueId: props.leagueId, seasonId: props.season?.id ?? "", zone: zone.value }));
 // The calendar's sources (type field): the season's fixtures, the league's events, and gates (an empty typed source until
 // gates exist: give gateItems the gates read). Deadlines can join the same way.
-const sources = computed<CalendarSource[]>(() => [(c) => fixtureItems(fixtures.value, c), (c) => leagueEventItems(props.events ?? [], c), gateItems()]);
+const sources = computed<CalendarSource[]>(() => [(c) => fixtureItems(fixtures.value, c), (c) => ladderFixtureItems(props.ladders ?? [], c), (c) => leagueEventItems(props.events ?? [], c), gateItems()]);
 const items = computed(() => calendarItems(sources.value, ctx.value));
 const byDay = computed(() => itemsByDay(items.value));
 const undated = computed(() => fixtures.value.length - items.value.filter((i) => i.type === "fixture").length);

@@ -28,7 +28,8 @@ describe("section tabs: lists, order and visibility", () => {
   it("tournament and league tabs follow TourPlay's order; series has Overview, Schedule, Standings", () => {
     const tourplay = ["overview", "fixtures", "standings", "board", "calendar", "honours", "statistics", "stars", "participants", "draws", "awards"];
     expect(ids(SECTION_TABS.tournament)).toEqual(tourplay);
-    expect(ids(SECTION_TABS.league)).toEqual([...tourplay, "events"]);
+    // League ladders (lane 8b): the Ladder tab sits after Standings.
+    expect(ids(SECTION_TABS.league)).toEqual([...tourplay.slice(0, 3), "ladder", ...tourplay.slice(3), "events"]);
     expect(ids(SECTION_TABS.series)).toEqual(["overview", "schedule", "standings"]);
     expect(SECTION_TABS.league.find((t) => t.id === "honours")?.label).toBe("Honours"); // British spelling
   });
@@ -36,7 +37,7 @@ describe("section tabs: lists, order and visibility", () => {
   it("everything with data shows; Board is greyed 'coming soon' (no link); league Events never shows", () => {
     const all = Object.fromEntries(SECTION_TABS.league.map((t) => [t.id, true]));
     const tabs = visibleTabs("league", "tabbl", all);
-    expect(ids(tabs)).toEqual(["overview", "fixtures", "standings", "board", "calendar", "honours", "statistics", "stars", "participants", "draws", "awards"]);
+    expect(ids(tabs)).toEqual(["overview", "fixtures", "standings", "ladder", "board", "calendar", "honours", "statistics", "stars", "participants", "draws", "awards"]);
     const board = tabs.find((t) => t.id === "board")!;
     expect(board.soon).toBe(true);
     expect(board.to).toBeUndefined();

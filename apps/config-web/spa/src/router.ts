@@ -147,6 +147,14 @@ export const routes: RouteRecordRaw[] = [
   { path: "/leagues/new", name: "league-new", component: () => import("./views/LeagueWizardView.vue"), meta: { requiresAuth: true, title: "Create a league" } },
   { path: "/leagues/:id([a-z0-9-]{1,64})", name: "league-detail", component: LeagueDetailView, props: true, meta: { title: "League" } },
   { path: "/leagues/:id([a-z0-9-]{1,64})/stats", name: "league-stats", component: LeagueStatsView, props: true, meta: { title: "League statistics" } },
+  // League ladders (lane 8b): the four-step setup of a ladder made from League management -> Ladders (organisers; the server decides).
+  {
+    path: "/leagues/:id([a-z0-9-]{1,64})/ladders/:ladderId(ladder-[0-9]{1,6})/setup",
+    name: "league-ladder-setup",
+    component: () => import("./views/LadderWizardView.vue"),
+    props: true,
+    meta: { requiresAuth: true, title: "Set up a ladder" },
+  },
   // Fixture lobby (spec-landing-bubble-retro §8): public read; the two coaches and the organisers act (server-checked).
   {
     path: "/leagues/:id([a-z0-9-]{1,64})/seasons/:seasonId([a-z0-9-]{1,64})/fixtures/:fixtureId([^/]{1,80})/lobby",

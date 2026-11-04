@@ -25,6 +25,7 @@ import LeagueSettingsTeamBuilding from "../components/LeagueSettingsTeamBuilding
 import LeagueSettingsRedraft from "../components/LeagueSettingsRedraft.vue";
 import LeagueRedraftMine from "../components/LeagueRedraftMine.vue";
 import LeagueSchedule from "../components/LeagueSchedule.vue";
+import LeagueSettingsLadders from "../components/LeagueSettingsLadders.vue";
 import { followSeasons } from "../leagues/followSeasons";
 import { createLeagueDetail, LEAGUE_DETAIL_KEY, pickSeason } from "../leagues/league";
 import { createLeagueSettings, isSettingsTab, LEAGUE_SETTINGS_KEY, SETTINGS_TABS, type SettingsTab } from "../leagues/settings";
@@ -42,10 +43,10 @@ provide(LEAGUE_DETAIL_KEY, detail);
 
 /** The management groups: the settings tabs, then the season's Registrations (lane L6: entries to decide), and the two
  *  that moved here from the league page. */
-type ManageGroup = SettingsTab | "schedule" | "entries" | "participants" | "artwork";
-const EXTRA = ["schedule", "entries", "participants", "artwork"] as const;
+type ManageGroup = SettingsTab | "schedule" | "ladders" | "entries" | "participants" | "artwork";
+const EXTRA = ["schedule", "ladders", "entries", "participants", "artwork"] as const;
 const GROUPS: ReadonlyArray<{ id: ManageGroup; label: string }> = [
-  ...SETTINGS_TABS, { id: "schedule", label: "Schedule" }, { id: "entries", label: "Registrations" }, { id: "participants", label: "Participants" }, { id: "artwork", label: "Artwork" },
+  ...SETTINGS_TABS, { id: "schedule", label: "Schedule" }, { id: "ladders", label: "Ladders" }, { id: "entries", label: "Registrations" }, { id: "participants", label: "Participants" }, { id: "artwork", label: "Artwork" },
 ];
 const tab = computed<ManageGroup>(() => {
   const q = route.query.tab;
@@ -100,6 +101,7 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} settings` : ""));
       <LeagueSettingsInducements v-else-if="tab === 'inducements'" />
       <LeagueSettingsRedraft v-else-if="tab === 'redraft'" :league-id="id" />
       <LeagueSchedule v-else-if="tab === 'schedule'" :league-id="id" :seasons="state.seasons" />
+      <LeagueSettingsLadders v-else-if="tab === 'ladders'" :league-id="id" :seasons="detail.state.seasons" />
       <template v-else-if="tab === 'entries'">
         <LeagueRegistrations v-if="season" :league-id="id" :season-id="season.id" :season-name="season.name" />
         <p v-else class="hm-empty" role="status">Loading the seasons...</p>

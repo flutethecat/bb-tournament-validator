@@ -25,6 +25,7 @@ import LeagueParticipantsList from "../components/LeagueParticipantsList.vue";
 import LeagueSectionHeader from "../components/LeagueSectionHeader.vue";
 import LeagueStandings from "../components/LeagueStandings.vue";
 import LeagueTeams from "../components/LeagueTeams.vue";
+import LeagueLadder from "../components/LeagueLadder.vue";
 import LeagueJoin from "../components/LeagueJoin.vue";
 import LeagueTakeoverPanel from "../components/LeagueTakeoverPanel.vue";
 import { createLeagueJoin, LEAGUE_JOIN_KEY } from "../leagues/registration";
@@ -61,7 +62,10 @@ const manage = computed(() => writesAllowed(session) && canManageLeague(state.le
 const tab = computed<SectionTabId>(() => {
   const asked = tabFromQuery("league", route.query.tab);
   if (asked === "overview" || !state.loaded) return asked;
-  const facts = leagueFacts({ seasons: state.seasons, current: current.value ?? null, season: season.value ?? null, events: state.events.length });
+  const facts = leagueFacts({
+    seasons: state.seasons, current: current.value ?? null, season: season.value ?? null, events: state.events.length,
+    ladders: state.ladders.length, ladderDated: state.ladders.some((l) => (l.fixtures?.length ?? 0) > 0),
+  });
   return facts[asked] ? asked : "overview";
 });
 /** Unfinished seasons other than the newest: a coach's live registration there still shows on the Overview. */
@@ -189,14 +193,16 @@ usePageTitle(() => state.league?.name);
         </div>
         <LeagueOverview v-if="season" :league="state.league" :season="season" :summary="current!" :crests="state.crests" :can-manage="manage" />
       </div>
-      <p v-if="current && !season && state.seasonError" class="lobby-error" role="alert">{{ state.seasonError }}</p>
+      <!-- League ladders (lane 8b): their own tab, independent of the season picked -->
+      <LeagueLadder v-if="tab === 'ladder'" :league-id="id" :league-name="state.league.name" />
+      <p v-else-if="current && !season && state.seasonError" class="lobby-error" role="alert">{{ state.seasonError }}</p>
       <p v-else-if="current && !season" class="hm-empty" role="status">Loading {{ current.name }}...</p>
       <template v-else-if="season">
         <template v-if="tab === 'overview'"><!-- in .lg-ov above --></template>
         <LeagueStandings v-else-if="tab === 'standings'" :season="season" :me="session.coach()" :league-id="id" />
         <LeagueFixtureSummary v-else-if="tab === 'fixtures' && fixtureRef" :league-id="id" :season-id="season.id" :fixture-id="fixtureRef" :back="fixturesQuery" />
         <LeagueFixtures v-else-if="tab === 'fixtures'" :league="state.league" :season="season" :crests="state.crests" :manage="manage" />
-        <LeagueCalendar v-else-if="tab === 'calendar'" :season="season" :league-id="id" :zone="state.league.timeZone" :events="state.events" :manage="manage" :open-event="eventRef" />
+        <LeagueCalendar v-else-if="tab === 'calendar'" :season="season" :league-id="id" :zone="state.league.timeZone" :events="state.events" :ladders="state.ladders" :manage="manage" :open-event="eventRef" />
         <LeagueTeams v-else-if="tab === 'participants' && (teamName || playerRef)" :season="season" :team="teamName" :player="playerRef" :league-id="id" :crests="state.crests" :manage="manage" />
         <LeagueParticipantsList v-else-if="tab === 'participants'" :season="season" :league-id="id" :crests="state.crests" :organiser="manage" />
         <LeagueDraws v-else-if="tab === 'draws'" :season="season" />
@@ -204,7 +210,7 @@ usePageTitle(() => state.league?.name);
         <LeagueHonours v-else :season="season" :seasons="state.seasons" :manage="manage" :crests="state.crests" :awards="false" />
       </template>
       <!-- a league with no season yet: the Calendar still shows (and deep-links to) its League Events -->
-      <LeagueCalendar v-else-if="tab === 'calendar' && !current" :league-id="id" :zone="state.league.timeZone" :events="state.events" :manage="manage" :open-event="eventRef" />
+      <LeagueCalendar v-else-if="tab === 'calendar' && !current" :league-id="id" :zone="state.league.timeZone" :events="state.events" :ladders="state.ladders" :manage="manage" :open-event="eventRef" />
       </div>
     </template>
   </div>

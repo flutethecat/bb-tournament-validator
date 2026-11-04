@@ -9,7 +9,7 @@ import type { RouteLocationRaw } from "vue-router";
 export type SectionKind = "league" | "tournament" | "series";
 export type SectionTabId =
   | "overview" | "fixtures" | "standings" | "board" | "calendar" | "honours" | "statistics" | "stars" | "participants" | "draws" | "awards"
-  | "events" | "schedule";
+  | "events" | "schedule" | "ladder";
 /** The management sub-panel (the cog): not a tab, but the header shows the cog as current. */
 export type SectionActive = SectionTabId | "manage";
 
@@ -44,6 +44,8 @@ export const SECTION_TABS: Readonly<Record<SectionKind, readonly SectionTabDef[]
     { id: "overview", label: "Overview" },
     { id: "fixtures", label: "Fixtures" },
     { id: "standings", label: "Standings" },
+    // League ladders (lane 8b): shown while the league has a ladder the viewer can see.
+    { id: "ladder", label: "Ladder" },
     { id: "board", label: "Board", soon: true },
     { id: "calendar", label: "Calendar" },
     { id: "honours", label: "Honours" },
@@ -147,6 +149,9 @@ export function leagueFacts(s: {
   season?: { teams: readonly unknown[]; phases?: ReadonlyArray<{ standings: readonly unknown[] }>; fixtures: ReadonlyArray<{ date?: string; finishedAt?: string; scheduledTime?: { start: string } }> } | null;
   /** League Events (league-wide): any one puts the Calendar tab up. */
   events?: number;
+  /** League ladders (lane 8b): how many the viewer can see, and whether any has a dated fixture (the Calendar). */
+  ladders?: number;
+  ladderDated?: boolean;
 }): SectionFacts {
   const teams = s.season ? s.season.teams.length : s.current?.teamCount ?? 0;
   const tables = s.season ? (s.season.phases ?? []).some((p) => p.standings.length > 0) : false;
@@ -155,7 +160,8 @@ export function leagueFacts(s: {
   return {
     fixtures: fixtures > 0,
     standings: teams > 0 || tables || fixtures > 0,
-    calendar: dated || (s.events ?? 0) > 0,
+    calendar: dated || (s.events ?? 0) > 0 || s.ladderDated === true,
+    ladder: (s.ladders ?? 0) > 0,
     honours: s.seasons.length > 0,
     statistics: s.seasons.some((x) => x.playedCount > 0),
     participants: teams > 0,

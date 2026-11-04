@@ -156,6 +156,14 @@ export function fixtureItems(fixtures: readonly LeagueFixture[], ctx: CalendarCo
   return out;
 }
 
+/** League ladders' dated fixtures (lane 8b): the same items, linked through the ladder (read like a season), the ladder named. */
+export function ladderFixtureItems(ladders: ReadonlyArray<{ id: string; name: string; fixtures?: readonly LeagueFixture[] }>, ctx: CalendarContext): CalendarItem[] {
+  return ladders.flatMap((l) => fixtureItems(l.fixtures ?? [], { ...ctx, seasonId: l.id }).map((item) => {
+    const f = (l.fixtures ?? []).find((x) => `fixture:${x.id}` === item.key);
+    return { ...item, key: `ladder:${l.id}:${item.key}`, detail: `${l.name} · ${f?.round ? `Round ${f.round}` : "Challenge"}` };
+  }));
+}
+
 /** Fixtures the calendar cannot place (no date of any kind). */
 export function undatedFixtures(fixtures: readonly LeagueFixture[], ctx: CalendarContext): number {
   return fixtures.length - fixtureItems(fixtures, ctx).length;

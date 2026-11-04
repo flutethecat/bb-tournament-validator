@@ -6,6 +6,7 @@ import { ApiError } from "../shared/api";
 import { resolveCrest } from "../tabletop/art";
 import type { Fetcher } from "../session";
 import { leagueEventsApi, type LeagueEventView } from "./leagueEvents";
+import type { LadderSummary } from "./ladder";
 import type {
   FormerPlayer, HonourTable, HonourValue, LeagueFixture, LeagueNewsPost, LeaguePhase, LeaguePlayer, LeagueStats, LeagueSummary, LeagueTeam, SeasonRecord, SeasonSummary, StatsCard,
   StandingRow, StandingsStat, StatsScope,
@@ -65,6 +66,8 @@ export interface LeagueDetailState {
   editNotice: string;
   /** League Events (leagueEvents.ts): league-wide, on every season's Calendar; empty until read (or when the read fails). */
   events: LeagueEventView[];
+  /** League ladders (lane 8b) the viewer can see, with their dated fixtures (the Ladder tab, the Calendar); best effort. */
+  ladders: LadderSummary[];
 }
 
 /** News as the panel lists it: pinned first, then newest first. */
@@ -153,8 +156,17 @@ export const fetchUpload: RawUploader = async (path, body) => {
 export function createLeagueDetail(deps: { api: Fetcher; upload?: RawUploader }) {
   const state = reactive<LeagueDetailState>({
     id: "", league: null, seasons: [], loaded: false, error: "", season: {}, seasonLoading: "", seasonError: "", crests: {},
-    artBusy: "", artError: "", artNotice: "", forkBusy: "", forkError: "", editBusy: "", editError: "", editNotice: "", events: [],
+    artBusy: "", artError: "", artNotice: "", forkBusy: "", forkError: "", editBusy: "", editError: "", editNotice: "", events: [], ladders: [],
   });
+  /** League ladders: best effort (none on failure). */
+  async function loadLadders(): Promise<void> {
+    if (!state.id || !state.league) { state.ladders = []; return; }
+    const id = state.id;
+    try {
+      const res = await deps.api<{ ladders?: LadderSummary[] }>(`/api/leagues/${encodeURIComponent(id)}/ladders`);
+      if (state.id === id) state.ladders = Array.isArray(res?.ladders) ? res.ladders : [];
+    } catch { if (state.id === id) state.ladders = []; }
+  }
   /** League Events: best effort (no events on failure). */
   async function loadEvents(): Promise<void> {
     if (!state.id || !state.league) { state.events = []; return; }
@@ -182,7 +194,7 @@ export function createLeagueDetail(deps: { api: Fetcher; upload?: RawUploader })
       const m = await deps.api<{ crests?: Record<string, string> }>("/crests/manifest.json");
       state.crests = m?.crests ?? {};
     } catch { /* no crests: initials badges */ }
-    await loadEvents();
+    await Promise.all([loadEvents(), loadLadders()]);
   }
   async function ensureSeason(seasonId: string): Promise<void> {
     if (!seasonId || state.season[seasonId]) return;
