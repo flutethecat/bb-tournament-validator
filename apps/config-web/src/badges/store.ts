@@ -79,6 +79,8 @@ export interface BadgeFile {
   version: 1;
   initialisedAt?: string;
   seeded: string[];
+  /** Award key -> when it was first recorded: announced at most once ever (kept when the award is revoked). */
+  announced?: Record<string, string>;
   auto: StoredAward[];
   leagues: Record<string, LeagueBadges>;
   log: BadgeLogEntry[];
@@ -111,7 +113,7 @@ export class BadgeStore {
     if (!f || typeof f !== "object" || f.version !== 1 || !Array.isArray(f.auto) || !Array.isArray(f.log) || !f.leagues || typeof f.leagues !== "object") {
       throw new BadgeStoreError(503, "Badges are unavailable right now.");
     }
-    return { version: 1, ...(f.initialisedAt ? { initialisedAt: f.initialisedAt } : {}), seeded: Array.isArray(f.seeded) ? f.seeded : [], auto: f.auto, leagues: f.leagues, log: f.log };
+    return { version: 1, ...(f.initialisedAt ? { initialisedAt: f.initialisedAt } : {}), seeded: Array.isArray(f.seeded) ? f.seeded : [], ...(f.announced && typeof f.announced === "object" ? { announced: f.announced } : {}), auto: f.auto, leagues: f.leagues, log: f.log };
   }
 
   write(file: BadgeFile): void {

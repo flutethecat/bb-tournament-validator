@@ -139,7 +139,7 @@ export function catalogView() {
 
 // ---- league membership (who an organiser may award) ---------------------------------------------------------------------
 
-interface Members { coaches: Map<string, string>; teams: Array<{ seasonId: string; seasonName: string; teamId: string; team: string; key: string; coach?: string }> }
+interface Members { coaches: Map<string, string>; teams: Array<{ seasonId: string; seasonName: string; teamId: string; team: string; key: string; coach?: string; identities: string[] }> }
 
 function leagueMembers(leagueId: string, comps: readonly SeasonRecord[]): Members {
   const coaches = new Map<string, string>();
@@ -149,7 +149,10 @@ function leagueMembers(leagueId: string, comps: readonly SeasonRecord[]): Member
     for (const t of s.teams ?? []) {
       const coach = t.coachAssigned?.cleared ? undefined : t.coachId;
       addCoach(coach);
-      teams.push({ seasonId: s.id, seasonName: s.name, teamId: t.id, team: t.name, key: teamBadgeKey(leagueId, s.id, t), ...(earningCoach(coach) ? { coach: earningCoach(coach)! } : {}) });
+      // Every coach identity on the team (its account, its shown coach, every entry holder): the deletion fence checks them all.
+      const identities = [t.coachId, t.coach, ...((t.entryHistory ?? []) as Array<{ coach?: string; coachId?: string }>).flatMap((h) => [h.coachId, h.coach])]
+        .filter((x): x is string => typeof x === "string" && x.trim().length > 0);
+      teams.push({ seasonId: s.id, seasonName: s.name, teamId: t.id, team: t.name, key: teamBadgeKey(leagueId, s.id, t), ...(earningCoach(coach) ? { coach: earningCoach(coach)! } : {}), identities });
     }
     for (const f of s.fixtures ?? []) for (const side of [f.home, f.away]) addCoach(gameCoach(side).coachId);
   }
@@ -217,7 +220,7 @@ function leagueRead(league: LeagueRecord, manage: boolean, deps: BadgesApiDeps):
   if (manage) {
     const m = leagueMembers(league.id, deps.leagues.competitions(league.id));
     out.log = file.log.filter((e) => e.leagueId === league.id && lb.badges.some((b) => b.id === e.badgeId)).slice(0, 100);
-    out.members = { coaches: [...m.coaches.values()].sort((a, b) => a.localeCompare(b)), teams: m.teams.map(({ key: _k, ...t }) => t) };
+    out.members = { coaches: [...m.coaches.values()].sort((a, b) => a.localeCompare(b)), teams: m.teams.map(({ key: _k, identities: _i, ...t }) => t) };
     out.icons = catalogView().icons;
   }
   return ok(out);
@@ -303,6 +306,7 @@ function leagueWrite(method: string, rest: string[], league: LeagueRecord, actor
       if (badge.scope === "coach") return fail(400, "This badge is for coaches.");
       const t = members.teams.find((x) => x.seasonId === body.seasonId && x.teamId === body.teamId);
       if (!t) return fail(400, "That team is not in this league.");
+      if (t.identities.some((c) => deps.isFenced?.(c))) return fail(409, "That team's coach account is being deleted.");
       award = {
         id: `ca-${randomBytes(6).toString("hex")}`, badgeId: badge.id, subject: { kind: "team", key: t.key, name: t.team, seasonId: t.seasonId, teamId: t.teamId },
         ...(t.coach ? { coach: t.coach } : {}), ...(note ? { note } : {}), by: actor, at: now,

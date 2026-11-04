@@ -3,7 +3,7 @@
  * (src/badges/catalog.ts) names one per entry with its parameters, so the rules are data and the code is a small fixed set.
  *
  * Rules every evaluator keeps:
- *  - only COUNTED games earn: never a forfeit, a concession, a deadline decision or an organiser-typed / overridden result
+ *  - only COUNTED games earn: never a forfeit, a concession, a deadline decision or an edited / overridden result (a manager's first-time typed result counts)
  *    (`counted`). "Unbeaten season" is the one rule that also LOOKS at forfeits: a forfeit loss breaks it.
  *  - deterministic: the same ledger and clock give the same awards, each with the time it was first earned (the game or
  *    milestone that earned it), so a corrected or deleted result simply stops producing the award and the engine revokes it.
@@ -13,6 +13,7 @@
  */
 import { appliesToCoach, appliesToTeam, BADGE_CATALOG, type BadgeDefinition } from "./catalog.js";
 import type { BadgeLedger, LedgerGame, LedgerSide } from "./ledger.js";
+import { noPace, type Pacer } from "./pace.js";
 
 export interface AwardContext {
   leagueId?: string;
@@ -83,10 +84,18 @@ const distinctReach = (games: readonly SideGame[], n: number, key: (g: SideGame)
 const num = (v: number | undefined, fallback: number): number => (typeof v === "number" && Number.isFinite(v) ? v : fallback);
 const win = (g: SideGame): boolean => g.me.outcome === "win";
 
-export interface EvalContext { ledger: BadgeLedger; now: Date }
+export interface EvalContext {
+  ledger: BadgeLedger;
+  now: Date;
+  /** "<leagueId>/<seasonId>" -> the season (indexed once per pass). */
+  seasons: Map<string, BadgeLedger["seasons"][number]>;
+}
+
+/** One subject's games, oldest first, and the same games by league season (indexed once per pass). */
+export interface SubjectRow { name: string; games: SideGame[]; bySeason: Map<string, SideGame[]> }
 
 /** Evaluators over one subject's games (oldest first). `subject` = which stream it is. */
-export type StreamEvaluator = (games: readonly SideGame[], params: Record<string, number>, ctx: EvalContext, subject: "coach" | "team") => Hit[];
+export type StreamEvaluator = (games: readonly SideGame[], params: Record<string, number>, ctx: EvalContext, subject: "coach" | "team", row: SubjectRow) => Hit[];
 
 export const STREAM_EVALUATORS: Readonly<Record<string, StreamEvaluator>> = {
   wins: (games, p) => nthCounted(games, num(p.min, 1), win),
@@ -131,28 +140,31 @@ export const STREAM_EVALUATORS: Readonly<Record<string, StreamEvaluator>> = {
     }
     return [];
   },
-  unbeatenSeason: (games, p, ctx) => {
+  unbeatenSeason: (_games, p, ctx, _subject, row) => {
     const hits: Hit[] = [];
-    for (const s of ctx.ledger.seasons) {
-      if (!s.completed) continue;
-      const mine = games.filter((g) => g.game.kind === "league" && g.game.leagueId === s.leagueId && g.game.seasonId === s.seasonId);
+    for (const [key, mine] of row.bySeason) {
+      const s = ctx.seasons.get(key);
+      if (!s?.completed) continue;
       if (mine.some((g) => g.me.outcome === "loss")) continue; // a forfeit or edited loss breaks it too
       const played = mine.filter((g) => counted(g.game));
       if (played.length < num(p.minGames, 3)) continue;
       hits.push({ at: s.endedAt ?? played[played.length - 1]!.game.at, context: { leagueId: s.leagueId, seasonId: s.seasonId, link: s.link, label: s.name } });
     }
-    return hits.slice(0, 1);
+    return hits;
   },
-  everPresent: (games, _p, ctx) => {
-    for (const s of ctx.ledger.seasons) {
-      if (!s.completed) continue;
+  everPresent: (_games, _p, ctx, _subject, row) => {
+    const hits: Hit[] = [];
+    for (const [key, mine] of row.bySeason) {
+      const s = ctx.seasons.get(key);
+      if (!s?.completed) continue;
+      const byTeam = new Map<string, SideGame[]>();
+      for (const g of mine) if (counted(g.game) && g.me.teamKey) byTeam.set(g.me.teamKey, [...(byTeam.get(g.me.teamKey) ?? []), g]);
       for (const t of s.teams) {
-        if (t.fixtures < 1) continue;
-        const played = games.filter((g) => counted(g.game) && g.game.leagueId === s.leagueId && g.game.seasonId === s.seasonId && g.me.teamKey === t.teamKey);
-        if (played.length === t.fixtures) return [{ at: s.endedAt ?? played[played.length - 1]!.game.at, context: { leagueId: s.leagueId, seasonId: s.seasonId, link: s.link, label: s.name } }];
+        const played = byTeam.get(t.teamKey) ?? [];
+        if (t.fixtures >= 1 && played.length === t.fixtures) hits.push({ at: s.endedAt ?? played[played.length - 1]!.game.at, context: { leagueId: s.leagueId, seasonId: s.seasonId, link: s.link, label: s.name } });
       }
     }
-    return [];
+    return hits;
   },
 };
 
@@ -195,15 +207,20 @@ export const LEDGER_EVALUATORS: Readonly<Record<string, LedgerEvaluator>> = {
   }),
 };
 
-/** Each subject's games, oldest first (the ledger is already sorted). */
-export function subjectStreams(ledger: BadgeLedger): { coach: Map<string, { name: string; games: SideGame[] }>; team: Map<string, { name: string; games: SideGame[] }> } {
-  const coach = new Map<string, { name: string; games: SideGame[] }>();
-  const team = new Map<string, { name: string; games: SideGame[] }>();
-  const push = (map: typeof coach, key: string, name: string, g: SideGame) => {
-    const row = map.get(key) ?? { name, games: [] };
+/** Each subject's games, oldest first (the ledger is already sorted), indexed by league season. */
+export function subjectStreams(ledger: BadgeLedger): { coach: Map<string, SubjectRow>; team: Map<string, SubjectRow> } {
+  const coach = new Map<string, SubjectRow>();
+  const team = new Map<string, SubjectRow>();
+  const push = (map: Map<string, SubjectRow>, key: string, name: string, g: SideGame) => {
+    let row = map.get(key);
+    if (!row) { row = { name, games: [], bySeason: new Map() }; map.set(key, row); }
     row.name = name; // the latest name shown
     row.games.push(g);
-    map.set(key, row);
+    if (g.game.kind === "league" && g.game.leagueId && g.game.seasonId) {
+      const k = `${g.game.leagueId}/${g.game.seasonId}`;
+      const list = row.bySeason.get(k);
+      if (list) list.push(g); else row.bySeason.set(k, [g]);
+    }
   };
   for (const game of ledger.games) {
     const [a, b] = game.sides;
@@ -218,9 +235,12 @@ export function subjectStreams(ledger: BadgeLedger): { coach: Map<string, { name
 
 export const earnedKey = (badgeId: string, variant: string | undefined, kind: "coach" | "team", key: string): string => `${badgeId}|${variant ?? ""}|${kind}|${key}`;
 
-/** Every award the catalog's live entries earn from this ledger, deduplicated (the earliest hit per key wins). */
-export function evaluateCatalog(ledger: BadgeLedger, now: Date, catalog: readonly BadgeDefinition[] = BADGE_CATALOG): Earned[] {
-  const ctx: EvalContext = { ledger, now };
+/**
+ * Every award the catalog's live entries earn from this ledger, deduplicated (the earliest hit per key wins). The history is
+ * indexed once per pass (by coach, team and season); `pace` yields to the event loop between subjects.
+ */
+export async function evaluateCatalog(ledger: BadgeLedger, now: Date, catalog: readonly BadgeDefinition[] = BADGE_CATALOG, pace: Pacer = noPace): Promise<Earned[]> {
+  const ctx: EvalContext = { ledger, now, seasons: new Map(ledger.seasons.map((x) => [`${x.leagueId}/${x.seasonId}`, x] as const)) };
   const streams = subjectStreams(ledger);
   const out = new Map<string, Earned>();
   const add = (def: BadgeDefinition, kind: "coach" | "team", key: string, name: string, hit: Hit) => {
@@ -232,18 +252,22 @@ export function evaluateCatalog(ledger: BadgeLedger, now: Date, catalog: readonl
     if (prior && prior.at <= hit.at) return;
     out.set(k, { key: k, badgeId: def.id, ...(variant ? { variant } : {}), subject: { kind, key, name }, at: hit.at, context: hit.context });
   };
-  for (const def of catalog) {
-    if (def.status !== "live") continue;
-    const stream = STREAM_EVALUATORS[def.evaluator];
-    if (stream) {
-      for (const kind of ["coach", "team"] as const) {
-        if (kind === "coach" ? !appliesToCoach(def) : !appliesToTeam(def)) continue;
-        for (const [key, row] of streams[kind]) for (const hit of stream(row.games, def.params, ctx, kind)) add(def, kind, key, row.name, hit);
+  const live = catalog.filter((d) => d.status === "live");
+  for (const kind of ["coach", "team"] as const) {
+    for (const [key, row] of streams[kind]) {
+      await pace.tick();
+      for (const def of live) {
+        const stream = STREAM_EVALUATORS[def.evaluator];
+        if (!stream || (kind === "coach" ? !appliesToCoach(def) : !appliesToTeam(def))) continue;
+        for (const hit of stream(row.games, def.params, ctx, kind, row)) add(def, kind, key, row.name, hit);
       }
-      continue;
     }
+  }
+  for (const def of live) {
+    if (STREAM_EVALUATORS[def.evaluator]) continue;
     const fn = LEDGER_EVALUATORS[def.evaluator];
     if (!fn) continue; // an unknown evaluator earns nothing (fail closed)
+    await pace.tick();
     for (const hit of fn(def.params, ctx)) add(def, hit.subject.kind, hit.subject.key, hit.subject.name, hit);
   }
   return [...out.values()].sort((a, b) => a.at.localeCompare(b.at) || a.key.localeCompare(b.key));

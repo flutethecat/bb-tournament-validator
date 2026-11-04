@@ -106,6 +106,21 @@ describe("custom badge auth", () => {
     expect(org.log.map((l) => `${l.action}:${l.by}`)).toEqual(["revoke:OrgA", "award:OrgA", "award:OrgA", "create:OrgA"]);
   });
 
+  it("P2-7: a team award checks the deletion fence for every coach identity on the team", async () => {
+    const made = (await create())!.body as { badge: { id: string } };
+    const fenced = new Set<string>(["Bob"]);
+    const r = await badgesApi("POST", `${B}/lg/badges/${made.badge.id}/award`, as("OrgA"), { revision: 1, seasonId: "season-1", teamId: "elves" }, { ...deps(), isFenced: (c) => fenced.has(c) });
+    expect(r!.status).toBe(409);
+    expect(notes).toEqual([]);
+    // a former holder of the entry counts too
+    const s = leagues.season("lg", "season-1")!;
+    s.teams.find((t) => t.id === "orcs")!.entryHistory = [{ name: "Orcs", race: "Orc", coach: "Bob", coachId: "Bob", fromGame: 1, toGame: 2, via: "start", at: "2026-10-01T00:00:00.000Z" }, { name: "Orcs", race: "Orc", coach: "Ann", coachId: "Ann", fromGame: 3, via: "takeover", at: "2026-10-05T00:00:00.000Z" }];
+    leagues.putSeason(s);
+    const r2 = await badgesApi("POST", `${B}/lg/badges/${made.badge.id}/award`, as("OrgA"), { revision: 1, seasonId: "season-1", teamId: "orcs" }, { ...deps(), isFenced: (c) => fenced.has(c) });
+    expect(r2!.status).toBe(409);
+    expect((await badgesApi("POST", `${B}/lg/badges/${made.badge.id}/award`, as("OrgA"), { revision: 1, seasonId: "season-1", teamId: "orcs" }, deps()))!.status).toBe(201);
+  });
+
   it("archive and edit name the revision; an archived badge can't be awarded", async () => {
     const made = (await create())!.body as { badge: { id: string } };
     expect((await call("PATCH", `${B}/lg/badges/${made.badge.id}`, as("OrgA"), { archived: true }))!.status).toBe(428);
@@ -150,6 +165,7 @@ describe("privacy: export and delete", () => {
       f.auto.push({ key: "first-win||coach|ann", badgeId: "first-win", subject: { kind: "coach", key: "ann", name: "Ann" }, at: "2026-10-01T00:00:00.000Z", awardedAt: "2026-10-01T00:00:00.000Z", context: {} });
       f.auto.push({ key: "first-win||coach|bob", badgeId: "first-win", subject: { kind: "coach", key: "bob", name: "Bob" }, at: "2026-10-01T00:00:00.000Z", awardedAt: "2026-10-01T00:00:00.000Z", context: {} });
       f.log.unshift({ id: "x", at: "2026-10-01T00:00:00.000Z", action: "award", badgeId: "first-win", subject: { kind: "coach", key: "ann", name: "Ann" }, by: "" });
+      f.announced = { "first-win||coach|ann": "2026-10-01T00:00:00.000Z", "first-win||coach|bob": "2026-10-01T00:00:00.000Z" };
     });
     const collector = STORE_COLLECTORS.find((c) => c.id === "badges")!;
     const pdeps = { stateDir: dir, tournamentsDir: join(dir, "t"), libraryDir: join(dir, "l"), builderSavesDir: join(dir, "b"), teamAvatarsDir: join(dir, "ta"), coachAvatarsDir: join(dir, "ca"), bugReportsDir: join(dir, "br"), tabletopDir: join(dir, "tt") };
@@ -170,6 +186,7 @@ describe("privacy: export and delete", () => {
     let f = store.read();
     expect(f.auto.map((a) => a.subject.name)).toEqual(["Bob"]);
     expect(f.leagues.lg!.awards.map((a) => a.subject.name)).toEqual(["Bob"]);
+    expect(Object.keys(f.announced ?? {})).toEqual(["first-win||coach|bob"]);
     expect(JSON.stringify(f)).not.toMatch(/"Ann"|"ann"/);
     // delete the organiser: what they made stays under the pseudonym
     const ctx2 = deleteContext(pdeps as never, { ...splitPlan({ jobId: "y".repeat(24), coachHash: "", coach: "OrgA", coachNames: ["OrgA"], displays: [], pseudonym: P, teamKeys: [], proxyKeys: [], actor: "self", at: "" } as never).stored, coach: "OrgA", coachNames: ["OrgA"], displays: [] } as never);

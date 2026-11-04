@@ -395,6 +395,8 @@ import { ClubObserver, CLUB_OBSERVER_TICK_MS } from "./clubs/observer.js";
 import { badgesApi, isBadgesApiPath } from "./badges/api.js";
 import { BadgeEngine, BADGE_TICK_MS, recorderSource } from "./badges/engine.js";
 import { BadgeStore } from "./badges/store.js";
+import { badgeKickPath } from "./badges/kick.js";
+import { CheckedLeagueReader } from "./badges/sources.js";
 import { effectiveEvents } from "./tabletop/events.js";
 import { setClubDirectory } from "./clubs/pick.js";
 import { clubHasHistory, clubLedger, type ClubLedger } from "./clubs/stats.js";
@@ -1162,13 +1164,15 @@ setInterval(clubTick, CLUB_OBSERVER_TICK_MS).unref();
 // fork sync) and on a minute tick when any source changed (season end, belt reigns, club years: a full pass every 15 min).
 // Never from a GET. The first pass ever, and a new catalog entry, award silently.
 const badgeStore = new BadgeStore(FORK_STATE_DIR);
+const badgeLeagueReader = new CheckedLeagueReader(FORK_STATE_DIR);
 const badgeRecorder = recorderSource(effectiveEvents as never);
 /** Read-only use of the recorder store (tabletopDeps keeps the first-use recovery of the shared one). */
 let badgeTabletopRepo: FileTabletopRepository | undefined;
 const statStamp = (p: string): string => { try { const st = statSync(p); return `${st.mtimeMs}:${st.size}`; } catch { return "none"; } };
 const badgeEngine = new BadgeEngine({
   store: badgeStore,
-  sources: async () => ({ leagues: leagueStore, tournaments: tournamentStore, clubs: clubStore, recorder: await badgeRecorder(tabletopRepo ?? (badgeTabletopRepo ??= new FileTabletopRepository(TABLETOP_DIR))) }),
+  // Checked readers only (src/badges/sources.ts): any unreadable league, season, tournament, club or recorder file aborts the pass.
+  sources: async () => ({ leagues: badgeLeagueReader, tournaments: tournamentStore, clubs: clubStore, tournamentResults, recorder: await badgeRecorder(tabletopRepo ?? (badgeTabletopRepo ??= new FileTabletopRepository(TABLETOP_DIR))) }),
   changeKey: () => `${leagueStore.version()}|${statStamp(join(TOURNAMENTS_DIR, "tournaments.json"))}|${statStamp(join(TABLETOP_DIR, "matches"))}|${statStamp(join(FORK_STATE_DIR, "clubs", "clubs.json"))}`,
   notify: leagueNotify,
   discord: { leagues: leagueStore, tournaments: tournamentStore, state: discordState },
@@ -2295,8 +2299,6 @@ async function serveStatic(res: ServerResponse, urlPath: string): Promise<void> 
 }
 
 const WRITE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
-/** Write routes that can change a result (badges are recomputed after them). */
-const BADGE_KICK_PATHS = /^\/api\/(?:leagues|tabletop|scheduled-matches|tournaments|fork\/tournaments)(?:\/|$)/;
 
 function isOrganizerWrite(method: string, pathname: string): boolean {
   if (!WRITE_METHODS.has(method)) return false;
@@ -2512,9 +2514,10 @@ async function handleApi(
       if (needed) return sendJson(res, 428, { error: ONBOARDING_REQUIRED_MESSAGE, onboarding: true });
     }
   }
-  // Badges (src/badges/engine.ts): a successful write on a result path (the recorder, tabletop entry, league results and
-  // the TourPlay import merge, tournament results) recomputes badges shortly after, coalesced. Additive: nothing else changes.
-  if (WRITE_METHODS.has(req.method ?? "GET") && BADGE_KICK_PATHS.test(path)) res.once("finish", () => { if (res.statusCode < 400) badgeEngine.kick(); });
+  // Badges (src/badges/engine.ts): a successful write that changes a result or milestone (src/badges/kick.ts: recorder publish,
+  // result entry / edit / clear, forfeits, season and ladder milestones, the TourPlay apply) recomputes badges shortly
+  // after, coalesced (one pass at a time, a trailing rerun). Recorder in-game events never do. Additive: nothing else changes.
+  if (badgeKickPath(req.method ?? "GET", path)) res.once("finish", () => { if (res.statusCode < 400) badgeEngine.kick(); });
   // Web Lobby: authenticates and reads its body BEFORE taking the game-start lock (handleLobbyRequest).
   if (isLobbyApiPath(path)) return handleLobbyRequest(req, res, path, query);
   if (isTabletopApiPath(path)) return handleTabletopRequest(req, res, path, query);

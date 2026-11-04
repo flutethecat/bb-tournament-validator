@@ -1468,6 +1468,11 @@ export const DELETE_STEPS: DeleteStep[] = [
           }
           for (const b of objs(lb.badges)) if ([an.fields(b, ["createdBy"], []), tx.texts(b, ["name", "description"])].some(Boolean)) changed = true;
         }
+        // The announced ledger: keys "<badge>|<variant>|coach|<coach key>" naming the coach go.
+        if (isObj(file.announced)) for (const k of Object.keys(file.announced)) {
+          const parts = k.split("|");
+          if (parts[2] === "coach" && an.matches(parts.slice(3).join("|"))) { delete file.announced[k]; changed = true; }
+        }
         const log = objs(file.log);
         const keptLog = log.filter((e) => !coachSubject(e.subject));
         if (keptLog.length !== log.length) { file.log = keptLog; changed = true; }

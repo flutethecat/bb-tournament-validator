@@ -5,17 +5,20 @@
  *                new awards are written (logged, by the site) and then announced; awards that no longer hold (a corrected,
  *                cleared or deleted result, a season reopened, a reign that changed) are revoked (logged). Idempotent: one
  *                award per subject per badge (per tier, per race); a second pass changes nothing.
- *   kick()       the small additive hook every result path calls through server.ts (the recorder publish / undo, a league
- *                result write, the fork sync, the TourPlay import merge, a tournament result): a recompute soon after,
- *                coalesced. The minute tick covers any path that does not kick (season end, belt reign length, club years).
+ *   kick()       called by server.ts after a write that changes a result or milestone (src/badges/kick.ts) and after the fork
+ *                sync applies results: a recompute a few seconds later. At most one pass runs; kicks during it queue ONE
+ *                trailing rerun. The minute tick covers anything else (season end, belt reign length, club years).
+ *   pacing       the pass yields to the event loop every ~40 ms (src/badges/pace.ts) and indexes the history once per
+ *                pass (by coach, team and season).
  *
  * Announcements, after the write and best effort: an inbox note to the coach (type "award") and, when the competition's
  * "Badge earned" Discord event is on (off by default), a post through the cleaned sender (targets.ts postTo). Silent:
  * the first run ever, a badge the engine has never evaluated before (a new catalog entry), and any coach under deletion.
- * Drafts and test data never reach the ledger, so they never announce.
+ * Each award key is announced at most once ever (the announced ledger survives a revoke and restore). Just before each
+ * notice and post the fence and the stored award are checked again. Drafts and test data never reach the ledger.
  *
- * Fails closed: an unreadable store or competition aborts the pass before anything is written (nothing is revoked from a
- * partial picture).
+ * Fails closed: an unreadable store, competition or recorder match aborts the pass before anything is written (nothing is
+ * revoked from a partial picture).
  */
 import type { DiscordPayload, WebhookPoster } from "../leagues/discord.js";
 import { postWebhook as defaultPoster } from "../leagues/discord.js";
@@ -28,6 +31,7 @@ import type { TournamentStore } from "../tournaments/store.js";
 import { badgeDefinition, badgeText, BADGE_CATALOG } from "./catalog.js";
 import { evaluateCatalog, type Earned } from "./evaluators.js";
 import { badgeGlyph } from "./icons.js";
+import { createPacer } from "./pace.js";
 import { buildBadgeLedger, recorderDetail, type BadgeLedgerSources, type RecorderResult } from "./ledger.js";
 import type { BadgeFile, BadgeStore, StoredAward } from "./store.js";
 import { randomBytes } from "node:crypto";
@@ -101,9 +105,10 @@ export class BadgeEngine {
   /** One full pass. Throws (nothing written) when a source or the store is unreadable. */
   async recompute(): Promise<RecomputeOutcome> {
     const now = this.now();
+    const pace = createPacer();
     const sources = await this.deps.sources();
-    const ledger = buildBadgeLedger(sources, now);
-    const earned = evaluateCatalog(ledger, now);
+    const ledger = await buildBadgeLedger(sources, now, pace);
+    const earned = await evaluateCatalog(ledger, now, BADGE_CATALOG, pace);
     const fenced = (c: string) => this.deps.isFenced?.(c) === true;
     let outcome: RecomputeOutcome = { awarded: [], revoked: [], silent: true };
     this.deps.store.update((file) => {
@@ -120,8 +125,11 @@ export class BadgeEngine {
       file.log = [...log.reverse(), ...file.log];
       file.initialisedAt ??= at;
       file.seeded = BADGE_CATALOG.filter((d) => d.status === "live").map((d) => d.id);
-      // Announce only awards of badges seen before (never the first run, never a brand-new catalog entry).
-      const loud = firstRun ? [] : add.filter((a) => seeded.has(a.badgeId));
+      // Announce only awards of badges seen before (never the first run, never a brand-new catalog entry), and each award
+      // key once ever: the announced ledger survives a revoke, so an award that is revoked and then restored stays quiet.
+      const announced = (file.announced ??= {});
+      const loud = firstRun ? [] : add.filter((a) => seeded.has(a.badgeId) && !announced[a.key]);
+      for (const a of add) announced[a.key] ??= at;
       outcome = { awarded: loud, revoked: drop, silent: firstRun };
       return undefined;
     });
@@ -133,13 +141,21 @@ export class BadgeEngine {
   private async announce(awards: readonly StoredAward[]): Promise<void> {
     for (const a of awards) {
       if (a.subject.kind !== "coach") continue; // team milestones show on the team page; the coach's own award carries the notice
+      if (!this.stillHolds(a)) continue;
       const notice = awardNotice(a);
       if (notice) { try { this.deps.notify?.(a.subject.name, notice); } catch { /* fire-and-forget */ } }
       const target = this.targetFor(a);
       if (!target) continue;
       const payload = badgePost(target.name, a.subject.name, a, target.test);
-      if (payload) await postTo(target, "badgeEarned", payload, this.deps.discord?.poster ?? defaultPoster);
+      // Re-checked just before the post: an account deletion or a revoke while the queue ran stops it.
+      if (payload && this.stillHolds(a)) await postTo(target, "badgeEarned", payload, this.deps.discord?.poster ?? defaultPoster);
     }
+  }
+
+  /** The coach is not under deletion and the award is still stored (fails closed on an unreadable store). */
+  private stillHolds(a: StoredAward): boolean {
+    if (this.deps.isFenced?.(a.subject.name) === true) return false;
+    try { return this.deps.store.read().auto.some((x) => x.key === a.key); } catch { return false; }
   }
 
   private targetFor(a: StoredAward): DiscordTarget | undefined {
@@ -166,7 +182,7 @@ export class BadgeEngine {
   }
 
   /** A result was saved somewhere: recompute shortly (coalesced). Never throws. */
-  kick(delayMs = 1_500): void {
+  kick(delayMs = 3_000): void {
     if (this.kickTimer) return;
     this.kickTimer = setTimeout(() => { this.kickTimer = undefined; void this.run(); }, delayMs);
     this.kickTimer.unref?.();
@@ -187,6 +203,8 @@ export class BadgeEngine {
 // ---- recorder detail source ---------------------------------------------------------------------------------------------
 
 interface RecorderRepo {
+  /** Every match plus the match files that could not be read: any unreadable file aborts the pass. */
+  listMatchesChecked?(): Promise<{ matches: Array<{ id: string; state: string; fixtureRef?: string; test?: true; updatedAt: string; home: { coach: string }; away: { coach: string }; fixtureLink?: { opId: string } }>; unreadable: string[] }>;
   listMatches(): Promise<Array<{ id: string; state: string; fixtureRef?: string; test?: true; updatedAt: string; home: { coach: string }; away: { coach: string }; fixtureLink?: { opId: string } }>>;
   readEvents(matchId: string): Promise<Array<{ id: string; type: string; team?: string; player?: string; half?: unknown; payload: Record<string, unknown> }>>;
 }
@@ -197,7 +215,9 @@ export function recorderSource(effective: (events: never[]) => unknown[]) {
   return async (repo: RecorderRepo | undefined): Promise<Map<string, RecorderResult>> => {
     const out = new Map<string, RecorderResult>();
     if (!repo) return out;
-    const matches = await repo.listMatches();
+    if (!repo.listMatchesChecked) throw new Error("the recorder store has no checked listing");
+    const { matches, unreadable } = await repo.listMatchesChecked();
+    if (unreadable.length) throw new Error(`${unreadable.length} recorder match file(s) unreadable`);
     const live = new Set<string>();
     for (const m of matches) {
       if (m.test || m.state !== "published" || !m.fixtureRef || !m.fixtureLink?.opId) continue;
