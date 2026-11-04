@@ -156,22 +156,42 @@ const resultText = (v: FixtureValues): string => (v.home.score === null && v.awa
 export const localLife = (f: LeagueFixture): string | undefined =>
   f.fork ? "played or set up on Super FUMBBL" : f.tabletop ? "recorded with the match recorder" : f.resultEdit ? "result set by an organiser" : f.forfeit ? "forfeited here"
     : f.deadlineOutcome ? "decided at its deadline" : f.inactiveDecision ? "decided for an inactive team" : undefined;
-/**
- * "Same game": the local fixture takes the export's side assignment (teams, ids, coaches, races), swapping sides when the
- * export has them the other way round. A fixture with Super FUMBBL or recorder links can't change sides (refused, with
- * the reason); otherwise the local result's forfeit and decisions no longer fit and are dropped, like a result pick.
- */
-function assignSides(local: LeagueFixture, ef: LeagueFixture): string | undefined {
-  const sameTeam = (a: LeagueFixture["home"], b: LeagueFixture["home"]): boolean => (a.teamId && b.teamId ? a.teamId === b.teamId : nameKey(a.team) === nameKey(b.team));
-  if (sameTeam(local.home, ef.home) && sameTeam(local.away, ef.away)) return undefined;
-  if (local.fork || local.tabletop) return "its sides would change and it has Super FUMBBL or match recorder links";
-  if (sameTeam(local.home, ef.away) && sameTeam(local.away, ef.home)) {
-    [local.home, local.away] = [local.away, local.home];
-  } else {
-    for (const s of ["home", "away"] as const) if (!sameTeam(local[s], ef[s])) local[s] = structuredClone(ef[s]);
+/** The fixture with home and away exchanged, every per-side detail included (forfeit sides and penalties, the forfeit
+ *  dialog's per-side numbers, defections, draft and undo copy). Nothing is dropped. */
+function mirrorFixture(f: LeagueFixture): void {
+  [f.home, f.away] = [f.away, f.home];
+  const flip = (x: "home" | "away"): "home" | "away" => (x === "home" ? "away" : "home");
+  if (f.forfeit) {
+    f.forfeit = { ...f.forfeit, home: f.forfeit.away, away: f.forfeit.home, ...(f.forfeit.penalty ? { penalty: { home: f.forfeit.penalty.away, away: f.forfeit.penalty.home } } : {}) };
   }
+  const d = f.forfeitDetail;
+  if (d) {
+    d.sides = { home: d.sides.away, away: d.sides.home };
+    if (d.defections) d.defections = { ...d.defections, side: flip(d.defections.side) };
+    if (d.undo) {
+      d.undo.teams = { ...(d.undo.teams.away ? { home: d.undo.teams.away } : {}), ...(d.undo.teams.home ? { away: d.undo.teams.home } : {}) };
+      d.undo.fixture = { ...d.undo.fixture, home: d.undo.fixture.away, away: d.undo.fixture.home };
+    }
+  }
+  if (f.forfeitDraft) f.forfeitDraft = { ...f.forfeitDraft, side: flip(f.forfeitDraft.side) };
+}
+const mirrorValues = (v: FixtureValues): FixtureValues => ({ ...v, home: v.away, away: v.home });
+
+/**
+ * "Same game": the local fixture takes the export's side assignment. A home/away swap mirrors the local fixture (and,
+ * in the caller, its baseline) into the export's orientation and nothing is dropped: the normal merge then decides
+ * each field, so a result changed here stays a result conflict and a forfeit stays, re-sided. A fixture with Super
+ * FUMBBL or recorder links can't change sides (refused, with the reason). A side whose TEAM changed takes the export's
+ * side, and the local result's forfeit and decisions, made for the old team, are dropped.
+ */
+function assignSides(local: LeagueFixture, ef: LeagueFixture): { refused?: string; swapped?: true } {
+  const sameTeam = (a: LeagueFixture["home"], b: LeagueFixture["home"]): boolean => (a.teamId && b.teamId ? a.teamId === b.teamId : nameKey(a.team) === nameKey(b.team));
+  if (sameTeam(local.home, ef.home) && sameTeam(local.away, ef.away)) return {};
+  if (local.fork || local.tabletop) return { refused: "its sides would change and it has Super FUMBBL or match recorder links" };
+  if (sameTeam(local.home, ef.away) && sameTeam(local.away, ef.home)) { mirrorFixture(local); return { swapped: true }; }
+  for (const sd of ["home", "away"] as const) if (!sameTeam(local[sd], ef[sd])) local[sd] = structuredClone(ef[sd]);
   detachLocalResult(local);
-  return undefined;
+  return {};
 }
 const hasLocalState = (f: LeagueFixture): boolean => Boolean(localLife(f)) || f.home.score !== null || f.away.score !== null;
 
@@ -383,9 +403,15 @@ export function mergeSeason(prior: SeasonRecord, builtIn: SeasonRecord, base: Ex
         const o = picked[0]!.orphan;
         if (takenOrphans.has(o.local.id)) reason = `${label(o.local)} is already matched to another export row`;
         else {
-          const refused = assignSides(o.local, ef);
-          if (!refused) { takenOrphans.add(o.local.id); usedBase.add(o.e); mergeInto(key, ef, o.local, o.e); continue; }
-          reason = `Can't match ${label(o.local)}: ${refused}`;
+          const sides = assignSides(o.local, ef);
+          if (!sides.refused) {
+            takenOrphans.add(o.local.id);
+            usedBase.add(o.e);
+            // the baseline turns with the fixture, so "changed here" is judged in the export's orientation
+            mergeInto(key, ef, o.local, sides.swapped ? { ...o.e, values: mirrorValues(o.e.values) } : o.e);
+            continue;
+          }
+          reason = `Can't match ${label(o.local)}: ${sides.refused}`;
         }
       } else if (picked.length > 1) reason = "Pick one fixture to match, or keep it as a new game";
       if (!picked.length && choices.has(both)) { /* a new game: added below */ } else {

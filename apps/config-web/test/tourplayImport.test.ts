@@ -624,6 +624,46 @@ describe("TourPlay import upload", () => {
     });
   });
 
+  describe("re-import side swaps (review round 5)", () => {
+    const zipOf = (files: Record<string, string>) => exportZip("valley-bowl-export", files).toString("base64");
+    const season = () => store.season("vbl", "season-1")!;
+
+    it("a swap keeps an excluded forfeit (noStandings, penalties) re-sided", async () => {
+      await call("POST", "/tourplay/apply", ORG, upload());
+      const id = season().fixtures.find((f) => f.round === 1 && f.home.team === "Moss Marauders")!.id;
+      const s = season();
+      (s.fixtures.find((f) => f.id === id)! as unknown as Record<string, unknown>).forfeit = { home: true, away: false, noStandings: true, penalty: { home: 2, away: 0 }, at: "2026-11-01T00:00:00Z" };
+      store.putSeason(s);
+      const swapped = { zip: zipOf(seasonFiles(SLUG, { round1Swap: true })) };
+      const pair = json(await call("POST", "/tourplay/preview", ORG, swapped)).seasons[0].conflicts.find((c: { kind: string }) => c.kind === "pairing");
+      await call("POST", "/tourplay/apply", ORG, { ...swapped, choices: [pair.id] });
+      const f = season().fixtures.find((x) => x.id === id)!;
+      expect(f).toMatchObject({ home: { team: "Quarry Quakers", score: 1 }, away: { team: "Moss Marauders", score: 2 } });
+      expect(f.forfeit).toMatchObject({ home: false, away: true, noStandings: true, penalty: { home: 0, away: 2 } });
+    });
+
+    it("a swap mirrors the baseline: baseline A-B 2-1, local A-B 1-2, export B-A 3-1 is a result conflict and the local score stays", async () => {
+      await call("POST", "/tourplay/apply", ORG, upload());
+      const id = season().fixtures.find((f) => f.round === 1 && f.home.team === "Moss Marauders")!.id;
+      const s = season();
+      const lf = s.fixtures.find((f) => f.id === id)!;
+      lf.home.score = 1; lf.away.score = 2;
+      store.putSeason(s);
+      // the export: Quarry (home) 3 - Moss (away) 1
+      const files = seasonFiles(SLUG, { round1Swap: true });
+      const k = Object.keys(files).find((x) => x.endsWith("-fixtures.csv"))!;
+      files[k] = files[k]!.replace("Dwarf;Orc;quinns;morganx;1;2;", "Dwarf;Orc;quinns;morganx;3;1;");
+      const swapped = { zip: zipOf(files) };
+      const pair = json(await call("POST", "/tourplay/preview", ORG, swapped)).seasons[0].conflicts.find((c: { kind: string }) => c.kind === "pairing");
+      const after = json(await call("POST", "/tourplay/preview", ORG, { ...swapped, choices: [pair.id] })).seasons[0].conflicts;
+      const result = after.find((c: { kind: string }) => c.kind === "result");
+      expect(result).toMatchObject({ local: "2-1", export: "3-1" }); // local Quarry 2 - Moss 1, in the export's orientation
+      await call("POST", "/tourplay/apply", ORG, { ...swapped, choices: [pair.id] });
+      expect(season().fixtures.find((f) => f.id === id)).toMatchObject({ home: { team: "Quarry Quakers", score: 2 }, away: { team: "Moss Marauders", score: 1 } });
+      expect(season().fixtures).toHaveLength(4);
+    });
+  });
+
   describe("NAF numbers stay private", () => {
     it("never on a season, league, stats or export read, nor in the season files; Payment and Observations dropped", async () => {
       await call("POST", "/tourplay/apply", ORG, upload({ decisions: await confirmAll() }));
