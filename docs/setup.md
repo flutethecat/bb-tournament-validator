@@ -10,6 +10,11 @@ them into a ticket or chat.
 
 Environment keys (`apps/config-web/.env`):
 
+- [ ] `PUBLIC_BASE_URL`: **change it to the live public origin**, for example `https://superfumbbl.com`. It must be an http(s)
+      origin with no path. Today it points at the test host (`http://superfumbbltest.duckdns.org:4310`). It sets the address
+      in tournament check-in QR codes and the lobby links, and is the fallback link origin for email and Discord DMs when
+      `MAIL_LINK_BASE_URL` is unset. It is never taken from the request's Host header. If it is unset or invalid, QR codes
+      use the address the page was opened on, and organisers on a localhost address see a warning. Restart after changing it.
 - [ ] `PRIVACY_MAP_KEY`: 32+ random characters; set once, never change ([Privacy](#privacy)).
 - [ ] `PRIVACY_BLOCKLIST_SALT`: optional; unset = generated on first use ([Privacy](#privacy)).
 - [ ] `POSTMARK_SERVER_TOKEN`: the Postmark Server API token ([Portal email](#portal-email-postmark)).
@@ -45,6 +50,9 @@ Outside steps:
 - [ ] Postmark: webhook on both streams (Bounce, Spam Complaint, Subscription Change); "Send test" returns 200.
 - [ ] Restart config-web (the scheduled task), check the log for `[mail]` warnings, then run the mail test below.
 - [ ] Keep `PRIVACY_MAP_KEY` out of data-store backups.
+- [ ] Reset coach ratings to 1500: in `apps/config-web`, run `pnpm exec tsx scripts/reset-ratings.ts` (a dry run), then again
+      with `--yes`.
+- [ ] Remove the demo leagues ([Demo leagues](#demo-leagues-browse-leagues)).
 
 ## Fork route lockdown
 
