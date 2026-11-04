@@ -416,7 +416,8 @@ export const STORE_COLLECTORS: StoreCollector[] = [
       const tName = (id?: string) => (id && data?.tournaments?.[id]?.name) || id || "";
       // The field and the held entries (pending, waitlisted, declined, withdrawn before acceptance: lane L4).
       const entries = [...Object.values(data?.entrants ?? {}), ...Object.values(data?.heldEntrants ?? {})].filter((e) => isMine(ctx.keys, e.coach?.ffbCoachId))
-        .map((e) => ({ tournament: tName(e.tournamentId), ...e }));
+        // The personal check-in code (nonce + hash) is a capability, never exported; the check-in audit trail is.
+        .map((e) => ({ tournament: tName(e.tournamentId), ...strip(e as unknown as Obj, "checkInQr") }));
       // Paid marks the coach made as a manager on other coaches' entries: the competition and the entry reference, what
       // they set and when (nothing else of that coach's entry).
       const paidActions = Object.values(data?.entrants ?? {})
@@ -450,7 +451,11 @@ export const STORE_COLLECTORS: StoreCollector[] = [
       const resultEdits = Object.values(data?.tournaments ?? {}).flatMap((t) => objs(t.activity)
         .filter((e) => isMine(ctx.keys, e.by))
         .map((e) => ({ tournament: t.name ?? "", ...e })));
-      return [{ name: "tournament-entries.json", content: json({ entries, matches, managed, series, ...(awards.length ? { awards } : {}), ...(resultEdits.length ? { resultEdits } : {}), ...(paidActions.length ? { paidActions } : {}) }) }];
+      // Check-ins the coach made on other coaches' entries (as an organiser scanning a code, or one click): when and how.
+      const checkInActions = Object.values(data?.entrants ?? {}).flatMap((e) => objs((e as unknown as Obj).checkInLog)
+        .filter((l) => isMine(ctx.keys, l.by) && !isMine(ctx.keys, e.coach?.ffbCoachId))
+        .map((l) => ({ tournament: tName(e.tournamentId), tournamentId: e.tournamentId, entrantId: e.id, at: l.at, via: l.via })));
+      return [{ name: "tournament-entries.json", content: json({ entries, matches, managed, series, ...(awards.length ? { awards } : {}), ...(resultEdits.length ? { resultEdits } : {}), ...(paidActions.length ? { paidActions } : {}), ...(checkInActions.length ? { checkInActions } : {}) }) }];
     },
     erase: ["organiser-roles", "anonymise-tournaments"],
   },
@@ -976,19 +981,23 @@ function anonymiseTournaments(an: Anonymiser, tx: TextReplacer, data: Obj): bool
     for (const a of objs(t.awards)) { mark(an.fields(a, ["by", "toCoach"], [])); mark(tx.texts(a, ["title", "note"])); }
     // Organiser result edits (activity log): the acting manager becomes the pseudonym, the reason loses the coach's names.
     for (const e of objs(t.activity)) { mark(an.fields(e, ["by"], [])); mark(tx.texts(e, ["reason"])); }
+    // The venue check-in code: the manager who last switched or rotated it.
+    if (isObj(t.venueCheckIn)) mark(an.fields(t.venueCheckIn, ["by"], []));
   }
   const identity = ["coachId", "ffbCoachId"];
   // The field and the held entries (registration lane L4) are the same row shape.
   for (const e of [...vals(data.entrants), ...vals(data.heldEntrants)]) {
     // The coach's own NAF answers at registration (NAF number, "not a NAF member") go with the entry's identity.
     if (isObj(e.coach) && an.matches(e.coach.ffbCoachId)) {
-      for (const k of ["nafNumber", "notNafMember", "nafPending", "nafSnapshot"]) if (k in e) { delete e[k]; changed = true; }
+      // ... and the personal check-in code dies with the account.
+      for (const k of ["nafNumber", "notNafMember", "nafPending", "nafSnapshot", "checkInQr"]) if (k in e) { delete e[k]; changed = true; }
     }
     mark(an.fields(e.coach, identity, ["discordUserId"]));
     // Participants: the manager who last marked the entry paid (or not).
     if (isObj(e.paidUpdated)) mark(an.fields(e.paidUpdated, ["by"], []));
-    // Who checked the coach in (the coach, or an organiser).
+    // Who checked the coach in (the coach, or an organiser), and the check-in audit trail.
     if (isObj(e.checkedInBy)) mark(an.fields(e.checkedInBy, ["by"], []));
+    for (const line of objs(e.checkInLog)) mark(an.fields(line, ["by"], []));
     // Registration core (src/registration): the organiser decision and the audited transitions.
     mark(anonymiseRegistrationTrail(an, tx, e));
   }

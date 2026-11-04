@@ -17,6 +17,7 @@ import { fromLocalInput, PAIRING_LABEL, SEEDING_LABEL, toLocalInput, type Tourna
 import { minutesBefore, resolveRelative, type RelativeTimes, type TournamentTemplateContent } from "../shared/templates";
 import type { TournamentPairingSystem, TournamentSeedingMode } from "../shared/api";
 import { normalisePayPal, normaliseVenmo } from "../shared/payLinks";
+import { localWhen } from "../shared/localTime";
 import {
   chainFromPrimary, chainText, DEFAULT_POINTS, DEFAULT_RULESET_PACKAGE, DEFAULT_TIEBREAKER_CHAIN, defaultHouseRules, FormatError, houseRulesRows,
   HouseRulesError, PAIRING_AVOID_LABEL, parseHouseRules, parsePointsScheme, parseRegions, parseTiebreakerChain, pointsText, rulesetLabel,
@@ -47,7 +48,7 @@ export interface WizardForm {
   packageName: string;
   name: string;
   seriesId: string;
-  /** datetime-local values (UTC), "" = not set. */
+  /** datetime-local values in the viewer's own zone (owner 11-04; sent as instants), "" = not set. */
   startsAt: string;
   endsAt: string;
   playOnFork: boolean;
@@ -255,7 +256,8 @@ export function filterPackages(packages: readonly WizardPackage[], query: string
 
 const SERIES_PAIRING: Record<string, TournamentPairingSystem> = { dutch: "dutch", monrad: "monrad", elo: "eloSeeded" };
 const FORMAT_LABEL: Record<TournamentFormat, string> = { swiss: "Swiss", roundRobin: "Round-Robin", knockout: "Knockout" };
-const when = (v: string) => (v ? `${v.replace("T", " ")} UTC` : "");
+/** A datetime-local value (the viewer's zone) as "05 Dec 2026, 09:00 GMT". */
+const when = (v: string) => (v ? localWhen(fromLocalInput(v)) : "");
 
 /** Key/value rows for the summary panel and the review step (only what is set, in step order). */
 export function summaryRows(form: WizardForm, series: readonly WizardSeries[]): Record<WizardStep, Array<{ k: string; v: string }>> {

@@ -8,6 +8,7 @@ import { API_KEY } from "../app";
 import { api as defaultApi } from "../shared/api";
 import { countdownText, GATE_TEXT, gateWhen, upcomingGates, useLeagueGates, useTournamentGates, type GateKind } from "../leagues/gates";
 import "../leagues/gates.css";
+import { localWhenLong } from "../shared/localTime";
 
 const props = defineProps<{ leagueId?: string; tournamentId?: string; kinds?: GateKind[]; target?: string; now?: number }>();
 const emit = defineEmits<{ opened: [] }>();
@@ -18,6 +19,8 @@ const clock = ref(props.now ?? Date.now());
 const ticker = props.now === undefined ? setInterval(() => { clock.value = Date.now(); }, 1000) : undefined;
 onBeforeUnmount(() => { if (ticker) clearInterval(ticker); });
 const zone = computed(() => store.state.read?.timeZone ?? "UTC");
+// A tournament's times are instants shown in the viewer's own zone (owner 11-04); a league's in the league zone.
+const whenText = (iso: string): string => (props.tournamentId ? localWhenLong(iso) : `${gateWhen(iso, zone.value)} (${zone.value.replace(/_/g, " ")})`);
 const list = computed(() => upcomingGates(store.state.read?.gates ?? [], clock.value, props.kinds, props.target).slice(0, 3));
 // When the soonest one is due, read again (the server now says it is open) and let the page refresh itself.
 const due = computed(() => (store.state.read?.gates ?? []).some((g) => g.state === "shut" && g.opensAt && Date.parse(g.opensAt) <= clock.value && (!props.kinds || props.kinds.includes(g.kind)) && (!props.target || g.target === props.target)));
@@ -31,7 +34,7 @@ const lineOf = (g: { kind: GateKind; target: string; targetName: string }) => (g
       <li v-for="g in list" :key="g.id" class="gt-banner-row" :data-kind="g.kind">
         <span class="gt-banner-what">{{ lineOf(g) }}</span>
         <span class="gt-banner-in" role="timer" :aria-label="`in ${countdownText(Date.parse(g.opensAt!) - clock)}`">in <b>{{ countdownText(Date.parse(g.opensAt!) - clock) }}</b></span>
-        <small class="gt-banner-when">{{ gateWhen(g.opensAt!, zone) }} ({{ zone.replace(/_/g, " ") }}){{ g.eventTitle ? ` · ${g.eventTitle}` : "" }}</small>
+        <small class="gt-banner-when">{{ whenText(g.opensAt!) }}{{ g.eventTitle ? ` · ${g.eventTitle}` : "" }}</small>
       </li>
     </ul>
   </section>

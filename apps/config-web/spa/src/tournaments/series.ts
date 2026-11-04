@@ -5,6 +5,7 @@
 import { reactive, type InjectionKey } from "vue";
 import { ApiError } from "../shared/api";
 import { writesAllowed, type Fetcher, type SessionStore } from "../session";
+import { localDay } from "../shared/localTime";
 
 export type SeriesScoring = "sum" | "bestN";
 export type SeriesSeeding = "dutch" | "monrad" | "elo";
@@ -221,13 +222,9 @@ export async function submitSeriesForm(input: {
 }
 export const SERIES_DETAIL_KEY: InjectionKey<SeriesDetailController> = Symbol("series-detail");
 
-/** "2026-11-01" or "2026-11-01 to 2026-11-02"; "Date not set". */
-export function eventDates(e: Pick<SeriesEvent, "startsAt" | "endsAt">): string {
-  const day = (iso?: string): string => {
-    if (!iso) return "";
-    const d = new Date(iso);
-    return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
-  };
+/** "2026-11-01" or "2026-11-01 to 2026-11-02"; "Date not set": the days in the viewer's zone (owner 11-04). */
+export function eventDates(e: Pick<SeriesEvent, "startsAt" | "endsAt">, zone?: string): string {
+  const day = (iso?: string): string => localDay(iso, zone);
   const start = day(e.startsAt);
   const end = day(e.endsAt);
   if (!start) return "Date not set";

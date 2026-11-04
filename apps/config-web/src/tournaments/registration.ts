@@ -17,6 +17,7 @@ import {
   type RegistrationAdapter, type RegistrationChange, type RegistrationEntry, type RegistrationNotifySink,
 } from "../registration/index.js";
 import { tournamentCompetition } from "./publication.js";
+import { issuePersonal } from "./checkInQr.js";
 import type { RegistrationWrite, TournamentStore } from "./store.js";
 import type { TournamentDataFileV4, TournamentEntrantRecord, TournamentRecord } from "./types.js";
 
@@ -311,11 +312,16 @@ export async function sweepTournamentRegistrations(
   service: TournamentRegistrationService,
   notify: RegistrationNotifySink | undefined,
   now: Date = new Date(),
+  /** The QR check-in host key: accepted entries without a personal check-in code get one (a write, never on a read). */
+  checkInKey?: string,
 ): Promise<{ checkIn: number; rosterDue: number }> {
   let checkIn = 0;
   let rosterDue = 0;
   // Rows written before payment references existed get a random one here (a write, never on a read).
   try { ensureReferenceCodes(store); } catch (e) { console.error(`[registration] reference codes: ${(e as Error).message}`); }
+  if (checkInKey) {
+    try { store.issueCheckInCodes((tid, eid) => issuePersonal(checkInKey, tid, eid, now)); } catch (e) { console.error(`[registration] check-in codes: ${(e as Error).message}`); }
+  }
   for (const t of store.tournaments(["draft", "active"])) {
     if (t.unpublished === true) continue;
     // "Check in here" only where coaches check themselves in (organiser check-in needs no notice).

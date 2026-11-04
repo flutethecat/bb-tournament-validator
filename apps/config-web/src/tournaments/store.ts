@@ -7,6 +7,7 @@ import { DEFAULT_ENTRANT_FLAGS, SERIES_SEEDING_PAIRING, TOURNAMENT_PAIRING_SYSTE
 import { pairingClash, type ChainTiebreaker, type PairingAvoid, type PointsScheme } from "../competition/format.js";
 import { houseRulesOf, houseRulesStamp, type HouseRules } from "../competition/houseRules.js";
 import type { NewsInput, TournamentPagePatch } from "./page.js";
+import { CHECK_IN_LOG_CAP, type CheckInVia, type PersonalCheckInQr } from "./checkInQr.js";
 import type {
   ScheduledMatchRecord,
   ScheduledMatchResult,
@@ -567,6 +568,14 @@ function applyPagePatch(data: TournamentDataFileV4, tournamentId: string, patch:
 export const PAID_CLAIM_NOTICE_MS = 24 * 60 * 60 * 1000;
 
 /** The registration fields a registration write always sets (absent = removed). */
+/** Marks an entry checked in, with who / when / how and one audit line (capped). */
+function markCheckedIn(entrant: TournamentEntrantRecord, flags: TournamentEntrantFlags, by: string, now: Date, via: CheckInVia): void {
+  const at = now.toISOString();
+  entrant.flags = { ...flags, checkedIn: true };
+  entrant.checkedInBy = { by, at, via };
+  entrant.checkInLog = [...(entrant.checkInLog ?? []), { by, at, via }].slice(-CHECK_IN_LOG_CAP);
+}
+
 const REGISTRATION_KEYS = ["entryState", "registeredAt", "firstRegisteredAt", "waitlistAt", "waitlistSeq", "decided", "registrationLog"] as const;
 
 /** One entry change from the registration core (src/tournaments/registration.ts). */
@@ -1018,7 +1027,10 @@ export class TournamentStore {
           record.flags = { ...DEFAULT_ENTRANT_FLAGS, ...(record.flags ?? {}), checkedIn: false, active: true, frozen: false };
           delete record.checkedInBy;
           delete record.nafSnapshot;
+          delete record.checkInQr;
         }
+        // A personal check-in code belongs to an accepted entry only: leaving (or never being accepted) drops it.
+        if (state !== "accepted") delete record.checkInQr;
         for (const key of REGISTRATION_KEYS) {
           const value = write.reg[key];
           if (value === undefined) delete record[key];
@@ -1121,7 +1133,7 @@ export class TournamentStore {
   }
 
   /** Check an accepted entry in (the coach during the window, or an organiser). Idempotent. */
-  checkInEntrant(tournamentId: string, entrantId: string, by: string, now = new Date()): TournamentEntrantRecord {
+  checkInEntrant(tournamentId: string, entrantId: string, by: string, now = new Date(), via: CheckInVia = "self"): TournamentEntrantRecord {
     return this.mutate((data) => {
       const tournament = data.tournaments[tournamentId];
       if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
@@ -1130,10 +1142,63 @@ export class TournamentStore {
         throw new TournamentStoreError(404, "No active entry with that id.");
       const flags = { ...DEFAULT_ENTRANT_FLAGS, ...(entrant.flags ?? {}) };
       if (flags.checkedIn) return entrant;
-      entrant.flags = { ...flags, checkedIn: true };
-      entrant.checkedInBy = { by, at: now.toISOString() };
+      markCheckedIn(entrant, flags, by, now, via);
       tournament.updatedAt = now.toISOString();
       return entrant;
+    });
+  }
+
+  /**
+   * A QR check-in (src/tournaments/checkInQr.ts), judged in ONE mutation against the entry as stored now: `match` re-checks
+   * the token against the stored code (personal) or the tournament's venue code, so a code rotated, re-issued or dropped
+   * since the route read it checks nobody in. "already" when the entry is checked in (a personal code is then spent too).
+   */
+  checkInByQr(
+    tournamentId: string,
+    entrantId: string,
+    by: string,
+    via: "personal-qr" | "venue-qr",
+    match: (tournament: TournamentRecord, entrant: TournamentEntrantRecord) => boolean,
+    now = new Date(),
+  ): "checked-in" | "already" | "invalid" {
+    const current = this.snapshot();
+    const t0 = current.tournaments[tournamentId];
+    const e0 = current.entrants[entrantId];
+    if (!t0 || !e0 || e0.tournamentId !== tournamentId || e0.droppedAt !== undefined || !match(t0, e0)) return "invalid";
+    return this.mutate((data) => {
+      const tournament = data.tournaments[tournamentId];
+      const entrant = data.entrants[entrantId];
+      if (!tournament || !entrant || entrant.tournamentId !== tournamentId || entrant.droppedAt !== undefined || !match(tournament, entrant)) return "invalid";
+      const flags = { ...DEFAULT_ENTRANT_FLAGS, ...(entrant.flags ?? {}) };
+      if (flags.checkedIn || (via === "personal-qr" && entrant.checkInQr?.usedAt)) return "already";
+      markCheckedIn(entrant, flags, by, now, via);
+      if (via === "personal-qr" && entrant.checkInQr) entrant.checkInQr = { ...entrant.checkInQr, usedAt: now.toISOString() };
+      tournament.updatedAt = now.toISOString();
+      return "checked-in";
+    });
+  }
+
+  /** Gives every accepted, not-yet-checked-in entry of a live tournament without a personal code a fresh one (`issue`).
+   *  A write (the minute sweep, server start), never on a read. One entry (`entrantId`) with `replace` = "New code". */
+  issueCheckInCodes(issue: (tournamentId: string, entrantId: string) => PersonalCheckInQr, opts: { tournamentId?: string; entrantId?: string; replace?: boolean } = {}): number {
+    const wants = (data: TournamentDataFileV4, e: TournamentEntrantRecord): boolean => {
+      if (opts.tournamentId !== undefined && e.tournamentId !== opts.tournamentId) return false;
+      if (opts.entrantId !== undefined && e.id !== opts.entrantId) return false;
+      const t = data.tournaments[e.tournamentId];
+      if (!t || t.status === "completed" || t.status === "cancelled" || t.unpublished === true) return false;
+      if (e.droppedAt !== undefined || (e.entryState !== undefined && e.entryState !== "accepted") || e.flags?.checkedIn) return false;
+      return opts.replace === true || !e.checkInQr;
+    };
+    const current = this.snapshot();
+    if (!Object.values(current.entrants).some((e) => wants(current, e))) return 0;
+    return this.mutate((data) => {
+      let given = 0;
+      for (const e of Object.values(data.entrants)) {
+        if (!wants(data, e)) continue;
+        e.checkInQr = issue(e.tournamentId, e.id);
+        given += 1;
+      }
+      return given;
     });
   }
 
@@ -1475,9 +1540,13 @@ export class TournamentStore {
       entrant.flags = withVerified(entrant);
       // Who marked the entry paid (or not), and when: the organiser's record (laws 21-22: never on a public read).
       if (flags.paid !== paidBefore) entrant.paidUpdated = { by: by ?? "", at: now.toISOString() };
-      // Who checked the coach in (an organiser's one click here, or the coach's own check-in).
-      if (flags.checkedIn && !checkedInBefore) entrant.checkedInBy = { by: by ?? "", at: now.toISOString() };
-      else if (!flags.checkedIn) delete entrant.checkedInBy;
+      // Who checked the coach in (an organiser's one click here, or the coach's own check-in), with the audit line.
+      if (flags.checkedIn && !checkedInBefore) markCheckedIn(entrant, entrant.flags, by ?? "", now, "organiser");
+      else if (!flags.checkedIn) {
+        delete entrant.checkedInBy;
+        // A cleared check-in spends the old personal code: the sweep issues a fresh one.
+        if (checkedInBefore) delete entrant.checkInQr;
+      }
       if (patch.manualSeed === null) delete entrant.manualSeed;
       else if (patch.manualSeed !== undefined) {
         if (!Number.isSafeInteger(patch.manualSeed) || patch.manualSeed < 1 || patch.manualSeed > 999)

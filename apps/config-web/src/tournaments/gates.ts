@@ -3,7 +3,9 @@
  * ./registrationGate.ts; this mirrors the league gate routes (src/leagues/gates.ts) for one gate per tournament.
  *
  *   GET  /api/tournaments/:id/gates                                 everyone who can see the tournament: the gate and its countdown
- *   PUT  /api/tournaments/:id/gates/registration/tournament         managers: { revision, mode: "off" | "time", opensAt? (wall, tournament zone) }
+ *   PUT  /api/tournaments/:id/gates/registration/tournament         managers: { revision, mode: "off" | "time", opensAt? (an ISO instant;
+ *                                                                   the page converts the organiser's local time. A bare wall time
+ *                                                                   from an older page is read as UTC, the zone it labelled) }
  *   POST /api/tournaments/:id/gates/registration/tournament/open    managers: { revision } ("Open now")
  *
  * Writes are revision-checked (428 missing, 409 stale) and judged against the tournament as it is now; GETs change nothing.
@@ -23,7 +25,7 @@ import { canSeeTournament, selfRegistrationStatus } from "./publication.js";
 import { isTournamentManager, TournamentStoreError, type TournamentStore } from "./store.js";
 import type { TournamentRecord } from "./types.js";
 import {
-  GATE_ID, gateInstant, gateIsOpen, gateWhenText, postedMarker, regopenAnnounced, regopenMarker, gateWallInstant, parseGateWall, storedGate, tournamentGateView, tournamentTimeZone, type TournamentGate,
+  GATE_ID, gateInstant, gateIsOpen, postedMarker, regopenAnnounced, regopenMarker, gateWallInstant, parseGateWall, parseInstant, storedGate, tournamentGateView, tournamentTimeZone, UTC, utcWhenText, type TournamentGate,
 } from "./registrationGate.js";
 
 export interface TournamentGateDeps {
@@ -66,7 +68,8 @@ export async function tournamentGateRoutes(method: string, path: string, auth: W
     return {
       status: 200, headers: auth || t.unpublished ? { ...NO_STORE } : { "cache-control": "no-cache" },
       body: {
-        timeZone: tournamentTimeZone(t), now: now.toISOString(), manage, gates: view ? [view] : [],
+        // Instants only (owner 11-04): the page shows them in the viewer's zone. "UTC" for pages that still read a zone.
+        timeZone: UTC, now: now.toISOString(), manage, gates: view ? [view] : [],
         ...(manage ? { retired: t.registrationGateRetired !== undefined ? { [GATE_ID]: t.registrationGateRetired } : {}, unreadable: storedGate(t) === "unreadable" } : {}),
       },
     };
@@ -109,12 +112,13 @@ export async function tournamentGateRoutes(method: string, path: string, auth: W
         return { result: res(200, { gate: null, removed: true, revision: last }) };
       }
       if (input.mode !== "time") return { result: fail(400, 'mode must be "off" or "time".', { field: "mode" }) };
-      const wall = parseGateWall(input.opensAt);
-      if (!wall) return { result: fail(400, "Opens at must be a date and time (2026-11-05T19:00).", { field: "opensAt" }) };
-      const at = gateWallInstant(wall, zone);
+      // An instant (this page); a bare wall time only from an older page, which labelled its field UTC.
+      const wall = parseInstant(input.opensAt) === undefined ? parseGateWall(input.opensAt) : undefined;
+      const at = parseInstant(input.opensAt) ?? (wall ? gateWallInstant(wall, UTC) : undefined);
+      if (at === undefined) return { result: fail(400, "Opens at must be a date and time.", { field: "opensAt" }) };
       if (at < now.getTime() - 60_000) return { result: fail(400, "Pick a time still to come, or use Open now.", { field: "opensAt" }) };
       if (at > now.getTime() + 366 * 86_400_000) return { result: fail(400, "Opens at must be within a year.", { field: "opensAt" }) };
-      t.registrationGate = { opensAt: wall, armedAt: iso, state: "shut", revision: base + 1, createdAt: existing?.createdAt ?? iso, updatedAt: iso };
+      t.registrationGate = { opensAt: new Date(at).toISOString(), armedAt: iso, state: "shut", revision: base + 1, createdAt: existing?.createdAt ?? iso, updatedAt: iso };
       delete t.registrationGateRetired;
       return { result: res(existing ? 200 : 201, { gate: tournamentGateView(t, now) }) };
     }, now);
@@ -154,7 +158,7 @@ async function announceOpening(deps: TournamentGateDeps, id: string, revision: n
       link: `/app/tournaments/${encodeURIComponent(id)}/manage#tn-reg-h`,
     } : {
       type: "registration", title: `Registration gate opened: ${t.name}`.slice(0, 120),
-      body: `${t.name}: the registration gate is open. ${later ? `Registration itself opens ${gateWhenText(later, tournamentTimeZone(t))}.` : status.message}`,
+      body: `${t.name}: the registration gate is open. ${later ? `Registration itself opens ${utcWhenText(later)}.` : status.message}`,
       link: `/app/tournaments/${encodeURIComponent(id)}/manage#tn-reg-h`,
     }, actor);
   } catch { /* fire-and-forget */ }

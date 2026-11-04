@@ -4,6 +4,8 @@ import { NafExportError, renderNafTournamentReport } from "./nafExport.js";
 import { isTournamentManager, tournamentOwner, TournamentStore, TournamentStoreError, type TournamentUpdate } from "./store.js";
 import { canEditSeries, seriesChip } from "./series.js";
 import { tournamentGateRoutes, type TournamentGateDeps } from "./gates.js";
+import { checkInRoutes, myCheckInCode } from "./checkInRoutes.js";
+import { registrationGateShut } from "./registrationGate.js";
 import {
   assertRegistrationOrder, canSeeTournament, hiddenTournamentPath, parseRegistrationSettings, selfRegistrationStatus,
 } from "./publication.js";
@@ -101,6 +103,8 @@ export interface TournamentApiDeps {
   fixtureLobby?(matchId: string): { started: boolean } | undefined;
   /** The Discord state and poster (the Registration gate's opening post). Absent = no post. */
   discord?: TournamentGateDeps["discord"];
+  /** The host key QR check-in codes are signed with (src/tournaments/checkInQr.ts). Absent = QR check-in off. */
+  checkInKey?: string;
   now?: () => Date;
 }
 
@@ -302,6 +306,8 @@ function clientEntrant(entrant: TournamentEntrantRecord, deps: Pick<TournamentAp
     // Registration (lane L4): the state machine's fields, the payment reference and "I've paid" are never public.
     entryState: _state, firstRegisteredAt: _first, waitlistAt: _wAt, waitlistSeq: _wSeq, decided: _decided, registrationLog: _log,
     refCode: storedCode, coachSaysPaid, checkedInBy, region, nafToldAt: _told, paidClaimNotifiedAt: _paidTold, clubId,
+    // QR check-in: the code's nonce and hash, and the audit trail, are never on a read model.
+    checkInQr: _qr, checkInLog: _ciLog,
     ...rest
   } = entrant;
   const team = deps.teamBuild(entrant.teamId);
@@ -825,9 +831,17 @@ export function entryNaf(tournament: Pick<TournamentRecord, "nafSanctioned">, en
 }
 
 /** An entry as a response shows it: the frozen NAF details are for the NAF report only. */
-function withoutNafSnapshot(entrant: TournamentEntrantRecord): Omit<TournamentEntrantRecord, "nafSnapshot"> {
-  const { nafSnapshot: _nafSnapshot, ...shown } = entrant;
+function withoutNafSnapshot(entrant: TournamentEntrantRecord): Omit<TournamentEntrantRecord, "nafSnapshot" | "checkInQr"> {
+  // The personal check-in code (nonce + hash) is never exported: it is the capability behind the coach's QR.
+  const { nafSnapshot: _nafSnapshot, checkInQr: _qr, ...shown } = entrant;
   return shown;
+}
+
+/** A tournament record for the organisers' JSON export: the venue code's nonce and hash stay out (whether it is on stays). */
+function exportedTournament(tournament: TournamentRecord): TournamentRecord {
+  if (!tournament.venueCheckIn) return tournament;
+  const { nonce: _n, hash: _h, ...venue } = tournament.venueCheckIn;
+  return { ...tournament, venueCheckIn: venue };
 }
 
 const nafFields = (naf: ProfileNaf | undefined) => (naf
@@ -1303,6 +1317,11 @@ export async function tournamentApi(
     // Every state change runs through the core (per-tournament lock, audited transitions, notifications: the organisers
     // on every registration and withdrawal except the actor, the coach on their own outcome). CSRF (X-CW-Auth) and the
     // onboarding 428 gate run in server.ts ahead of every /api write; GETs below never change state.
+    // QR check-in (src/tournaments/checkInRoutes.ts): a personal or venue code, POSTed from the scan page; never a GET write.
+    const qr = await checkInRoutes(method, path, auth ? { coach: auth.coach, admin: auth.admin } : undefined, body, {
+      store: deps.store, ...(deps.checkInKey ? { checkInKey: deps.checkInKey } : {}), ...(deps.ifMatch !== undefined ? { ifMatch: deps.ifMatch } : {}),
+    }, now);
+    if (qr) return qr;
     const registration = await registrationRoutes(method, path, auth, body, deps, now);
     if (registration) return registration;
     // The Registration gate (cleanup lane 11-03, src/tournaments/gates.ts): read for everyone who can see the tournament,
@@ -1558,7 +1577,7 @@ export async function tournamentApi(
           status: 200,
           headers,
           body: {
-            tournament,
+            tournament: exportedTournament(tournament),
             entrants: deps.store.entrants(tournament.id).map(withoutNafSnapshot),
             rounds: deps.store.rounds(tournament.id),
             standings,
@@ -2064,13 +2083,20 @@ function myRegistrationView(deps: TournamentApiDeps, tournament: TournamentRecor
   const live = LIVE_STATES.has(state);
   const profile = live && tournament.nafSanctioned ? profileNaf(deps, mine.coach.ffbCoachId) : undefined;
   const view = clientEntrant(mine, deps, live, undefined, tournament, profile, live ? referenceCodes(all).get(mine.id) : undefined);
+  // The coach's personal check-in QR (issued by a write: the minute sweep or "New code"; this read only shows it).
+  const code = state === "accepted" ? myCheckInCode(deps.checkInKey, tournament, mine) : undefined;
   return {
     ...view,
     state,
     ...(position ? { position } : {}),
+    ...(code ? { checkInCode: code } : {}),
     // The coach sees the organisers' reason for a decline or removal (they were told it), never who decided.
     ...(mine.decided?.reason && (state === "declined" || state === "dropped") ? { reason: mine.decided.reason } : {}),
   };
+}
+
+function gateOpensAt(tournament: TournamentRecord, status: { open: boolean; reason?: string }, now: Date): string | undefined {
+  return !status.open && status.reason === "not-yet-open" ? registrationGateShut(tournament, now)?.opensAt : undefined;
 }
 
 /** The public registration facts of a tournament: open or not (and why), the approval mode, places left (accepted
@@ -2083,6 +2109,8 @@ function registrationStatusView(tournament: TournamentRecord, field: readonly To
   return {
     open: status.open,
     ...(status.open ? {} : { reason: status.reason, message: status.message }),
+    // A shut Registration gate's opening instant: the page says it in the viewer's zone (the message is server text in UTC).
+    ...(gateOpensAt(tournament, status, now) ? { gateOpensAt: gateOpensAt(tournament, status, now) } : {}),
     approval: window.approval,
     waitlist: window.waitlist,
     rosterLater: window.rosterLater === true && !rosterDeadlinePassed(tournament, now),

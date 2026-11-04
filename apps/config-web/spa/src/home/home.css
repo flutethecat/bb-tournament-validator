@@ -36,6 +36,9 @@
   --sf-discord-drop: rgb(0 0 0 / 0.45);
   --sf-discord-top: #6d78f5;
   --sf-discord-deep: #3c45a5;
+  /* QR codes (QrCode.vue): black on white in both themes, so every phone camera reads them. */
+  --sf-qr-light: #ffffff;
+  --sf-qr-dark: #000000;
 }
 :root[data-theme="light"] {
   /* generated from the block above by tools/theme/derive-light.mjs (OKLCH lightness map, hue kept) */

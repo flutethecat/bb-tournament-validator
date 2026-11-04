@@ -15,6 +15,7 @@ import {
   fromLocalInput, PAIRING_LABEL, SEEDING_LABEL, toLocalInput, TOURNAMENT_DETAIL_KEY, type TournamentSettingsPatch,
 } from "../tournaments/detail";
 import { SESSION_KEY, writesAllowed } from "../session";
+import { zoneCaption } from "../shared/localTime";
 import TournamentRulesFields from "./TournamentRulesFields.vue";
 import RulesChangeDialog from "./RulesChangeDialog.vue";
 import { rulesChangeDiff } from "../../../src/competition/rulesChange";
@@ -62,6 +63,8 @@ const fromRecord = (): Form => ({
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const cleanRegions = (r: string[]) => r.map((x) => x.trim()).filter(Boolean);
 const form = reactive<Form>(fromRecord());
+/** Times are typed in the viewer's own zone and saved as instants (owner 11-04); an untouched one is never sent. */
+const zoneText = zoneCaption();
 // A refetch after any write resets the form to what the server holds.
 watch(() => JSON.stringify(fromRecord()), () => Object.assign(form, fromRecord()));
 
@@ -127,8 +130,8 @@ async function addOrganizer() { if (newOrganizer.value.trim()) { await detail.ad
       <PlayedOnToggle v-model="form.playOnFork" />
       <small class="muted hm-small">Super FUMBBL: fixture lobbies release the online launch and skip the inducement step. Tabletop: START opens the match reporter.</small>
     </div>
-    <label class="tn-field sf-field"><span class="tn-fact-k">Starts (UTC)</span><input v-model="form.startsAt" type="datetime-local" /></label>
-    <label class="tn-field sf-field"><span class="tn-fact-k">Ends (UTC)</span><input v-model="form.endsAt" type="datetime-local" /></label>
+    <label class="tn-field sf-field"><span class="tn-fact-k">Starts ({{ zoneText }})</span><input v-model="form.startsAt" type="datetime-local" /></label>
+    <label class="tn-field sf-field"><span class="tn-fact-k">Ends ({{ zoneText }})</span><input v-model="form.endsAt" type="datetime-local" /></label>
     <TournamentRulesFields
       v-model:max-players="form.maxPlayers" v-model:round-count="form.roundCount" v-model:primary-tiebreaker="form.primaryTiebreaker"
       :swiss="t.format === 'swiss'" :tiebreaker-disabled="t.status === 'completed'" hide-tiebreaker

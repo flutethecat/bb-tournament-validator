@@ -8,6 +8,7 @@
 import { reactive, type InjectionKey } from "vue";
 import { ApiError, type TournamentListPage, type TournamentSummary } from "../shared/api";
 import type { Fetcher } from "../session";
+import { localDay } from "../shared/localTime";
 
 export type ListTab = "active" | "upcoming" | "finished";
 export const LIST_TABS: ReadonlyArray<{ id: ListTab; label: string }> = [
@@ -120,13 +121,9 @@ export const STATUS_LABEL: Record<string, string> = { draft: "Upcoming", active:
 /** The status chip tone (the shell's sf-chip tones). */
 export const STATUS_TONE: Record<string, string> = { draft: "info", active: "ok", completed: "muted", cancelled: "urgent" };
 
-/** "2026-11-01", "2026-11-01 to 2026-11-03", or "Not set". */
-export function cardDates(t: Pick<TournamentSummary, "startsAt" | "endsAt">): string {
-  const day = (iso: string | undefined): string => {
-    if (!iso) return "";
-    const d = new Date(iso);
-    return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
-  };
+/** "2026-11-01", "2026-11-01 to 2026-11-03", or "Not set": the days in the viewer's zone (owner 11-04). */
+export function cardDates(t: Pick<TournamentSummary, "startsAt" | "endsAt">, zone?: string): string {
+  const day = (iso: string | undefined): string => localDay(iso, zone);
   const start = day(t.startsAt);
   const end = day(t.endsAt);
   if (!start) return "Not set";

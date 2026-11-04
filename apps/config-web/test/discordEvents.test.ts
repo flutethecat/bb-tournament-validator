@@ -981,3 +981,20 @@ describe("re-review fixes", () => {
     expect(state.weekly("lg").lastRun).toBe(at(-48));
   });
 });
+
+describe("tournament times on Discord (owner 11-04: instants, each reader's own zone)", () => {
+  it("registration closing and check-in open carry Discord's <t:epoch:F> timestamps, never a zone-less clock time", async () => {
+    state.setWebhook("tournament:t1", HOOK);
+    const obs = new DiscordObserver({ leagues, tournaments, state, poster, now: () => NOW });
+    await obs.tick();
+    const closes = at(12);
+    const start = at(20);
+    seedTournaments({ t: { startsAt: start, deadlines: { registration: closes }, registration: { approval: "auto", waitlist: true, rosterLater: true, checkIn: { self: true, opensAt: at(-1) } } } });
+    await obs.tick();
+    const text = (title: string) => posts.find((p) => p.payload.embeds[0]!.title?.startsWith(title))?.payload.embeds[0]!.description ?? "";
+    const epoch = (iso: string) => Math.floor(Date.parse(iso) / 1000);
+    expect(text("Autumn Open: Registration closing")).toBe(`Registration closes <t:${epoch(closes)}:F> (<t:${epoch(closes)}:R>).`);
+    expect(text("Autumn Open: Check-in open")).toBe(`Check-in is open until <t:${epoch(start)}:F>: check in on the tournament page.`);
+    expect(posts.map((p) => p.payload.embeds[0]!.description).join(" ")).not.toMatch(/UTC|\b\d{2}:\d{2}\b/);
+  });
+});

@@ -111,6 +111,12 @@ export function resultPost(competition: string, r: { home: { team: string; score
 
 // ---- competition events ----------------------------------------------------------------------------------------------
 
+/** Discord's own timestamp markup (<t:epoch:F>): every reader sees the time in their own zone. undefined = no usable time. */
+export function discordTime(iso: string | number | undefined, style: "F" | "f" | "R" | "D" = "F"): string | undefined {
+  const t = typeof iso === "number" ? iso : iso ? Date.parse(iso) : NaN;
+  return Number.isFinite(t) ? `<t:${Math.floor(t / 1000)}:${style}>` : undefined;
+}
+
 export function simplePost(competition: string, key: DiscordEventKey, description: string, opts: { test?: boolean; title?: string; fields?: PostField[]; url?: string } = {}): DiscordPayload {
   const color = key === "matchStarted" || key === "fixtureStart" ? GREEN : key === "roundPosted" || key === "fixtureCreated" ? BLUE : key === "registrationClosing" ? RED : GOLD;
   return post(`${tag(opts.test)}${safe(competition, 100)}: ${opts.title ?? DISCORD_EVENT_LABEL[key]}`, description, color, { ...(opts.fields ? { fields: opts.fields } : {}), ...(opts.url ? { url: opts.url } : {}) });

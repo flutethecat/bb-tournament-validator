@@ -12,6 +12,7 @@ import { proposePath, tournamentFixtureRef } from "../schedule/schedule";
 import { tournamentLobbyPath } from "../leagues/lobby";
 import NafProfileField from "./NafProfileField.vue";
 import TournamentRegisterDialog from "./TournamentRegisterDialog.vue";
+import TournamentCheckInCode from "./TournamentCheckInCode.vue";
 import { API_KEY } from "../app";
 import { createSharing } from "../account/sharing";
 import { SESSION_KEY, writesAllowed } from "../session";
@@ -20,8 +21,9 @@ import {
   isPageAction, linkProfileNaf, myEntrant, nafProblem, nextFixtureFor, registrationOpen, ROSTER_LABEL, ROSTER_TONE, rosterState, submitChoices,
   TOURNAMENT_DETAIL_KEY, type NafLinkDraft, type ProfileNafView,
 } from "../tournaments/detail";
-import { approvalWords, isLive, placesLine, rosterDueLine, STATE_TONE, stateChip, utcLabel } from "../tournaments/registration";
+import { approvalWords, isLive, placesLine, rosterDueLine, STATE_TONE, stateChip, whenLabel } from "../tournaments/registration";
 import "../tournaments/registration.css";
+import { localWhenLong } from "../shared/localTime";
 
 const detail = inject(TOURNAMENT_DETAIL_KEY)!;
 const session = inject(SESSION_KEY)!;
@@ -41,6 +43,16 @@ const status = computed(() => state.registrationStatus);
 // The server's registration facts (lane L4); an older response without them falls back to the status / round / lock rule.
 const open = computed(() => (status.value ? status.value.open : registrationOpen(t.value, state.rounds)));
 const closed = computed(() => t.value.status === "completed" || t.value.status === "cancelled");
+/** Why registration is shut. A time it opens (the gate, or the window) is said in the viewer's own zone (owner 11-04); the
+ *  server's own message (UTC) is the fallback. */
+const closedText = computed(() => {
+  const s = status.value;
+  if (s?.reason === "not-yet-open") {
+    const at = s.gateOpensAt ?? (s.opensAt && Date.parse(s.opensAt) > Date.now() ? s.opensAt : undefined);
+    if (at) return `Registration opens ${localWhenLong(at)}.`;
+  }
+  return s?.message || "Registration is closed.";
+});
 // Re-entry (spec §7): a coach who withdrew may register again while it is open; declined / removed entries cannot.
 const mayRegister = computed(() => open.value && !closed.value && (!reg.value || reg.value.state === "withdrawn"));
 const locked = computed(() => Boolean(t.value.rostersLockedAt || current.value?.flags?.frozen));
@@ -139,13 +151,13 @@ const HELD_TEXT = {
           <dl class="tr-facts">
             <dt>Places</dt><dd>{{ placesLine(status) }}</dd>
             <dt>Approval</dt><dd>{{ approvalWords(status) }}</dd>
-            <dt v-if="status?.closesAt">Closes</dt><dd v-if="status?.closesAt">{{ utcLabel(status.closesAt) }}</dd>
+            <dt v-if="status?.closesAt">Closes</dt><dd v-if="status?.closesAt">{{ whenLabel(status.closesAt) }}</dd>
           </dl>
           <div v-if="canWrite" class="tn-actions">
             <button class="sf-btn primary" type="button" data-register :disabled="busy" @click="registering = true">{{ reg?.state === "withdrawn" ? "Register again" : "Register" }}</button>
           </div>
         </template>
-        <p v-else-if="!open && !reg" class="hm-empty">{{ status?.message || "Registration is closed." }}</p>
+        <p v-else-if="!open && !reg" class="hm-empty">{{ closedText }}</p>
       </template>
       <template v-else>
         <p v-if="held && reg" class="tr-state" :data-held="reg.state">{{ HELD_TEXT[reg.state as "pending" | "waitlisted"] }}</p>
@@ -159,6 +171,7 @@ const HELD_TEXT = {
         </div>
         <p v-if="due" class="tr-due" data-roster-due="true">{{ due }}</p>
         <p v-if="payShown" class="tn-pay-status" :data-paid="mine?.flags?.paid ? 'true' : 'false'">{{ paymentStatusText(mine?.flags?.paid === true) }}</p>
+        <TournamentCheckInCode v-if="entered && reg?.state === 'accepted' && !current.flags?.checkedIn && !closed" />
         <form v-if="nafPending && canWrite" class="tn-reg-naf tn-naf-pending" novalidate @submit.prevent="doAnswerNaf">
           <p class="sf-error">This tournament is NAF sanctioned. Add your NAF name and number to your profile, or say you are not a NAF member, before you submit a roster.</p>
           <NafProfileField

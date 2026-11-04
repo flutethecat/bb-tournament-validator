@@ -70,7 +70,7 @@ describe("tournament Registration gate", () => {
   it("off by default; managers set one (revision-checked, monotonic), registration is refused server-side until it opens", async () => {
     const h = tournamentHarness();
     const t = await h.create();
-    const read = async (who?: TournamentApiIdentity) => (await h.call("GET", `/api/tournaments/${t.id}/gates`, who))!.body as { timeZone: string; manage: boolean; gates: Array<{ state: string; secondsLeft: number | null; wall?: string; revision: number }>; retired?: Record<string, number> };
+    const read = async (who?: TournamentApiIdentity) => (await h.call("GET", `/api/tournaments/${t.id}/gates`, who))!.body as { timeZone: string; manage: boolean; gates: Array<{ state: string; secondsLeft: number | null; opensAt: string | null; wall?: string; revision: number }>; retired?: Record<string, number> };
     expect((await read()).gates).toEqual([]);
     expect((await read()).timeZone).toBe("UTC");
     // Only managers write; anonymous 401, another organiser 403; a missing revision 428, a stale one 409.
@@ -83,11 +83,13 @@ describe("tournament Registration gate", () => {
     const set = await h.call("PUT", h.gatePath(t), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-12T19:00" });
     expect(set?.status).toBe(201);
     const g = (await read(coach("Alice"))).gates[0]!;
-    expect(g).toMatchObject({ state: "shut", wall: "2026-11-12T19:00", revision: 1, secondsLeft: 2 * 86_400 + 7 * 3600 });
+    // Owner 11-04: an instant (a bare wall time from an older page reads as the UTC its field said); no wall in the view.
+    expect(g).toMatchObject({ state: "shut", opensAt: "2026-11-12T19:00:00.000Z", revision: 1, secondsLeft: 2 * 86_400 + 7 * 3600 });
+    expect(g.wall).toBeUndefined();
     // The server refuses the entry (409 not-yet-open) and says when; the public registration status agrees.
     const refused = await h.register(t, "Alice");
     expect(refused).toMatchObject({ status: 409, body: { code: "not-yet-open" } });
-    expect((refused!.body as { error: string }).error).toContain("Thu 12 Nov 2026, 19:00 (UTC)");
+    expect((refused!.body as { error: string }).error).toContain("Thu 12 Nov 2026, 19:00 UTC");
     const detail = (await h.call("GET", `/api/tournaments/${t.id}`))!.body as { registrationStatus: { open: boolean } };
     expect(detail.registrationStatus.open).toBe(false);
     // An organiser may still add a coach (organiserMayAdd), as with the window.
@@ -285,7 +287,7 @@ describe("tournament Registration gate", () => {
     await observer.tick();
     expect(h.posts).toHaveLength(0);
     const note = h.sent.find((x) => x.input.title.startsWith("Registration gate opened"));
-    expect(note?.input.body).toContain("Registration itself opens Fri 20 Nov 2026, 12:00 (UTC)");
+    expect(note?.input.body).toContain("Registration itself opens Fri 20 Nov 2026, 12:00 UTC");
     expect(h.sent.some((x) => x.input.title.startsWith("Registration is open"))).toBe(false);
     expect((await h.register(t, "Alice"))?.status).toBe(409);
     h.clock.now = new Date("2026-11-20T12:01:00.000Z");

@@ -32,7 +32,7 @@ import type { TournamentStore } from "../tournaments/store.js";
 import type { ScheduledMatchRecord, TournamentEntrantRecord, TournamentRecord } from "../tournaments/types.js";
 import { forkGame, type GameRecord } from "./games.js";
 import {
-  finalStandingsPost, pairingsPost, resultPost, roundSummaryPost, safe, simplePost, standingsPost, weeklyDigestPost, type StandingLine,
+  discordTime, finalStandingsPost, pairingsPost, resultPost, roundSummaryPost, safe, simplePost, standingsPost, weeklyDigestPost, type StandingLine,
 } from "./posts.js";
 import type { DiscordStateStore } from "./store.js";
 import { ladderTarget, leagueTarget, postRaw, postTo, seasonTarget, tournamentTarget, type DiscordTarget } from "./targets.js";
@@ -157,11 +157,15 @@ export class DiscordObserver {
     for (const e of entrants) if (e.droppedAt === undefined) out.push({ marker: `entrant:${e.id}`, key: "newRegistration", payload: () => simplePost(name, "newRegistration", `${safe(label(e.id))} registered.`, { test }) });
     const close = t.deadlines?.registration ? Date.parse(t.deadlines.registration) : NaN;
     if (Number.isFinite(close) && close > now && close - now <= 24 * HOUR)
-      out.push({ marker: `regclose:${t.deadlines!.registration}`, key: "registrationClosing", payload: () => simplePost(name, "registrationClosing", "Registration closes in less than 24 hours.", { test }) });
+      out.push({ marker: `regclose:${t.deadlines!.registration}`, key: "registrationClosing", payload: () => simplePost(name, "registrationClosing", `Registration closes ${discordTime(close)} (${discordTime(close, "R")}).`, { test }) });
     const start = t.startsAt ? Date.parse(t.startsAt) : NaN;
     const checkInAt = t.registration?.checkIn.opensAt ? Date.parse(t.registration.checkIn.opensAt) : Number.isFinite(start) ? start - 24 * HOUR : NaN;
     if (t.registration?.checkIn.self && Number.isFinite(checkInAt) && checkInAt <= now && t.status !== "completed" && (!Number.isFinite(start) || now < start + 12 * HOUR))
-      out.push({ marker: `checkin:${checkInAt}`, key: "checkInOpen", payload: () => simplePost(name, "checkInOpen", "Check-in is open: check in on the tournament page.", { test }) });
+      out.push({ marker: `checkin:${checkInAt}`, key: "checkInOpen", payload: () => {
+        // Discord shows <t:epoch> in each reader's own zone (owner 11-04: tournament times are instants).
+        const closes = t.deadlines?.checkIn ? Date.parse(t.deadlines.checkIn) : start;
+        return simplePost(name, "checkInOpen", Number.isFinite(closes) ? `Check-in is open until ${discordTime(closes)}: check in on the tournament page.` : "Check-in is open: check in on the tournament page.", { test });
+      } });
     for (const r of rounds) {
       const ms = r.scheduledMatchIds.map((id) => matches.find((m) => m.id === id)).filter((m): m is ScheduledMatchRecord => Boolean(m));
       out.push({ marker: `round:${r.id}`, key: "roundPosted", payload: () => pairingsPost(name, `Round ${r.number}`, ms.map((m, i) => ({ home: label(m.home.entrantId), ...(m.away ? { away: label(m.away.entrantId) } : {}), table: i + 1 })), test) });

@@ -7,6 +7,7 @@ import type {
   TournamentRegistrationStatus,
 } from "../shared/api";
 import type { ShareField } from "../account/sharing";
+import { localWhen } from "../shared/localTime";
 
 export interface TeamChoice {
   /** "save:<id>" (a saved team) or "later" (register now, roster later). */
@@ -31,7 +32,7 @@ export function registerChoices(
       .map((s) => ({ ref: `save:${s.id}`, kind: "save" as const, label: s.name, sub: s.raceName ? `${s.raceName} · Saved team` : "Saved team" })),
   ];
   if (status?.rosterLater) {
-    out.push({ ref: "later", kind: "later", label: "Roster later", sub: status.rosterBy ? `Submit your roster by ${utcLabel(status.rosterBy)}` : "Submit your roster before the event" });
+    out.push({ ref: "later", kind: "later", label: "Roster later", sub: status.rosterBy ? `Submit your roster by ${whenLabel(status.rosterBy)}` : "Submit your roster before the event" });
   }
   return out;
 }
@@ -91,7 +92,7 @@ export function placesLine(status: TournamentRegistrationStatus | null | undefin
   return `${status.placesLeft} of ${status.cap} ${status.cap === 1 ? "place" : "places"} left`;
 }
 
-/** "05 Dec 2026, 09:00 UTC" (every time on these pages is UTC, like the forms). */
+/** "05 Dec 2026, 09:00 UTC". League registration pages still show UTC (league times are out of the 11-04 change). */
 export function utcLabel(iso: string | undefined): string {
   if (!iso) return "";
   const d = new Date(iso);
@@ -101,25 +102,30 @@ export function utcLabel(iso: string | undefined): string {
   return `${pad(d.getUTCDate())} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()}, ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} UTC`;
 }
 
+/** "05 Dec 2026, 09:00 GMT": a tournament instant in the viewer's own zone, with its abbreviation (owner 11-04). */
+export function whenLabel(iso: string | undefined, zone?: string): string {
+  return localWhen(iso, zone);
+}
+
 /** The Check in bar shows for an accepted coach while self check-in is open (and until they did). */
 export function checkInDue(ci: TournamentCheckIn | null | undefined, mine: Pick<TournamentEntrant, "flags"> | null | undefined, accepted: boolean): boolean {
   return Boolean(ci?.open && ci.self && accepted && mine && !mine.flags?.checkedIn);
 }
 
 /** "Check-in closes 05 Dec 2026, 09:00 UTC" / "Check-in opens ..." / "". */
-export function checkInLine(ci: TournamentCheckIn | null | undefined): string {
+export function checkInLine(ci: TournamentCheckIn | null | undefined, zone?: string): string {
   if (!ci) return "";
-  if (ci.open) return ci.closesAt ? `Check-in closes ${utcLabel(ci.closesAt)}` : "Check-in is open";
+  if (ci.open) return ci.closesAt ? `Check-in closes ${whenLabel(ci.closesAt, zone)}` : "Check-in is open";
   if (ci.closed) return "Check-in is closed";
-  return `Check-in opens ${utcLabel(ci.opensAt)}`;
+  return `Check-in opens ${whenLabel(ci.opensAt, zone)}`;
 }
 
 /** "Roster due by ..." for an entry without a roster under "roster later"; "" otherwise. */
-export function rosterDueLine(t: { registration?: { rosterLater: boolean; rosterBy?: string } }, entry: Pick<TournamentEntrant, "submission" | "teamId">, now = Date.now()): string {
+export function rosterDueLine(t: { registration?: { rosterLater: boolean; rosterBy?: string } }, entry: Pick<TournamentEntrant, "submission" | "teamId">, now = Date.now(), zone?: string): string {
   if (entry.submission || entry.teamId) return "";
   const by = t.registration?.rosterLater ? t.registration.rosterBy : undefined;
   if (!by) return "No roster yet. Submit one before the event.";
-  return Date.parse(by) <= now ? "The roster deadline has passed." : `Roster due by ${utcLabel(by)}`;
+  return Date.parse(by) <= now ? "The roster deadline has passed." : `Roster due by ${whenLabel(by, zone)}`;
 }
 
 /** No roster at or after the roster deadline: the Participants "No roster" chip (nothing is dropped automatically). */
@@ -129,9 +135,9 @@ export function noRosterLate(t: { registration?: { rosterLater: boolean; rosterB
 }
 
 /** "Coach says paid 03 Nov 2026, 10:00 UTC" for the organisers, next to the Paid toggle. */
-export function coachSaysPaidLine(e: Pick<TournamentEntrant, "coachSaysPaid" | "flags">): string {
+export function coachSaysPaidLine(e: Pick<TournamentEntrant, "coachSaysPaid" | "flags">, zone?: string): string {
   if (!e.coachSaysPaid || e.flags?.paid) return "";
-  return `Coach says paid ${utcLabel(e.coachSaysPaid.at)}`;
+  return `Coach says paid ${whenLabel(e.coachSaysPaid.at, zone)}`;
 }
 
 export type RegistrationSettings = NonNullable<import("../shared/api").TournamentSummary["registration"]>;

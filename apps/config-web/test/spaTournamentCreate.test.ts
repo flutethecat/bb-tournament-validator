@@ -10,6 +10,8 @@ import {
 import {
   blankWizardForm, createTournamentWizard, DRAFT_KEY, filterPackages, stepProblem, summaryRows, wizardBody,
 } from "../spa/src/tournaments/wizard";
+import { fromLocalInput } from "../spa/src/tournaments/detail";
+import { zoneCaption } from "../spa/src/shared/localTime";
 
 // Create Tournament (owner 10-30; the wizard page since lane L3, registration spec 11-02 section 6): the CREATE link on
 // the Tournaments toolbar, the account menu item, and /app/tournaments/new (POST /api/tournaments, then the new draft's
@@ -166,11 +168,13 @@ describe("wizard controller (lane L3)", () => {
       pairingSystem: "monrad", seedingMode: "manual", turnTimer: "required", summary: "Two days.", opensAt: "2026-11-03T09:00", closesAt: "2026-12-01T18:00",
       waitlist: false, approval: "organiser", rosterBy: "2026-12-03T18:00", checkInOpensAt: "2026-12-04T09:00", checkInClosesAt: "2026-12-05T08:30", entryFee: " 15 GBP ",
     }, true);
+    // owner 11-04: the wizard's times are typed in the viewer's zone and sent as instants
+    const local = (v: string) => fromLocalInput(v);
     expect(full).toMatchObject({
-      publish: true, startsAt: "2026-12-05T09:00:00.000Z", endsAt: "2026-12-06T18:00:00.000Z", pairingSystem: "monrad", seedingMode: "manual", turnTimer: { enforced: "required" },
+      publish: true, startsAt: local("2026-12-05T09:00"), endsAt: local("2026-12-06T18:00"), pairingSystem: "monrad", seedingMode: "manual", turnTimer: { enforced: "required" },
       location: { venue: "Example Hall", address: "1 Example Street", mapUrl: "https://example.com/map" }, startTime: "09:00", entryFee: "15 GBP", summary: "Two days.",
-      deadlines: { registration: "2026-12-01T18:00:00.000Z", checkIn: "2026-12-05T08:30:00.000Z" },
-      registration: { opensAt: "2026-11-03T09:00:00.000Z", approval: "organiser", waitlist: false, rosterLater: true, rosterBy: "2026-12-03T18:00:00.000Z", checkIn: { self: true, opensAt: "2026-12-04T09:00:00.000Z" } },
+      deadlines: { registration: local("2026-12-01T18:00"), checkIn: local("2026-12-05T08:30") },
+      registration: { opensAt: local("2026-11-03T09:00"), approval: "organiser", waitlist: false, rosterLater: true, rosterBy: local("2026-12-03T18:00"), checkIn: { self: true, opensAt: local("2026-12-04T09:00") } },
     });
     // online play sends no venue; knockout sends no pairing or rounds; switched-off options drop their dates
     const online = wizardBody({ ...form, playOnFork: true, venue: "Hall", startTime: "09:00", format: "knockout", pairingSystem: "monrad", rosterLater: false, rosterBy: "2026-12-03T18:00", selfCheckIn: false, checkInClosesAt: "2026-12-05T08:30" }, true);
@@ -374,7 +378,7 @@ describe("create views (server-rendered against a mocked API)", () => {
   it("wizard, step 2: details in grouped panels; tabletop shows the venue fields, Super FUMBBL hides them; only the coach's own series", async () => {
     const tabletop = await renderWizard((w) => { w.pickPackage("nut-cup"); w.go("general"); });
     expect(tabletop.html).toMatch(/<h2 id="tw-step-h">General<\/h2><span class="hm-cap">Step 2 of 5<\/span>/);
-    expect(captions(tabletop.html)).toEqual(["Name", "Series", "Starts (UTC)", "Ends (UTC)", "Summary", "Venue", "Address", "Map link", "Local start time", "Country", "Region"]);
+    expect(captions(tabletop.html)).toEqual(["Name", "Series", `Starts (${zoneCaption()})`, `Ends (${zoneCaption()})`, "Summary", "Venue", "Address", "Map link", "Local start time", "Country", "Region"]);
     expect(tabletop.html).toContain("data-played-on");
     expect(tabletop.html).toContain('<option value="s1">Valley Series</option>');
     expect(tabletop.html).not.toContain("Other Series");
@@ -394,7 +398,7 @@ describe("create views (server-rendered against a mocked API)", () => {
   it("wizard, step 3: registration window, places, waitlist, approval, roster later + deadline, check-in, entry fee and the NAF rule-23 note", async () => {
     const { html } = await renderWizard((w) => { w.pickPackage("nut-cup"); w.state.form.name = "Spike Open"; w.go("registration"); w.state.form.nafSanctioned = true; });
     expect(html).toMatch(/Step 4 of 5/);
-    expect(captions(html)).toEqual(["Opens (UTC)", "Closes (UTC)", "Places", "Roster deadline (UTC)", "Opens (UTC)", "Closes (UTC)", "Entry fee", "PayPal link (optional)", "Venmo username (optional)", "Webhook URL (optional)"]);
+    expect(captions(html)).toEqual([`Opens (${zoneCaption()})`, `Closes (${zoneCaption()})`, "Places", `Roster deadline (${zoneCaption()})`, `Opens (${zoneCaption()})`, `Closes (${zoneCaption()})`, "Entry fee", "PayPal link (optional)", "Venmo username (optional)", "Webhook URL (optional)"]);
     expect(html).toContain("Waitlist when full");
     // Discord (end group): tournament mode ticks only the key events; the webhook is a password field and never saved in the draft
     expect(html).toContain('data-group="discord"');

@@ -13,6 +13,7 @@ import NafEntrantModal from "./NafEntrantModal.vue";
 import { nextFixtureFor, ROSTER_LABEL, ROSTER_TONE, rosterState, TOURNAMENT_DETAIL_KEY } from "../tournaments/detail";
 import { SESSION_KEY, writesAllowed } from "../session";
 import { coachSaysPaidLine, noRosterLate } from "../tournaments/registration";
+import { localWhen } from "../shared/localTime";
 
 const detail = inject(TOURNAMENT_DETAIL_KEY)!;
 const { state } = detail;
@@ -68,8 +69,7 @@ const paidCount = computed(() => active.value.filter((e) => flagsOf(e).paid).len
 const paidBy = (e: TournamentEntrant): string => {
   const u = e.paidUpdated;
   if (!u?.at) return "";
-  const when = u.at.slice(0, 16).replace("T", " ");
-  return `${flagsOf(e).paid ? "Marked paid" : "Marked not paid"}${u.by ? ` by ${u.by}` : ""}, ${when} UTC`;
+  return `${flagsOf(e).paid ? "Marked paid" : "Marked not paid"}${u.by ? ` by ${u.by}` : ""}, ${localWhen(u.at)}`;
 };
 const busyRow = (_id: string): boolean => Boolean(state.busy);
 const messaging = ref<TournamentEntrant | null>(null);

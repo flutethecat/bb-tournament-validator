@@ -28,6 +28,9 @@ import RulesetCardPicker from "../components/RulesetCardPicker.vue";
 import { PAY_NOTE, payPalProblem, venmoProblem } from "../shared/payLinks";
 import { isDiscordWebhook } from "../shared/discord";
 import "../tournaments/wizard.css";
+import { zoneCaption } from "../shared/localTime";
+/** Times are typed in the viewer's own zone and saved as instants (owner 11-04). */
+const zoneText = zoneCaption();
 
 const fetcher = inject(API_KEY)!;
 const session = inject(SESSION_KEY)!;
@@ -181,8 +184,8 @@ async function saveTemplate(input: { name: string; description: string; includeP
                   <option v-for="s in state.series" :key="s.id" :value="s.id">{{ s.name }}</option>
                 </select>
               </label>
-              <label class="sf-field"><span class="sf-k">Starts (UTC)</span><input v-model="state.form.startsAt" type="datetime-local" /></label>
-              <label class="sf-field"><span class="sf-k">Ends (UTC)</span><input v-model="state.form.endsAt" type="datetime-local" /></label>
+              <label class="sf-field"><span class="sf-k">Starts ({{ zoneText }})</span><input v-model="state.form.startsAt" type="datetime-local" /></label>
+              <label class="sf-field"><span class="sf-k">Ends ({{ zoneText }})</span><input v-model="state.form.endsAt" type="datetime-local" /></label>
               <label class="sf-field tw-wide"><span class="sf-k">Summary</span><textarea v-model="state.form.summary" rows="3" maxlength="4000" placeholder="What the event is about (shown on its page)"></textarea></label>
             </fieldset>
 
@@ -241,8 +244,8 @@ async function saveTemplate(input: { name: string; description: string; includeP
           <div v-else-if="state.step === 'registration'" class="tw-groups">
             <fieldset class="tw-group">
               <legend class="tw-legend">Window</legend>
-              <label class="sf-field"><span class="sf-k">Opens (UTC)</span><input v-model="state.form.opensAt" type="datetime-local" /></label>
-              <label class="sf-field"><span class="sf-k">Closes (UTC)</span><input v-model="state.form.closesAt" type="datetime-local" /></label>
+              <label class="sf-field"><span class="sf-k">Opens ({{ zoneText }})</span><input v-model="state.form.opensAt" type="datetime-local" /></label>
+              <label class="sf-field"><span class="sf-k">Closes ({{ zoneText }})</span><input v-model="state.form.closesAt" type="datetime-local" /></label>
               <p class="tw-help tw-wide">Blank: open as soon as it's published, until the start. Registration never opens before you publish.</p>
             </fieldset>
 
@@ -260,7 +263,7 @@ async function saveTemplate(input: { name: string; description: string; includeP
             <fieldset class="tw-group">
               <legend class="tw-legend">Rosters</legend>
               <label class="sf-check tw-check tw-wide"><input v-model="state.form.rosterLater" type="checkbox" /> Register now, roster later</label>
-              <label v-if="state.form.rosterLater" class="sf-field"><span class="sf-k">Roster deadline (UTC)</span><input v-model="state.form.rosterBy" type="datetime-local" /></label>
+              <label v-if="state.form.rosterLater" class="sf-field"><span class="sf-k">Roster deadline ({{ zoneText }})</span><input v-model="state.form.rosterBy" type="datetime-local" /></label>
               <p class="tw-help tw-wide">{{ state.form.rosterLater ? "Coaches can enter first and submit their roster by the deadline." : "Coaches enter with a team." }}</p>
             </fieldset>
 
@@ -268,8 +271,8 @@ async function saveTemplate(input: { name: string; description: string; includeP
               <legend class="tw-legend">Check-in</legend>
               <label class="sf-check tw-check tw-wide"><input v-model="state.form.selfCheckIn" type="checkbox" /> Coaches check themselves in</label>
               <template v-if="state.form.selfCheckIn">
-                <label class="sf-field"><span class="sf-k">Opens (UTC)</span><input v-model="state.form.checkInOpensAt" type="datetime-local" /></label>
-                <label class="sf-field"><span class="sf-k">Closes (UTC)</span><input v-model="state.form.checkInClosesAt" type="datetime-local" /></label>
+                <label class="sf-field"><span class="sf-k">Opens ({{ zoneText }})</span><input v-model="state.form.checkInOpensAt" type="datetime-local" /></label>
+                <label class="sf-field"><span class="sf-k">Closes ({{ zoneText }})</span><input v-model="state.form.checkInClosesAt" type="datetime-local" /></label>
                 <p class="tw-help tw-wide">Blank: opens 24 hours before the start and closes at the start.</p>
               </template>
             </fieldset>

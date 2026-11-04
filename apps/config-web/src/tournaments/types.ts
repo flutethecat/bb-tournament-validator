@@ -144,6 +144,8 @@ export interface TournamentRecord {
   /** Site-authorised event (owner round 3: every event run on the site is authorised for now). Absent = true (records
    *  written before the flag existed); the read model always carries the derived boolean. */
   authorised?: boolean;
+  /** The venue check-in QR (src/tournaments/checkInQr.ts): absent = never switched on. Managers only. */
+  venueCheckIn?: import("./checkInQr.js").VenueCheckInQr;
   /** Registration (lane L4): who was sent the check-in-open notice for which check-in window (src/registration). */
   checkInNotice?: { window: string; entryIds: string[]; at: string };
   /** Registration (lane L4): who was sent the "roster due" reminder for which roster deadline (once per entry per deadline). */
@@ -304,8 +306,13 @@ export interface TournamentEntrantRecord {
   nafToldAt?: string;
   /** When organisers were last told about "I've paid" (one notice per 24 h however often it is toggled). */
   paidClaimNotifiedAt?: string;
-  /** When the entry was checked in, and by whom (the coach, or an organiser). */
-  checkedInBy?: { by: string; at: string };
+  /** When the entry was checked in, and by whom (the coach, or an organiser), and how (absent = before QR check-in). */
+  checkedInBy?: { by: string; at: string; via?: import("./checkInQr.js").CheckInVia };
+  /** Every check-in of this entry (the audit trail: who, when, how), oldest first, capped (checkInQr.ts CHECK_IN_LOG_CAP). */
+  checkInLog?: Array<{ by: string; at: string; via: import("./checkInQr.js").CheckInVia }>;
+  /** The coach's personal check-in QR (src/tournaments/checkInQr.ts): nonce + token hash, never the token. Accepted
+   *  entries only; dropped when the entry leaves, re-enters or its check-in is cleared. Never on any read model. */
+  checkInQr?: import("./checkInQr.js").PersonalCheckInQr;
 }
 
 export interface TournamentRoundRecord {

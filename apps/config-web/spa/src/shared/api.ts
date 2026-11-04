@@ -252,13 +252,31 @@ export interface TournamentRegistrationStatus {
   open: boolean; reason?: string; message?: string;
   approval: "auto" | "organiser"; waitlist: boolean; rosterLater: boolean; rosterBy?: string; opensAt?: string; closesAt?: string;
   cap: number | null; placesLeft: number | null;
+  /** A shut Registration gate's opening instant (the page shows it in the viewer's zone). */
+  gateOpensAt?: string;
 }
 
 /** Check-in times (public settings) and whether it is open now / over. */
 export interface TournamentCheckIn { opensAt: string; closesAt?: string; self: boolean; open: boolean; closed: boolean }
 
 /** The signed-in coach's own entry in any state. */
-export interface TournamentMyRegistration extends TournamentEntrant { state: EntryState; position?: number; reason?: string }
+export interface TournamentMyRegistration extends TournamentEntrant {
+  state: EntryState; position?: number; reason?: string;
+  /** The coach's personal check-in QR: the SPA path it encodes (accepted, not checked in yet). */
+  checkInCode?: { path: string };
+}
+
+/** What a scanned check-in code does (POST /api/tournaments/:id/check-in/qr). */
+export interface CheckInScanResult {
+  state: "ready" | "checked-in" | "already";
+  kind: "personal" | "venue";
+  tournament: { id: string; name: string };
+  entry: { coach: string; team?: string };
+  checkIn: TournamentCheckIn | null;
+}
+
+/** The venue check-in code as the organisers see it (GET /api/tournaments/:id/check-in/venue). */
+export interface VenueCheckInView { enabled: boolean; revision: number; path?: string; updatedAt?: string; checkIn: TournamentCheckIn | null }
 
 /** One row of the organisers' Registrations panel (GET /api/tournaments/:id/registrations). */
 export interface TournamentRegistrationRow extends Partial<TournamentEntrant> {

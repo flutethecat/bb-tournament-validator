@@ -5,9 +5,10 @@ import { ApiError, type TournamentDetailResponse, type TournamentEntrant, type T
 import type { Fetcher } from "../spa/src/session";
 import { createTournamentDetail } from "../spa/src/tournaments/detail";
 import {
-  changedSettings, checkInDue, coachSaysPaidLine, expectedOutcome, noRosterLate, placesLine, registerBody, registerChoices,
+  changedSettings, checkInDue, checkInLine, coachSaysPaidLine, expectedOutcome, noRosterLate, placesLine, registerBody, registerChoices,
   registrationsCaption, rosterDueLine, stateChip,
 } from "../spa/src/tournaments/registration";
+import { localWhen } from "../spa/src/shared/localTime";
 
 // Lane L4 in the SPA: the register sheet's helpers and controller calls, and the views server-rendered against a mocked
 // API (the SPA's own Vite config, no port): My entry states, the Check in bar, the Pay block's reference code and
@@ -93,10 +94,13 @@ describe("registration helpers (pure)", () => {
     expect(checkInDue(ci, { flags: { ...FLAGS, checkedIn: true } }, true)).toBe(false);
     expect(checkInDue({ ...ci, self: false }, { flags: FLAGS }, true)).toBe(false);
     const t = { registration: { rosterLater: true, rosterBy: "2026-12-01T18:00:00.000Z" } };
-    expect(rosterDueLine(t, { teamId: "" }, Date.parse("2026-11-20T00:00:00Z"))).toBe("Roster due by 01 Dec 2026, 18:00 UTC");
+    expect(rosterDueLine(t, { teamId: "" }, Date.parse("2026-11-20T00:00:00Z"), "UTC")).toBe("Roster due by 01 Dec 2026, 18:00 UTC");
+    // owner 11-04: the viewer's own zone, with its abbreviation
+    expect(rosterDueLine(t, { teamId: "" }, Date.parse("2026-11-20T00:00:00Z"), "America/New_York")).toBe("Roster due by 01 Dec 2026, 13:00 EST");
+    expect(checkInLine(ci, "Europe/Paris")).toBe("Check-in closes 05 Dec 2026, 10:00 GMT+1");
     expect(noRosterLate(t, { teamId: "" }, Date.parse("2026-12-02T00:00:00Z"))).toBe(true);
     expect(noRosterLate(t, { teamId: "tm1" }, Date.parse("2026-12-02T00:00:00Z"))).toBe(false);
-    expect(coachSaysPaidLine({ coachSaysPaid: { at: "2026-11-10T12:00:00.000Z" }, flags: FLAGS })).toBe("Coach says paid 10 Nov 2026, 12:00 UTC");
+    expect(coachSaysPaidLine({ coachSaysPaid: { at: "2026-11-10T12:00:00.000Z" }, flags: FLAGS }, "UTC")).toBe("Coach says paid 10 Nov 2026, 12:00 UTC");
     expect(coachSaysPaidLine({ coachSaysPaid: { at: "x" }, flags: { ...FLAGS, paid: true } })).toBe("");
     expect(registrationsCaption({ accepted: 3, pending: 1, waitlisted: 0, cap: 8 })).toBe("3 / 8 places · 1 pending");
   });
@@ -176,7 +180,7 @@ describe("registration views (server-rendered)", () => {
     const html = await render("/tournaments/t1", { ...AS("Bob"), "/api/tournaments/t1": body({ myRegistration: mine }) });
     expect(html).toContain('data-entry-state="pending"');
     expect(html).toContain("Your entry is waiting for the organisers.");
-    expect(html).toContain("Roster due by 01 Dec 2026, 18:00 UTC");
+    expect(html).toContain(`Roster due by ${localWhen("2026-12-01T18:00:00.000Z")}`);
     expect(html).toContain(">Withdraw</button>");
     expect(html).not.toMatch(/data-register[^>]*>Register<\/button>/);
     // the Pay block carries the coach's own reference and "I've paid"
@@ -199,7 +203,7 @@ describe("registration views (server-rendered)", () => {
     const html = await render("/tournaments/t1?tab=standings", { ...AS("Alice"), "/api/tournaments/t1": body({ tournament: t, checkIn: ci, myRegistration: { ...entrant(), state: "accepted" } }), "/api/tournaments/t1/standings": { standings: [] } });
     expect(html).toContain("data-check-in-bar");
     expect(html).toContain("data-check-in>Check in</button>");
-    expect(html).toContain("Check-in closes 05 Dec 2026, 09:00 UTC");
+    expect(html).toContain(`Check-in closes ${localWhen("2026-12-05T09:00:00.000Z")}`);
     const anon = await render("/tournaments/t1", { "/api/auth/session": { authenticated: false }, "/api/tournaments/t1": body({ checkIn: ci }) });
     expect(anon).not.toContain("data-check-in-bar");
   });
@@ -262,7 +266,7 @@ describe("registration views (server-rendered)", () => {
     expect(html).not.toContain("Library team");
     expect(f.calls.some((c) => c.path.includes("/api/fork/library"))).toBe(false);
     expect(html).toContain('data-kind="later"');
-    expect(html).toContain("Submit your roster by 01 Dec 2026, 18:00 UTC");
+    expect(html).toContain(`Submit your roster by ${localWhen("2026-12-01T18:00:00.000Z")}`);
     expect(html).toContain('href="/tournament-team-builder?package=nut-cup&amp;tournament=t1"');
     expect(html).toContain("Pick your region");
     expect(html).toContain(">Next");

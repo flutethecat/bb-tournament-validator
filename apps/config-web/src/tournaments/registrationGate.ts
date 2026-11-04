@@ -3,8 +3,9 @@
  * (src/leagues/gates.ts) scoped to one tournament. Pure: the shape, the time, the check every registration path makes and the
  * read model. The routes and the minute job live in ./gates.ts.
  *
- *  - One gate per tournament, stored on the record (registrationGate). "At a time" only: a wall-clock time in the tournament's
- *    zone (tournamentTimeZone; tournaments have no League Events). Off by default.
+ *  - One gate per tournament, stored on the record (registrationGate). "At a time" only (tournaments have no League Events).
+ *    Off by default. The time is a UTC instant (owner 11-04: tournament times are instants, shown in the viewer's own zone);
+ *    a gate stored by an earlier build holds a wall time, read in tournamentTimeZone() (UTC unless a zone was ever stored).
  *  - Open = stored state "open" OR its time has passed: self-registration is allowed from the minute it is due, before the job
  *    has flipped the state.
  *  - Fails closed: a gate whose record can't be read (not an object, no usable time while shut) keeps registration shut until
@@ -17,7 +18,8 @@ import { zonedInstant } from "../discord/weekly.js";
 import type { TournamentRecord } from "./types.js";
 
 export interface TournamentGate {
-  /** A wall-clock time in the tournament's zone ("2026-11-05T19:00"). */
+  /** The opening instant, ISO UTC ("2026-11-05T19:00:00.000Z"). Earlier builds stored a wall time ("2026-11-05T19:00"),
+   *  which is read in tournamentTimeZone() (gateInstant). */
   opensAt: string;
   armedAt: string;
   state: "shut" | "open";
@@ -40,8 +42,10 @@ function isZone(tz: unknown): tz is string {
 }
 
 /**
- * The tournament equivalent of leagueTimeZone(): the tournament's own zone when one is stored, else UTC (the zone every
- * tournament time is shown and typed in today: the wizard and the Page form label their fields UTC).
+ * Neutralised (owner 11-04: "store these in epoch time and reveal them in the user's local time zone"): tournaments have no
+ * display zone any more. This only reads a gate wall time stored by an earlier build (the tournament's stored zone, else UTC,
+ * the zone those walls were typed in). Never use it to show a time: pages format instants in the viewer's zone, and
+ * server-written text says UTC (utcWhenText) or uses Discord's <t:epoch> timestamps.
  */
 export function tournamentTimeZone(t: Pick<TournamentRecord, "timeZone"> | undefined): string {
   return t?.timeZone && isZone(t.timeZone) ? t.timeZone : UTC;
@@ -77,19 +81,31 @@ export function storedGate(t: Pick<TournamentRecord, "registrationGate">): Tourn
   return r as TournamentGate;
 }
 
-/** When the gate opens (ms), undefined = no usable time. */
-export function gateInstant(g: TournamentGate, zone: string): number | undefined {
+const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/;
+
+/** An ISO instant with its zone ("2026-11-05T19:00:00.000Z", "...+01:00") as ms, or undefined. */
+export function parseInstant(v: unknown): number | undefined {
+  if (typeof v !== "string" || !INSTANT.test(v.trim())) return undefined;
+  const t = Date.parse(v.trim());
+  return Number.isFinite(t) ? t : undefined;
+}
+
+/** When the gate opens (ms), undefined = no usable time. A stored instant is used as is; a legacy wall time is read in
+ *  `legacyZone` (tournamentTimeZone). */
+export function gateInstant(g: TournamentGate, legacyZone: string): number | undefined {
+  const at = parseInstant(g.opensAt);
+  if (at !== undefined) return at;
   const wall = parseGateWall(g.opensAt);
-  return wall ? gateWallInstant(wall, zone) : undefined;
+  return wall ? gateWallInstant(wall, legacyZone) : undefined;
 }
 
 export const gateIsOpen = (g: TournamentGate, at: number | undefined, now: number): boolean => g.state === "open" || (at !== undefined && at <= now);
 
-/** "Thu 5 Nov 2026, 19:00 (UTC)". */
-export function gateWhenText(iso: string, zone: string): string {
-  const p = new Intl.DateTimeFormat("en-GB", { timeZone: zone, weekday: "short", day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(iso));
+/** "Thu 5 Nov 2026, 19:00 UTC": server-written text (inbox, email, refusals) can't know the reader's zone, so it says UTC. */
+export function utcWhenText(iso: string): string {
+  const p = new Intl.DateTimeFormat("en-GB", { timeZone: UTC, weekday: "short", day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(iso));
   const g = (k: string) => p.find((x) => x.type === k)?.value ?? "";
-  return `${g("weekday")} ${g("day")} ${g("month")} ${g("year")}, ${g("hour")}:${g("minute")} (${zone.replace(/_/g, " ")})`;
+  return `${g("weekday")} ${g("day")} ${g("month")} ${g("year")}, ${g("hour")}:${g("minute")} UTC`;
 }
 
 export interface GateShut { opensAt?: string; message: string; secondsLeft: number | null }
@@ -107,7 +123,7 @@ export function registrationGateShut(t: Pick<TournamentRecord, "registrationGate
   if (gateIsOpen(g, at, now.getTime())) return undefined;
   if (at === undefined) return { message: "Registration opens when the organisers open it.", secondsLeft: null };
   const iso = new Date(at).toISOString();
-  return { opensAt: iso, message: `Registration opens ${gateWhenText(iso, zone)}.`, secondsLeft: Math.max(0, Math.ceil((at - now.getTime()) / 1000)) };
+  return { opensAt: iso, message: `Registration opens ${utcWhenText(iso)}.`, secondsLeft: Math.max(0, Math.ceil((at - now.getTime()) / 1000)) };
 }
 
 /**
@@ -155,7 +171,7 @@ export function regopenAnnounced(seen: Readonly<Record<string, string>> | undefi
 /** The gate as the shared gate editor reads it (the league GateView shape; kind "registration", target "tournament"). */
 export interface TournamentGateView {
   id: string; kind: "registration"; target: "tournament"; targetName: string; label: string; title: string;
-  state: "shut" | "open"; opensAt: string | null; secondsLeft: number | null; mode: "time"; wall?: string;
+  state: "shut" | "open"; opensAt: string | null; secondsLeft: number | null; mode: "time";
   openedAt?: string; openedBy?: "schedule" | "organiser"; revision: number;
 }
 
@@ -169,7 +185,8 @@ export function tournamentGateView(t: Pick<TournamentRecord, "name" | "registrat
     id: GATE_ID, kind: "registration", target: "tournament", targetName: t.name, label: "Registration", title: `${t.name}: Registration opens`,
     state: open ? "open" : "shut", opensAt: at === undefined ? null : new Date(at).toISOString(),
     secondsLeft: open ? 0 : at === undefined ? null : Math.max(0, Math.ceil((at - now.getTime()) / 1000)),
-    mode: "time", ...(parseGateWall(g.opensAt) ? { wall: parseGateWall(g.opensAt) } : {}),
+    // No wall time: the page shows and edits the instant in the viewer's own zone.
+    mode: "time",
     ...(g.openedAt ? { openedAt: g.openedAt } : {}), ...(g.openedBy ? { openedBy: g.openedBy } : {}), revision: g.revision,
   };
 }

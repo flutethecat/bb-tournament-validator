@@ -121,6 +121,23 @@ export const routes: RouteRecordRaw[] = [
     props: (r) => ({ id: String(r.params.id), manage: true }),
     meta: { title: "Tournament" },
   },
+  // QR check-in (11-04): the page a scanned code opens. Not sign-in gated, so the sign-in link never carries the token (the
+  // page asks the coach to sign in and scan again); nothing is written until its Check in button POSTs.
+  {
+    path: "/tournaments/:id([\\w-]{1,64})/check-in/:token([pv][A-Za-z0-9_-]{44})",
+    name: "tournament-check-in",
+    component: () => import("./views/TournamentCheckInView.vue"),
+    props: true,
+    meta: { title: "Check in" },
+  },
+  // The venue QR, full screen, for the tournament's organisers (Manage -> Registrations -> Venue QR).
+  {
+    path: "/tournaments/:id([\\w-]{1,64})/venue-qr",
+    name: "tournament-venue-qr",
+    component: () => import("./views/TournamentVenueQrView.vue"),
+    props: true,
+    meta: { requiresAuth: true, title: "Venue check-in" },
+  },
   // Tournament Series (phase 5): public read; organisers and admins create, the series' organisers edit in place.
   { path: "/series", name: "series", component: SeriesListView, meta: { title: "Tournament series" } },
   { path: "/series/:id([\\w-]{1,64})", name: "series-detail", component: SeriesDetailView, props: true, meta: { title: "Series" } },

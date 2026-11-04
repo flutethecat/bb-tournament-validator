@@ -6,12 +6,13 @@
 // decided ones (declined, withdrawn, removed) folded away, which never show what a coach shared. Check-in: the count,
 // and once it closed the no-show list with "Remove and promote waitlist" (never automatic).
 import { computed, inject, onMounted, reactive } from "vue";
+import { RouterLink } from "vue-router";
 import type { TournamentRegistrationRow } from "../shared/api";
 import Crest from "./Crest.vue";
 import { SESSION_KEY, writesAllowed } from "../session";
 import { ROSTER_LABEL, ROSTER_TONE, rosterState, TOURNAMENT_DETAIL_KEY } from "../tournaments/detail";
 import {
-  changedSettings, checkInLine, currentSettings, registrationsCaption, STATE_LABEL, STATE_TONE, utcLabel,
+  changedSettings, checkInLine, currentSettings, registrationsCaption, STATE_LABEL, STATE_TONE, whenLabel,
 } from "../tournaments/registration";
 import "../tournaments/registration.css";
 
@@ -66,7 +67,7 @@ async function act(r: TournamentRegistrationRow, verb: "accept" | "waitlist" | "
         </div>
         <label class="sf-check"><input type="checkbox" :checked="settings.waitlist" :disabled="!canWrite || busy" @change="save({ waitlist: ($event.target as HTMLInputElement).checked })" /> Waitlist when full</label>
         <label class="sf-check"><input type="checkbox" :checked="settings.checkIn.self" :disabled="!canWrite || busy" @change="save({ selfCheckIn: ($event.target as HTMLInputElement).checked })" /> Coaches check themselves in</label>
-        <span v-if="settings.rosterLater" class="muted">Roster later{{ settings.rosterBy ? `, due ${utcLabel(settings.rosterBy)}` : "" }}</span>
+        <span v-if="settings.rosterLater" class="muted">Roster later{{ settings.rosterBy ? `, due ${whenLabel(settings.rosterBy)}` : "" }}</span>
       </div>
       <p v-if="!canWrite" class="tr-help">{{ settings.approval === "organiser" ? "Organisers approve" : "Automatic" }} · {{ settings.waitlist ? "waitlist on" : "no waitlist" }} · {{ settings.checkIn.self ? "self check-in" : "organiser check-in" }}</p>
       <p class="tr-help">{{ settings.approval === "organiser" ? "Every self-entry waits here for you." : "Entries are accepted while there are places; the waitlist moves up on its own." }}</p>
@@ -80,7 +81,7 @@ async function act(r: TournamentRegistrationRow, verb: "accept" | "waitlist" | "
           <div v-for="r in pending" :key="r.id" class="tr-reg-row" data-state="pending" :data-entry="r.id">
             <div class="tr-reg-who">
               <span class="tn-team"><Crest :url="r.logoUrl" /><strong>{{ team(r) }}</strong></span>
-              <span class="muted">{{ r.coachId }}{{ r.race ? ` · ${r.race}` : "" }}{{ r.region ? ` · ${r.region}` : "" }}{{ r.clubName ? ` · ${r.clubName}` : "" }} · entered {{ utcLabel(r.enteredAt) }}</span>
+              <span class="muted">{{ r.coachId }}{{ r.race ? ` · ${r.race}` : "" }}{{ r.region ? ` · ${r.region}` : "" }}{{ r.clubName ? ` · ${r.clubName}` : "" }} · entered {{ whenLabel(r.enteredAt) }}</span>
             </div>
             <div class="tr-reg-info">
               <span><span class="sf-chip" :data-tone="ROSTER_TONE[rosterState({ submission: r.submission, flags: r.flags })]">{{ ROSTER_LABEL[rosterState({ submission: r.submission, flags: r.flags })] }}</span></span>
@@ -110,7 +111,7 @@ async function act(r: TournamentRegistrationRow, verb: "accept" | "waitlist" | "
           <div v-for="r in waiting" :key="r.id" class="tr-reg-row" data-state="waitlisted" :data-next="r.nextInLine ? 'true' : 'false'" :data-entry="r.id">
             <div class="tr-reg-who">
               <span class="tn-team"><strong>#{{ r.position }} {{ team(r) }}</strong></span>
-              <span class="muted">{{ r.coachId }}{{ r.race ? ` · ${r.race}` : "" }} · joined {{ utcLabel(r.enteredAt) }}</span>
+              <span class="muted">{{ r.coachId }}{{ r.race ? ` · ${r.race}` : "" }} · joined {{ whenLabel(r.enteredAt) }}</span>
             </div>
             <div class="tr-reg-info">
               <span v-if="r.nextInLine"><span class="sf-chip" data-tone="info" data-next-in-line="true">Next in line</span></span>
@@ -126,6 +127,7 @@ async function act(r: TournamentRegistrationRow, verb: "accept" | "waitlist" | "
         <div v-if="data.checkIn" class="tr-reg-group" data-group="check-in">
           <h3 class="tr-reg-h">Check-in</h3>
           <p class="tr-help">{{ data.checkIn.checkedIn }} of {{ data.checkIn.total }} checked in. {{ checkInLine(data.checkIn) }}.</p>
+          <p class="tr-help">Scan a coach's QR from their My entry card to check them in, or show the venue QR for coaches to scan. <RouterLink class="sf-btn small" data-venue-link :to="{ name: 'tournament-venue-qr', params: { id: t.id } }">Venue QR</RouterLink></p>
           <template v-if="data.checkIn.closed">
             <p v-if="!data.noShows.length" class="hm-empty">Everyone checked in.</p>
             <div v-for="n in data.noShows" :key="n.id" class="tr-reg-row tr-noshow" data-no-show="true">
@@ -146,7 +148,7 @@ async function act(r: TournamentRegistrationRow, verb: "accept" | "waitlist" | "
               <span><span class="sf-chip" :data-tone="STATE_TONE[r.state]">{{ STATE_LABEL[r.state] }}</span></span>
               <span v-if="r.decided?.reason" class="muted">{{ r.decided.reason }}</span>
             </div>
-            <div class="tr-reg-actions"><span class="muted">{{ r.decided ? `${r.decided.by}, ${utcLabel(r.decided.at)}` : utcLabel(r.enteredAt) }}</span></div>
+            <div class="tr-reg-actions"><span class="muted">{{ r.decided ? `${r.decided.by}, ${whenLabel(r.decided.at)}` : whenLabel(r.enteredAt) }}</span></div>
           </div>
         </details>
       </template>

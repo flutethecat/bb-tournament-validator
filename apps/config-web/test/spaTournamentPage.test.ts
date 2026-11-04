@@ -8,6 +8,7 @@ import {
   createTournamentDetail, factsStrip, formatLine, newsList, placesLeft, rulesetCreatorHref, rulesetInitials, safeBannerUrl,
 } from "../spa/src/tournaments/detail";
 import { parseInline, parseMarkdownLite, safeLink } from "../spa/src/tournaments/markdown";
+import { localWhen, zoneCaption } from "../spa/src/shared/localTime";
 
 // Tournament page extras (spec-main-landing-nav §3): front block, facts strip, summary / notes, news, page settings.
 
@@ -73,17 +74,24 @@ describe("markdown-lite", () => {
 
 describe("page helpers", () => {
   it("facts strip carries location, dates, start time, ruleset link, format, fee, places, organisers, deadlines", () => {
-    const facts = Object.fromEntries(factsStrip(tournament()).map((f) => [f.key, f]));
+    const facts = Object.fromEntries(factsStrip(tournament(), "UTC").map((f) => [f.key, f]));
     expect(facts.location).toMatchObject({ value: "The Dugout", sub: "1 Pitch Lane", subHref: "https://maps.example.org/?q=dugout" });
     expect(facts.dates?.value).toBe("2026-11-28 to 2026-11-29");
-    expect(facts.startTime?.value).toBe("09:30");
+    // owner 11-04: the start instant in the viewer's zone, with the zone; the organiser's text is the venue's clock
+    expect(facts.starts?.value).toBe("28 Nov 2026, 09:00 UTC");
+    expect(facts.startTime).toMatchObject({ label: "Venue start time", value: "09:30" });
     expect(facts.ruleset).toMatchObject({ value: "nut-cup", href: "/tournament-team-builder?package=nut-cup" });
     expect(facts.format?.value).toBe("Swiss · Dutch · 5 rounds");
     expect(facts.entryFee?.value).toBe("15 GBP");
     expect(facts.places?.value).toBe("6");
     expect(facts.organisers?.value).toBe("Veers, Piett");
-    expect(facts.registration?.value).toBe("2026-11-20 23:59 UTC");
-    expect(facts.checkIn?.value).toBe("2026-11-28 09:00 UTC");
+    expect(facts.registration?.value).toBe("20 Nov 2026, 23:59 UTC");
+    expect(facts.checkIn?.value).toBe("28 Nov 2026, 09:00 UTC");
+    // the same instants for a viewer in Los Angeles (PST) and Tokyo (JST): the day moves with the zone
+    const la = Object.fromEntries(factsStrip(tournament(), "America/Los_Angeles").map((f) => [f.key, f.value]));
+    expect(la).toMatchObject({ dates: "2026-11-28 to 2026-11-29", starts: "28 Nov 2026, 01:00 PST", registration: "20 Nov 2026, 15:59 PST" });
+    const tokyo = Object.fromEntries(factsStrip(tournament(), "Asia/Tokyo").map((f) => [f.key, f.value]));
+    expect(tokyo).toMatchObject({ dates: "2026-11-28 to 2026-11-30", registration: "21 Nov 2026, 08:59 GMT+9" });
   });
 
   it("absent facts are left out; uncapped hides places left", () => {
@@ -175,7 +183,7 @@ describe("tournament page views (server-rendered against a mocked API)", () => {
     expect(html).toContain("tn-front-crest");
     expect(html).toMatch(/<text class="tn-crest-text"[^>]*>NC<\/text>/);
     expect(html).not.toContain("tn-front-img");
-    for (const text of ["The Dugout", "1 Pitch Lane", "09:30", "15 GBP", "Swiss · Dutch · 5 rounds", "Places left", "Registration closes", "2026-11-20 23:59 UTC", "Check-in by"])
+    for (const text of ["The Dugout", "1 Pitch Lane", "09:30", "15 GBP", "Swiss · Dutch · 5 rounds", "Places left", "Registration closes", localWhen("2026-11-20T23:59:00.000Z"), "Check-in by"])
       expect(html, text).toContain(text);
     expect(html).toContain('href="/app/tournament-team-builder?package=nut-cup"');
     expect(html).toContain('href="https://maps.example.org/?q=dugout"');
@@ -233,7 +241,7 @@ describe("tournament page views (server-rendered against a mocked API)", () => {
     const body = detailBody({ capabilities: { manage: true, assignRoles: true }, tournament: tournament({ bannerUrl: "/api/tournaments/t1/banner?v=abc" }) });
     const html = await render("/tournaments/t1?tab=manage", { ...AS("Veers"), "/api/tournaments/t1": body });
     expect(html).toContain('id="tn-page-h"');
-    for (const label of ["Venue", "Address", "Map link", "Start time", "Entry fee", "Registration closes (UTC)", "Check-in by (UTC)", "What to bring", "Upload banner", "Remove banner"])
+    for (const label of ["Venue", "Address", "Map link", "Start time", "Entry fee", `Registration closes (${zoneCaption()})`, `Check-in by (${zoneCaption()})`, "What to bring", "Upload banner", "Remove banner"])
       expect(html, label).toContain(label);
     expect(html).toContain('accept="image/png,image/jpeg,image/webp"');
     expect(html).toContain('value="The Dugout"');

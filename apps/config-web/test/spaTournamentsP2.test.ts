@@ -226,9 +226,17 @@ describe("display helpers", () => {
     expect(tabsFor(true).map((t) => t.id)).toContain("manage");
   });
 
-  it("datetime-local round trip is UTC; empty clears", () => {
-    expect(toLocalInput("2026-11-01T18:30:00.000Z")).toBe("2026-11-01T18:30");
-    expect(fromLocalInput("2026-11-01T18:30")).toBe("2026-11-01T18:30:00.000Z");
+  it("datetime-local round trip is in the viewer's zone (owner 11-04: instants, shown locally); empty clears", () => {
+    expect(toLocalInput("2026-11-01T18:30:00.000Z", "UTC")).toBe("2026-11-01T18:30");
+    expect(fromLocalInput("2026-11-01T18:30", "UTC")).toBe("2026-11-01T18:30:00.000Z");
+    // Los Angeles is back on PST (UTC-8) by the afternoon of 1 Nov 2026 (DST ended at 02:00); Tokyo is UTC+9.
+    expect(toLocalInput("2026-11-01T18:30:00.000Z", "America/Los_Angeles")).toBe("2026-11-01T10:30");
+    expect(fromLocalInput("2026-11-01T10:30", "America/Los_Angeles")).toBe("2026-11-01T18:30:00.000Z");
+    expect(toLocalInput("2026-07-01T18:30:00.000Z", "America/Los_Angeles")).toBe("2026-07-01T11:30");
+    expect(toLocalInput("2026-11-01T18:30:00.000Z", "Asia/Tokyo")).toBe("2026-11-02T03:30");
+    expect(fromLocalInput("2026-11-02T03:30", "Asia/Tokyo")).toBe("2026-11-01T18:30:00.000Z");
+    // default = the device zone: a round trip lands on the same instant
+    expect(fromLocalInput(toLocalInput("2026-11-01T18:30:00.000Z"))).toBe("2026-11-01T18:30:00.000Z");
     expect(fromLocalInput("")).toBe("");
     expect(toLocalInput(undefined)).toBe("");
   });

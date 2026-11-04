@@ -8,6 +8,7 @@ import {
   activityViews, createTournamentDetail, editedTitle, fieldText, isPageAction, laterRounds, resultEditBody, resultEditForm, resultEditProblem, resultSource, resultText, roundViews,
 } from "../spa/src/tournaments/detail";
 import { editedLine } from "../spa/src/games/detail";
+import { localWhen } from "../spa/src/shared/localTime";
 
 // Organiser result edits in the SPA: Manage → Rounds with Edit result, the Edit result dialog, the Edited chip and the
 // Rounds-tab activity feed. Controller and helper unit tests with a mocked Fetcher, and the views server-rendered
@@ -92,7 +93,7 @@ describe("result edit helpers", () => {
     expect(resultText({ homeScore: 1, awayScore: 0, homeCasualties: 3, awayCasualties: 1 })).toBe("1 - 0 (CAS 3 - 1)");
     const s = body();
     expect(activityViews({ activity: s.activity!, fixtures: FIXTURES, entrants: s.entrants })).toEqual([
-      { id: "a1", when: "2026-11-01 10:00 UTC", by: "Piett", text: "Round 1: Ann Orcs v Bob Elves edited to 1 - 1 (was 2 - 1)", reason: "Typo" },
+      { id: "a1", when: localWhen("2026-11-01T10:00:00.000Z"), by: "Piett", text: "Round 1: Ann Orcs v Bob Elves edited to 1 - 1 (was 2 - 1)", reason: "Typo" },
     ]);
     expect(laterRounds(s.rounds, 1)).toEqual([2]);
     expect(roundViews({ rounds: s.rounds, fixtures: FIXTURES, entrants: s.entrants })[0]!.fixtures[0]!.edited).toEqual(EDITED);

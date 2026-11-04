@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { toZoneInput, zoneCaption } from "../spa/src/shared/localTime";
 import type { ViteDevServer } from "vite";
 import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
@@ -119,7 +120,7 @@ describe("cleanup lane surfaces (server-rendered)", () => {
     return mods.renderToString(spa.app);
   }
 
-  it("the tournament gate editor: At a time only, in the tournament's zone; the coach banner counts down", async () => {
+  it("the tournament gate editor: At a time only, typed in the viewer's own zone (owner 11-04); the coach banner counts down", async () => {
     mods.gates.resetGateStores();
     const store = mods.gates.useTournamentGates(mockFetcher({}), "spike");
     const soon = new Date(Date.now() + 26 * 3600_000).toISOString();
@@ -127,10 +128,12 @@ describe("cleanup lane surfaces (server-rendered)", () => {
     store.state.loaded = true;
     const html = await mount("/src/components/LeagueGatesPanel.vue", { tournamentId: "spike", title: "Registration gate", items: [{ kind: "registration", target: "tournament", label: "Registration opens" }] });
     expect(html).toContain("Registration gate");
-    expect(html).toContain("time in the tournament&#39;s zone");
+    expect(html).toContain("typed in your own time zone; each coach sees it in theirs");
     expect(html).toContain(">At a time</button>");
     expect(html).not.toContain("With a League Event");
-    expect(html).toContain("Opens at (UTC)");
+    expect(html).toContain(`Opens at (${zoneCaption()})`);
+    // the form shows the instant in the viewer's zone (never the server's wall value)
+    expect(html).toContain(`value="${toZoneInput(soon)}"`);
     expect(html).toContain('data-gate-open="registration"');
     const banner = await mount("/src/components/LeagueGateBanner.vue", { tournamentId: "spike", kinds: ["registration"] });
     expect(banner).toContain("data-gate-banner");

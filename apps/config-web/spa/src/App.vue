@@ -70,7 +70,9 @@ function openCreate(): void {
 
 // RouterView is keyed by path: moving between two lobbies builds a fresh controller.
 const gate = computed(() => gateFor(route, session));
-const loginHref = computed(() => discordLoginUrl(appPath(route.fullPath)));
+// A check-in code's page never hands its token to the sign-in flow (it is only ever in that page's own path): signing in
+// from there returns to the tournament, and the coach scans again.
+const loginHref = computed(() => discordLoginUrl(appPath(route.name === "tournament-check-in" ? `/tournaments/${encodeURIComponent(String(route.params.id ?? ""))}` : route.fullPath)));
 const avatar = ref("");
 const menuOpen = ref(false);
 /** The shared notifications store (createSpa): BellPopover shows its unread count. */

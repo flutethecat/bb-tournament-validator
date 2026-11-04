@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-04",
+    "title": "QR check-in, and tournament times in your own time zone",
+    "body": "Every coach in a tournament's field gets a personal check-in QR code on their entry: an organiser scans it at the venue, or the coach opens it while check-in is open, and it works once. Organisers can also put up a venue QR (full screen, with New code and Switch off) that coaches scan to check themselves in. Tournament times (start, registration, check-in, the registration gate) are now shown and typed in your device's time zone, and Discord posts show them in each reader's own zone.",
+    "links": [
+      {
+        "label": "Tournaments",
+        "href": "/app/tournaments"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-04",
     "title": "Badges and achievements",
     "body": "Coaches now earn badges (first win, 10 / 50 / 100 games, unbeaten season, belt holder, tournament and Rumble winner, a 5-win streak, one per race) and achievements from recorded games and from time in leagues; they show on your coach page, the coach popup and team pages. League organisers can create their own badges and award them by hand on the league's Awards tab.",
     "links": [

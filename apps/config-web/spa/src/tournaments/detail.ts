@@ -5,6 +5,7 @@
 // the tournament and shows the server's message on failure; nothing is retried. No DOM; rendered by the views.
 
 import { reactive, type InjectionKey } from "vue";
+import { fromZoneInput, localDay, localWhen, toZoneInput } from "../shared/localTime";
 import {
   ApiError,
   type BuilderSaveSummary,
@@ -368,6 +369,8 @@ export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () =>
     run("withdraw", () => deps.api(`${base()}/entrants/${encodeURIComponent(entrantId)}`, { method: "DELETE" }), "Your entry is withdrawn.");
   /** Self check-in during the check-in window. */
   const checkIn = () => run("checkin", () => deps.api(`${base()}/check-in`, { method: "POST", body: {} }), "You are checked in.");
+  /** A new personal check-in QR (the old one stops working); also asks for the first one when none was issued yet. */
+  const newCheckInCode = () => run("checkin-code", () => deps.api(`${base()}/check-in/code`, { method: "POST", body: {} }), "Here is your new check-in code. The old one no longer works.");
   /** "I've paid" (or taking it back): the organisers see "Coach says paid" and still tick Paid themselves. */
   const claimPaid = (entrantId: string, paid: boolean) =>
     run("paid", () => deps.api(`${base()}/entrants/${encodeURIComponent(entrantId)}/paid-claim`, { method: "POST", body: { paid } }),
@@ -475,7 +478,7 @@ export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () =>
     state, load, loadStandings, ensureTab, refresh, loadTeamOptions,
     editResult, clearResult,
     register, withdraw, submit, answerNaf,
-    registerEntry, withdrawEntry, checkIn, claimPaid, decide, loadRegistrations,
+    registerEntry, withdrawEntry, checkIn, newCheckInCode, claimPaid, decide, loadRegistrations,
     saveSettings, setOwner, addOrganizer, removeOrganizer, lockRosters, unlockRosters, finish, publish, unpublish, patchEntrant,
     start, previewRound, generateRound,
     savePage, uploadBanner, removeBanner, postNews, editNews, deleteNews,
@@ -578,10 +581,9 @@ export function roundProgress(t: Pick<TournamentSummary, "currentRound" | "round
   return t.roundCount > 0 ? `Not started (${t.roundCount} rounds)` : "Not started";
 }
 
-export function startDate(iso: string | undefined): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
+/** The calendar day of a tournament instant in the viewer's zone ("2026-12-05"). */
+export function startDate(iso: string | undefined, zone?: string): string {
+  return localDay(iso, zone);
 }
 
 /** Entrant status: dropped coaches are labelled, everyone else is registered. */
@@ -656,16 +658,13 @@ export function canGenerateRound(t: TournamentSummary, rounds: TournamentRound[]
   return rounds.length < t.roundCount;
 }
 
-/** ISO timestamp -> the value of a datetime-local input (UTC, minutes), and back ("" clears). */
-export function toLocalInput(iso: string | undefined): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 16);
+/** ISO instant -> the value of a datetime-local input in the viewer's zone (minutes), and back ("" clears). Owner 11-04:
+ *  tournament times are instants, typed and shown in the viewer's own zone (shared/localTime.ts). */
+export function toLocalInput(iso: string | undefined, zone?: string): string {
+  return toZoneInput(iso, zone);
 }
-export function fromLocalInput(value: string): string {
-  if (!value) return "";
-  const d = new Date(`${value}:00.000Z`);
-  return Number.isNaN(d.getTime()) ? "" : d.toISOString();
+export function fromLocalInput(value: string, zone?: string): string {
+  return fromZoneInput(value, zone);
 }
 
 export interface SubmitChoice { ref: string; label: string; group: "Saved teams" }
@@ -689,11 +688,9 @@ export function rulesetInitials(name: string): string {
   return letters.join("").toUpperCase() || "?";
 }
 
-/** "2026-11-01 16:00 UTC" for a deadline; "" when absent or unreadable. */
-export function dateTimeLabel(iso: string | undefined): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "" : `${d.toISOString().slice(0, 10)} ${d.toISOString().slice(11, 16)} UTC`;
+/** "01 Nov 2026, 16:00 GMT" for a deadline, in the viewer's zone; "" when absent or unreadable. */
+export function dateTimeLabel(iso: string | undefined, zone?: string): string {
+  return localWhen(iso, zone);
 }
 
 const FORMAT_NAME: Record<TournamentSummary["format"], string> = { swiss: "Swiss", roundRobin: "Round robin", knockout: "Knockout" };
@@ -714,7 +711,7 @@ export function placesLeft(t: Pick<TournamentSummary, "maxPlayers" | "entrantCou
 export interface FactView { key: string; label: string; value: string; href?: string; sub?: string; subHref?: string }
 
 /** The facts strip: only the facts the server sent (absent fields are left out, never shown as blanks). */
-export function factsStrip(t: TournamentSummary): FactView[] {
+export function factsStrip(t: TournamentSummary, zone?: string): FactView[] {
   const out: FactView[] = [];
   const loc = t.location;
   if (loc && (loc.venue || loc.address)) {
@@ -725,10 +722,13 @@ export function factsStrip(t: TournamentSummary): FactView[] {
       ...(mapUrl ? { subHref: mapUrl } : {}),
     });
   }
-  const start = startDate(t.startsAt);
-  const end = startDate(t.endsAt);
+  const start = startDate(t.startsAt, zone);
+  const end = startDate(t.endsAt, zone);
   out.push({ key: "dates", label: "Dates", value: start ? (end && end !== start ? `${start} to ${end}` : start) : "Not set" });
-  if (t.startTime) out.push({ key: "startTime", label: "Start time", value: t.startTime });
+  // The start instant in the viewer's own zone (owner 11-04); the organiser's "Start time" text is the venue's clock.
+  const starts = localWhen(t.startsAt, zone);
+  if (starts) out.push({ key: "starts", label: "Starts", value: starts });
+  if (t.startTime) out.push({ key: "startTime", label: starts ? "Venue start time" : "Start time", value: t.startTime });
   const ruleset = t.rulesetPackName || t.packageName;
   if (ruleset) out.push({ key: "ruleset", label: "Ruleset", value: ruleset, href: rulesetBuilderHref(ruleset) });
   out.push({ key: "format", label: "Format", value: formatLine(t) });
@@ -738,9 +738,9 @@ export function factsStrip(t: TournamentSummary): FactView[] {
   const left = placesLeft(t);
   if (left !== null) out.push({ key: "places", label: "Places left", value: String(left) });
   if (t.ownerCoachId) out.push({ key: "organisers", label: "Organisers", value: [t.ownerCoachId, ...(t.organizerCoachIds ?? [])].join(", ") });
-  const reg = dateTimeLabel(t.deadlines?.registration);
+  const reg = dateTimeLabel(t.deadlines?.registration, zone);
   if (reg) out.push({ key: "registration", label: "Registration closes", value: reg });
-  const checkIn = dateTimeLabel(t.deadlines?.checkIn);
+  const checkIn = dateTimeLabel(t.deadlines?.checkIn, zone);
   if (checkIn) out.push({ key: "checkIn", label: "Check-in by", value: checkIn });
   out.push({ key: "round", label: "Round", value: roundProgress(t) });
   out.push({ key: "roundsLeft", label: "Rounds left", value: String(remainingRounds(t)) });

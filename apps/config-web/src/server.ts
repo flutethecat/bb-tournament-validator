@@ -185,6 +185,7 @@ import { mailConfigWarnings } from "./mail/config.js";
 import { LeagueMessageLimiter, leagueMessagesPath, leagueMessagesRoute } from "./mail/leagueMessages.js";
 import { createContactForResolver, createIdentityContactWriter, identityMailFields } from "./mail/recipients.js";
 import { createMailService, type MailRouteResult } from "./mail/service.js";
+import { hostKey } from "./mail/tokens.js";
 import {
   isLobbyApiPath,
   isLobbyGameStartOperation,
@@ -538,6 +539,11 @@ const serverRunningLock = (() => { try { return acquireServerRunningLock(FORK_ST
 if (!serverRunningLock) console.error("[startup] another live process holds the config-web running lock on this state dir");
 process.once("exit", () => { try { serverRunningLock?.release(); } catch { /* best effort */ } });
 const TOURNAMENTS_DIR = resolve(process.env.TOURNAMENTS_DIR || FORK_STATE_DIR);
+/** QR check-in codes are signed with this host key (src/tournaments/checkInQr.ts), read or made on first use, never logged. */
+let checkInKeyCache: string | undefined;
+const checkInKey = (): string | undefined => {
+  try { return (checkInKeyCache ??= hostKey(join(TOURNAMENTS_DIR, "checkin.key"))); } catch { return undefined; }
+};
 const tournamentMatches = new TournamentMatchStore(FORK_STATE_DIR);
 const tournamentResults = new TournamentResultStore(FORK_STATE_DIR);
 const coachTitles = new CoachTitleStore(join(FORK_STATE_DIR, "coach-titles.json"));
@@ -820,7 +826,7 @@ const tournamentRegistrationTick = (): void => {
   if (tournamentRegistrationSweeping) return;
   tournamentRegistrationSweeping = true;
   const notify = (coach: string, input: NotificationInput) => { try { notificationStore.add(coach, input); } catch { /* fire-and-forget */ } };
-  void sweepTournamentRegistrations(tournamentStore, tournamentRegistrationService(tournamentStore, { notify }), notify)
+  void sweepTournamentRegistrations(tournamentStore, tournamentRegistrationService(tournamentStore, { notify }), notify, new Date(), checkInKey())
     .then((out) => { if (out.checkIn || out.rosterDue) console.log(`[registration] check-in notices ${out.checkIn}, roster reminders ${out.rosterDue}`); })
     .catch((e) => console.error(`[registration] sweep failed: ${(e as Error).message}`))
     .finally(() => { tournamentRegistrationSweeping = false; });
@@ -2955,6 +2961,7 @@ async function handleApi(
       results: () => tournamentResults.list(),
       // The Registration gate's opening post (src/tournaments/gates.ts): the cleaned sender, drafts never post.
       discord: { state: discordState },
+      ...(checkInKey() ? { checkInKey: checkInKey()! } : {}),
       ifMatch: typeof req.headers["if-match"] === "string" ? req.headers["if-match"] : undefined,
       // a fixture lobby that has not STARTed holds the online launch (src/fixtureLobby/tournament.ts)
       fixtureLobby: (matchId) => { const rec = fixtureLobbyStore.get(tournamentLobbyKey(matchId)); return rec ? { started: Boolean(rec.started) } : undefined; },

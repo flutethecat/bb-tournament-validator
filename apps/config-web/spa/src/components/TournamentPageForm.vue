@@ -4,7 +4,8 @@
 // notes. Saved with one PATCH of the changed fields (the existing settings route);
 // the server validates lengths and links and answers with its own message on a refusal.
 import { computed, inject, reactive, ref, watch } from "vue";
-import { fromLocalInput, safeBannerUrl, toLocalInput, TOURNAMENT_DETAIL_KEY, type TournamentSettingsPatch } from "../tournaments/detail";
+import { safeBannerUrl, toLocalInput, TOURNAMENT_DETAIL_KEY, type TournamentSettingsPatch } from "../tournaments/detail";
+import { keptOrTyped, zoneCaption } from "../shared/localTime";
 import { SESSION_KEY, writesAllowed } from "../session";
 import { normalisePayPal, normaliseVenmo, PAY_NOTE, payPalProblem, venmoProblem } from "../shared/payLinks";
 import { regionFromForm } from "../../../src/competition/region";
@@ -43,6 +44,8 @@ const fromRecord = (): Form => ({
   notes: t.value.notes ?? "",
 });
 const form = reactive<Form>(fromRecord());
+/** Times are typed in the viewer's own zone and saved as instants (owner 11-04). */
+const zoneText = zoneCaption();
 watch(() => JSON.stringify(fromRecord()), () => Object.assign(form, fromRecord()));
 
 const patch = computed<TournamentSettingsPatch>(() => {
@@ -59,7 +62,8 @@ const patch = computed<TournamentSettingsPatch>(() => {
   if (form.venmo !== before.venmo) { const v = normaliseVenmo(form.venmo); out.venmo = (v.ok ? v.value : form.venmo.trim()) || null; }
   if (form.registration !== before.registration || form.checkIn !== before.checkIn)
     out.deadlines = form.registration || form.checkIn
-      ? { registration: fromLocalInput(form.registration), checkIn: fromLocalInput(form.checkIn) }
+      // The untouched one keeps its stored instant exactly (never re-derived from the minute-precision field).
+      ? { registration: keptOrTyped(t.value.deadlines?.registration, form.registration), checkIn: keptOrTyped(t.value.deadlines?.checkIn, form.checkIn) }
       : null;
   if (form.summary !== before.summary) out.summary = form.summary.trim() || null;
   if (form.notes !== before.notes) out.notes = form.notes.trim() || null;
@@ -125,8 +129,8 @@ async function upload() {
         <input v-model="form.venmo" type="text" maxlength="31" placeholder="@Your-Name" autocomplete="off" :aria-invalid="payErrors.venmo ? 'true' : undefined" aria-describedby="tn-pay-venmo-err tn-pay-note" />
         <small v-if="payErrors.venmo" id="tn-pay-venmo-err" class="sf-error">{{ payErrors.venmo }}</small>
       </label>
-      <label class="tn-field sf-field"><span class="tn-fact-k">Registration closes (UTC)</span><input v-model="form.registration" type="datetime-local" /></label>
-      <label class="tn-field sf-field"><span class="tn-fact-k">Check-in by (UTC)</span><input v-model="form.checkIn" type="datetime-local" /></label>
+      <label class="tn-field sf-field"><span class="tn-fact-k">Registration closes ({{ zoneText }})</span><input v-model="form.registration" type="datetime-local" /></label>
+      <label class="tn-field sf-field"><span class="tn-fact-k">Check-in by ({{ zoneText }})</span><input v-model="form.checkIn" type="datetime-local" /></label>
       <label class="tn-field sf-field tn-field-wide">
         <span class="tn-fact-k">Summary <span class="muted">({{ form.summary.length }} / {{ SUMMARY_MAX }})</span></span>
         <textarea v-model="form.summary" rows="6" :maxlength="SUMMARY_MAX" />

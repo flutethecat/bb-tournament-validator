@@ -3,8 +3,8 @@
 // league's zone) / With a League Event (+ an offset, so it moves with the event), Save, and Open now while it is shut. Season
 // start adds "start the season by itself". PUT / POST /api/leagues/:id/gates/:kind/:target (organisers; the server is the
 // authority and answers a stale revision with 409, when the editor reloads). With `tournamentId` (cleanup lane 11-03) it edits a
-// tournament's Registration gate instead: the same model under /api/tournaments/:id, "At a time" only (no League Events), in
-// the tournament's zone.
+// tournament's Registration gate instead: the same model under /api/tournaments/:id, "At a time" only (no League Events),
+// typed in the viewer's own zone and saved as an instant (owner 11-04: tournament times are instants).
 import { computed, inject, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { API_KEY } from "../app";
 import { ApiError, api as defaultApi } from "../shared/api";
@@ -12,19 +12,28 @@ import {
   countdownText, GATE_TEXT, gateForm, gateShort, gateFormError, gatePayload, gatesApiAt, gateWhen, OFFSET_PRESETS, offsetText, useLeagueGates, useTournamentGates, type GateForm, type GateKind,
 } from "../leagues/gates";
 import "../leagues/gates.css";
+import { fromZoneInput, localWhenLong, viewerZone, zoneCaption } from "../shared/localTime";
 
 const props = defineProps<{ leagueId?: string; tournamentId?: string; kind: GateKind; target: string; label?: string; help?: string }>();
 const api = inject(API_KEY, null) ?? defaultApi;
 const tournament = Boolean(props.tournamentId);
 const store = tournament ? useTournamentGates(api, props.tournamentId!) : useLeagueGates(api, props.leagueId ?? "");
 const gate = computed(() => store.gate(props.kind, props.target));
-const zone = computed(() => store.state.read?.timeZone ?? "UTC");
+const zone = computed(() => (tournament ? viewerZone() : store.state.read?.timeZone ?? "UTC"));
+/** The body to save: a tournament's time goes as an instant (typed in the viewer's zone), a league's as a league-zone wall. */
+const payloadOf = (f: GateForm) => {
+  const p = gatePayload(f, props.kind);
+  return tournament && p.mode === "time" && p.opensAt ? { ...p, opensAt: fromZoneInput(p.opensAt, zone.value) } : p;
+};
+const whenText = (iso: string): string => (tournament ? localWhenLong(iso, zone.value) : `${gateWhen(iso, zone.value)} (${zone.value.replace(/_/g, " ")})`);
 const events = computed(() => store.state.read?.events ?? []);
 const text = computed(() => GATE_TEXT[props.kind]);
 const uid = `gt-${props.kind}-${props.target}`.replace(/[^a-z0-9-]/gi, "-");
 
-const form = reactive<GateForm>(gateForm(gate.value, Date.now(), zone.value));
-const fill = (): void => { Object.assign(form, gateForm(gate.value, Date.now(), zone.value)); };
+/** A tournament's gate is edited from its instant only (a wall time from an older server would be in another zone). */
+const formGate = () => (tournament && gate.value ? { ...gate.value, wall: undefined } : gate.value);
+const form = reactive<GateForm>(gateForm(formGate(), Date.now(), zone.value));
+const fill = (): void => { Object.assign(form, gateForm(formGate(), Date.now(), zone.value)); };
 watch(() => [gate.value?.revision, store.state.read?.timeZone], fill);
 onMounted(async () => { await store.ensure(); fill(); });
 
@@ -37,16 +46,16 @@ const error = ref("");
 const notice = ref("");
 const formError = computed(() => gateFormError(form));
 const offsetChoices = computed(() => (OFFSET_PRESETS.some((p) => p.value === Number(form.offset)) ? OFFSET_PRESETS : [...OFFSET_PRESETS, { value: Number(form.offset), label: `${form.offset} min` }]));
-const dirty = computed(() => JSON.stringify(gatePayload(form, props.kind)) !== JSON.stringify(gatePayload(gateForm(gate.value, Date.now(), zone.value), props.kind)));
+const dirty = computed(() => JSON.stringify(payloadOf(form)) !== JSON.stringify(payloadOf(gateForm(formGate(), Date.now(), zone.value))));
 
 /** The status chip: Off / Shut with the countdown / No time (event gone) / Open. */
 const status = computed(() => {
   const g = gate.value;
   if (!g) return { tone: "muted", text: "Off", detail: "No gate: this step is open as usual." };
   const left = g.opensAt ? Date.parse(g.opensAt) - clock.value : NaN;
-  if (g.state === "open" || (Number.isFinite(left) && left <= 0)) return { tone: "ok", text: "Open", detail: g.openedAt ? `Opened ${gateWhen(g.openedAt, zone.value)}${g.openedBy === "organiser" ? " by an organiser" : ""}.` : "Open now." };
+  if (g.state === "open" || (Number.isFinite(left) && left <= 0)) return { tone: "ok", text: "Open", detail: g.openedAt ? `Opened ${tournament ? localWhenLong(g.openedAt, zone.value) : gateWhen(g.openedAt, zone.value)}${g.openedBy === "organiser" ? " by an organiser" : ""}.` : "Open now." };
   if (!g.opensAt) return { tone: "urgent", text: "No time", detail: g.eventMissing ? "Its League Event was deleted: pick a time or another event, or open it now." : "It has no time: pick one, or open it now." };
-  return { tone: "soon", text: `Opens in ${countdownText(left)}`, detail: `Opens ${gateWhen(g.opensAt, zone.value)} (${zone.value.replace(/_/g, " ")}).` };
+  return { tone: "soon", text: `Opens in ${countdownText(left)}`, detail: `Opens ${whenText(g.opensAt)}.` };
 });
 const shut = computed(() => Boolean(gate.value) && status.value.tone !== "ok");
 
@@ -56,7 +65,7 @@ async function save(): Promise<void> {
   error.value = "";
   notice.value = "";
   try {
-    const res = await gatesApiAt.save(api, store.base, props.kind, props.target, store.baseRevision(props.kind, props.target), gatePayload(form, props.kind));
+    const res = await gatesApiAt.save(api, store.base, props.kind, props.target, store.baseRevision(props.kind, props.target), payloadOf(form));
     await store.reload();
     notice.value = res.gate ? "Gate saved." : "Gate off: the step is open as usual.";
     if (res.warning) error.value = res.warning;
@@ -100,7 +109,7 @@ const MODES: ReadonlyArray<{ id: GateForm["mode"]; label: string }> = tournament
         >{{ m.label }}</button>
       </div>
       <div v-if="form.mode === 'time'" class="gt-fields">
-        <label class="ls-field"><span>Opens at ({{ zone.replace(/_/g, " ") }})</span><input v-model="form.wall" type="datetime-local" :data-gate-wall="kind" /></label>
+        <label class="ls-field"><span>Opens at ({{ tournament ? zoneCaption(zone) : zone.replace(/_/g, " ") }})</span><input v-model="form.wall" type="datetime-local" :data-gate-wall="kind" /></label>
       </div>
       <div v-else-if="form.mode === 'event' && !tournament" class="gt-fields">
         <p v-if="!events.length" class="hm-small hm-empty">No League Events yet: add one on the Schedule page, or pick a time.</p>
