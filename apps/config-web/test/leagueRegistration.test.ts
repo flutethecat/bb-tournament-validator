@@ -635,3 +635,38 @@ describe("review fixes (Sol, 11-03)", () => {
     }
   });
 });
+
+// Owner rule 11-03 (mirrors the tournament side): a waitlisted entry made with a fork library team before the rule is never
+// promoted, and never stops the next eligible entry or an unrelated registration.
+describe("blocked legacy library entries in the waitlist", () => {
+  const makeLegacy = (h: ReturnType<typeof harness>, who: string) => {
+    const s = h.season();
+    s.registrations = (s.registrations ?? []).map((r) => (r.coach === who ? { ...r, teamRef: "library:lib-1-dwarf" } : r));
+    h.store.putSeason(s);
+  };
+
+  it("auto promotion skips the blocked entry and promotes the next eligible one; later joins still work", async () => {
+    const h = harness({ reg: { approval: "auto", maxRegistrations: 2, waitlist: true } });
+    await h.join("Pat", "save:new-orc");
+    await h.join("Zed", "save:new-human");
+    await h.join("Dee", "save:new-dwarf");
+    await h.join("Eve", "save:new-elf");
+    expect(h.rowOf("Dee")!.state).toBe("waitlisted");
+    makeLegacy(h, "Dee");
+    expect((await h.decide("Pat", "remove")).status).toBe(200);
+    expect(h.rowOf("Dee")!.state).toBe("waitlisted");
+    expect(h.rowOf("Eve")!.state).toBe("accepted");
+    expect((await h.join("Fay", "save:new-human")).body).toMatchObject({ registration: { state: "waitlisted" } });
+  });
+
+  it("a free place with only a blocked entry waiting never fails an unrelated join", async () => {
+    const h = harness({ reg: { approval: "auto", maxRegistrations: 2, waitlist: true } });
+    await h.join("Pat", "save:new-orc");
+    await h.join("Zed", "save:new-human");
+    await h.join("Dee", "save:new-dwarf");
+    makeLegacy(h, "Dee");
+    expect((await h.decide("Pat", "remove")).status).toBe(200);
+    expect(h.rowOf("Dee")!.state).toBe("waitlisted");
+    expect((await h.join("Gus", "save:new-orc")).body).toMatchObject({ registration: { state: "accepted" } });
+  });
+});

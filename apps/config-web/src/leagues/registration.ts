@@ -420,6 +420,14 @@ export class LeagueRegistrationAdapter implements RegistrationAdapter {
     return mint("lr");
   }
 
+  /** A pending / waitlisted entry made with a fork library team (before owner rule 11-03) is never accepted or promoted; the core
+   *  skips it when promoting so the next eligible entry still gets the place. */
+  promotionBlocked(id: string, entry: RegistrationEntry): boolean {
+    const found = this.load(id);
+    const row = found?.season.registrations?.find((r) => r.id === entry.id);
+    return Boolean(row?.teamRef.startsWith("library:"));
+  }
+
   commit(id: string, changes: readonly RegistrationChange[]): void {
     const found = this.load(id);
     if (!found) throw new RegistrationError(404, "not-found", "Not found.");
