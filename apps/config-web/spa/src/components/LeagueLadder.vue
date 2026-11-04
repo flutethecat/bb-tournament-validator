@@ -149,6 +149,9 @@ const ord = (n: number): string => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" 
       <p v-if="state.actionError && !issueTo && !answering" class="sf-error" role="alert">{{ state.actionError }}</p>
       <p v-if="ladder?.paused && ladder.state === 'active'" class="sf-notice ld-paused" data-paused>{{ ladder.paused }}</p>
       <p v-if="state.loading && !view" class="hm-empty" role="status">Loading {{ current?.name }}...</p>
+      <p v-if="view?.manage && ladder?.titleFailures?.length" class="sf-error ld-title-alert" role="alert" data-title-failures>
+        Title processing needs attention: the {{ ladder.titleFailures.map((f) => f.step).join(", ") }} step{{ ladder.titleFailures.length === 1 ? "" : "s" }} couldn't run since {{ ladder.titleFailures[0]!.at.slice(0, 16).replace("T", " ") }} UTC. Everything else carries on; the site admins have the details.
+      </p>
 
       <section v-if="view && titles && beltOn" class="ld-belt" :data-vacant="titles.champion ? undefined : 'true'" aria-label="Belt holder">
         <span class="ld-belt-icon" :data-inactive="titles.champion?.inactiveSince ? 'true' : undefined"><BeltIcon :size="54" :label="titles.champion ? `${ladder?.name} belt` : 'Vacant belt'" /></span>

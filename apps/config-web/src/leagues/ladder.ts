@@ -250,9 +250,28 @@ export function membersAt(ladder: SeasonRecord, t: number, competitions: readonl
     const end = memberEnd(ladder, m, competitions);
     if (end && (Date.parse(end) || 0) <= t) continue;
     const team = (ladder.teams ?? []).find((x) => x.id === m.teamId);
-    if (team) out.push({ member: m, team });
+    if (team && !inactiveAt(team, t)) out.push({ member: m, team });
   }
   return out;
+}
+
+/**
+ * Was the team marked inactive at `t`? From its status history (team page "status" entries: the last change at or before t, else
+ * the state before the first later change), falling back to the current status and statusChanged.
+ */
+export function inactiveAt(team: Pick<LeagueTeam, "status" | "statusChanged" | "history">, t: number): boolean {
+  const changes = (team.history ?? [])
+    .filter((h) => h.kind === "status")
+    .map((h) => ({ at: Date.parse(h.at) || 0, c: h.changes.find((x) => x.what === "Status") }))
+    .filter((x): x is { at: number; c: { what: string; from?: string; to?: string } } => Boolean(x.c))
+    .sort((a, b) => a.at - b.at);
+  const before = changes.filter((x) => x.at <= t).at(-1);
+  if (before) return before.c.to === "Inactive";
+  const after = changes.find((x) => x.at > t);
+  if (after) return after.c.from === "Inactive";
+  if (team.status !== "inactive") return false;
+  const since = Date.parse(team.statusChanged?.at ?? "");
+  return !Number.isFinite(since) || since <= t;
 }
 
 /** The time a member stopped counting (left, or the time its successor row was made), else undefined. */

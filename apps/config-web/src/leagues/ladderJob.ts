@@ -171,7 +171,9 @@ function tick(leagueName: string, ladder: SeasonRecord, now: Date, notes: Note[]
 
   // 7. Titles: the belt, the mandatory challenger, Money in the Bank, the Rumble and period honours (ladderTitles.ts).
   const titleNotes: Parameters<typeof safeTitleTick>[0]["notes"] = [];
-  if (safeTitleTick({ league, ladder, competitions: comps, now, notes: titleNotes })) { out.titles.push(key); changed = true; }
+  const titles = safeTitleTick({ league, ladder, competitions: comps, now, notes: titleNotes });
+  if (titles.changed) { out.titles.push(key); changed = true; }
+  for (const step of titles.failed) out.failed.push(`${key}:titles:${step}`);
   for (const n of titleNotes) {
     const fixtureId = n.propose ? n.propose.split(":")[3] : undefined;
     notes.push({ coach: n.coach, title: n.title, body: n.body, ...(fixtureId ? { link: proposeLink(league.id, ladder.id, fixtureId), action: true } : {}) });

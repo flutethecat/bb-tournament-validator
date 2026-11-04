@@ -321,6 +321,7 @@ export type ContractState = "held" | "cashing-in" | "used" | "expired" | "revoke
 
 export function contractState(c: TitleContract, rec: LadderRecord, now: Date): ContractState {
   if (c.revokedAt) return "revoked";
+  if (c.consumed && !(c.boutId && rec.titles?.bouts.some((b) => b.id === c.boutId && b.state === "scheduled"))) return "used";
   const bout = c.boutId ? rec.titles?.bouts.find((x) => x.id === c.boutId) : undefined;
   if (bout && bout.state === "scheduled") return "cashing-in";
   if (c.usedAt) return "used";
@@ -416,13 +417,12 @@ function addEvent(rec: LadderRecord, e: Omit<TitleEvent, "id">): TitleEvent {
  * One pass of the title rules over a ladder, in place (the caller writes the record once, then sends `notes`). Returns true when
  * anything changed. Called by the minute job and by every title write, so a decision is never left to a GET.
  */
-export function titleTick(ctx: TitleTickContext): boolean {
+function beltStep(ctx: TitleTickContext): void {
   const { ladder, now, league } = ctx;
   const rec = ladder.ladder;
-  if (!rec || ladder.status === "completed" || ladder.stage === "setup" || ladder.stage === "registration") return false;
+  if (!rec) return;
   const ts = titleSettingsOf(rec);
   const hasTitleWork = ts.belt || Boolean(rec.titles?.bouts.length) || Boolean(rec.titles?.contracts.length);
-  const before = JSON.stringify([rec.titles ?? null, rec.rumbles ?? null, rec.belt ?? null, rec.periodHonours ?? null, ladder.fixtures.length, ladder.awards.length]);
   const at = now.toISOString();
   const team = (id: string | undefined) => ladder.teams.find((x) => x.id === id);
   const coach = (id: string | undefined) => { const x = team(id); return x ? teamAccount(x) : ""; };
@@ -443,7 +443,8 @@ export function titleTick(ctx: TitleTickContext): boolean {
       const counted = Boolean(f && countsInRanking(f));
       const winner = counted ? winnerOf(f!) ?? bout.homeTeamId : undefined;
       if (winner === bout.winnerTeamId) continue;
-      if (t.bouts.some((b) => b.fromBoutId === bout.id && b.state === "played")) continue;
+      // Frozen once its mandatory has a result (read from the fixture, whether or not a pass has marked the bout played).
+      if (t.bouts.some((b) => b.fromBoutId === bout.id && (b.state === "played" || (() => { const mf = ladder.fixtures.find((x) => x.id === b.fixtureId); return Boolean(mf && countsInRanking(mf)); })()))) continue;
       for (const m of t.bouts) if (m.fromBoutId === bout.id && m.state === "scheduled") cancelBout(ladder, m, at, "The eliminator result changed.");
       if (!winner) { bout.state = "scheduled"; delete bout.winnerTeamId; delete bout.how; delete bout.closedAt; continue; }
       bout.winnerTeamId = winner;
@@ -495,7 +496,7 @@ export function titleTick(ctx: TitleTickContext): boolean {
         for (const id of [bout.homeTeamId, bout.awayTeamId]) ctx.notes.push({ coach: coach(id), title: `${title}: the title passed to ${name(bout.awayTeamId)}`, body: bout.note });
       } else if (bout.kind === "cashin" || bout.kind === "shot") {
         const c = t.contracts.find((x) => x.id === bout.contractId);
-        if (c) { delete c.boutId; delete c.usedAt; }
+        if (c && !c.consumed) { delete c.boutId; delete c.usedAt; }
         bout.note = `${label} not played in time: discarded. The contract stays usable until ${c?.expiresAt.slice(0, 10) ?? "it expires"}.`;
         for (const id of [bout.homeTeamId, bout.awayTeamId]) ctx.notes.push({ coach: coach(id), title: `${title}: ${label.toLowerCase()} discarded`, body: bout.note });
       } else bout.note = `${label} not played in time: discarded.`;
@@ -565,8 +566,6 @@ export function titleTick(ctx: TitleTickContext): boolean {
         }
       }
       // 6. Money in the Bank: streak contracts.
-      if (ts.mitb.enabled) earnStreakContracts(ctx, ts, state);
-      state = titleReplay(ladder, now);
       // 7. Reign notices (each once) and the stored mirror of the champion.
       for (const r of state.reigns) {
         if (!tellOnce(rec, `reign:${r.id}`)) continue;
@@ -576,16 +575,62 @@ export function titleTick(ctx: TitleTickContext): boolean {
       const mirror = state.holder ? { holderTeamId: state.holder.teamId, since: state.holder.since, defences: state.holder.defences, ...(state.interim ? { interim: true } : {}) } : undefined;
       if (JSON.stringify(mirror ?? null) !== JSON.stringify(rec.belt ?? null)) { if (mirror) rec.belt = mirror; else delete rec.belt; }
     }
-    // Contract expiry notices.
-    for (const c of t.contracts) {
-      if (contractState(c, rec, now) === "expired" && tellOnce(rec, `expired:${c.id}`)) ctx.notes.push({ coach: coach(c.teamId), title: `${title}: your title-shot contract expired`, body: `${name(c.teamId)} didn't cash in by ${c.expiresAt.slice(0, 10)}.` });
+  }
+}
+
+/** Money in the Bank streak contracts (earned / withdrawn) and expiry notices. */
+function contractStep(ctx: TitleTickContext): void {
+  const { ladder, now } = ctx;
+  const rec = ladder.ladder;
+  if (!rec?.titles) return;
+  const ts = titleSettingsOf(rec);
+  if (ts.belt && ts.mitb.enabled) earnStreakContracts(ctx, ts, titleReplay(ladder, now));
+  const name = (id: string) => ladder.teams.find((x) => x.id === id)?.name ?? "A team";
+  for (const c of rec.titles.contracts) {
+    if (contractState(c, rec, now) === "expired" && tellOnce(rec, `expired:${c.id}`)) {
+      const tm = ladder.teams.find((x) => x.id === c.teamId);
+      ctx.notes.push({ coach: tm ? teamAccount(tm) : "", title: `${ctx.league.name} ${ladder.name}: your title-shot contract expired`, body: `${name(c.teamId)} didn't cash in by ${c.expiresAt.slice(0, 10)}.` });
     }
   }
-  // 8. Rumbles.
-  for (const ru of rec.rumbles ?? []) rumbleTick(ctx, ru, ts);
-  // 9. Period honours.
-  periodHonours(ctx);
-  return JSON.stringify([rec.titles ?? null, rec.rumbles ?? null, rec.belt ?? null, rec.periodHonours ?? null, ladder.fixtures.length, ladder.awards.length]) !== before;
+}
+
+function rumbleStep(ctx: TitleTickContext): void {
+  const rec = ctx.ladder.ladder;
+  if (!rec?.rumbles) return;
+  const ts = titleSettingsOf(rec);
+  for (const ru of rec.rumbles) rumbleTick(ctx, ru, ts);
+}
+
+/** The title rules in separate steps (a failing step is skipped; the others still run). */
+const TITLE_STEPS: ReadonlyArray<readonly [string, (ctx: TitleTickContext) => void]> = [
+  ["belt", beltStep], ["contracts", contractStep], ["rumble", rumbleStep], ["honours", (ctx) => periodHonours(ctx)],
+];
+
+const titleFingerprint = (l: SeasonRecord) => JSON.stringify([l.ladder?.titles ?? null, l.ladder?.rumbles ?? null, l.ladder?.belt ?? null, l.ladder?.periodHonours ?? null, l.ladder?.titleFailures ?? null, l.fixtures, l.awards.length]);
+
+const openForTitles = (l: SeasonRecord) => Boolean(l.ladder) && l.status !== "completed" && l.stage !== "setup" && l.stage !== "registration";
+
+/** Every title step in place (a failure throws). Tests and pure callers; the job and routes use safeTitleTick. */
+export function titleTick(ctx: TitleTickContext): boolean {
+  if (!openForTitles(ctx.ladder)) return false;
+  repairTitleRecord(ctx.ladder);
+  const before = titleFingerprint(ctx.ladder);
+  for (const [, step] of TITLE_STEPS) step(ctx);
+  return titleFingerprint(ctx.ladder) !== before;
+}
+
+/** Malformed stored shapes the rules can mend (a list stored as null). */
+function repairTitleRecord(ladder: SeasonRecord): void {
+  const rec = ladder.ladder;
+  if (!rec) return;
+  if (rec.titles) titlesOf(rec);
+  if (rec.rumbles && !Array.isArray(rec.rumbles)) rec.rumbles = [];
+  for (const ru of rec.rumbles ?? []) {
+    if (!Array.isArray(ru.rounds)) ru.rounds = [];
+    if (!Array.isArray(ru.entries)) ru.entries = [];
+    if (ru.seeds !== undefined && !Array.isArray(ru.seeds)) delete ru.seeds;
+    for (const r of ru.rounds) if (!Array.isArray(r.matches)) r.matches = [];
+  }
 }
 
 /** The eliminator's winner (or the fallback) becomes the mandatory challenger: the champion's mandatory defence. */
@@ -605,7 +650,7 @@ export function cancelBout(ladder: SeasonRecord, bout: TitleBout, at: string, no
   bout.note = note;
   discardFixture(ladder, bout.fixtureId, at);
   const c = bout.contractId ? ladder.ladder?.titles?.contracts.find((x) => x.id === bout.contractId) : undefined;
-  if (c) { delete c.boutId; delete c.usedAt; }
+  if (c && !c.consumed) { delete c.boutId; delete c.usedAt; }
 }
 
 /** Every qualifying N-win streak (counted from when MITB was switched on), from the current results: the completing fixture,
@@ -633,8 +678,8 @@ export function streakCompletions(ladder: SeasonRecord, streakLen: number): Arra
 /** Is a streak contract's qualifying streak still there in the current results? (Other sources are always valid.) */
 export function contractStreakHolds(ladder: SeasonRecord, c: TitleContract): boolean {
   if (c.source !== "streak") return true;
-  const ts = titleSettingsOf(ladder.ladder);
-  return streakCompletions(ladder, ts.mitb.streak).some((x) => x.fixtureId === c.fromFixtureId && x.teamId === c.teamId);
+  const need = c.streak ?? titleSettingsOf(ladder.ladder).mitb.streak;
+  return streakCompletions(ladder, need).some((x) => x.fixtureId === c.fromFixtureId && x.teamId === c.teamId);
 }
 
 function revokeContract(ctx: TitleTickContext, c: TitleContract, why: string): void {
@@ -656,9 +701,10 @@ function earnStreakContracts(ctx: TitleTickContext, ts: LadderTitleSettings, sta
   const rec = ladder.ladder!;
   const t = titlesOf(rec);
   const done = streakCompletions(ladder, ts.mitb.streak);
+  // Each contract is checked against the requirement in force when it was earned.
   for (const c of t.contracts) {
     if (c.source !== "streak" || c.revokedAt || c.usedAt || c.boutId) continue;
-    if (!done.some((x) => x.fixtureId === c.fromFixtureId && x.teamId === c.teamId)) revokeContract(ctx, c, "a corrected result broke the winning streak.");
+    if (!contractStreakHolds(ladder, c)) revokeContract(ctx, c, "a corrected result broke the winning streak.");
   }
   for (const x of done) {
     if (t.contracts.some((c) => c.fromFixtureId === x.fixtureId && c.teamId === x.teamId && !c.revokedAt)) continue;
@@ -667,7 +713,7 @@ function earnStreakContracts(ctx: TitleTickContext, ts: LadderTitleSettings, sta
     const earnedAt = new Date(x.at).toISOString();
     const expiresAt = new Date(x.at + ts.mitb.cashInDays * DAY_MS).toISOString();
     if (Date.parse(expiresAt) <= now.getTime()) continue; // a streak whose cash-in window is already over earns nothing
-    const c: TitleContract = { id: newLadderId("tc"), teamId: x.teamId, source: "streak", earnedAt, expiresAt, fromFixtureId: x.fixtureId };
+    const c: TitleContract = { id: newLadderId("tc"), teamId: x.teamId, source: "streak", earnedAt, expiresAt, fromFixtureId: x.fixtureId, streak: ts.mitb.streak };
     t.contracts.push(c);
     t.told.push(`contract:${c.id}`);
     const team = ladder.teams.find((y) => y.id === x.teamId);
@@ -786,8 +832,11 @@ function rumbleTick(ctx: TitleTickContext, ru: LadderRumble, ts: LadderTitleSett
   const coach = (id: string | undefined) => { const x = ladder.teams.find((y) => y.id === id); return x ? teamAccount(x) : ""; };
   const name = (id: string | undefined) => ladder.teams.find((x) => x.id === id)?.name ?? "A team";
   const title = `${ctx.league.name} ${ladder.name}`;
-  const members = new Set(activeMembers(ladder, supersededTeams(ctx.competitions)).map((m) => m.team.id));
-  const isMember = (id: string) => members.has(id);
+  // Still in the ladder (not left or moved on; a team marked inactive is still in it, with its fixture decisions honoured).
+  const superseded = supersededTeams(ctx.competitions);
+  const inLadder = new Set((ladder.ladder?.members ?? []).filter((m) => !m.leftAt && !superseded.has(`${ladder.id}/${m.teamId}`) && ladder.teams.some((x) => x.id === m.teamId)).map((m) => m.teamId));
+  const isMember = (id: string) => inLadder.has(id);
+  const inactive = (id: string) => ladder.teams.find((x) => x.id === id)?.status === "inactive";
   if (ru.state === "entry") {
     if (!draw || now.getTime() < Date.parse(ru.date)) return;
     if (challengesPaused(ctx.league, ladder, now)) return;
@@ -815,7 +864,10 @@ function rumbleTick(ctx: TitleTickContext, ru: LadderRumble, ts: LadderTitleSett
     const old = ru.winnerTeamId;
     const c = ru.contractId ? ladder.ladder!.titles?.contracts.find((x) => x.id === ru.contractId) : undefined;
     if (c && !c.revokedAt) {
-      if (c.usedAt || c.boutId) tellOrganisers(ctx, `${title}: ${ru.name} result changed`, `${name(old)} is no longer the ${ru.name} winner (${why}), but has already cashed in the title shot. Decide whether that title game stands.`);
+      if (c.usedAt || c.boutId) {
+        c.consumed = true;
+        tellOrganisers(ctx, `${title}: ${ru.name} result changed`, `${name(old)} is no longer the ${ru.name} winner (${why}), but has already cashed in the title shot. Decide whether that title game stands.`);
+      }
       else revokeContract(ctx, c, `${ru.name}'s result changed.`);
     }
     ru.state = "running";
@@ -834,8 +886,17 @@ function rumbleTick(ctx: TitleTickContext, ru: LadderRumble, ts: LadderTitleSett
         delete m.winnerTeamId; delete m.how;
         const left = !isMember(m.homeTeamId) || !isMember(m.awayTeamId);
         const gone = !f || f.suspended || f.deadlineOutcome?.outcome === "no-result";
-        if (left) { discardFixture(ladder, m.fixtureId, at); m.winnerTeamId = isMember(m.homeTeamId) ? m.homeTeamId : isMember(m.awayTeamId) ? m.awayTeamId : better(m.homeTeamId, m.awayTeamId); m.how = "walkover"; continue; }
-        if (gone || now.getTime() >= Date.parse(round.deadline)) { discardFixture(ladder, m.fixtureId, at); m.winnerTeamId = better(m.homeTeamId, m.awayTeamId); m.how = "fallback"; }
+        const away = m.awayTeamId;
+        // A team gone from the ladder: a walkover now. A team marked inactive: its fixture decision stands (forfeit = a result,
+        // cancel = no game, leave = still scheduled); without a game by the deadline (or once cancelled) the other side walks over.
+        if (left) { discardFixture(ladder, m.fixtureId, at); m.winnerTeamId = isMember(m.homeTeamId) ? m.homeTeamId : isMember(away) ? away : better(m.homeTeamId, away); m.how = "walkover"; continue; }
+        if (gone || now.getTime() >= Date.parse(round.deadline)) {
+          discardFixture(ladder, m.fixtureId, at);
+          const hi = inactive(m.homeTeamId);
+          const ai = inactive(away);
+          if (hi !== ai) { m.winnerTeamId = hi ? away : m.homeTeamId; m.how = "walkover"; }
+          else { m.winnerTeamId = better(m.homeTeamId, away); m.how = "fallback"; }
+        }
       }
       const open = round.matches.some((m) => !m.winnerTeamId);
       if (open) {
@@ -868,9 +929,15 @@ function rumbleTick(ctx: TitleTickContext, ru: LadderRumble, ts: LadderTitleSett
     ru.winnerTeamId = winner;
     ru.finishedAt = at;
     const state = titleReplay(ladder, now);
-    if (ts.belt && state.holder?.teamId !== winner) {
-      const t = titlesOf(ladder.ladder!);
-      const c: TitleContract = { id: newLadderId("tc"), teamId: winner, source: "rumble", earnedAt: at, expiresAt: new Date(now.getTime() + ts.mitb.cashInDays * DAY_MS).toISOString(), note: ru.name };
+    // One prize per Rumble and winner: a restored winner gets their own contract back (cashed or not), never a second one.
+    const t = titlesOf(ladder.ladder!);
+    const prior = t.contracts.find((c) => c.source === "rumble" && (c.rumbleId === ru.id || (!c.rumbleId && c.note === ru.name)) && c.teamId === winner);
+    if (prior) {
+      if (prior.revokedAt && !prior.usedAt && !prior.boutId) { delete prior.revokedAt; delete prior.revokedWhy; }
+      prior.rumbleId = ru.id;
+      ru.contractId = prior.id;
+    } else if (ts.belt && state.holder?.teamId !== winner) {
+      const c: TitleContract = { id: newLadderId("tc"), teamId: winner, source: "rumble", rumbleId: ru.id, earnedAt: at, expiresAt: new Date(now.getTime() + ts.mitb.cashInDays * DAY_MS).toISOString(), note: ru.name };
       t.contracts.push(c);
       t.told.push(`contract:${c.id}`);
       ru.contractId = c.id;
@@ -919,10 +986,12 @@ function placeAwards(ladder: SeasonRecord, rows: readonly LadderRankRow[], label
 }
 
 /** Period ends (periodDays from the start): the top 3 at each end into Honours, once each. */
-export function periodHonours(ctx: TitleTickContext, until = ctx.now.getTime()): void {
+export function periodHonours(ctx: TitleTickContext, untilArg = ctx.now.getTime()): void {
   const { ladder, now } = ctx;
   const rec = ladder.ladder!;
   const s = settingsOf(rec);
+  // Never a period after the scheduled end, however late the close runs.
+  const until = s.endsAt ? Math.min(untilArg, Date.parse(s.endsAt)) : untilArg;
   const start = Date.parse(rec.startedAt ?? "");
   if (!s.periodDays || !Number.isFinite(start)) return;
   const done = new Set(rec.periodHonours ?? []);
@@ -982,20 +1051,40 @@ export function settleForClose(ctx: TitleTickContext): void {
 }
 
 /**
- * The title rules on a copy: a failure is logged and leaves the ladder as it was (the rest of the job's write goes ahead), so one
- * bad record never wedges every later tick. Answers whether anything changed.
+ * The title rules, each step on a copy of the ladder: a failing step is logged, recorded on the ladder (titleFailures: the
+ * organisers see "Title processing needs attention" on the Ladder tab) and skipped, while the other steps go ahead. A step that
+ * succeeds again clears its failure. Answers whether anything changed and which steps failed.
  */
-export function safeTitleTick(ctx: TitleTickContext): boolean {
-  const draft = structuredClone(ctx.ladder);
-  const notes: TitleNote[] = [];
-  try {
-    const changed = titleTick({ ...ctx, ladder: draft, notes });
-    if (changed) { for (const k of Object.keys(ctx.ladder) as Array<keyof SeasonRecord>) delete ctx.ladder[k]; Object.assign(ctx.ladder, draft); ctx.notes.push(...notes); }
-    return changed;
-  } catch (e) {
-    console.error(`[leagues] ladder titles ${ctx.ladder.leagueId}/${ctx.ladder.id} failed: ${(e as Error).message}`);
-    return false;
+export function safeTitleTick(ctx: TitleTickContext): { changed: boolean; failed: string[] } {
+  const live = ctx.ladder;
+  if (!openForTitles(live)) return { changed: false, failed: [] };
+  const before = titleFingerprint(live);
+  let current = structuredClone(live);
+  try { repairTitleRecord(current); } catch { /* left as stored */ }
+  const failed: string[] = [];
+  const failures: NonNullable<LadderRecord["titleFailures"]> = [];
+  for (const [name, step] of TITLE_STEPS) {
+    const draft = structuredClone(current);
+    const notes: TitleNote[] = [];
+    try {
+      step({ ...ctx, ladder: draft, competitions: ctx.competitions.map((c) => (c.id === draft.id ? draft : c)), notes });
+      current = draft;
+      ctx.notes.push(...notes);
+    } catch (e) {
+      const message = (e as Error)?.message ?? String(e);
+      console.error(`[leagues] ladder titles ${live.leagueId}/${live.id} step ${name} failed: ${message}`);
+      failed.push(name);
+      failures.push({ step: name, at: ctx.now.toISOString(), error: message.slice(0, 200) });
+    }
   }
+  if (current.ladder) {
+    const prior = live.ladder?.titleFailures ?? [];
+    const kept = failures.map((f) => prior.find((p) => p.step === f.step && p.error === f.error) ?? f);
+    if (kept.length) current.ladder.titleFailures = kept; else delete current.ladder.titleFailures;
+  }
+  const changed = titleFingerprint(current) !== before;
+  if (changed) { for (const k of Object.keys(live) as Array<keyof SeasonRecord>) delete live[k]; Object.assign(live, current); }
+  return { changed, failed };
 }
 
 /** Every finished reign as an honour (derived from the replay; the reign that ended with the close has its own stored award). */
@@ -1083,12 +1172,13 @@ export function titleView(league: Pick<LeagueRecord, "id">, ladder: SeasonRecord
     recentBouts: bouts.filter((b) => b.state !== "scheduled").slice(-10).reverse().map(boutView),
     contracts: (rec.titles?.contracts ?? []).map((c) => ({ id: c.id, ...side(c.teamId), source: c.source, earnedAt: c.earnedAt, expiresAt: c.expiresAt, state: contractState(c, rec, now), ...(c.note ? { note: c.note } : {}), ...(owns(c.teamId) ? { mine: true } : {}) }))
       .filter((c) => c.state === "held" || c.state === "cashing-in" || manage),
-    rumbles: (rec.rumbles ?? []).slice(-5).reverse().map((ru) => ({
-      id: ru.id, name: ru.name, date: ru.date, field: ru.field, roundDays: ru.roundDays, points: ru.points, state: ru.state, entries: ru.entries.map(side),
-      seeds: (ru.seeds ?? []).map((id, i) => ({ seed: i + 1, ...side(id) })),
-      rounds: ru.rounds.map((r) => ({
+    // Read defensively: a malformed stored Rumble (the job reports it to organisers) never breaks the page.
+    rumbles: (Array.isArray(rec.rumbles) ? rec.rumbles : []).filter(Boolean).slice(-5).reverse().map((ru) => ({
+      id: ru.id, name: ru.name, date: ru.date, field: ru.field, roundDays: ru.roundDays, points: ru.points, state: ru.state, entries: (Array.isArray(ru.entries) ? ru.entries : []).map(side),
+      seeds: (Array.isArray(ru.seeds) ? ru.seeds : []).map((id, i) => ({ seed: i + 1, ...side(id) })),
+      rounds: (Array.isArray(ru.rounds) ? ru.rounds : []).filter(Boolean).map((r) => ({
         number: r.number, deadline: r.deadline,
-        matches: r.matches.map((m) => {
+        matches: (Array.isArray(r.matches) ? r.matches : []).filter(Boolean).map((m) => {
           const f = m.fixtureId ? ladder.fixtures.find((x) => x.id === m.fixtureId) : undefined;
           return {
             slot: m.slot, home: side(m.homeTeamId), ...(m.awayTeamId ? { away: side(m.awayTeamId) } : {}), ...(m.fixtureId ? { fixtureId: m.fixtureId } : {}),

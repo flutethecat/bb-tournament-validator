@@ -200,6 +200,8 @@ function ladderView(league: LeagueRecord, ladder: SeasonRecord, auth: LeagueApiI
       ...(window ? { redraftWindow: window } : {}),
       revision: ladder.revision ?? 0,
       ...(manage && ladder.ladder?.wizard ? { wizard: ladder.ladder.wizard } : {}),
+      // Organisers only: title steps that failed on the last pass (the Ladder tab shows "Title processing needs attention").
+      ...(manage && ladder.ladder?.titleFailures?.length ? { titleFailures: ladder.ladder.titleFailures.map((f) => ({ step: f.step, at: f.at })) } : {}),
     },
     ranking,
     challenges: { live, closed },

@@ -133,9 +133,9 @@ function titleEvents(league: LeagueRecord, ladder: SeasonRecord, now: Date): Lad
     else if (b.kind === "interim" || b.kind === "unification") out.push({ marker: `bout:${b.id}`, key: "ladderInterim", payload: () => simplePost(title, "ladderInterim", `${BOUT_LABEL[b.kind]}: ${tn(b.homeTeamId)} v ${tn(b.awayTeamId)}. Play by ${by}.`, { test, title: BOUT_LABEL[b.kind].toLowerCase() }) });
     else if (b.kind === "vacant") out.push({ marker: `bout:${b.id}`, key: "ladderMandatory", payload: () => simplePost(title, "ladderMandatory", `The belt is vacant: ${tn(b.homeTeamId)} v ${tn(b.awayTeamId)} for the title. Play by ${by}.`, { test, title: "vacant title game" }) });
   }
-  for (const ru of rec.rumbles ?? []) {
+  for (const ru of (Array.isArray(rec.rumbles) ? rec.rumbles : []).filter(Boolean)) {
     out.push({ marker: `rumble:${ru.id}:set`, key: "ladderRumble", payload: () => simplePost(title, "ladderRumble", `${safe(ru.name, 60)} on ${ru.date.slice(0, 10)}: ${ru.field === "top8" ? "the top 8" : "open entry"}, a quick knockout. The winner gets a guaranteed title shot and ${ru.points} points.`, { test, title: "Rumble" }) });
-    if (ru.seeds?.length) out.push({ marker: `rumble:${ru.id}:drawn`, key: "ladderRumble", payload: () => simplePost(title, "ladderRumble", `${safe(ru.name, 60)} is drawn: ${ru.seeds!.length} teams.\n${(ru.rounds[0]?.matches ?? []).map((m) => `${tn(m.homeTeamId)} v ${m.awayTeamId ? tn(m.awayTeamId) : "bye"}`).join("\n")}`, { test, title: "Rumble drawn" }) });
+    if (ru.seeds?.length) out.push({ marker: `rumble:${ru.id}:drawn`, key: "ladderRumble", payload: () => simplePost(title, "ladderRumble", `${safe(ru.name, 60)} is drawn: ${ru.seeds!.length} teams.\n${((Array.isArray(ru.rounds) ? ru.rounds[0]?.matches : undefined) ?? []).filter(Boolean).map((m) => `${tn(m.homeTeamId)} v ${m.awayTeamId ? tn(m.awayTeamId) : "bye"}`).join("\n")}`, { test, title: "Rumble drawn" }) });
     if (ru.winnerTeamId) out.push({ marker: `rumble:${ru.id}:won`, key: "ladderRumble", payload: () => simplePost(title, "ladderRumble", `${tn(ru.winnerTeamId)} won ${safe(ru.name, 60)}!${ru.contractId ? " A guaranteed title shot awaits." : ""}`, { test, title: "Rumble winner" }) });
   }
   const groups = new Map<string, typeof ladder.awards>();

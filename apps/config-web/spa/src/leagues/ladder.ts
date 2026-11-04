@@ -126,6 +126,8 @@ export interface LadderDetail extends LadderSummary {
   redraftWindow?: { opensAt: string; closesAt: string };
   revision: number;
   wizard?: { step: number; completedAt?: string };
+  /** Organisers only: title steps that failed on the last pass. */
+  titleFailures?: Array<{ step: string; at: string }>;
 }
 
 export type BoutKind = "eliminator" | "mandatory" | "vacant" | "cashin" | "shot" | "interim" | "unification";

@@ -861,3 +861,144 @@ describe("review fixes", () => {
     expect(types).toContain("Spring interim champion at close");
   });
 });
+
+// ---- Sol re-review (P2s, round 2) ---------------------------------------------------------------------------------------------
+
+describe("review fixes, round 2", () => {
+  const rumbleOpen = async (h: ReturnType<typeof harness>, id: string, coaches: string[]) => {
+    const date = new Date(h.time.now.getTime() + D).toISOString();
+    await h.call("POST", `/api/leagues/${L}/ladders/${id}/rumbles`, OLGA, { date, field: "open" });
+    const rid = h.ladderOf(id).ladder!.rumbles![0]!.id;
+    for (const c of coaches) expect((await h.call("POST", `/api/leagues/${L}/ladders/${id}/rumbles/${rid}/enter`, coach(c), { teamId: h.tid(c) })).status).toBe(200);
+    h.advance(D + 60_000);
+    h.job();
+    return h.ladderOf(id).ladder!.rumbles![0]!;
+  };
+
+  it("1: a mandatory with a recorded result freezes its eliminator even before a pass marks it played", async () => {
+    const h = harness();
+    const id = await h.crowned();
+    const elim = h.live(id, "eliminator")[0]!;
+    h.play(id, elim.fixtureId, 1, 0);
+    h.job();
+    const mand = h.live(id, "mandatory")[0]!;
+    h.play(id, mand.fixtureId, 2, 0); // the mandatory is played (no pass yet) ...
+    h.play(id, elim.fixtureId, 0, 1); // ... then the eliminator is corrected
+    h.job();
+    expect(h.bouts(id).find((b) => b.id === mand.id)!.state).toBe("played");
+    expect(titleReplay(h.ladderOf(id), h.time.now).holder).toMatchObject({ teamId: h.tid("Amy"), defences: 1 });
+  });
+
+  it("2 + 3: restoring a Rumble winner gives back their own prize (never a second); a displaced winner's cashed contract never re-arms", async () => {
+    const h = harness();
+    const id = await h.crowned();
+    const final = (await rumbleOpen(h, id, ["Bob", "Dan"])).rounds[0]!.matches[0]!;
+    const rumbleContracts = () => h.ladderOf(id).ladder!.titles!.contracts.filter((c) => c.source === "rumble");
+    h.play(id, final.fixtureId!, 1, 0); h.job();
+    h.play(id, final.fixtureId!, 0, 1); h.job();
+    h.play(id, final.fixtureId!, 1, 0); h.job(); // the first winner restored
+    const list = rumbleContracts();
+    expect(list.filter((c) => c.teamId === final.homeTeamId)).toHaveLength(1);
+    expect(list.find((c) => c.teamId === final.homeTeamId)!.revokedAt).toBeUndefined();
+    expect(list.find((c) => c.teamId === final.awayTeamId)!.revokedAt).toBeTruthy();
+    expect(list.every((c) => c.rumbleId === h.ladderOf(id).ladder!.rumbles![0]!.id)).toBe(true);
+    // The winner cashes in, is then displaced (contract kept, consumed), and the cash-in game lapses: it does not come back.
+    const homeCoach = h.ladderOf(id).teams.find((t) => t.id === final.homeTeamId)!.coach;
+    const mine = list.find((c) => c.teamId === final.homeTeamId)!;
+    expect((await h.call("POST", `/api/leagues/${L}/ladders/${id}/contracts/${mine.id}/cash-in`, coach(homeCoach), {})).status).toBe(200);
+    h.play(id, final.fixtureId!, 0, 1); h.job();
+    const kept = rumbleContracts().find((c) => c.id === mine.id)!;
+    expect(kept).toMatchObject({ consumed: true });
+    expect(kept.revokedAt).toBeUndefined();
+    h.advance(8 * D);
+    h.job();
+    const after = rumbleContracts().find((c) => c.id === mine.id)!;
+    expect(after.usedAt).toBeTruthy();
+    expect((await h.view(id, coach(homeCoach))).titles.contracts.find((c) => c.id === mine.id)).toBeUndefined();
+    expect((await h.call("POST", `/api/leagues/${L}/ladders/${id}/contracts/${mine.id}/cash-in`, coach(homeCoach), {})).status).toBe(409);
+  });
+
+  it("4: a Rumble side marked inactive with \"leave scheduled\" keeps its game until the deadline; then the active side walks over", async () => {
+    const h = harness();
+    const id = await h.crowned();
+    const final = (await rumbleOpen(h, id, ["Bob", "Dan"])).rounds[0]!.matches[0]!;
+    const lad = h.ladderOf(id);
+    const away = lad.teams.find((t) => t.id === final.awayTeamId)!;
+    away.status = "inactive";
+    away.statusChanged = { by: "Olga", at: h.time.now.toISOString() };
+    lad.fixtures.find((f) => f.id === final.fixtureId)!.inactiveDecision = { teamId: away.id, decision: "leave", by: "Olga", at: h.time.now.toISOString() };
+    h.store.putSeason(lad);
+    h.job();
+    expect(h.ladderOf(id).ladder!.rumbles![0]!.rounds[0]!.matches[0]!.winnerTeamId).toBeUndefined();
+    h.advance(3 * D + 60_000);
+    h.job();
+    expect(h.ladderOf(id).ladder!.rumbles![0]!.rounds[0]!.matches[0]).toMatchObject({ how: "walkover", winnerTeamId: final.homeTeamId });
+  });
+
+  it("5: raising the streak requirement never withdraws a contract earned under the old one", async () => {
+    const h = harness();
+    const id = await h.crowned({ mitb: { enabled: true, streak: 3 } });
+    const l = h.ladderOf(id); l.ladder!.titles!.mitbOnAt = "2026-11-01T00:00:00.000Z"; h.store.putSeason(l);
+    h.result(id, "Bob", "Dan", 1, 0, "2026-11-10T13:00:00.000Z");
+    h.result(id, "Bob", "Finn", 1, 0, "2026-11-10T14:00:00.000Z");
+    h.result(id, "Bob", "Gus", 1, 0, "2026-11-10T15:00:00.000Z");
+    h.advance(4 * H);
+    h.job();
+    expect(h.ladderOf(id).ladder!.titles!.contracts[0]).toMatchObject({ streak: 3 });
+    const p = await h.call("PATCH", `/api/leagues/${L}/ladders/${id}`, OLGA, { revision: h.ladderOf(id).revision, settings: { titles: { mitb: { streak: 5 } } } });
+    expect(p.status, JSON.stringify(p.body)).toBe(200);
+    h.job();
+    const c = h.ladderOf(id).ladder!.titles!.contracts[0]!;
+    expect(c.revokedAt).toBeUndefined();
+    expect((await h.call("POST", `/api/leagues/${L}/ladders/${id}/contracts/${c.id}/cash-in`, coach("Bob"), {})).status).toBe(200);
+  });
+
+  it("6 + 7: period honours leave out teams that were inactive at the period's end, and never award a period after the scheduled end", async () => {
+    const h = harness();
+    const start = h.time.now.getTime();
+    const id = await h.openLadder({ titles: { belt: false }, periodDays: 7, redraft: { trigger: "schedule" }, endsAt: new Date(start + 10 * D).toISOString() });
+    h.seed(id, ["Amy", "Bob", "Cara", "Dan"]);
+    h.result(id, "Amy", "Bob", 2, 0, new Date(start + D).toISOString());
+    h.result(id, "Cara", "Dan", 1, 0, new Date(start + D + H).toISOString());
+    // Cara was marked inactive (team page history) before period 1 ended.
+    const lad = h.ladderOf(id);
+    const cara = lad.teams.find((t) => t.id === h.tid("Cara"))!;
+    cara.status = "inactive";
+    cara.statusChanged = { by: "Olga", at: new Date(start + 3 * D).toISOString() };
+    cara.history = [{ at: new Date(start + 3 * D).toISOString(), by: "Olga", kind: "status", changes: [{ what: "Status", from: "Active", to: "Inactive" }] }];
+    h.store.putSeason(lad);
+    h.time.now = new Date(start + 30 * D); // a very late tick: the close runs well after the scheduled end
+    h.job();
+    const awards = h.ladderOf(id).awards;
+    const p1 = awards.filter((a) => a.key?.startsWith("period:1:"));
+    expect(p1.map((a) => a.team)).not.toContain("Cara's team");
+    expect(p1.map((a) => a.team)).toContain("Amy's team");
+    expect(awards.some((a) => a.key?.startsWith("period:2"))).toBe(false); // period 2 would end after the scheduled end
+    expect(h.ladderOf(id).ladder!.periodHonours).toEqual([1]);
+  });
+
+  it("8: a failing title step is skipped while the others run; the job reports it and organisers see the alert; null lists are repaired", async () => {
+    const h = harness();
+    const id = await h.crowned();
+    await h.call("POST", `/api/leagues/${L}/ladders/${id}/rumbles`, OLGA, { date: new Date(h.time.now.getTime() + D).toISOString(), field: "top8" });
+    // A malformed record: a list stored as null is mended, not a failure.
+    const l = h.ladderOf(id);
+    (l.ladder!.rumbles![0] as unknown as { entries: unknown }).entries = null;
+    h.store.putSeason(l);
+    expect(h.job().failed).toEqual([]);
+    // A record the rules can't mend (a null match): the Rumble step fails; the belt step still sets the next title game.
+    const bad = h.ladderOf(id);
+    bad.ladder!.rumbles![0]!.state = "running";
+    bad.ladder!.rumbles![0]!.seeds = [h.tid("Bob"), h.tid("Dan")];
+    (bad.ladder!.rumbles![0] as unknown as { rounds: unknown }).rounds = [{ number: 1, deadline: h.time.now.toISOString(), matches: [null] }];
+    bad.ladder!.titles!.bouts = bad.ladder!.titles!.bouts.map((b) => (b.state === "scheduled" ? { ...b, state: "cancelled" as const } : b));
+    h.store.putSeason(bad);
+    const out = h.job();
+    expect(out.failed).toEqual([`${L}/${id}:titles:rumble`]);
+    expect(h.live(id).length).toBeGreaterThan(0); // the belt step still ran
+    const forOrganiser = (await h.call("GET", `/api/leagues/${L}/ladders/${id}`, OLGA)).body as { ladder: { titleFailures?: Array<{ step: string }> } };
+    expect(forOrganiser.ladder.titleFailures).toEqual([expect.objectContaining({ step: "rumble" })]);
+    const forCoach = (await h.call("GET", `/api/leagues/${L}/ladders/${id}`, coach("Bob"))).body as { ladder: { titleFailures?: unknown } };
+    expect(forCoach.ladder.titleFailures).toBeUndefined();
+  });
+});

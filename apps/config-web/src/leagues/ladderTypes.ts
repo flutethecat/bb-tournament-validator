@@ -170,6 +170,8 @@ export interface LadderRecord {
   rumbles?: LadderRumble[];
   /** Period honours already written (period number), so each period end is honoured once. */
   periodHonours?: number[];
+  /** Title steps that failed on the last pass (organisers see "Title processing needs attention"); cleared when they succeed. */
+  titleFailures?: Array<{ step: string; at: string; error: string }>;
   /** Closed with the scheduled end: who / why. */
   closedReason?: string;
 }
@@ -236,6 +238,12 @@ export interface TitleContract {
   /** Withdrawn (a corrected result broke the streak, or the Rumble winner changed) before it was cashed in. */
   revokedAt?: string;
   revokedWhy?: string;
+  /** Streak contracts: the wins in a row required when it was earned (a later change to the setting never undoes it). */
+  streak?: number;
+  /** Rumble prizes: the Rumble it was won in (one prize per Rumble and winner, never a second). */
+  rumbleId?: string;
+  /** Spent for good: a displaced Rumble winner's contract kept because it was already cashed in. A lapse never re-arms it. */
+  consumed?: boolean;
   note?: string;
 }
 
