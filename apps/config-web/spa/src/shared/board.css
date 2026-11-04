@@ -4,10 +4,11 @@
 .cb-compose { display: grid; gap: 8px; justify-items: start; }
 .cb-compose .cb-form { justify-self: stretch; }
 .cb-form { display: grid; gap: 8px; }
-.cb-thread { padding: 12px; border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--ui-heading); border-radius: 2px; background: var(--ui-surface-2); display: grid; gap: 8px; }
+/* a thread is a league-news card (.lg-news-item): panel-line edge, gold when pinned or new */
+.cb-thread { display: grid; gap: 8px; padding: 10px 12px 12px; background: color-mix(in srgb, var(--ui-surface-2) 70%, transparent); border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--sf-panel-line); border-radius: 2px; box-shadow: inset 0 1px 0 var(--sf-panel-hi); }
 .cb-thread[data-new="true"] { border-left-color: var(--sf-gold); }
 .cb-thread-h { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; align-items: baseline; }
-.cb-title { margin: 0; font: 600 17px/1.25 var(--font-heading); overflow-wrap: anywhere; }
+.cb-title { margin: 0; font: 500 1.1rem/1.25 var(--font-heading); letter-spacing: .03em; color: var(--ui-text); overflow-wrap: anywhere; }
 .cb-meta { display: inline-flex; gap: 6px; align-items: center; color: var(--ui-muted); font-size: 13px; }
 .cb-text-view { margin: 0; white-space: pre-line; overflow-wrap: anywhere; }
 .cb-text-view[data-removed="true"] { color: var(--ui-text-dim); font-style: italic; }
@@ -27,7 +28,7 @@
 .cb-quote { margin: 0; padding: 6px 10px; border-left: 2px solid var(--sf-panel-line); color: var(--ui-muted); font-size: 14px; overflow-wrap: anywhere; white-space: pre-line; }
 .cb-help { margin: 0 0 6px; color: var(--ui-muted); font-size: 13px; }
 .cb-mod { display: grid; gap: 12px; align-content: start; min-width: 0; }
-.cb-mod-body { padding: 10px 12px; display: grid; gap: 8px; }
+.cb-mod-body { display: grid; gap: 8px; } /* .hm-panel already insets its children 12px */
 .cb-mod-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .cb-mod-row { display: grid; gap: 4px; padding-bottom: 8px; border-bottom: 1px solid var(--sf-panel-line); min-width: 0; overflow-wrap: anywhere; }
 .cb-mod-row:last-child { border-bottom: 0; padding-bottom: 0; }
@@ -37,7 +38,7 @@
 .cb-mod [data-reports]:focus-visible, .cb-mod [data-reports]:focus { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .cb-actions { flex-wrap: wrap; }
 /* The reason / mute dialog: caption above, control below, full width. */
-.cb-ask { display: grid; gap: 10px; }
+.cb-ask { display: grid; gap: 10px; max-width: none; } /* fills the dialog (.sf-form caps at 420px) */
 .cb-ask .sf-field { display: grid; gap: 4px; justify-items: stretch; }
 .cb-ask .sf-input { width: 100%; box-sizing: border-box; }
 @media (max-width: 1100px) {

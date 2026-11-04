@@ -391,7 +391,7 @@ button.lg-cog { margin: 0; padding: 0; font: inherit; color: inherit; cursor: po
 /* ---- Redraft (/app/leagues/:id/redraft) */
 .rd-cap { align-items: center; }
 .rd-cap-amount input { width: 96px; }
-.rd-table th[scope="row"] { text-align: left; font-weight: 600; white-space: nowrap; }
+.rd-table th[scope="row"] { text-align: left; font-weight: 600; white-space: nowrap; color: var(--ui-text); } /* team names in body text, not the muted head colour */
 .rd-table input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--ui-primary); }
 .rd-sub { display: block; color: var(--ui-muted); font-size: 12px; font-weight: 400; white-space: normal; }
 .rd-badge { display: inline-block; padding: 2px 8px; border-radius: 2px; font: 11px/1.6 var(--sf-band-font); text-transform: uppercase; letter-spacing: .06em; border: 1px solid var(--sf-panel-line); }

@@ -105,7 +105,7 @@ const overrides = computed(() => (view.value?.competitions ?? []).filter((c) => 
             <label class="ls-field"><span>Draw bonus (k)</span><input v-model.number="form.drawBonusK" type="number" min="0" max="500" step="5" inputmode="numeric" /></label>
           </div>
           <label class="ls-check"><input v-model="form.rulebookConcession" type="checkbox" /> Concession rule: the conceding team gets no winnings, the other team gets the whole fan attendance</label>
-          <p class="hm-small">Fan attendance is both teams' Fan Factors added together, from the pre-game fans roll. The default is the BB2025 rulebook: (half the fan attendance + touchdowns + 1 without stalling) x 10k.</p>
+          <p class="hm-small mn-note">Fan attendance is both teams' Fan Factors added together, from the pre-game fans roll. The default is the BB2025 rulebook: (half the fan attendance + touchdowns + 1 without stalling) x 10k.</p>
           <div class="sf-btn-row mn-presets">
             <button class="sf-btn small" type="button" :disabled="busy" data-money-rulebook @click="useRulebook">Use the BB2025 rulebook formula</button>
             <button v-if="view.legacy" class="sf-btn small" type="button" :disabled="busy" data-money-legacy @click="useLegacy">Legacy: 10k per touchdown</button>
@@ -137,7 +137,7 @@ const overrides = computed(() => (view.value?.competitions ?? []).filter((c) => 
 
         <p v-if="error" class="sf-error" role="alert">{{ error }}</p>
         <p v-else-if="state.errors.money" class="sf-error" role="alert">{{ state.errors.money }}</p>
-        <p v-else-if="state.notices.money" class="hm-notice" role="status">{{ state.notices.money }}</p>
+        <p v-else-if="state.notices.money" class="sf-notice" role="status">{{ state.notices.money }}</p>
         <div class="sf-btn-row">
           <button class="sf-btn" type="button" :disabled="busy" @click="useDefaults">{{ scope ? "Use the league's" : "Use the defaults" }}</button>
           <button v-if="scope && competition && Object.keys(competition.override).length" class="sf-btn" type="button" :disabled="busy" @click="followLeague">Follow the league</button>

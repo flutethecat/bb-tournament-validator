@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-04",
+    "title": "Today's new screens match the site's look",
+    "body": "Board threads now look like league news cards, Ratings numbers line up on the right like Standings, and a few spacing, colour and button-row fixes on the check-in pages, Money settings, Badges and the redraft board bring today's new screens in line with the rest of the site.",
+    "links": [
+      {
+        "label": "Ratings",
+        "href": "/app/ratings"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-04",
     "title": "Bug reports can carry a reply to the player",
     "body": "Organisers can now write a reply to the player and the version a fix ships in, from the admin Reports panel or the Discord triage card. These sit apart from the private root cause and notes, and the player's own client can check the status of the reports they sent.",
     "links": [

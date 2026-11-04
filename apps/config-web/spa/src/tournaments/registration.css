@@ -103,10 +103,11 @@
 .tr-qr-warn { margin: 0; padding: 4px 8px; font-size: 13px; border-left: 3px solid var(--ui-warn); background: var(--ui-surface-2); color: var(--ui-text); max-width: 60ch; overflow-wrap: anywhere; }
 .tr-venue:fullscreen .tr-qr-warn { display: none; }
 .tr-scan { display: grid; gap: 12px; max-width: 640px; align-content: start; }
+.tr-scan > p { margin: 0; } /* the grid gap spaces the lines, as in the other panels */
 .tr-scan-state { margin: 0; font-size: 17px; }
 .tr-scan[data-state="checked-in"] .tr-scan-state, .tr-scan[data-state="already"] .tr-scan-state { color: var(--ui-success); }
 .tr-venue { display: grid; gap: 14px; justify-items: center; text-align: center; }
 .tr-venue .tr-qr-url { max-width: 60ch; }
-.tr-venue-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.tr-venue-actions { justify-content: center; } /* an .sf-btn-row, centred over the code */
 .tr-venue:fullscreen { background: var(--ui-secondary); padding: 24px; align-content: center; }
 .tr-venue:fullscreen .tr-venue-qr { width: min(calc(80vh / var(--sf-zoom, 1)), 92vw) !important; height: auto !important; }

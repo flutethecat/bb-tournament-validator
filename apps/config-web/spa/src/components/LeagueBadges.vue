@@ -82,7 +82,7 @@ async function revoke(id: string): Promise<void> {
     <p v-if="state.error" class="sf-error" role="alert">{{ state.error }}</p>
     <p v-else-if="!state.view" class="hm-empty" role="status">Loading badges...</p>
     <div v-else class="lg-scroll bd-body">
-      <div v-if="manage" class="bd-tools"><button type="button" class="sf-btn primary small" :disabled="Boolean(state.busy)" data-new-badge @click="openCreate">New badge</button></div>
+      <div v-if="manage" class="sf-btn-row bd-tools"><button type="button" class="sf-btn primary small" :disabled="Boolean(state.busy)" data-new-badge @click="openCreate">New badge</button></div>
       <p v-if="state.notice && !creating && !awarding" class="sf-notice" role="status">{{ state.notice }}</p>
       <p v-if="state.writeError && !creating && !awarding" class="sf-error" role="alert">{{ state.writeError }}</p>
       <p v-if="!live.length" class="hm-empty">{{ manage ? "No league badges yet. Create one to award by hand." : "This league has no badges of its own yet." }}</p>

@@ -127,7 +127,8 @@ async function act(r: TournamentRegistrationRow, verb: "accept" | "waitlist" | "
         <div v-if="data.checkIn" class="tr-reg-group" data-group="check-in">
           <h3 class="tr-reg-h">Check-in</h3>
           <p class="tr-help">{{ data.checkIn.checkedIn }} of {{ data.checkIn.total }} checked in. {{ checkInLine(data.checkIn) }}.</p>
-          <p class="tr-help">Scan a coach's QR from their My entry card to check them in, or show the venue QR for coaches to scan. <RouterLink class="sf-btn small" data-venue-link :to="{ name: 'tournament-venue-qr', params: { id: t.id } }">Venue QR</RouterLink></p>
+          <p class="tr-help">Scan a coach's QR from their My entry card to check them in, or show the venue QR for coaches to scan.</p>
+          <div class="sf-btn-row"><RouterLink class="sf-btn small" data-venue-link :to="{ name: 'tournament-venue-qr', params: { id: t.id } }">Venue QR</RouterLink></div>
           <template v-if="data.checkIn.closed">
             <p v-if="!data.noShows.length" class="hm-empty">Everyone checked in.</p>
             <div v-for="n in data.noShows" :key="n.id" class="tr-reg-row tr-noshow" data-no-show="true">

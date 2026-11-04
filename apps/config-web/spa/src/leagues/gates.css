@@ -2,7 +2,7 @@
    (LeagueGateBanner) and the live Redraft rolls page (LeagueRedraftRollsView). Tokens only (design.md §3). */
 
 /* ---- editor */
-.gt-panel .gt-intro { margin-top: 0; margin-bottom: 10px; }
+.gt-panel .gt-intro { margin-top: 0; margin-bottom: 10px; color: var(--ui-muted); }
 .gt-list { display: grid; gap: 10px; }
 .gt-editor {
   display: grid; gap: 8px; min-width: 0; padding: 10px 12px;

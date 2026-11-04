@@ -5,6 +5,7 @@
 // nothing from draft leagues) and does all the ranking. The viewer's filters are remembered in guarded localStorage.
 import { inject, onMounted, reactive, ref, watch } from "vue";
 import "../leagues/leagues.css";
+import "../ratings/ratings.css";
 import { API_KEY } from "../app";
 import { coachCount, DEFAULT_FILTERS, emptyLine, loadLeaderboard, MIN_GAMES_CHOICES, readFilters, writeFilters, type LeaderboardView } from "../ratings/ratings";
 
@@ -78,7 +79,7 @@ const since = (iso: string): string => new Date(iso).toLocaleDateString(undefine
       <p v-else-if="!view" class="hm-empty" role="status">Loading ratings...</p>
       <p v-else-if="!view.rows.length" class="hm-empty" data-rt-empty>{{ emptyLine(view) }}</p>
       <div v-else class="lg-scroll sf-pane-body" :aria-busy="loading ? 'true' : 'false'">
-        <table class="sf-table rt-tbl">
+        <table class="sf-table lg-table rt-tbl">
           <thead>
             <tr>
               <th scope="col" class="lg-num">#</th>
@@ -105,23 +106,3 @@ const since = (iso: string): string => new Date(iso).toLocaleDateString(undefine
     </section>
   </div>
 </template>
-
-<style>
-/* Ratings page: the filter panel and the leaderboard pane (league table style). Tokens only. */
-.rt-page { max-width: 1100px; }
-.rt-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 16px; }
-.rt-field { display: grid; gap: 4px; flex: 0 1 280px; min-width: 0; }
-.rt-field select { width: 100%; }
-.rt-min { flex-basis: 160px; }
-.rt-check { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; font-size: 15px; }
-.rt-help { margin: 10px 0 0; max-width: 80ch; }
-.rt-tbl { font-size: 15px; }
-.rt-coach { font-weight: 600; color: var(--ui-text); overflow-wrap: anywhere; }
-.rt-prov { margin-left: 8px; vertical-align: middle; }
-.rt-rating strong { font-family: var(--font-heading); }
-.rt-rank { width: 3em; color: var(--ui-muted); }
-@media (max-width: 640px) {
-  .rt-field, .rt-min { flex: 1 1 100%; }
-  .rt-tbl th, .rt-tbl td { padding: 6px 4px; }
-}
-</style>

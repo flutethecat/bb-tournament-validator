@@ -60,7 +60,7 @@ a.bd-chip:focus-visible, .bd-chip:focus-visible { outline: 2px solid var(--ui-fo
 .bd-recent .bd-when { color: var(--ui-muted); font-size: 13px; margin-top: 2px; }
 .bd-recent .bd-who { font-family: var(--font-heading); overflow-wrap: anywhere; }
 .bd-section-h { margin: 14px 0 8px; font: 12px/1.3 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-muted); }
-.bd-tools { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; }
+.bd-tools { margin: 0 0 10px; } /* an .sf-btn-row */
 .bd-log { margin: 0; padding: 0; list-style: none; font: 13px/1.4 var(--font-body); color: var(--ui-muted); }
 .bd-log li { padding: 3px 0; overflow-wrap: anywhere; }
 

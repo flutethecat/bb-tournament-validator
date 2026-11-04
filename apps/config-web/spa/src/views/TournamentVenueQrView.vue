@@ -63,7 +63,7 @@ const windowLine = computed(() => {
     <div class="tn-panel-body sf-pane-body">
       <p v-if="loadError" class="sf-error" role="alert">{{ loadError }}</p>
       <template v-else-if="view">
-        <div class="tr-venue-actions">
+        <div class="sf-btn-row tr-venue-actions">
           <template v-if="view.enabled">
             <button type="button" class="sf-btn primary" :disabled="Boolean(busy)" data-venue-full @click="fullScreen">Full screen</button>
             <button type="button" class="sf-btn" :disabled="Boolean(busy)" data-venue-rotate @click="rotate">{{ busy === "rotate" ? "Rotating..." : "New code" }}</button>
