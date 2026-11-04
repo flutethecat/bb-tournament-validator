@@ -40,6 +40,8 @@ export type { InducementUsageRow, InducementUsageView };
 /** The recorder's matches, read only (server.ts wires the tabletop repository). */
 export interface InducementUsageSource {
   listMatches(): Promise<MatchRecord[]>;
+  /** Every match, plus the match files that could not be read (team library lane: entry changes fail closed on them). */
+  listMatchesChecked?(): Promise<{ matches: MatchRecord[]; unreadable: string[] }>;
   readEvents(matchId: string): Promise<TabletopEvent[]>;
 }
 

@@ -7,7 +7,7 @@ import {
   type LibraryItem, type TakeoverPanelView,
 } from "../spa/src/leagues/takeover";
 import { entryHistoryLine as serverLine } from "../src/leagues/teamLibrary";
-import { clearedPlayedOn, fixtureRowEdit } from "../spa/src/leagues/league";
+import { clearedPlayedOn, fixtureRowEdit, zonedInput, zonedToIso } from "../spa/src/leagues/league";
 import type { LeagueFixture } from "../spa/src/leagues/types";
 
 // Team library lane, SPA side: the swap dialog's library groups and greyed rows, the entry history line (same words as
@@ -119,10 +119,25 @@ describe("re-entering a cleared result", () => {
   it("the editor's played-on defaults to when the cleared result was played (a correction stays with its coach)", () => {
     const side = (extra = {}) => ({ team: "T", coach: "Dan", race: "Human", score: null, cas: null, conceded: false, ...extra });
     const f = { id: "f1", home: side({ clearedPlayedBy: { coach: "Ann", at: "2026-10-11T20:00:00.000Z" } }), away: side() } as unknown as LeagueFixture;
-    expect(clearedPlayedOn(f)).toBe("2026-10-11");
-    expect(fixtureRowEdit(f).playedOn).toBe("2026-10-11");
+    expect(clearedPlayedOn(f)).toBe("2026-10-11T20:00");
+    // a date AND time in the league's time zone (a same-day replay is told apart from the takeover by the time)
+    expect(clearedPlayedOn(f, "America/New_York")).toBe("2026-10-11T16:00");
+    expect(fixtureRowEdit(f, "America/New_York").playedOn).toBe("2026-10-11T16:00");
     expect(clearedPlayedOn({ ...f, home: side() } as unknown as LeagueFixture)).toBe("");
     const editor = readFileSync(join(SPA, "components/LeagueFixturesEditor.vue"), "utf8");
     expect(editor).toContain("data-played-on");
+  });
+});
+
+describe("played-on times in the league's time zone", () => {
+  it("converts a datetime-local value both ways, across a DST change", () => {
+    expect(zonedToIso("2026-11-03T19:30", "America/New_York")).toBe("2026-11-04T00:30:00.000Z"); // EST
+    expect(zonedToIso("2026-10-11T16:00", "America/New_York")).toBe("2026-10-11T20:00:00.000Z"); // EDT
+    expect(zonedToIso("2026-11-03T19:30", "UTC")).toBe("2026-11-03T19:30:00.000Z");
+    expect(zonedInput("2026-11-04T00:30:00.000Z", "America/New_York")).toBe("2026-11-03T19:30");
+    expect(zonedToIso("soon", "UTC")).toBe("");
+    expect(zonedInput(undefined, "UTC")).toBe("");
+    const editor = readFileSync(join(SPA, "components/LeagueFixturesEditor.vue"), "utf8");
+    expect(editor).toContain('type="datetime-local"');
   });
 });

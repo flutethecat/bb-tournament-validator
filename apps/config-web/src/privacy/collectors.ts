@@ -468,7 +468,8 @@ export const STORE_COLLECTORS: StoreCollector[] = [
             season: s.name, number: s.number,
             teams: objs(s.teams).filter(linked),
             // resultEdit names the organiser who overrode a result: never given to the fixture's participants (see resultEdits).
-            fixtures: objs(s.fixtures).filter((f) => linked(f.home) || linked(f.away)).map(({ resultEdit: _e, forfeitDetail: _d, forfeitDraft: _r, ...f }) => f),
+            // A fixture whose frozen (or cleared) game coach is this coach belongs to their export too.
+            fixtures: objs(s.fixtures).filter((f) => [f.home, f.away].some((side) => linked(side) || (isObj(side) && [side.playedBy, side.clearedPlayedBy].some((p) => isObj(p) && linked({ coach: p.coach, coachId: p.coachId }))))).map(({ resultEdit: _e, forfeitDetail: _d, forfeitDraft: _r, ...f }) => f),
             // Result overrides this coach made as an organiser (the actor only).
             resultEdits: objs(s.fixtures).filter((f) => isObj(f.resultEdit) && isMine(ctx.keys, (f.resultEdit as Obj).by))
               .map((f) => ({ fixture: f.id, home: (f.home as Obj | undefined)?.team, away: (f.away as Obj | undefined)?.team, at: (f.resultEdit as Obj).at })),
@@ -943,9 +944,12 @@ function anonymiseSeason(an: Anonymiser, tx: TextReplacer, displays: ReadonlySet
   for (const f of objs(s.fixtures)) {
     for (const side of [f.home, f.away]) if (linked(side)) mark(LINKED_ROW(an, side as Obj));
     // The coach frozen with the result (records follow the coach of each game): linked by its own coach / account only.
+    // A cleared result's kept stamp too, so a later restore can never bring the identity back.
     for (const side of [f.home, f.away]) {
-      const played = isObj(side) ? (side as Obj).playedBy : undefined;
-      if (isObj(played) && linked({ coach: played.coach, coachId: played.coachId })) { mark(an.overwrite(played, ["coach"], ["nafUser"])); if (typeof played.coachId === "string" && played.coachId) { played.coachId = an.swap(played.coachId); changed = true; } }
+      for (const key of ["playedBy", "clearedPlayedBy"]) {
+        const played = isObj(side) ? (side as Obj)[key] : undefined;
+        if (isObj(played) && linked({ coach: played.coach, coachId: played.coachId })) { mark(an.overwrite(played, ["coach"], ["nafUser"])); if (typeof played.coachId === "string" && played.coachId) { played.coachId = an.swap(played.coachId); changed = true; } }
+      }
     }
     if (isObj(f.fork)) {
       for (const ft of vals(f.fork.teams)) mark(an.fields(ft, ["coach"], []));

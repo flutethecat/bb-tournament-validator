@@ -181,36 +181,69 @@ export function gameCoach(s: FixtureSide): FixtureSide | (PlayedCoach & Omit<Fix
   return { ...rest, ...played };
 }
 
-/** The entry's holder index for a side's team: how many times it changed hands (LeagueTeam.entryHistory). */
+/** One holder of an entry as the stamp reads it (LeagueTeam.entryHistory). */
+interface HolderSpan { coach: string; coachId?: string; at?: string }
+
+/** The entry's holder index now: how many times it changed hands (LeagueTeam.entryHistory). */
 const holderOf = (team: SeatTeam | undefined): number => Math.max(0, (team?.entryHistory?.length ?? 1) - 1);
 
-/** When the entry first changed hands after holder `span` (the next holder's start), if it did. */
-function changedAt(team: SeatTeam | undefined, span: number): string | undefined {
-  const next = (team?.entryHistory as Array<{ at?: unknown }> | undefined)?.[span + 1];
-  return typeof next?.at === "string" ? next.at : undefined;
+/** The holder of the entry at time `t` (ISO): the last holder whose start is at or before it (holder 0 held it from the
+ *  start). Undefined without a usable time. */
+function holderAt(team: SeatTeam | undefined, t: string | undefined): number | undefined {
+  const ms = t ? Date.parse(t) : Number.NaN;
+  if (!Number.isFinite(ms)) return undefined;
+  const spans = (team?.entryHistory ?? []) as HolderSpan[];
+  let at = 0;
+  for (let i = 1; i < spans.length; i += 1) {
+    const start = Date.parse(spans[i]?.at ?? "");
+    if (Number.isFinite(start) && start <= ms) at = i;
+  }
+  return at;
 }
 
-/** When a fixture was played, as far as it says (the result time, else the start). */
-export const playedTime = (f: Pick<LeagueFixture, "finishedAt" | "startedAt">): string | undefined => f.finishedAt ?? f.startedAt;
-
-/**
- * A cleared stamp still names the coach who played the re-entered result (records follow the coach of each game):
- *  - the entry has the same holder as when it was played (a correction; no change of hands since), or
- *  - it changed hands since, but the re-entered result is played at or before that change (a CORRECTION of the game the
- *    earlier coach actually played; the editor's "played on" defaults to the original time).
- * A result played after the change, or with no played time on either side, is a replay: it counts for the current seat.
- */
-function keepsClearedCoach(kept: PlayedCoach, team: SeatTeam | undefined, reentered: string | undefined): boolean {
-  const span = kept.span ?? 0;
-  if (span === holderOf(team)) return true;
-  const change = changedAt(team, span);
-  return Boolean(kept.at && reentered && change && Date.parse(reentered) <= Date.parse(change));
+/** When a fixture was played, as far as it says: the result time, else the start, else its scheduled date. */
+export function playedTime(f: Pick<LeagueFixture, "finishedAt" | "startedAt" | "date">): string | undefined {
+  if (f.finishedAt) return f.finishedAt;
+  if (f.startedAt) return f.startedAt;
+  return f.date && /^\d{4}-\d{2}-\d{2}$/.test(f.date) ? `${f.date}T00:00:00.000Z` : undefined;
 }
 
-/** What a season team gives its fixture sides (the seat, the name, the holder index). */
+/** What a season team gives its fixture sides (the seat, the name, the holder history). */
 export interface SeatTeam {
   id: string; name: string; race: string; coach: string; coachId?: string; nafUser?: string;
   coachAssigned?: { cleared?: true }; entryHistory?: unknown[];
+}
+
+/** Puts a stamp's coach facets on the side itself, so every reader of the raw side (exports, the CSV) agrees with it. */
+function seatSideAs(side: FixtureSide, p: PlayedCoach): void {
+  side.coach = p.coach;
+  delete side.coachId;
+  delete side.coachAssigned;
+  delete side.nafUser;
+  if (p.coachId) side.coachId = p.coachId;
+  if (p.coachId && p.coachAssigned) side.coachAssigned = true;
+  if (p.nafUser) side.nafUser = p.nafUser;
+}
+
+/**
+ * The coach a re-entered result counts for (records follow the coach of each game, coordinator ruling 11-03): the holder
+ * of the entry at the time the re-entered result was played.
+ *  - The cleared stamp's holder: its recorded index, else the holder at its played time. A stamp with neither (written
+ *    before both existed) stays with its coach: a correction never credits someone who may not have coached the game.
+ *  - No re-entered time: a correction of the cleared game, so its coach.
+ *  - The holder at the re-entered time is the stamp's: its coach (a correction); the current holder: the current seat (a
+ *    replay after the change); an earlier holder in between (A -> B -> C): that holder, from the entry history.
+ */
+function reenteredCoach(kept: PlayedCoach, team: SeatTeam | undefined, side: FixtureSide, reentered: string | undefined): PlayedCoach {
+  const keptHolder = kept.span ?? holderAt(team, kept.at);
+  const now = holderOf(team);
+  if (keptHolder === undefined) return kept;
+  if (keptHolder === now) return kept;
+  const at = holderAt(team, reentered);
+  if (at === undefined || at === keptHolder) return kept;
+  if (at === now) return { ...coachFacetsOf(side), span: now, ...(reentered ? { at: reentered } : {}) };
+  const span = ((team?.entryHistory ?? []) as HolderSpan[])[at];
+  return span ? { coach: span.coach, ...(span.coachId ? { coachId: span.coachId, coachAssigned: true as const } : {}), span: at, ...(reentered ? { at: reentered } : {}) } : kept;
 }
 
 /**
@@ -218,11 +251,11 @@ export interface SeatTeam {
  * every result path (the fork, the recorder, the fixtures editor, forfeits, deadlines, imports) gets it:
  *  - a side that has a result and no stamp is stamped with the coach who played it: the side's own facets (unplayed sides
  *    follow their team: Assign coach account, a swap and an approved takeover re-seat them), with the entry's holder index
- *    and the played time; a cleared result re-entered as a correction takes back its earlier stamp (keepsClearedCoach:
- *    same holder, or played at or before the change of hands); a replay after the change is stamped from the current seat;
+ *    and the played time; a re-entered cleared result counts for the holder at its played time (reenteredCoach), and the
+ *    side's coach fields are set to match the stamp;
  *  - a stamp without a played time takes the fixture's once it has one (an editor entry is announced after its write);
- *  - a side whose result was cleared drops its stamp (kept as clearedPlayedBy) and is re-seated to its team as it is now,
- *    so a replay after a takeover or swap is played and credited by the team's current coach.
+ *  - a side whose result was cleared keeps its stamp aside (clearedPlayedBy, with the played time the fixture still shows)
+ *    and is re-seated to its team as it is now, so a replay after a takeover or swap is played by the current coach.
  * Returns how many sides changed.
  */
 export function stampPlayedCoaches(season: { fixtures?: LeagueFixture[]; teams?: SeatTeam[] }): number {
@@ -236,15 +269,21 @@ export function stampPlayedCoaches(season: { fixtures?: LeagueFixture[]; teams?:
       if (played && !side.playedBy && (side.coach || side.coachId)) {
         const kept = side.clearedPlayedBy;
         const at = playedTime(f);
-        side.playedBy = kept && keepsClearedCoach(kept, team, at) ? kept
-          : { ...coachFacetsOf(side), ...(team ? { span: holderOf(team) } : {}), ...(at ? { at } : {}) };
+        if (kept) {
+          const pb = reenteredCoach(kept, team, side, at);
+          side.playedBy = pb;
+          seatSideAs(side, pb);
+        } else {
+          side.playedBy = { ...coachFacetsOf(side), ...(team ? { span: holderOf(team) } : {}), ...(at ? { at } : {}) };
+        }
         delete side.clearedPlayedBy;
         n += 1;
       } else if (played && side.playedBy && !side.playedBy.at && playedTime(f)) {
         side.playedBy.at = playedTime(f)!;
         n += 1;
       } else if (!played && side.playedBy) {
-        side.clearedPlayedBy = side.playedBy;
+        const at = side.playedBy.at ?? playedTime(f);
+        side.clearedPlayedBy = { ...side.playedBy, ...(at ? { at } : {}) };
         delete side.playedBy;
         if (team) {
           side.team = team.name;

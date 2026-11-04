@@ -162,6 +162,8 @@ export interface TabletopRepository {
   getJournal(matchId: string): Promise<CommitJournal | undefined>;
   clearJournal(matchId: string): Promise<void>;
   listJournalMatchIds(): Promise<string[]>;
+  /** Every match plus the match files that could not be read (optional: callers that must fail closed). */
+  listMatchesChecked?(): Promise<{ matches: MatchRecord[]; unreadable: string[] }>;
   nextJournalSeq(): Promise<number>;
   createMatch(match: MatchRecord): Promise<void>;
   getMatch(id: string): Promise<MatchRecord | undefined>;
@@ -249,6 +251,21 @@ export class FileTabletopRepository implements TabletopRepository {
       if (m) out.push(m);
     }
     return out;
+  }
+
+  /** listMatches, plus the names of match files that are unreadable or not a match record (callers that must fail closed). */
+  async listMatchesChecked(): Promise<{ matches: MatchRecord[]; unreadable: string[] }> {
+    const matches: MatchRecord[] = [];
+    const unreadable: string[] = [];
+    for (const name of readdirSync(join(this.dir, "matches"))) {
+      if (!name.endsWith(".json")) continue;
+      try {
+        const m = JSON.parse(readFileSync(join(this.dir, "matches", name), "utf8")) as MatchRecord;
+        if (!m || typeof m !== "object" || typeof m.id !== "string" || typeof m.state !== "string") unreadable.push(name);
+        else matches.push(m);
+      } catch { unreadable.push(name); }
+    }
+    return { matches, unreadable };
   }
 
   async updateMatch(match: MatchRecord): Promise<void> {

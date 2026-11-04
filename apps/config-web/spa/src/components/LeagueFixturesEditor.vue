@@ -7,7 +7,7 @@
 import { computed, inject, reactive, ref, watch } from "vue";
 import { API_KEY } from "../app";
 import ForfeitDialog from "./ForfeitDialog.vue";
-import { clearedPlayedOn, createFixtureRows, fixturePlayed, LEAGUE_DETAIL_KEY, newFixtureError, type FixtureRowEdit, type NewFixtureForm } from "../leagues/league";
+import { clearedPlayedOn, createFixtureRows, fixturePlayed, LEAGUE_DETAIL_KEY, newFixtureError, zonedToIso, type FixtureRowEdit, type NewFixtureForm } from "../leagues/league";
 import type { LeagueFixture, SeasonRecord } from "../leagues/types";
 
 const props = defineProps<{ season: SeasonRecord }>();
@@ -29,7 +29,9 @@ async function add(): Promise<void> {
 }
 
 // Per-fixture edits, keyed by season AND fixture (imported seasons reuse fixture ids like f1): see createFixtureRows.
-const edits = createFixtureRows();
+/** The league's time zone: the "played on" of a re-entered result is a date and time there (UTC until it is set). */
+const zone = computed(() => state.league?.timeZone || "UTC");
+const edits = createFixtureRows(() => zone.value);
 watch(() => `${props.season.id}|${props.season.fixtures.map((f) => `${f.id}:${edits.has(props.season.id, f.id) ? 1 : 0}`).join("|")}`, () => {
   edits.sync(props.season.id, props.season.fixtures);
 }, { immediate: true });
@@ -51,7 +53,7 @@ async function saveResult(f: LeagueFixture): Promise<void> {
   if (home === null || away === null) { state.editError = "Enter both scores."; state.editNotice = ""; return; }
   // A re-entered (cleared) result says when it was played: the original time by default (a correction stays with the coach
   // who played it); a later date makes it a replay for the team's current coach.
-  const playedOn = !fixturePlayed(f) && clearedPlayedOn(f) && r.playedOn ? r.playedOn : undefined;
+  const playedOn = !fixturePlayed(f) && clearedPlayedOn(f) && r.playedOn ? zonedToIso(r.playedOn, zone.value) || r.playedOn : undefined;
   await detail.editFixture(props.season.id, f.id, { result: { home, away, homeCas: num(r.homeCas), awayCas: num(r.awayCas), ...(playedOn ? { playedOn } : {}) } });
 }
 async function clearResult(f: LeagueFixture): Promise<void> {
@@ -152,7 +154,8 @@ async function remove(f: LeagueFixture): Promise<void> {
                 <input v-model="rowOf(f).away" type="number" min="0" max="99" inputmode="numeric" :aria-label="`${f.away.team} score`" />
                 <label v-if="!fixturePlayed(f) && clearedPlayedOn(f)" class="lg-fx-played" data-played-on>
                   <span class="tb-k">Played on</span>
-                  <input v-model="rowOf(f).playedOn" type="date" :aria-label="`${f.home.team} vs ${f.away.team} played on`" />
+                  <input v-model="rowOf(f).playedOn" type="datetime-local" :aria-label="`${f.home.team} vs ${f.away.team} played on (${zone})`" />
+                  <small class="muted">{{ zone }}</small>
                 </label>
               </td>
               <td class="lg-fx-score-edit">

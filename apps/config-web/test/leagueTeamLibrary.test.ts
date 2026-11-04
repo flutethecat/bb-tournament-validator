@@ -729,7 +729,10 @@ describe("review: an organiser never sees or uses a private team without the coa
     expect(pub.teams.find((x) => x.id === "grudge")).not.toHaveProperty("swapRequest");
     // only the coach approves
     expect((await h.call("POST", `${base}/teams/grudge/swap-request/approve`, JAY, {})).status).toBe(403);
-    const ok = await h.call("POST", `${base}/teams/grudge/swap-request/approve`, coach("Ann"), {});
+    // the approval names the reviewed request (id + team)
+    const reviewed = (asCoach.body as { request: { id: string; ref: string } }).request;
+    expect((await h.call("POST", `${base}/teams/grudge/swap-request/approve`, coach("Ann"), {})).status).toBe(400);
+    const ok = await h.call("POST", `${base}/teams/grudge/swap-request/approve`, coach("Ann"), { requestId: reviewed.id, ref: reviewed.ref });
     expect(ok.status, JSON.stringify(ok.body)).toBe(200);
     const after = h.season().teams.find((x) => x.id === "grudge")!;
     expect(after.name).toBe("Ann Hammers");
@@ -746,7 +749,7 @@ describe("review: an organiser never sees or uses a private team without the coa
     expect(h.season().teams.find((x) => x.id === "grudge")!.name).toBe("Grudge Rollers");
     expect(h.season().teams.find((x) => x.id === "grudge")!.swapRequest).toBeUndefined();
     expect(h.sent.some((x) => x.coach === "Jay" && x.input.title === "Swap declined: Grudge Rollers")).toBe(true);
-    expect((await h.call("POST", `${base}/teams/grudge/swap-request/approve`, coach("Ann"), {})).status).toBe(409);
+    expect((await h.call("POST", `${base}/teams/grudge/swap-request/approve`, coach("Ann"), { requestId: "sr-000000000000", ref: "save:secret-human" })).status).toBe(409);
     expect((await h.call("POST", `${base}/teams/grudge/swap`, JAY, { revision: h.rev(), ref: "library:lib1-human" })).status).toBe(202);
     expect((await h.call("POST", `${base}/teams/grudge/swap-request/decline`, KIM, {})).status).toBe(200);
     expect(h.season().teams.find((x) => x.id === "grudge")!.swapRequest).toBeUndefined();
@@ -783,21 +786,29 @@ describe("review: replays, registration rows and listings", () => {
     expect(fx("f1").home.playedBy).toMatchObject({ coach: "Ann", coachId: "Ann", span: 0 });
     // an explicit "played on" at or before the takeover is a correction too
     expect((await patch("f2", { result: null })).status).toBe(200);
-    expect((await patch("f2", { result: { home: 0, away: 0, playedOn: "2026-11-03" } })).status).toBe(200);
+    // a bare date on the takeover day is ambiguous: a time is required
+    expect((await patch("f2", { result: { home: 0, away: 0, playedOn: "2026-11-03" } })).status).toBe(400);
+    expect((await patch("f2", { result: { home: 0, away: 0, playedOn: "2026-11-03T11:00:00.000Z" } })).status).toBe(200);
     expect(fx("f2").away.playedBy).toMatchObject({ coach: "Ann" });
     // REPLAY: f1 cleared again and replayed after the takeover ("played on" after it) counts for Dan
     expect((await patch("f1", { result: null })).status).toBe(200);
-    expect((await patch("f1", { result: { home: 0, away: 2, playedOn: "2026-11-04" } })).status).toBe(200);
-    expect(fx("f1").home.playedBy).toMatchObject({ coach: "Dan", coachId: "Dan", span: 1, at: "2026-11-04T00:00:00.000Z" });
+    expect((await patch("f1", { result: { home: 0, away: 2, playedOn: "2026-11-03T12:03:00Z" } })).status).toBe(200);
+    expect(fx("f1").home.playedBy).toMatchObject({ coach: "Dan", coachId: "Dan", span: 1, at: "2026-11-03T12:03:00.000Z" });
     // a replay result from a path with a real time after the takeover (the fork, the recorder) is Dan's too
     expect((await patch("f2", { result: null })).status).toBe(200);
     edit("f2", (f) => { f.home.score = 2; f.away.score = 2; f.finishedAt = "2026-11-05T19:00:00.000Z"; });
     expect(fx("f2").away.playedBy).toMatchObject({ coach: "Dan", span: 1 });
-    // no original played time: the current seat
+    // a stamp that names its holder and is re-entered with no time is a correction: its coach
     edit("f3", (f) => { delete f.finishedAt; f.home.score = 1; f.away.score = 0; f.home.playedBy = { coach: "Ann", coachId: "Ann", span: 0 }; });
     edit("f3", (f) => { f.home.score = null; f.away.score = null; });
-    edit("f3", (f) => { f.home.score = 1; f.away.score = 0; f.finishedAt = "2026-10-01T00:00:00.000Z"; });
-    expect(fx("f3").home.playedBy).toMatchObject({ coach: "Dan" });
+    edit("f3", (f) => { f.home.score = 1; f.away.score = 0; delete f.finishedAt; });
+    expect(fx("f3").home.playedBy).toMatchObject({ coach: "Ann" });
+    expect(fx("f3").home).toMatchObject({ coach: "Ann", coachId: "Ann" }); // the raw side agrees with the stamp
+    // played times: never after now (plus a few minutes of clock skew)
+    expect((await patch("f3", { result: null })).status).toBe(200);
+    expect((await patch("f3", { result: { home: 1, away: 0, playedOn: "2026-11-03T12:10:00Z" } })).status).toBe(400);
+    expect((await patch("f3", { result: { home: 1, away: 0, playedOn: "2026-11-03T19:30" } })).status).toBe(400); // no zone
+    expect((await patch("f3", { result: { home: 1, away: 0, playedOn: "2026-11-03T12:04:00Z" } })).status).toBe(200);
   });
 
   it("P2-6: a race-changing swap updates the entry's accepted registration row in the same write", async () => {
@@ -828,5 +839,152 @@ describe("review: replays, registration rows and listings", () => {
     expect(h.sent.filter((x) => x.input.title === "Application closed: Grudge Rollers" && x.input.body === "This team is no longer available for takeover.").map((x) => x.coach).sort()).toEqual(["Bob", "Eve"]);
     expect(h.exits).toContain("Eve"); // the non-member's acknowledgement goes
     expect(h.exits).not.toContain("Bob"); // a member keeps theirs
+  });
+});
+
+// ---- re-review (Sol, 11-03 round 2) -----------------------------------------------------------------------------------
+
+describe("re-review: stale approvals, legacy stamps, exports, deletion, unreadable recorder files", () => {
+  it("R1: approving a request the organiser replaced meanwhile is refused (409)", async () => {
+    const h = harness();
+    h.coachTeams.ann!.push({ ref: "save:r1-human", kind: "save", name: "R1", race: "Human", tv: null }, { ref: "save:r2-orc", kind: "save", name: "R2", race: "Orc", tv: null });
+    await h.call("POST", `${base}/teams/grudge/swap`, JAY, { revision: h.rev(), ref: "save:r1-human" });
+    const seen = ((await h.call("GET", `${base}/teams/grudge/swap-request`, coach("Ann"))).body as { request: { id: string; ref: string } }).request;
+    expect(seen.ref).toBe("save:r1-human");
+    await h.call("POST", `${base}/teams/grudge/swap`, JAY, { revision: h.rev(), ref: "save:r2-orc" }); // replaced
+    const stale = await h.call("POST", `${base}/teams/grudge/swap-request/approve`, coach("Ann"), { requestId: seen.id, ref: seen.ref });
+    expect(stale.status).toBe(409);
+    expect(h.season().teams.find((t) => t.id === "grudge")!.name).toBe("Grudge Rollers");
+    const now = ((await h.call("GET", `${base}/teams/grudge/swap-request`, coach("Ann"))).body as { request: { id: string; ref: string } }).request;
+    expect((await h.call("POST", `${base}/teams/grudge/swap-request/approve`, coach("Ann"), { requestId: now.id, ref: "save:r1-human" })).status).toBe(409);
+    expect((await h.call("POST", `${base}/teams/grudge/swap-request/approve`, coach("Ann"), { requestId: now.id, ref: now.ref })).status).toBe(200);
+    expect(h.season().teams.find((t) => t.id === "grudge")!.race).toBe("Orc");
+  });
+
+  it("R2: a legacy stamp (no holder index) after A -> B -> C credits the holder at the re-entered time; with no time at all it stays with A", async () => {
+    const h = harness();
+    const edit = (id: string, fn: (f: LeagueFixture) => void) => { const s = h.season(); fn(s.fixtures.find((f) => f.id === id)!); h.store.putSeason(s); };
+    const fx = (id: string) => h.season().fixtures.find((f) => f.id === id)!;
+    // the entry changed hands twice: Ann -> Ben (10-20) -> Cat (10-25)
+    const s = h.season();
+    const t = s.teams.find((x) => x.id === "grudge")!;
+    t.entryHistory = [
+      { name: t.name, race: t.race, coach: "Ann", coachId: "Ann", fromGame: 1, toGame: 1, via: "start", at: "2026-10-01T00:00:00.000Z" },
+      { name: t.name, race: t.race, coach: "Ben", coachId: "Ben", fromGame: 2, toGame: 2, via: "takeover", at: "2026-10-20T00:00:00.000Z" },
+      { name: t.name, race: t.race, coach: "Cat", coachId: "Cat", fromGame: 3, via: "takeover", at: "2026-10-25T00:00:00.000Z" },
+    ];
+    t.coach = "Cat"; t.coachId = "Cat";
+    // legacy stamps: no holder index, no played time; f1 still has its scheduled date, f2 has nothing at all
+    for (const f of s.fixtures.filter((x) => x.id !== "f3")) { delete f.finishedAt; delete f.startedAt; f.home.playedBy = { coach: "Ann", coachId: "Ann" }; f.away.playedBy = { coach: f.away.coach, ...(f.away.coachId ? { coachId: f.away.coachId } : {}) }; }
+    s.fixtures.find((x) => x.id === "f1")!.date = "2026-10-11";
+    s.fixtures.find((x) => x.id === "f2")!.away.playedBy = { coach: "Ann", coachId: "Ann" };
+    h.store.putSeason(s);
+    // f1 cleared: the kept stamp takes the fixture's date, the side is seated for Cat
+    edit("f1", (f) => { f.home.score = null; f.away.score = null; });
+    expect(fx("f1").home.clearedPlayedBy).toMatchObject({ coach: "Ann", at: "2026-10-11T00:00:00.000Z" });
+    expect(fx("f1").home).toMatchObject({ coach: "Cat" });
+    // re-entered as played while Ben held the entry: Ben's game (never Cat's)
+    edit("f1", (f) => { f.home.score = 1; f.away.score = 0; f.finishedAt = "2026-10-22T20:00:00.000Z"; });
+    expect(fx("f1").home.playedBy).toMatchObject({ coach: "Ben", coachId: "Ben", span: 1 });
+    expect(fx("f1").home).toMatchObject({ coach: "Ben", coachId: "Ben" });
+    // as a correction of Ann's game (her time): Ann again
+    edit("f1", (f) => { f.home.score = null; f.away.score = null; });
+    edit("f1", (f) => { f.home.score = 1; f.away.score = 0; f.finishedAt = "2026-10-11T00:00:00.000Z"; });
+    expect(fx("f1").home.playedBy).toMatchObject({ coach: "Ann" });
+    // a replay after Cat took over: Cat's
+    edit("f1", (f) => { f.home.score = null; f.away.score = null; });
+    edit("f1", (f) => { f.home.score = 0; f.away.score = 1; f.finishedAt = "2026-11-01T20:00:00.000Z"; });
+    expect(fx("f1").home.playedBy).toMatchObject({ coach: "Cat", span: 2 });
+    // f2: no stamp holder, no time anywhere: a re-entry stays with Ann whatever time it carries
+    edit("f2", (f) => { f.home.score = null; f.away.score = null; });
+    expect(fx("f2").away.clearedPlayedBy).toEqual({ coach: "Ann", coachId: "Ann" });
+    edit("f2", (f) => { f.home.score = 2; f.away.score = 2; f.finishedAt = "2026-11-01T20:00:00.000Z"; });
+    expect(fx("f2").away.playedBy).toEqual({ coach: "Ann", coachId: "Ann" });
+    expect(fx("f2").away).toMatchObject({ coach: "Ann", coachId: "Ann" });
+  });
+
+  it("R4: a restored correction sets the side's coach to match, so the CSV export names the coach who played", async () => {
+    const h = harness();
+    const { leagueCsvFiles } = await import("../src/leagues/exportZip.js");
+    const edit = (id: string, fn: (f: LeagueFixture) => void) => { const s = h.season(); fn(s.fixtures.find((f) => f.id === id)!); h.store.putSeason(s); };
+    edit("f1", (f) => { f.finishedAt = "2026-10-11T20:00:00.000Z"; });
+    await h.list(true);
+    await h.apply("Dan", { mode: "takeover", share: [], acknowledged: true });
+    await h.call("POST", `${base}/takeovers/${h.listingId()}/applications/${h.season().takeoverApplications![0]!.id}/approve`, JAY, {});
+    expect((await h.call("PATCH", `${base}/fixtures/f1`, JAY, { result: null })).status).toBe(200);
+    expect((await h.call("PATCH", `${base}/fixtures/f1`, JAY, { result: { home: 3, away: 1 } })).status).toBe(200);
+    const f1 = h.season().fixtures.find((f) => f.id === "f1")!;
+    expect(f1.home).toMatchObject({ coach: "Ann", coachId: "Ann", playedBy: { coach: "Ann" } });
+    const csv = String(Object.entries(leagueCsvFiles(h.store.league(L)!, [h.season()])).find(([k]) => k.endsWith("fixtures.csv"))![1]);
+    const row = csv.split(/\r?\n/).find((l) => l.includes(",f1,"))!;
+    expect(row).toContain(",Ann,");
+    expect(row).not.toContain(",Dan,");
+  });
+
+  it("R6: an unreadable recorder match file fails the swap and the approval closed (503)", async () => {
+    const h = harness();
+    await h.list(true);
+    await h.apply("Dan", { mode: "takeover", share: [], acknowledged: true });
+    const { leagueApi: api } = await import("../src/leagues/api.js");
+    const depsWith = (unreadable: string[]) => ({
+      store: h.store, now: () => new Date("2026-11-03T12:00:00.000Z"), identities: () => [], notify: () => undefined,
+      memberContact: (_v: unknown, c: string) => ({ coach: c }), coachTeams: () => [{ ref: "save:s1-human", kind: "save" as const, name: "x", race: "Human", tv: null, shared: true }],
+      leagueTeamSheet: (c: string, ref: string, pkg: string) => sheetFor(c, ref, pkg),
+      tabletop: { listMatches: async () => [], readEvents: async () => [], listMatchesChecked: async () => ({ matches: [], unreadable }) },
+      readBody: async () => Buffer.from(JSON.stringify({ revision: h.rev(), ref: "save:s1-human" })),
+    }) as unknown as LeagueApiDeps;
+    const r = await api("POST", `${base}/teams/grudge/swap`, new URLSearchParams(), JAY, depsWith(["broken.json"]));
+    expect(r!.status).toBe(503);
+    const id = h.season().takeoverApplications![0]!.id;
+    const a = await api("POST", `${base}/takeovers/${h.listingId()}/applications/${id}/approve`, new URLSearchParams(), JAY, { ...depsWith(["broken.json"]), readBody: async () => Buffer.alloc(0) } as LeagueApiDeps);
+    expect(a!.status).toBe(503);
+    expect(h.season().teams.find((t) => t.id === "grudge")!.coachId).toBe("Ann");
+    // the file repository reports what it can't read
+    const { FileTabletopRepository } = await import("../src/tabletop/store.js");
+    const dir = mkdtempSync(join(tmpdir(), "tlib-tt-"));
+    roots.push(dir);
+    const repo = new FileTabletopRepository(join(dir, "tt"));
+    const { mkdirSync } = await import("node:fs");
+    mkdirSync(join(dir, "tt", "matches"), { recursive: true });
+    writeFileSync(join(dir, "tt", "matches", "m-bad.json"), "{ not json");
+    writeFileSync(join(dir, "tt", "matches", "m-odd.json"), "[]");
+    writeFileSync(join(dir, "tt", "matches", "m-ok.json"), JSON.stringify({ id: "m-ok", state: "recording", fixtureRef: `league:${L}:${S}:f3` }));
+    const checked = await repo.listMatchesChecked();
+    expect(checked.unreadable.sort()).toEqual(["m-bad.json", "m-odd.json"]);
+    expect(checked.matches.map((m) => m.id)).toEqual(["m-ok"]);
+  });
+});
+
+describe("re-review R5: a cleared stamp is anonymised and exported", () => {
+  it("delete then restore: the restored coach is the pseudonym, never the deleted identity", async () => {
+    const { seed, depsFor } = await import("./privacyFixture.js");
+    const { clearFences } = await import("../src/privacy/fence.js");
+    const root = mkdtempSync(join(tmpdir(), "bbtv-tlib-priv2-"));
+    roots.push(root);
+    process.env.IDENTITIES_FILE = join(root, "identities.json");
+    clearFences();
+    await seed(root);
+    const deps = depsFor(root);
+    const sFile = join(deps.stateDir, "leagues", "l1", "seasons", "s1.json");
+    const s = JSON.parse(readFileSync(sFile, "utf8"));
+    // Alice played the home side; the result was cleared after the team passed to Bob (the side now names Bob)
+    s.fixtures[0].home = { ...s.fixtures[0].home, coach: "Bob", coachId: "Bob", score: null, cas: null, clearedPlayedBy: { coach: "Alice Smith", coachId: "Alice", nafUser: "AliceNaf" } };
+    s.fixtures[0].away = { ...s.fixtures[0].away, score: null, cas: null };
+    writeFileSync(sFile, JSON.stringify(s));
+    const collectors = await import("../src/privacy/collectors.js");
+    const files = new Map((await collectors.collectExport(deps, "alice")).map((f) => [f.name, String(f.content)]));
+    const exported = JSON.parse(files.get("league-teams.json")!);
+    expect(JSON.stringify(exported[0].seasons[0].fixtures)).toContain("clearedPlayedBy");
+    const P = "Deleted coach #1";
+    const plan = { jobId: "x".repeat(24), coachHash: "", coach: "Alice", coachNames: ["Alice"], displays: ["Alice Smith", "AliceNaf"], nafId: "1001", pseudonym: P, teamKeys: [], proxyKeys: [], actor: "self", at: "" };
+    const ctx = collectors.deleteContext(deps, { ...collectors.splitPlan(plan as never).stored, coach: "Alice", coachNames: ["Alice"], displays: ["Alice Smith", "AliceNaf"], nafId: "1001" } as never);
+    for (const step of collectors.DELETE_STEPS.filter((x) => x.id === "anonymise-leagues")) await step.run(ctx);
+    const after = JSON.parse(readFileSync(sFile, "utf8")) as SeasonRecord;
+    expect(after.fixtures[0]!.home.clearedPlayedBy).toEqual({ coach: P, coachId: P });
+    // the result is re-entered: the restored coach is the pseudonym
+    after.fixtures[0]!.home.score = 1; after.fixtures[0]!.away.score = 0;
+    stampPlayedCoaches(after);
+    expect(after.fixtures[0]!.home.playedBy).toEqual({ coach: P, coachId: P });
+    expect(JSON.stringify(after.fixtures[0])).not.toMatch(/Alice/);
   });
 });

@@ -211,7 +211,13 @@ export async function openRecorderFixtures(deps: LeagueApiDeps, leagueId: string
   if (!deps.tabletop) return new Set();
   const prefix = `league:${leagueId}:${seasonId}:`;
   try {
-    const matches = await deps.tabletop.listMatches();
+    // Fail closed: a match file the recorder can't read could be an open match on one of these fixtures.
+    let matches;
+    if (deps.tabletop.listMatchesChecked) {
+      const checked = await deps.tabletop.listMatchesChecked();
+      if (checked.unreadable.length) return undefined;
+      matches = checked.matches;
+    } else matches = await deps.tabletop.listMatches();
     return new Set(matches.filter((m) => typeof m.fixtureRef === "string" && m.fixtureRef.startsWith(prefix) && m.state !== "published").map((m) => m.fixtureRef!.slice(prefix.length)));
   } catch {
     return undefined;
@@ -286,7 +292,7 @@ async function performSwap(
   const first = deps.store.season(lg.id, seasonId);
   if (!first) return fail(404, "Season not found.");
   const open = await openRecorderFixtures(deps, lg.id, seasonId);
-  if (!open) return fail(503, "The tabletop recorder can't be read right now, so the swap can't be checked. Try again.");
+  if (!open) return fail(503, "The tabletop recorder can't be read right now (or a match file is unreadable), so the swap can't be checked. Try again or ask a site admin.");
   return entryLocks(lg.id, first, teamId, async () => {
     const season = deps.store.season(lg.id, seasonId);
     const team = season?.teams.find((t) => t.id === teamId);
@@ -350,9 +356,11 @@ async function swapRequestRoute(method: string, seasonId: string, teamId: string
   const read = method === "GET" || method === "HEAD";
   if (verb === undefined ? !read : method !== "POST") return fail(405, verb === undefined ? "Use GET." : "Use POST.");
   if (verb !== undefined && verb !== "approve" && verb !== "decline") return fail(404, "Not found.");
+  let input: Record<string, unknown> = {};
   if (!read) {
     const body = await readJsonObject(deps, BODY_MAX);
     if (!body.ok) return { ...fail(body.status, body.error), ...(body.close ? { close: true } : {}) };
+    input = body.value;
   }
   const lg = deps.store.league(league.id) ?? league;
   const season = deps.store.season(lg.id, seasonId);
@@ -370,13 +378,17 @@ async function swapRequestRoute(method: string, seasonId: string, teamId: string
       let row: CoachTeamRow | undefined;
       try { row = (deps.coachTeams?.(auth.coach) ?? []).find((r) => r.ref === req.ref); } catch { row = undefined; }
       const c = row ? checkSheet(lg, season, auth.coach, req.ref, deps, deps.now?.() ?? new Date()) : undefined;
-      extra = row ? { name: c?.name || row.name, race: c?.race || row.race, ok: Boolean(c?.ok), ...(c && !c.ok ? { reason: c.reason } : {}) } : { ok: false, reason: "That team is no longer in your library." };
+      extra = row ? { ref: req.ref, name: c?.name || row.name, race: c?.race || row.race, ok: Boolean(c?.ok), ...(c && !c.ok ? { reason: c.reason } : {}) } : { ok: false, reason: "That team is no longer in your library." };
     }
     return res(200, { request: { id: req.id, by: req.by, at: req.at, ...extra } });
   }
   if (!req) return fail(409, "This swap request is no longer open.");
   if (verb === "approve") {
     if (!isCoach) return fail(403, "Only the team's coach can approve a swap with one of their private teams.");
+    // The coach approves the request they reviewed: its id and team must still be the open request's (an organiser may
+    // have replaced it meanwhile).
+    if (typeof input.requestId !== "string" || typeof input.ref !== "string") return fail(400, "Send the request you reviewed (requestId and ref).");
+    if (input.requestId !== req.id || input.ref !== req.ref) return fail(409, "The swap request changed since you opened it. Reload to see the current one.");
     return performSwap(lg, seasonId, teamId, auth.coach, req.ref, auth.coach, deps, { requestId: req.id, requestedBy: req.by });
   }
   // decline (the coach) or withdraw (an organiser): the request goes, nothing else changes.
@@ -579,7 +591,7 @@ async function decide(
     // An approval changes the team behind the entry: no recorder match may be open on its fixtures, and it runs under the
     // same fork locks as a swap (a generate / launch in flight finishes first; the adapter re-checks every guard).
     const open = await openRecorderFixtures(deps, lg.id, season.id);
-    if (!open) return fail(503, "The tabletop recorder can't be read right now, so the approval can't be checked. Try again.");
+    if (!open) return fail(503, "The tabletop recorder can't be read right now (or a match file is unreadable), so the approval can't be checked. Try again or ask a site admin.");
     const block = entryChangeBlock(season, row.teamId, open);
     if (block) return fail(409, block);
     const service = serviceFor(deps, (info) => { approval = info; }, open);

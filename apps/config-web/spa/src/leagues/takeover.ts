@@ -36,7 +36,7 @@ export interface LibraryItem {
 }
 
 /** The coach's view of an organiser's swap request (GET .../teams/:teamId/swap-request). */
-export interface SwapRequestView { id: string; by: string; at: string; name?: string; race?: string; ok?: boolean; reason?: string }
+export interface SwapRequestView { id: string; by: string; at: string; ref?: string; name?: string; race?: string; ok?: boolean; reason?: string }
 
 export interface TeamLibraryView {
   team: { id: string; name: string; race: string; games: number };
@@ -287,7 +287,9 @@ export function createTeamLibrary(deps: { api: Fetcher }) {
   async function loadRequest(leagueId: string, seasonId: string, teamId: string): Promise<void> {
     try { request.view = (await deps.api<{ request: SwapRequestView | null }>(`${seasonPath(leagueId, seasonId)}/teams/${encodeURIComponent(teamId)}/swap-request`)).request; } catch { request.view = null; }
   }
+  /** Approving names the request the coach reviewed (id + team): the server refuses it if the request changed since. */
   const answerRequest = (leagueId: string, seasonId: string, teamId: string, verb: "approve" | "decline"): Promise<boolean | "requested"> =>
-    post(`${seasonPath(leagueId, seasonId)}/teams/${encodeURIComponent(teamId)}/swap-request/${verb}`, {});
+    post(`${seasonPath(leagueId, seasonId)}/teams/${encodeURIComponent(teamId)}/swap-request/${verb}`,
+      verb === "approve" && request.view ? { requestId: request.view.id, ref: request.view.ref ?? "" } : {});
   return { state, load, swap, setListing, request, loadRequest, answerRequest };
 }

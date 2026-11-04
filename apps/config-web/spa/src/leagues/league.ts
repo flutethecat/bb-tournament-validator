@@ -78,20 +78,42 @@ export const fixtureRowKey = (seasonId: string, fixtureId: string): string => `$
 /** One fixtures-editor row (strings, so an empty box means "none"). */
 export interface FixtureRowEdit { date: string; home: string; away: string; homeCas: string; awayCas: string; playedOn: string }
 
-/** When a cleared result was first played (team library lane): the re-entry form's "played on" defaults to it, so a
- *  correction stays with the coach who played it; a later date makes it a replay for the team's current coach. */
-export const clearedPlayedOn = (f: LeagueFixture): string => (f.home.clearedPlayedBy?.at ?? f.away.clearedPlayedBy?.at ?? "").slice(0, 10);
+/** An instant as a datetime-local value ("YYYY-MM-DDTHH:mm") in a time zone ("" when it can't be shown). */
+export function zonedInput(iso: string | undefined, timeZone: string): string {
+  const t = iso ? Date.parse(iso) : Number.NaN;
+  if (!Number.isFinite(t)) return "";
+  try {
+    const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+      .formatToParts(new Date(t)).map((p) => [p.type, p.value]));
+    return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+  } catch { return new Date(t).toISOString().slice(0, 16); }
+}
 
-export const fixtureRowEdit = (f: LeagueFixture): FixtureRowEdit => ({
+/** A datetime-local value read in a time zone, as a UTC ISO time ("" when it isn't one). Two passes settle DST edges. */
+export function zonedToIso(local: string, timeZone: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(local.trim());
+  if (!m) return "";
+  const wall = Date.UTC(+m[1]!, +m[2]! - 1, +m[3]!, +m[4]!, +m[5]!);
+  const offset = (t: number): number => { const z = zonedInput(new Date(t).toISOString(), timeZone); return z ? Date.parse(`${z}:00Z`) - t : 0; };
+  let t = wall - offset(wall);
+  t = wall - offset(t);
+  return Number.isFinite(t) ? new Date(t).toISOString() : "";
+}
+
+/** When a cleared result was first played (team library lane), in the league's time zone: the re-entry form's "played on"
+ *  defaults to it, so a correction stays with the coach who played it; a later time makes it a replay for the current coach. */
+export const clearedPlayedOn = (f: LeagueFixture, timeZone = "UTC"): string => zonedInput(f.home.clearedPlayedBy?.at ?? f.away.clearedPlayedBy?.at, timeZone);
+
+export const fixtureRowEdit = (f: LeagueFixture, timeZone = "UTC"): FixtureRowEdit => ({
   date: f.date ?? "", home: f.home.score === null ? "" : String(f.home.score), away: f.away.score === null ? "" : String(f.away.score),
-  homeCas: f.home.cas === null ? "" : String(f.home.cas), awayCas: f.away.cas === null ? "" : String(f.away.cas), playedOn: clearedPlayedOn(f),
+  homeCas: f.home.cas === null ? "" : String(f.home.cas), awayCas: f.away.cas === null ? "" : String(f.away.cas), playedOn: clearedPlayedOn(f, timeZone),
 });
 
 /**
  * The fixtures editor's pending edits. Keyed by season + fixture, and a season switch drops every pending edit, so a
  * score typed in one season can never be submitted into another season's fixture with the same id.
  */
-export function createFixtureRows() {
+export function createFixtureRows(timeZone: () => string = () => "UTC") {
   const rows = reactive<Record<string, FixtureRowEdit>>({});
   let current = "";
   return {
@@ -99,9 +121,9 @@ export function createFixtureRows() {
     /** Call outside render whenever the season or its fixture list changes. */
     sync(seasonId: string, fixtures: readonly LeagueFixture[]): void {
       if (seasonId !== current) { for (const k of Object.keys(rows)) delete rows[k]; current = seasonId; }
-      for (const f of fixtures) rows[fixtureRowKey(seasonId, f.id)] ??= fixtureRowEdit(f);
+      for (const f of fixtures) rows[fixtureRowKey(seasonId, f.id)] ??= fixtureRowEdit(f, timeZone());
     },
-    rowOf: (seasonId: string, f: LeagueFixture): FixtureRowEdit => rows[fixtureRowKey(seasonId, f.id)] ?? fixtureRowEdit(f),
+    rowOf: (seasonId: string, f: LeagueFixture): FixtureRowEdit => rows[fixtureRowKey(seasonId, f.id)] ?? fixtureRowEdit(f, timeZone()),
     drop(seasonId: string, fixtureId: string): void { delete rows[fixtureRowKey(seasonId, fixtureId)]; },
   };
 }

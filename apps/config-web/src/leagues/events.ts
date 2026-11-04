@@ -25,6 +25,7 @@ import { starProfanity } from "../discord/profanity.js";
 import { announceGame } from "../discord/games-post.js";
 import { leagueTarget, postTo, seasonTarget } from "../discord/targets.js";
 import { readJsonObject } from "./http.js";
+import { leagueTimeZone } from "./timeZone.js";
 import { teamSeat } from "./identity.js";
 import { SettingsError } from "./settings.js";
 import { isLeagueOrganiser, type LeagueStore } from "./store.js";
@@ -309,16 +310,33 @@ async function newsRoute(
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** The optional "played on" of a result typed in the editor: YYYY-MM-DD (taken as the start of that day, UTC) or a full ISO
- *  time; undefined when not sent. Never in the future beyond a day of clock skew. */
-export function parsePlayedOn(v: unknown): string | undefined {
+/** Played-on times may run this far ahead of the server clock (clock skew). */
+export const PLAYED_ON_SKEW_MS = 5 * 60 * 1000;
+
+/** The calendar day (YYYY-MM-DD) of an instant in a time zone. */
+export function dayIn(iso: string, timeZone: string): string {
+  try { return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(iso)); } catch { return iso.slice(0, 10); }
+}
+
+/**
+ * The optional "played on" of a result typed in the editor (records follow the coach of each game): a full ISO time (the
+ * editor sends the league-time-zone date and time converted to UTC), or a bare date YYYY-MM-DD (taken as 00:00 UTC). A bare
+ * date on a day one of the fixture's teams changed hands (`changeDays`, in the league's time zone) is ambiguous: the time
+ * decides whose game it was, so it is refused. Never after now (plus PLAYED_ON_SKEW_MS). Undefined when not sent.
+ */
+export function parsePlayedOn(v: unknown, ctx: { now: Date; changeDays?: ReadonlySet<string> } = { now: new Date() }): string | undefined {
   if (v === undefined || v === null || v === "") return undefined;
-  if (typeof v !== "string") throw new SettingsError(400, "Played on must look like 2026-11-05.", "playedOn");
+  const bad = (): never => { throw new SettingsError(400, "Played on must be a date and time, like 2026-11-05 19:30.", "playedOn"); };
+  if (typeof v !== "string") return bad();
   const raw = v.trim();
-  const iso = DATE.test(raw) ? `${parseFixtureDate(raw)}T00:00:00.000Z` : raw;
+  const dateOnly = DATE.test(raw);
+  if (dateOnly && ctx.changeDays?.has(raw)) throw new SettingsError(400, "A team in this fixture changed hands that day: add the time it was played, so the game counts for the right coach.", "playedOn");
+  const iso = dateOnly ? `${parseFixtureDate(raw)}T00:00:00.000Z` : raw;
+  // A full time must say its zone (Z or an offset): a bare wall time would be read in the server's zone.
+  if (!dateOnly && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/.test(raw)) return bad();
   const t = Date.parse(iso);
-  if (!/^\d{4}-\d{2}-\d{2}T/.test(iso) || !Number.isFinite(t)) throw new SettingsError(400, "Played on must look like 2026-11-05.", "playedOn");
-  if (t > Date.now() + 24 * 60 * 60 * 1000) throw new SettingsError(400, "Played on can't be in the future.", "playedOn");
+  if (!Number.isFinite(t)) return bad();
+  if (t > ctx.now.getTime() + PLAYED_ON_SKEW_MS) throw new SettingsError(400, "Played on can't be in the future.", "playedOn");
   return new Date(t).toISOString();
 }
 
@@ -429,7 +447,11 @@ export async function editFixture(
       home: parseScore(r.home, "Home score", false)!, away: parseScore(r.away, "Away score", false)!,
       homeCas: parseScore(r.homeCas, "Home casualties", true), awayCas: parseScore(r.awayCas, "Away casualties", true),
     };
-    playedOn = parsePlayedOn(r.playedOn);
+    // The days the fixture's teams changed hands, in the league's time zone: a bare date on one of them is ambiguous.
+    const zone = leagueTimeZone(league);
+    const changeDays = new Set(season.teams.filter((t) => t.id === fixture.home.teamId || t.id === fixture.away.teamId)
+      .flatMap((t) => (t.entryHistory ?? []).slice(1).map((sp) => dayIn(sp.at, zone))));
+    playedOn = parsePlayedOn(r.playedOn, { now: deps.now?.() ?? new Date(), changeDays });
   }
   // A forfeit applied roster changes once: its result is changed only by undoing it (forfeit.ts undoForfeit), which reverses
   // them; defection rolls stay with the fixture either way, so nothing is ever rerolled or applied twice.

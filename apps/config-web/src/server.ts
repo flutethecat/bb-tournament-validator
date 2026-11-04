@@ -956,6 +956,8 @@ const advancementItemsCached = createAdvancementCache();
 /** League inducement usage reads the recorder's matches (src/leagues/inducementUsage.ts); one object, so its pick cache lasts. */
 const tabletopUsageSource = {
   listMatches: async () => (await tabletopDeps()).repo.listMatches(),
+  // fail closed when a repository cannot report unreadable files: every file counts as unreadable then
+  listMatchesChecked: async () => { const repo = (await tabletopDeps()).repo; return repo.listMatchesChecked ? repo.listMatchesChecked() : { matches: await repo.listMatches(), unreadable: ["(unchecked)"] }; },
   readEvents: async (matchId: string) => (await tabletopDeps()).repo.readEvents(matchId),
 };
 
