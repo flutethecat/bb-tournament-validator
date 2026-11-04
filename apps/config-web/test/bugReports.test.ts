@@ -16,6 +16,7 @@ import {
   RATE_WINDOW_MS,
   WIRE_LOG_CAP,
   bugReportAccessError,
+  cleanReplyText,
   getBugReport,
   getBugReportScreenshot,
   listBugReports,
@@ -525,5 +526,60 @@ describe("status check reads only the small status record (Sol P2, 11-04)", () =
     }
     expect(isStateChangingApiRequest("post", "/api/bug-reports/status")).toBe(false);
     expect(onboardingGateApplies("post", "/api/bug-reports/status")).toBe(false);
+  });
+});
+
+describe("reply cleaning and status record size (Sol round 2, 11-04)", () => {
+  const submit = async (d: string) =>
+    ((await submitBugReport(BASE, undefined, deps(d), Date.UTC(2026, 10, 4, 10))).body as { id: string; receipt: string });
+  const base = { status: "triaged", rootCause: "", reason: "" };
+
+  it("strips control characters except newline and tab, CR line ends and lone surrogates", () => {
+    const nul = String.fromCharCode(0);
+    const esc = String.fromCharCode(0x1b);
+    const del = String.fromCharCode(0x7f);
+    const nel = String.fromCharCode(0x85);
+    const lone = String.fromCharCode(0xd800);
+    const raw = `a${nul}b${esc}c${del}d${nel}e${lone}f\r\ng\rh\ti\n\u{1F600}`;
+    expect(cleanReplyText(raw)).toBe("abcdef\ng\nh\ti\n\u{1F600}");
+  });
+
+  it("a reply of 2000 escaped control characters is cleaned away, never stored, and the report stays answerable", async () => {
+    const d = dir();
+    const { id, receipt } = await submit(d);
+    const result = updateBugReportTriage(d, id, { ...base, reply: String.fromCharCode(0).repeat(REPLY_CAP) }, "admin");
+    expect(result.status).toBe(200);
+    expect(lookupBugReportStatuses(d, [{ id, receipt }])[0]).toMatchObject({ id, reply: null });
+  });
+
+  it("a maximum-length reply of multi-byte and escaped characters fits the status record and reads back exactly", async () => {
+    const d = dir();
+    const { id, receipt } = await submit(d);
+    const unit = '"\\漢\u{1F600}\n'; // quote, backslash, CJK, emoji (2 UTF-16 units), newline: all serialize big
+    const reply = unit.repeat(Math.floor(REPLY_CAP / unit.length)).slice(0, REPLY_CAP);
+    expect(reply.length).toBeGreaterThan(REPLY_CAP - unit.length);
+    const result = updateBugReportTriage(d, id, { ...base, reply, fixedIn: "1.0.307-abcdefghijklmnop" }, "admin");
+    expect(result.status).toBe(200);
+    const size = readFileSync(join(d, id, "status.json")).length;
+    expect(size).toBeGreaterThan(4 * 1024); // far more bytes than characters
+    expect(size).toBeLessThanOrEqual(STATUS_RECORD_CAP);
+    expect(lookupBugReportStatuses(d, [{ id, receipt }])[0]).toMatchObject({ id, reply: reply.trim(), fixedIn: "1.0.307-abcdefghijklmnop" });
+  });
+
+  it("every PATCH rewrites status.json, even an over-cap or damaged one", async () => {
+    const d = dir();
+    const { id, receipt } = await submit(d);
+    const file = join(d, id, "status.json");
+    const good = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+    // Over the read cap: the lookup skips it, a corrective PATCH rewrites it.
+    writeFileSync(file, JSON.stringify({ ...good, reply: "z".repeat(STATUS_RECORD_CAP) }), "utf8");
+    expect(lookupBugReportStatuses(d, [{ id, receipt }])).toEqual([]);
+    expect(updateBugReportTriage(d, id, { ...base, reply: "Fixed" }, "admin").status).toBe(200);
+    expect(lookupBugReportStatuses(d, [{ id, receipt }])[0]).toMatchObject({ status: "triaged", reply: "Fixed" });
+    // Damaged JSON: the hash is recovered from the text and the record rewritten.
+    writeFileSync(file, `{"receiptHash":"${good.receiptHash as string}","status":`, "utf8");
+    expect(lookupBugReportStatuses(d, [{ id, receipt }])).toEqual([]);
+    expect(updateBugReportTriage(d, id, { ...base, status: "resolved" }, "admin").status).toBe(200);
+    expect(lookupBugReportStatuses(d, [{ id, receipt }])[0]).toMatchObject({ status: "resolved", reply: "Fixed" });
   });
 });

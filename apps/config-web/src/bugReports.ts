@@ -49,7 +49,9 @@ const RECEIPT_PATTERN = /^[A-Za-z0-9_-]{43}$/; // 32 bytes, base64url, unpadded
 const RECEIPT_HASH_PATTERN = /^[0-9a-f]{64}$/;
 /** status.json: the only file the public status check reads. */
 const STATUS_FILE = "status.json";
-export const STATUS_RECORD_CAP = 8 * 1024;
+/** Read cap for status.json. A maximum-length cleaned reply (2000 chars, at most 3 bytes each once serialized) plus
+ *  the other fields stays well under it; every write is measured against it too. */
+export const STATUS_RECORD_CAP = 16 * 1024;
 /** Short scalar metadata on a submit (clientVersion, gameId): over-long values are refused with 400. */
 export const METADATA_FIELD_CAP = 64;
 
@@ -449,9 +451,18 @@ function parseReplyField(value: unknown): { ok: true; value: string | null | und
   if (value === undefined) return { ok: true, value: undefined };
   if (value === null) return { ok: true, value: null };
   if (typeof value !== "string") return { ok: false, error: "reply must be a string or null." };
-  const trimmed = value.trim();
+  const trimmed = cleanReplyText(value).trim();
   if (trimmed.length > REPLY_CAP) return { ok: false, error: `reply is limited to ${REPLY_CAP} characters.` };
   return { ok: true, value: trimmed || null };
+}
+
+/** Player-facing text: CRLF/CR become \n, and control characters other than \n and \t (C0, DEL, C1) and lone UTF-16
+ *  surrogates are dropped, so the reply is printable and its serialized size stays predictable. */
+export function cleanReplyText(value: string): string {
+  return value
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\u0000-\u0008\u000B-\u001F\u007F-\u009F]/g, "")
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "");
 }
 
 function parseFixedInField(value: unknown): { ok: true; value: string | null | undefined } | { ok: false; error: string } {
@@ -512,13 +523,19 @@ export function updateBugReportTriage(
     },
     playerUpdate,
   };
-  writeFileSync(join(dir, id, "report.json"), JSON.stringify(report, null, 2), "utf8");
-  // Keep the small public status record in step; a report filed before receipts has none and never gets one.
-  const record = readStatusRecord(dir, id);
-  if (record) {
+  // Keep the small public status record in step. Every PATCH of a receipt report rewrites it, even when the current file
+  // is over the read cap or unreadable; a report filed before receipts has none and never gets one. The record is built
+  // and measured before anything is written, so a refused PATCH changes nothing.
+  const receiptHash = storedReceiptHash(dir, id);
+  let record: StatusRecord | undefined;
+  if (receiptHash) {
     const submittedAt = typeof current.submittedAt === "string" ? current.submittedAt : null;
-    writeStatusRecord(join(dir, id), statusRecordFor(record.receiptHash, status as ReportTriageStatus, playerUpdate, submittedAt));
+    record = statusRecordFor(receiptHash, status as ReportTriageStatus, playerUpdate, submittedAt);
+    if (Buffer.byteLength(JSON.stringify(record), "utf8") > STATUS_RECORD_CAP)
+      return { status: 400, body: { error: "reply is too long once stored; shorten it." } };
   }
+  writeFileSync(join(dir, id, "report.json"), JSON.stringify(report, null, 2), "utf8");
+  if (record) writeStatusRecord(join(dir, id), record);
   return { status: 200, body: { ok: true, report: withoutReceiptHash(report) } };
 }
 
@@ -606,6 +623,25 @@ function writeStatusRecord(reportDir: string, record: StatusRecord): void {
   const file = join(reportDir, STATUS_FILE);
   writeFileSync(`${file}.tmp`, JSON.stringify(record), "utf8");
   renameSync(`${file}.tmp`, file);
+}
+
+/**
+ * The receipt hash for an organiser PATCH (session-gated, not the public read): read without the size cap and, if the
+ * JSON is damaged, recovered from the text, so a bad record can always be rewritten. undefined = no status record.
+ */
+function storedReceiptHash(dir: string, id: string): string | undefined {
+  if (!REPORT_ID_PATTERN.test(id)) return undefined;
+  let text: string;
+  try {
+    text = readFileSync(join(dir, id, STATUS_FILE), "utf8");
+  } catch {
+    return undefined;
+  }
+  try {
+    const raw = JSON.parse(text) as { receiptHash?: unknown } | null;
+    if (raw && typeof raw.receiptHash === "string" && RECEIPT_HASH_PATTERN.test(raw.receiptHash)) return raw.receiptHash;
+  } catch { /* fall through to the text scan */ }
+  return /"receiptHash"\s*:\s*"([0-9a-f]{64})"/.exec(text)?.[1];
 }
 
 /** status.json only, never report.json; undefined when missing, over STATUS_RECORD_CAP or malformed. */
