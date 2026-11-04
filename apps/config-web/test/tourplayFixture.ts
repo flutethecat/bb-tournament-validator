@@ -15,11 +15,11 @@ export const NAF_NUMBERS = { morgan: "70001", quinn: "70002", riley: "70003" } a
 
 export const SLUG = "valley-bowl-season-1-0001";
 
-export function seasonFiles(slug = SLUG, opts: { quinnTeam?: string; extraRound?: boolean; round3?: "unplayed" | "1-0"; round1Score?: string; noRosters?: boolean; extraParticipant?: boolean } = {}): Record<string, string> {
+export function seasonFiles(slug = SLUG, opts: { quinnTeam?: string; extraRound?: boolean; round3?: "unplayed" | "1-0"; round1Score?: string; noRosters?: boolean; extraParticipant?: boolean; round1Table?: number; rosterRename?: boolean; tds?: number } = {}): Record<string, string> {
   const quinnTeam = opts.quinnTeam ?? "Quarry Quakers";
   const fixtures = crlf([
     FIX_HEAD,
-    `Season;Regular;;1;1;Moss Marauders;${quinnTeam};Morgan Example;Quinn Sample;Orc;Dwarf;morganx;quinns;${opts.round1Score ?? "2;1"};1;0;;;;2026-09-01T18:00:00Z;2026-09-01T20:00:00Z`,
+    `Season;Regular;;1;${opts.round1Table ?? 1};Moss Marauders;${quinnTeam};Morgan Example;Quinn Sample;Orc;Dwarf;morganx;quinns;${opts.round1Score ?? "2;1"};1;0;;;;2026-09-01T18:00:00Z;2026-09-01T20:00:00Z`,
     "Season;Regular;;1;2;Rapid Rascals;Cobble Crushers;Riley Test;Casey Demo;Skaven;Human;rileyt;caseyd;1;1;0;2;;;;2026-09-01T18:00:00Z;2026-09-01T20:00:00Z",
     `Season;Regular;;2;1;Moss Marauders;Rapid Rascals;Morgan Example;Riley Test;Orc;Skaven;morganx;rileyt;0;0;0;0;True;;;2026-09-08T18:00:00Z;2026-09-08T18:00:00Z`,
     `Season;Regular;;2;2;Cobble Crushers;Ashen Avengers;Casey Demo;Avery Placeholder;Human;Undead;caseyd;;3;0;0;1;;;;2026-09-08T18:00:00Z;2026-09-08T20:00:00Z`,
@@ -62,7 +62,8 @@ export function seasonFiles(slug = SLUG, opts: { quinnTeam?: string; extraRound?
   if (opts.noRosters) return core;
   return {
     ...core,
-    "Moss Marauders-Orc-Morgan Example-roster.csv": roster("Moss Marauders", "Orc", "Morgan Example", "morganx", "Grub Mossfoot", "Blitzer"),
+    "Moss Marauders-Orc-Morgan Example-roster.csv": roster("Moss Marauders", "Orc", "Morgan Example", "morganx", opts.rosterRename ? "Grub Mosfoot" : "Grub Mossfoot", "Blitzer"),
+    ...(opts.tds ? { [`${slug}-season-mosttouchdowns-player-honors.csv`]: crlf(["Category;Rank;Name;Position;Level;TeamName;TeamRace;Coach;Value", `Season;1;Grub Mossfoot;Blitzer;Rookie;Moss Marauders;Orc;Morgan Example;${opts.tds}`]) } : {}),
     [`${quinnTeam}-Dwarf-Quinn Sample-roster.csv`]: roster(quinnTeam, "Dwarf", "Quinn Sample", "quinns", "Borin Pebble", "Blocker"),
     "Rapid Rascals-Skaven-Riley Test-roster.csv": roster("Rapid Rascals", "Skaven", "Riley Test", "rileyt", "Skitter Quick", "Gutter Runner"),
     "Cobble Crushers-Human-Casey Demo-roster.csv": roster("Cobble Crushers", "Human", "Casey Demo", "caseyd", "Tom Cobble", "Blitzer"),

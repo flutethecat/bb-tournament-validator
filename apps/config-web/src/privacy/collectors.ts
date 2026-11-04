@@ -955,7 +955,8 @@ const LINKED_ROW = (an: Anonymiser, o: Obj): boolean => {
 function tourplayImportExport(keys: ReadonlySet<string>, file: Obj | undefined): { coaches: Obj[]; claims: Obj[] } | undefined {
   if (!file) return undefined;
   const rows = vals(file.coaches);
-  const linkedTo = (r: Obj): boolean => isMine(keys, r.coachId) || (isObj(r.decision) && isMine(keys, (r.decision as Obj).coachId));
+  const linkedTo = (r: Obj): boolean => isMine(keys, r.coachId) || (isObj(r.decision) && isMine(keys, (r.decision as Obj).coachId))
+    || (Array.isArray(r.linked) && r.linked.some((x) => isMine(keys, x))) || vals(r.seasonLinks).some((x) => isMine(keys, x.coachId));
   const coaches = rows.filter(linkedTo).map((r) => ({
     name: r.name, ...(r.nafUser ? { nafUser: r.nafUser } : {}), ...(r.nafNumber ? { nafNumber: r.nafNumber } : {}),
     seasons: objs(r.seasons).map((x) => ({ number: x.number, teams: x.teams })), status: r.status, ...(r.basis ? { basis: r.basis } : {}),
@@ -979,7 +980,7 @@ function anonymiseTourplayImport(an: Anonymiser, f: Obj): boolean {
   for (const [key, r] of Object.entries(coaches)) {
     if (!isObj(r)) continue;
     const decision = isObj(r.decision) ? (r.decision as Obj) : undefined;
-    if (an.matches(r.coachId) || an.matches(decision?.coachId)) {
+    if (an.matches(r.coachId) || an.matches(decision?.coachId) || (Array.isArray(r.linked) && r.linked.some((x) => an.matches(x))) || vals(r.seasonLinks).some((x) => an.matches(x.coachId))) {
       delete coaches[key];
       // the re-import snapshots hold the export's names too: dropped (the next re-import treats every difference as a conflict)
       delete f.snapshots;

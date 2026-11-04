@@ -308,13 +308,13 @@ export interface ImportPlan { seasons: PlannedSeason[]; coaches: PlannedCoach[];
 
 /** Teams the fixtures / standings / participants name but no roster file gives: a team record without players, so the
  *  coach can still be seated (review P2). */
-function deriveMissingTeams(season: SeasonRecord): string[] {
-  const added: string[] = [];
+function deriveMissingTeams(season: SeasonRecord): Array<{ id: string; name: string }> {
+  const added: Array<{ id: string; name: string }> = [];
   const seen = new Set(season.teams.map((t) => t.id));
   const add = (teamId: string | undefined, name: string, race: string, coach: string, nafUser: string | undefined, coachId: string | undefined): void => {
     if (!teamId || seen.has(teamId) || !name.trim()) return;
     seen.add(teamId);
-    added.push(name);
+    added.push({ id: teamId, name });
     season.teams.push({
       id: teamId, name, race, coach, ...(coachId ? { coachId } : {}), ...(nafUser ? { nafUser } : {}),
       teamValue: null, importedTeamValue: null, treasury: null, rerolls: null, fans: null, assistantCoaches: null, cheerleaders: null,
@@ -421,12 +421,13 @@ export function planImport(input: {
     try {
       const built = buildSeason({ leagueId: league.id, number: s.number, files, mapCoach, now });
       built.season.id = s.id;
-      s.derivedTeams = deriveMissingTeams(built.season);
+      const derived = deriveMissingTeams(built.season);
+      s.derivedTeams = derived.map((d) => d.name);
       const champion = built.season.awards.some((a) => a.type === "Overall Champion");
       built.season.status = champion || s.number !== newestUpload || newestStored > newestUpload ? "completed" : "active";
       s.built = built;
       if (s.prior) {
-        s.merge = mergeSeason(s.prior, built.season, file.snapshots?.[s.prior.id], choices, s.slug);
+        s.merge = mergeSeason(s.prior, built.season, file.snapshots?.[s.prior.id], choices, s.slug, new Set(derived.map((d) => d.id)));
         if (s.prior.status === "completed") s.merge.season.status = "completed";
       }
     } catch (err) {
@@ -439,6 +440,16 @@ export function planImport(input: {
     if (!c.asked || !c.decision?.coachId) continue;
     const anyTeam = seasons.some((s) => (s.merge?.season ?? s.built?.season)?.teams.some((t) => teamOf(c.coach, t)));
     if (!anyTeam) problems.push(`${c.coach.name} has no team in the export to link (upload the roster files).`);
+    // A team in a live Super FUMBBL game keeps its owner until the result is in (forkPlayLock, as the Teams tab and the
+    // review list enforce; review P2).
+    for (const s of seasons) {
+      const season = s.merge?.season;
+      if (!season) continue;
+      for (const t of season.teams.filter((x) => teamOf(c.coach, x))) {
+        const locked = forkPlayLock(season, t.id);
+        if (locked && !(t.coachAssigned && !t.coachAssigned.cleared && sameCoach(t.coachId, c.decision.coachId))) problems.push(`${c.coach.name}: ${locked}`);
+      }
+    }
   }
   return { seasons, coaches, problems, file };
 }
@@ -532,6 +543,10 @@ export function applyPlan(plan: ImportPlan, deps: Pick<LeagueApiDeps, "store">, 
         for (const t of season.teams.filter((x) => teamOf(c.coach, x))) {
           const already = t.coachAssigned && !t.coachAssigned.cleared ? t.coachId : t.coachAssigned?.cleared ? null : undefined;
           if (!pass && already !== undefined) continue; // a seat the organiser set since is newer than a remembered decision
+          if (forkPlayLock(season, t.id)) {
+            if (pass) throw new LeagueStoreError(409, `${t.name} is playing a Super FUMBBL game; its coach can change once the result is in.`);
+            continue;
+          }
           applyTeamCoach(season, t.id, c.decision.coachId, c.decision.by, pass ? at : c.decision.at, pass);
         }
       }
@@ -575,8 +590,11 @@ export function applyPlan(plan: ImportPlan, deps: Pick<LeagueApiDeps, "store">, 
       }),
     ].sort((a, b) => a.number - b.number);
     const numbers = [...c.coach.nafNumbers];
+    const linked = [...new Set([...(prev?.linked ?? []), ...(prev?.coachId ? [prev.coachId] : []), ...(c.coachId ? [c.coachId] : [])])];
     file.coaches[c.coach.key] = {
       id: c.coach.id, key: c.coach.key, name: c.coach.name,
+      ...(linked.length ? { linked } : {}),
+      ...(prev?.seasonLinks ? { seasonLinks: prev.seasonLinks } : {}),
       ...(c.coach.nafUser ? { nafUser: c.coach.nafUser } : {}),
       ...(numbers[0] ? { nafNumber: numbers[0] } : prev?.nafNumber ? { nafNumber: prev.nafNumber } : {}),
       seasons,
@@ -913,7 +931,7 @@ export async function tourplayImportRoutes(
       const target = latest.coaches[row.key];
       if (target) {
         target.decision = { coachId, by: auth.coach, at: now.toISOString(), via: "organiser" };
-        if (coachId) target.coachId = coachId; else delete target.coachId;
+        if (coachId) { target.coachId = coachId; target.linked = [...new Set([...(target.linked ?? []), coachId])]; } else delete target.coachId;
       }
       deps.store.putTourplayImport(league.id, latest);
       return res(200, { ok: true, seasons: done.seasons });
@@ -955,7 +973,7 @@ export async function tourplayImportRoutes(
       const others = latest.claims.filter((x) => x.row === row.id && x.state === "pending" && x.id !== claim.id);
       for (const o of others) { o.state = "declined"; o.decidedBy = auth.coach; o.decidedAt = at; }
       const target = latest.coaches[row.key];
-      if (target) { target.decision = { coachId: account, by: auth.coach, at, via: "claim" }; target.coachId = account; }
+      if (target) { target.decision = { coachId: account, by: auth.coach, at, via: "claim" }; target.coachId = account; target.linked = [...new Set([...(target.linked ?? []), account])]; }
       deps.store.putTourplayImport(league.id, latest);
       try {
         deps.notify?.(account, { type: "registration-outcome", title: `Claim approved: ${row.name}`, body: `The organisers of ${league.name} linked ${row.name}'s teams to your account.`, link, from: auth.coach, subject: league.name, action: true });

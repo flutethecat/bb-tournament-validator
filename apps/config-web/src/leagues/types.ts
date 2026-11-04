@@ -265,6 +265,11 @@ export interface TourplayCoachRecord {
   /** Site coaches behind an ambiguous / conflicting match. */
   candidates?: { byName: string[]; byNumber: string[] };
   reason?: string;
+  /** Every site coach this row was ever linked to (decisions, claims, Teams-tab seats in any season): privacy export and
+   *  delete cover each of them. */
+  linked?: string[];
+  /** Teams-tab seats per season (a season-specific assignment never overwrites the row's decision). */
+  seasonLinks?: Record<string, { coachId: string | null; by: string; at: string }>;
   /** The coach is no longer in the latest export of any of its seasons: not claimable or assignable. */
   obsolete?: true;
   /** An organiser's choice (review list, preview, the Teams tab) or an approved claim: wins over matching on every re-import. null = no account. */

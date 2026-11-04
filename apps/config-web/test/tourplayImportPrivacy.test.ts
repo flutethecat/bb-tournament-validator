@@ -32,6 +32,7 @@ const record = () => ({
     "naf:allytp": { id: "tp000000000001", key: "naf:allytp", name: "Ally TP", nafUser: "allytp", nafNumber: "81001", seasons: [{ seasonId: "s1", number: 1, teamIds: ["green-orcs"], teams: ["Green Orcs"] }], status: "matched", basis: "naf-number", coachId: "Alice" },
     "naf:bobtp": { id: "tp000000000002", key: "naf:bobtp", name: "Bob TP", nafUser: "bobtp", nafNumber: "82002", seasons: [], status: "conflict", candidates: { byName: ["Alice"], byNumber: ["Bob"] }, decision: { coachId: "Bob", by: "Alice", at: "2026-11-01T00:00:00Z", via: "organiser" } },
     "naf:allyold": { id: "tp000000000004", key: "naf:allyold", name: "Ally Old", nafUser: "allyold", nafNumber: "81004", seasons: [], status: "unmatched", decision: { coachId: "Alice", by: "Bob", at: "2026-11-01T00:00:00Z", via: "organiser" } },
+    "naf:allys2": { id: "tp000000000005", key: "naf:allys2", name: "Ally Season Two", nafUser: "allys2", nafNumber: "81005", seasons: [], status: "unmatched", linked: ["Bob", "Alice"], seasonLinks: { s1: { coachId: "Alice", by: "Bob", at: "2026-11-01T00:00:00Z" }, s2: { coachId: "Bob", by: "Bob", at: "2026-11-01T00:00:00Z" } } },
     "name:nobody": { id: "tp000000000003", key: "name:nobody", name: "No Body", nafNumber: "83003", seasons: [], status: "unmatched" },
   },
   claims: [
@@ -56,6 +57,7 @@ describe("TourPlay import record and privacy", () => {
     expect(tp.coaches).toEqual([
       expect.objectContaining({ name: "Ally TP", nafUser: "allytp", nafNumber: "81001", basis: "naf-number" }),
       expect.objectContaining({ name: "Ally Old", nafNumber: "81004", decision: expect.objectContaining({ via: "organiser" }) }),
+      expect.objectContaining({ name: "Ally Season Two", nafNumber: "81005" }), // a season-specific Teams-tab seat
     ]);
     expect(tp.claims.map((c: { state: string }) => c.state)).toEqual(["pending", "declined"]);
     expect(files.get("league-teams.json")).not.toContain("82002");
@@ -75,6 +77,7 @@ describe("TourPlay import record and privacy", () => {
     expect(text).not.toContain("81001");
     expect(text).not.toContain("allytp");
     expect(text).not.toContain("81004");
+    expect(text).not.toContain("81005");
     expect(text).not.toContain("Ally TP"); // the snapshots went with her rows
     expect(text).not.toMatch(/"Alice"/);
     const f = JSON.parse(text);

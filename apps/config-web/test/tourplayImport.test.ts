@@ -317,6 +317,131 @@ describe("TourPlay import upload", () => {
     });
   });
 
+  describe("re-import merges (review round 2)", () => {
+    const zipOf = (files: Record<string, string>) => exportZip("valley-bowl-export", files).toString("base64");
+    const moss = () => store.season("vbl", "season-1")!.teams.find((t) => t.id === "moss-marauders")!;
+    const r1 = () => store.season("vbl", "season-1")!.fixtures.find((f) => f.round === 1 && f.home.team === "Moss Marauders")!;
+
+    it("P1: an export without roster files leaves local rosters and team details alone, with no conflict", async () => {
+      await call("POST", "/tourplay/apply", ORG, upload());
+      const before = structuredClone(moss());
+      expect(before.players).toHaveLength(2);
+      const none = { zip: zipOf(seasonFiles(SLUG, { noRosters: true })) };
+      expect(json(await call("POST", "/tourplay/preview", ORG, none)).seasons[0].conflicts).toEqual([]);
+      expect((await call("POST", "/tourplay/apply", ORG, none)).status).toBe(200);
+      expect(moss()).toMatchObject({ players: before.players.map((p) => expect.objectContaining({ playerId: p.playerId, name: p.name })), treasury: before.treasury, rerolls: before.rerolls, fans: before.fans });
+      // the real roster baseline survives: the full export again changes nothing and lists nothing
+      expect(json(await call("POST", "/tourplay/preview", ORG, upload())).seasons[0].conflicts).toEqual([]);
+    });
+
+    it("P2: a local stats edit is never dropped by an export roster change; a stats-only export change is taken when nothing changed here", async () => {
+      await call("POST", "/tourplay/apply", ORG, upload());
+      // stats-only change in the export (an honours TD total), nothing changed here: taken
+      await call("POST", "/tourplay/apply", ORG, { zip: zipOf(seasonFiles(SLUG, { tds: 2 })) });
+      expect(moss().players.find((p) => p.name === "Grub Mossfoot")!.stats.td).toBe(2);
+      // a local SPP edit, then the export renames the player: conflict, local kept whole
+      const s = store.season("vbl", "season-1")!;
+      s.teams.find((t) => t.id === "moss-marauders")!.players.find((p) => p.name === "Grub Mossfoot")!.stats.td = 5;
+      store.putSeason(s);
+      const next = { zip: zipOf(seasonFiles(SLUG, { tds: 2, rosterRename: true })) };
+      const conflicts = json(await call("POST", "/tourplay/preview", ORG, next)).seasons[0].conflicts;
+      expect(conflicts).toEqual([expect.objectContaining({ kind: "roster", label: "Moss Marauders roster" })]);
+      await call("POST", "/tourplay/apply", ORG, next);
+      expect(moss().players.find((p) => p.name === "Grub Mossfoot")!.stats.td).toBe(5);
+    });
+
+    it("P2: 'use the export' takes the export's whole result (baseline 2-1, local 5-2, export 3-1 -> 3-1)", async () => {
+      await call("POST", "/tourplay/apply", ORG, upload());
+      const s = store.season("vbl", "season-1")!;
+      const f = s.fixtures.find((x) => x.id === r1().id)!;
+      f.home.score = 5; f.away.score = 2;
+      store.putSeason(s);
+      const next = { zip: zipOf(seasonFiles(SLUG, { round1Score: "3;1" })) };
+      const [c] = json(await call("POST", "/tourplay/preview", ORG, next)).seasons[0].conflicts;
+      expect(c).toMatchObject({ local: "5-2", export: "3-1" });
+      await call("POST", "/tourplay/apply", ORG, { ...next, choices: [c.id] });
+      expect(r1()).toMatchObject({ home: { score: 3 }, away: { score: 1 } });
+    });
+
+    it("P2: taking the export drops the local forfeit, overrides and recorder link; a live Super FUMBBL game blocks it", async () => {
+      await call("POST", "/tourplay/apply", ORG, upload());
+      let s = store.season("vbl", "season-1")!;
+      let f = s.fixtures.find((x) => x.id === r1().id)! as unknown as Record<string, unknown>;
+      Object.assign(f, { forfeit: { home: true, away: false, noStandings: true }, resultEdit: { by: "Organiser1", at: "2026-11-01T00:00:00Z" }, tabletop: { revision: 2 } });
+      store.putSeason(s);
+      const next = { zip: zipOf(seasonFiles(SLUG, { round1Score: "3;1" })) };
+      const [c] = json(await call("POST", "/tourplay/preview", ORG, next)).seasons[0].conflicts;
+      expect(c.reason).toMatch(/^Kept:/);
+      await call("POST", "/tourplay/apply", ORG, { ...next, choices: [c.id] });
+      f = r1() as unknown as Record<string, unknown>;
+      expect(f).toMatchObject({ home: { score: 3 }, away: { score: 1 } });
+      expect(f.forfeit).toBeUndefined();
+      expect(f.resultEdit).toBeUndefined();
+      expect(f.tabletop).toBeUndefined();
+      // a game in progress on Super FUMBBL: the choice is refused, local kept
+      s = store.season("vbl", "season-1")!;
+      const live = s.fixtures.find((x) => x.id === r1().id)! as unknown as Record<string, unknown>;
+      live.fork = { status: "in_progress", teams: { home: { teamId: "moss-marauders" } } };
+      store.putSeason(s);
+      const later = { zip: zipOf(seasonFiles(SLUG, { round1Score: "4;0" })) };
+      const [c2] = json(await call("POST", "/tourplay/preview", ORG, { ...later, choices: [] })).seasons[0].conflicts;
+      const blocked = json(await call("POST", "/tourplay/preview", ORG, { ...later, choices: [c2.id] })).seasons[0].conflicts[0];
+      expect(blocked.reason).toMatch(/in progress/);
+      await call("POST", "/tourplay/apply", ORG, { ...later, choices: [c2.id] });
+      expect(r1()).toMatchObject({ home: { score: 3 }, away: { score: 1 }, fork: { status: "in_progress" } });
+    });
+
+    it("P2: a fixture deleted here stays deleted on every later re-import", async () => {
+      await call("POST", "/tourplay/apply", ORG, upload());
+      const s = store.season("vbl", "season-1")!;
+      s.fixtures = s.fixtures.filter((x) => x.round !== 2 || x.table !== 2);
+      store.putSeason(s);
+      for (let i = 0; i < 2; i += 1) {
+        expect((await call("POST", "/tourplay/apply", ORG, upload())).status).toBe(200);
+        expect(store.season("vbl", "season-1")!.fixtures).toHaveLength(3);
+      }
+    });
+
+    it("P2: TourPlay correcting a played fixture's table updates it in place (no duplicate game)", async () => {
+      await call("POST", "/tourplay/apply", ORG, upload());
+      const id = r1().id;
+      expect((await call("POST", "/tourplay/apply", ORG, { zip: zipOf(seasonFiles(SLUG, { round1Table: 3 })) })).status).toBe(200);
+      const s = store.season("vbl", "season-1")!;
+      expect(s.fixtures).toHaveLength(4);
+      expect(s.fixtures.find((x) => x.id === id)).toMatchObject({ table: 3, home: { score: 2 }, away: { score: 1 } });
+    });
+
+    it("P2: Teams-tab seats are kept per season: assigning RileyA in S1 and RileyB in S2 keeps both linked and leaves the row's decision alone", async () => {
+      const two = { zip: deflateZip({
+        ...Object.fromEntries(Object.entries(seasonFiles()).map(([k, v]) => [`s1/${k}`, v])),
+        ...Object.fromEntries(Object.entries(seasonFiles("valley-bowl-season-2-0002")).map(([k, v]) => [`s2/${k}`, v])),
+      }).toString("base64") };
+      expect((await call("POST", "/tourplay/apply", ORG, two)).status).toBe(200);
+      for (const [sid, who] of [["season-1", "RileyA"], ["season-2", "RileyB"]] as const) {
+        const rev = store.season("vbl", sid)!.revision;
+        expect((await call("PATCH", `/seasons/${sid}/teams/rapid-rascals`, ORG, { revision: rev, coachId: who })).status).toBe(200);
+      }
+      const rec = store.tourplayImport("vbl").coaches["naf:rileyt"]!;
+      expect(rec.linked?.sort()).toEqual(["RileyA", "RileyB"]);
+      expect(rec.seasonLinks).toMatchObject({ "season-1": { coachId: "RileyA" }, "season-2": { coachId: "RileyB" } });
+      expect(rec.decision).toBeUndefined();
+    });
+
+    it("P2: a preview decision cannot change the owner of a team in a live Super FUMBBL game", async () => {
+      await call("POST", "/tourplay/apply", ORG, upload());
+      const s = store.season("vbl", "season-1")!;
+      const f = s.fixtures.find((x) => x.home.team === "Cobble Crushers")! as unknown as Record<string, unknown>;
+      f.fork = { status: "in_progress", teams: { home: { teamId: "cobble-crushers" } } };
+      store.putSeason(s);
+      const casey = await rowByName("Casey Demo");
+      const p = json(await call("POST", "/tourplay/preview", ORG, upload({ decisions: { [casey.id]: "CaseyDemo" } })));
+      expect(p.canApply).toBe(false);
+      expect(p.problems.join(" ")).toMatch(/Super FUMBBL game/);
+      expect((await call("POST", "/tourplay/apply", ORG, upload({ decisions: { [casey.id]: "CaseyDemo" } }))).status).toBe(409);
+      expect(store.season("vbl", "season-1")!.teams.find((t) => t.id === "cobble-crushers")!.coachId).toBeUndefined();
+    });
+  });
+
   describe("NAF numbers stay private", () => {
     it("never on a season, league, stats or export read, nor in the season files; Payment and Observations dropped", async () => {
       await call("POST", "/tourplay/apply", ORG, upload({ decisions: await confirmAll() }));

@@ -31,7 +31,7 @@ type TeamField = (typeof TEAM_FIELDS)[number];
 export type TeamValues = Record<TeamField, unknown> & { roster: string };
 
 /** The last applied export of one season (private record). */
-export interface ExportSnapshot { fixtures: Record<string, { id: string; values: FixtureValues }>; teams: Record<string, TeamValues> }
+export interface ExportSnapshot { fixtures: Record<string, { id: string; values: FixtureValues; deleted?: true }>; teams: Record<string, TeamValues> }
 
 export interface MergeConflict {
   id: string;
@@ -55,12 +55,21 @@ export const fixtureValues = (f: LeagueFixture): FixtureValues => ({
   category: f.category, phase: f.phase, phaseId: f.phaseId, group: f.group, round: f.round, table: f.table, suspended: f.suspended,
   startedAt: f.startedAt ?? "", finishedAt: f.finishedAt ?? "", home: side(f.home), away: side(f.away),
 });
-export const fixtureKey = (f: Pick<LeagueFixture, "phaseId" | "group" | "round" | "table" | "home" | "away">): string =>
-  `${f.phaseId}|${f.group}|${f.round}|${f.table}|${nameKey(f.home.team)}|${nameKey(f.away.team)}`;
-const rosterHash = (t: LeagueTeam): string => sha(JSON.stringify([
-  t.players.map((p) => [p.number, p.name, p.position, p.ma, p.st, p.ag, p.pa, p.av, p.skills, p.value, p.level, p.availableSpp, p.niggling, p.missNextGame]),
-  (t.formerPlayers ?? []).map((p) => [p.name, p.position]),
-]));
+/**
+ * Fixture identity across exports: the round and the two teams (the export has no match id). Table, group, phase and
+ * dates are fields of the fixture that a correction may change, merged like any other field (review P2).
+ */
+export const fixtureKey = (f: { round: number; home: { team: string }; away: { team: string } }): string =>
+  `${f.round}|${nameKey(f.home.team)}|${nameKey(f.away.team)}`;
+/** Career links and seasons played are recomputed on every import (linkPlayerCareers); everything else of a player (stats, SPP, advances, local metadata) counts. */
+const VOLATILE = new Set(["careerKey", "previousIds", "seasonsPlayed"]);
+const stable = (v: unknown): unknown => JSON.parse(JSON.stringify(v, (k, x) => (VOLATILE.has(k) ? undefined : x)));
+/**
+ * The whole roster (players and former players, every field but the career links): an export roster replaces a local
+ * one only when the local roster is exactly what the last import wrote; any local edit makes the change a conflict
+ * (review P2: local edits are never dropped silently, and stats-only export changes are seen).
+ */
+const rosterHash = (t: LeagueTeam): string => sha(JSON.stringify(stable([t.players, t.formerPlayers ?? []])));
 export const teamValues = (t: LeagueTeam): TeamValues => {
   const out = { roster: rosterHash(t) } as TeamValues;
   for (const f of TEAM_FIELDS) out[f] = (t as unknown as Record<string, unknown>)[f] ?? null;
@@ -76,6 +85,34 @@ function keyed(fixtures: readonly LeagueFixture[]): Array<{ key: string; f: Leag
     seen.set(k, n);
     return { key: n > 1 ? `${k}#${n}` : k, f };
   });
+}
+
+/** A snapshot's fixtures re-keyed from their values (older snapshots used a key with table and group). */
+function rekeyed(base: ExportSnapshot | undefined): Map<string, { id: string; values: FixtureValues; deleted?: true }> {
+  const out = new Map<string, { id: string; values: FixtureValues; deleted?: true }>();
+  if (!base) return out;
+  const seen = new Map<string, number>();
+  for (const e of Object.values(base.fixtures)) {
+    const k = fixtureKey(e.values);
+    const n = (seen.get(k) ?? 0) + 1;
+    seen.set(k, n);
+    out.set(n > 1 ? `${k}#${n}` : k, e);
+  }
+  return out;
+}
+
+/** A Super FUMBBL game of this fixture has started and has no result yet. */
+export const forkLive = (f: LeagueFixture): boolean => {
+  const fork = f.fork;
+  return Boolean(fork && (fork.status === "in_progress" || (fork.status === "scheduled" && fork.launched && Object.keys(fork.launched).length)));
+};
+
+/** Taking the export's result for a fixture: everything that made the local result (forfeit, overrides, deadline and
+ *  inactive-team decisions, the recorder and Super FUMBBL links) no longer fits and is dropped (review P2). */
+function detachLocalResult(f: LeagueFixture): void {
+  const o = f as unknown as Record<string, unknown>;
+  for (const k of ["forfeit", "forfeitDetail", "forfeitDraft", "resultEdit", "deadlineOutcome", "deadlineReopenedFor", "inactiveDecision", "tabletop", "fork", "announced"]) delete o[k];
+  for (const sd of [f.home, f.away]) { delete (sd as unknown as Record<string, unknown>).playedBy; delete (sd as unknown as Record<string, unknown>).clearedPlayedBy; }
 }
 
 /** The snapshot of a freshly built (first-import) season. */
@@ -128,7 +165,7 @@ const RESULT_PATHS = new Set(["suspended", "home.score", "away.score", "home.cas
  * Merges the freshly built export season `built` into `prior` (a copy is returned; `prior` is untouched). `choices`:
  * conflict ids the organiser resolved to the export. `slug` keys the conflict ids.
  */
-export function mergeSeason(prior: SeasonRecord, built: SeasonRecord, base: ExportSnapshot | undefined, choices: ReadonlySet<string>, slug: string): MergeResult {
+export function mergeSeason(prior: SeasonRecord, built: SeasonRecord, base: ExportSnapshot | undefined, choices: ReadonlySet<string>, slug: string, derived: ReadonlySet<string> = new Set()): MergeResult {
   const season = structuredClone(prior);
   const conflicts: MergeConflict[] = [];
   const counts = { fixturesAdded: 0, fixturesUpdated: 0, teamsAdded: 0, teamsUpdated: 0, kept: 0 };
@@ -137,10 +174,17 @@ export function mergeSeason(prior: SeasonRecord, built: SeasonRecord, base: Expo
 
   // Teams first (fixtures refer to team ids).
   for (const et of built.teams) {
-    snapshot.teams[et.id] = teamValues(et);
     const local = season.teams.find((t) => t.id === et.id);
-    if (!local) { season.teams.push(structuredClone(et)); counts.teamsAdded += 1; continue; }
     const b = base?.teams[et.id];
+    // No roster file for this team in the export: no roster information at all (review P1). A local team is left exactly
+    // as it is and the last real snapshot stays the baseline; a team new to the season is added without players.
+    if (derived.has(et.id)) {
+      if (b) snapshot.teams[et.id] = b;
+      if (!local) { season.teams.push(structuredClone(et)); counts.teamsAdded += 1; }
+      continue;
+    }
+    snapshot.teams[et.id] = teamValues(et);
+    if (!local) { season.teams.push(structuredClone(et)); counts.teamsAdded += 1; continue; }
     const ev = teamValues(et);
     const lv = teamValues(local);
     let changed = false;
@@ -163,7 +207,7 @@ export function mergeSeason(prior: SeasonRecord, built: SeasonRecord, base: Expo
         changed = true;
       } else {
         snapshot.teams[et.id]!.roster = b ? b.roster : HELD;
-        conflicts.push({ id, kind: "roster", label: `${et.name} roster`, reason: b ? "Roster edited here since the last import" : "Roster differs and the last import is unknown", local: `${local.players.length} players`, export: `${et.players.length} players` });
+        conflicts.push({ id, kind: "roster", label: `${et.name} roster`, reason: b ? "Roster edited here since the last import (players, stats or SPP)" : "Roster differs and the last import is unknown", local: `${local.players.length} players`, export: `${et.players.length} players` });
         counts.kept += 1;
       }
     }
@@ -173,12 +217,14 @@ export function mergeSeason(prior: SeasonRecord, built: SeasonRecord, base: Expo
   const ids = new Set(season.fixtures.map((f) => f.id));
   let next = season.fixtures.reduce((n, f) => Math.max(n, Number(/^f(\d+)$/.exec(f.id)?.[1] ?? 0)), 0);
   const priorKeyed = keyed(season.fixtures);
+  const baseFixtures = rekeyed(base);
   for (const { key, f: ef } of keyed(built.fixtures)) {
     const ev = fixtureValues(ef);
-    const entry = base?.fixtures[key];
+    const entry = baseFixtures.get(key);
     const local = entry ? season.fixtures.find((f) => f.id === entry.id) : priorKeyed.find((x) => x.key === key)?.f;
     if (!local) {
-      if (entry) continue; // deleted here: stays deleted
+      // deleted here: stays deleted, and the snapshot keeps it as a tombstone so the next import does not bring it back
+      if (entry) { snapshot.fixtures[key] = { ...entry, deleted: true }; continue; }
       next += 1;
       let id = `f${next}`;
       while (ids.has(id)) { next += 1; id = `f${next}`; }
@@ -204,7 +250,19 @@ export function mergeSeason(prior: SeasonRecord, built: SeasonRecord, base: Expo
       if (!lockedByLife && (blank(lval) || (bv && same(lval, get(bv))))) take.push(p); else hold.push(p);
     }
     const id = cid("fixture", key);
-    if (hold.length && choices.has(id)) { take.push(...hold); hold.length = 0; }
+    let blocked = "";
+    if (hold.length && choices.has(id)) {
+      if (forkLive(local)) blocked = "a Super FUMBBL game of this fixture is in progress";
+      else {
+        // "Use the export": the export's whole value set, not only the fields that moved since the baseline (review P2),
+        // and the local result's metadata goes with the local result.
+        for (const [, get, set] of PATHS) set(local, get(ev));
+        if (hold.some(([n]) => RESULT_PATHS.has(n))) detachLocalResult(local);
+        take.length = 0;
+        hold.length = 0;
+        counts.fixturesUpdated += 1;
+      }
+    }
     for (const [, get, set] of take) set(local, get(ev));
     if (take.length) counts.fixturesUpdated += 1;
     if (hold.length) {
@@ -214,7 +272,7 @@ export function mergeSeason(prior: SeasonRecord, built: SeasonRecord, base: Expo
       counts.kept += 1;
       conflicts.push({
         id, kind: "fixture", label: label(local),
-        reason: life ? `Kept: ${life}` : bv ? "Changed here since the last import" : "Differs and the last import is unknown",
+        reason: blocked ? `Kept: ${blocked}` : life ? `Kept: ${life}` : bv ? "Changed here since the last import" : "Differs and the last import is unknown",
         local: hold.some(([n]) => RESULT_PATHS.has(n)) ? resultText(lv) : hold.map(([n, get]) => `${n} ${String(get(lv))}`).join(", "),
         export: hold.some(([n]) => RESULT_PATHS.has(n)) ? resultText(ev) : hold.map(([n, get]) => `${n} ${String(get(ev))}`).join(", "),
       });
