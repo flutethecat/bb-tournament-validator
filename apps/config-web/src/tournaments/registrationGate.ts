@@ -110,6 +110,19 @@ export function registrationGateShut(t: Pick<TournamentRecord, "registrationGate
   return { opensAt: iso, message: `Registration opens ${gateWhenText(iso, zone)}.`, secondsLeft: Math.max(0, Math.ceil((at - now.getTime()) / 1000)) };
 }
 
+/**
+ * The Discord observer's "Registration is open" marker, shared by the observer and the gate's opening so whichever claims it
+ * posts (one post per opening). With a gate it carries the gate's armedAt: Open now keeps it (the first opening is one post
+ * however the timers fall), a re-arm changes it (a later reopen gets its own post). undefined = nothing to post.
+ */
+export function regopenMarker(t: Pick<TournamentRecord, "registration" | "registrationGate">): string | undefined {
+  const g = storedGate(t);
+  const suffix = g && g !== "unreadable" ? `:gate:${g.armedAt}` : "";
+  const opens = t.registration?.opensAt;
+  if (opens) return `regopen:${opens}${suffix}`;
+  return suffix ? `regopen${suffix}` : undefined;
+}
+
 /** The gate as the shared gate editor reads it (the league GateView shape; kind "registration", target "tournament"). */
 export interface TournamentGateView {
   id: string; kind: "registration"; target: "tournament"; targetName: string; label: string; title: string;

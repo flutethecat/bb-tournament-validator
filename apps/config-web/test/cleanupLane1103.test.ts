@@ -178,6 +178,41 @@ describe("tournament Registration gate", () => {
     expect(h.posts).toHaveLength(1);
   });
 
+  it("[review 2] a re-armed gate's reopening gets one new post, whichever timer runs first (the window's first opening stays one post)", async () => {
+    const h = tournamentHarness();
+    const t = await h.create({ registration: { approval: "auto", waitlist: true, rosterLater: true, opensAt: "2026-11-11T09:00:00.000Z" } });
+    h.discord.setWebhook(`tournament:${t.id}`, HOOK);
+    h.discord.setConfig(`tournament:${t.id}`, { events: { registrationOpened: true } } as never);
+    await h.call("PUT", h.gatePath(t), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-12T19:00" });
+    const observer = new DiscordObserver({ leagues: new LeagueStore(tmp("bbtv-tgate-l-")), tournaments: h.store, state: h.discord, now: () => h.clock.now, poster: h.poster } as never);
+    const job = () => runTournamentGateJob({ store: h.store, notify: h.notifier, discord: { state: h.discord, poster: h.poster }, now: () => h.clock.now });
+    await observer.tick();
+    h.clock.now = new Date("2026-11-12T19:01:00.000Z");
+    await job();
+    await observer.tick();
+    expect(h.posts).toHaveLength(1);
+    // Shut again (re-armed for the 14th) and reopened: one new post (job first), never a third.
+    h.clock.now = new Date("2026-11-13T10:00:00.000Z");
+    const rev = h.store.tournament(t.id)!.registrationGate!.revision;
+    expect((await h.call("PUT", h.gatePath(t), OWNER, { revision: rev, mode: "time", opensAt: "2026-11-14T19:00" }))?.status).toBe(200);
+    await observer.tick();
+    expect(h.posts).toHaveLength(1);
+    h.clock.now = new Date("2026-11-14T19:01:00.000Z");
+    await job();
+    await observer.tick();
+    await job();
+    expect(h.posts).toHaveLength(2);
+    expect(h.store.tournament(t.id)!.registrationGate!.announce).toBe("done");
+    // Re-armed again and reopened with the observer first: still exactly one more.
+    h.clock.now = new Date("2026-11-15T10:00:00.000Z");
+    await h.call("PUT", h.gatePath(t), OWNER, { revision: h.store.tournament(t.id)!.registrationGate!.revision, mode: "time", opensAt: "2026-11-16T19:00" });
+    h.clock.now = new Date("2026-11-16T19:01:00.000Z");
+    await observer.tick();
+    await job();
+    await observer.tick();
+    expect(h.posts).toHaveLength(3);
+  });
+
   it("[review] a gate that opens before the window says so; the window's own opening posts once, when registration is open", async () => {
     const h = tournamentHarness();
     const t = await h.create({ registration: { approval: "auto", waitlist: true, rosterLater: true, opensAt: "2026-11-20T12:00:00.000Z" } });

@@ -23,7 +23,7 @@ import { canSeeTournament, selfRegistrationStatus } from "./publication.js";
 import { isTournamentManager, TournamentStoreError, type TournamentStore } from "./store.js";
 import type { TournamentRecord } from "./types.js";
 import {
-  GATE_ID, gateInstant, gateIsOpen, gateWhenText, gateWallInstant, parseGateWall, storedGate, tournamentGateView, tournamentTimeZone, type TournamentGate,
+  GATE_ID, gateInstant, gateIsOpen, gateWhenText, regopenMarker, gateWallInstant, parseGateWall, storedGate, tournamentGateView, tournamentTimeZone, type TournamentGate,
 } from "./registrationGate.js";
 
 export interface TournamentGateDeps {
@@ -158,9 +158,10 @@ async function announceOpening(deps: TournamentGateDeps, id: string, revision: n
   } catch { /* fire-and-forget */ }
   if (!deps.discord || !status.open) return;
   const target = tournamentTarget(deps.discord.state, t);
-  // One opening = one post, whichever timer gets there first: the observer's own marker (the window's opensAt) when there is
-  // one, else this gate opening's. Posted only when this call is the one that claimed the marker.
-  const marker = t.registration?.opensAt ? `regopen:${t.registration.opensAt}` : `regopen:gate:${t.registrationGate?.revision ?? revision}`;
+  // One opening = one post, whichever timer gets there first: the marker the observer uses too (the window's opensAt plus this
+  // gate arming, regopenMarker). Posted only when this call is the one that claimed it; a re-armed gate has a new marker.
+  const marker = regopenMarker(t);
+  if (!marker) return;
   let fresh: string[] = [];
   try { fresh = deps.discord.state.mark(target.key, [marker], now.toISOString()); } catch { return; }
   if (!fresh.includes(marker)) return;
