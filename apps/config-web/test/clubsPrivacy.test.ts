@@ -75,3 +75,23 @@ describe("clubs in export and delete", () => {
     expect(all).not.toMatch(/"Alice"/);
   });
 });
+
+describe("review fix: identifying text on deletion", () => {
+  it("removes the coach's own requests, anonymises mentions in descriptions, others' request notes and board posts, flags their clubs", async () => {
+    const { deps, clubs, boards, a, b } = seed();
+    clubs.update(a.id, (c) => { c.description = "Founded by Alice in 2026."; c.requests.push({ coach: "Dave", at: "x", message: "Alice told me to ask" }); });
+    boards.startThread(`club:${b.id}`, "Bob", "Thanks", "Thanks Alice for the dice");
+    const plan = { jobId: "y".repeat(24), coachHash: "", coach: "Alice", coachNames: ["Alice"], displays: [], pseudonym: P, teamKeys: [], proxyKeys: [], actor: "self", at: "" };
+    const ctx = deleteContext(deps, { ...splitPlan(plan as never).stored, coach: "Alice", coachNames: ["Alice"], displays: [] } as never);
+    for (const step of DELETE_STEPS.filter((s) => s.id === "clubs" || s.id === "club-boards")) await step.run(ctx);
+    const store = new ClubStore(deps.stateDir);
+    const ca = store.get(a.id)!;
+    expect(ca.description).toBe(`Founded by ${P} in 2026.`);
+    expect(ca.requests).toEqual([{ coach: "Dave", at: "x", message: `${P} told me to ask` }]);
+    expect(ca.review).toEqual({ reason: "creator-deleted", at: expect.any(String) });
+    const cb = store.get(b.id)!;
+    expect(cb.requests.some((r) => r.coach === "Alice")).toBe(false);
+    expect(cb.review).toBeUndefined();
+    expect(new BoardStore(deps.stateDir).read(`club:${b.id}`).threads[0]!.text).toBe(`Thanks ${P} for the dice`);
+  });
+});

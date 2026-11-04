@@ -190,14 +190,14 @@ export const INVENTORY: readonly InventoryRow[] = [
     data: "The clubs you created or belong to: your coach name, your role (admin or member), when you joined or left, your join requests (with your optional message), your notification choices, and the club you picked to represent when you joined a league or tournament (saved on that entry).",
     purpose: "Coach clubs: the club page, members, join requests, club results and stats, and club notifications.",
     public: "partly", publicNote: "Club pages are public: the club's details and its members' coach names, results and records. Join requests are seen only by the club's admins. Your notification choices are private.",
-    retention: `${ACCOUNT_LIFETIME} When you delete your account your memberships and requests go; your games keep counting for the club under your pseudonym.`,
+    retention: `${ACCOUNT_LIFETIME} When you delete your account your memberships and requests go; your games keep counting for the club under your pseudonym, and mentions of your name in club descriptions and other coaches' request notes are replaced with it.`,
   },
   {
     id: "club-boards", store: "data-store/boards/",
     data: "Posts and replies you write on a club board (your coach name, the text, when you wrote or edited it), and when you last opened the board.",
     purpose: "The club message board.",
     public: "partly", publicNote: "Seen by the club's members and site admins.",
-    retention: `${ACCOUNT_LIFETIME} When you delete your account your posts stay on the board under your pseudonym.`,
+    retention: `${ACCOUNT_LIFETIME} When you delete your account your posts stay on the board under your pseudonym, and mentions of your name in any post are replaced with it.`,
   },
   {
     id: "blocks", store: "data-store/blocks/",

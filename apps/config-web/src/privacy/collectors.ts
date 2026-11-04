@@ -1223,13 +1223,19 @@ export const DELETE_STEPS: DeleteStep[] = [
   { id: "notifications", run: ({ deps, plan }) => { removeNotifications(deps, plan); return "done"; } },
   { id: "social", run: ({ deps, plan, names }) => { removeSocial(deps, plan, names); return "done"; } },
   {
-    // Clubs: the coach's memberships and requests go; a club that loses its last admin gets its longest-standing member
-    // as admin, and one left without members is archived. Former-member rows and "created by" stay under the pseudonym
-    // (the club's history); the club picks on entries are anonymised with those records (tournaments / leagues steps).
+    // Clubs: the coach's memberships and their own pending requests (with the note they wrote) go; a club that loses its
+    // last admin gets its longest-standing member as admin, and one left without members is archived. Former-member rows
+    // and "created by" stay under the pseudonym (the club's history). Free text that may name the coach - every club's
+    // description and home region, and the notes on other coaches' pending requests - gets the free-text pass (exact
+    // mentions of the coach's names and linked display names become the pseudonym). A club the coach created gets
+    // `review` set, so admins know its text may need a look. The club picks on entries are anonymised with those
+    // records (tournaments / leagues steps).
     id: "clubs",
-    run: ({ deps, an }) => {
+    run: ({ deps, an, text }) => {
+      const tx = text();
       rewriteJson(join(deps.stateDir, "clubs", "clubs.json"), (file) => vals(file.clubs).map((c) => {
         let changed = false;
+        if (tx.texts(c, ["description", "homeRegion"])) changed = true;
         const members = objs(c.members);
         const kept = members.filter((m) => !an.matches(m.coach));
         if (kept.length !== members.length) {
@@ -1244,8 +1250,9 @@ export const DELETE_STEPS: DeleteStep[] = [
         const requests = objs(c.requests);
         const keptRequests = requests.filter((r) => !an.matches(r.coach));
         if (keptRequests.length !== requests.length) { c.requests = keptRequests; changed = true; }
+        for (const r of keptRequests) if (tx.texts(r, ["message"])) changed = true;
         for (const f of objs(c.former)) if (an.fields(f, ["coach"], [])) changed = true;
-        if (an.fields(c, ["createdBy"], [])) changed = true;
+        if (an.fields(c, ["createdBy"], [])) { changed = true; c.review = { reason: "creator-deleted", at: new Date().toISOString() }; }
         if (changed && typeof c.revision === "number") c.revision += 1;
         return changed;
       }).some(Boolean));
