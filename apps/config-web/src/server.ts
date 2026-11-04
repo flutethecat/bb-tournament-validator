@@ -2660,6 +2660,13 @@ async function handleApi(
       declaredTooLarge: (max) => declaredTooLarge(req, max),
       // League settings: organiser lookup + the site admins list (read-only), Super FUMBBL fixture notifications.
       identities: () => Object.values(readIdentities().coaches).map((c) => ({ coach: c.ffbCoachId, level: c.level, banned: c.banned })),
+      // TourPlay import (lane L8): profile NAF details for matching only (never sent to the organiser as such).
+      coachProfiles: () => Object.values(readIdentities().coaches).map((c) => ({
+        coach: c.ffbCoachId, banned: c.banned,
+        ...(c.profile.displayName ? { displayName: c.profile.displayName } : {}),
+        ...(c.identities.nafName ? { nafName: c.identities.nafName } : {}),
+        ...(c.identities.nafId ? { nafId: c.identities.nafId } : {}),
+      })),
       memberContact: (viewer, coach, leagueId) => sharedContact(viewer, coach, `league:${leagueId}`),
       notify: leagueNotify,
       // League registration (lane L6): the join's team check and its share acknowledgement, the Registrations tab contacts.

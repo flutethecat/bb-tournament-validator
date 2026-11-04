@@ -228,7 +228,9 @@ describe("league wizard pages (server-rendered)", () => {
     expect(html).toContain("League summary");
     expect(html).toContain("League address");
     expect(html).toContain(">Next</button>");
-    expect(html).not.toContain("Import from TourPlay"); // admins only (Q16)
+    // lane L8: organisers of the league import their own TourPlay export (upload after the draft exists)
+    expect(html).toContain("Import from TourPlay");
+    expect(html).toContain("Press Next to create the league, then upload the export");
     const coach = await render("/leagues/new", COACH, atStep("identity"));
     expect(coach).toContain("Organisers only");
     expect(coach).toContain('href="/app/organiser/request"');

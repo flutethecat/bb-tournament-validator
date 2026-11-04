@@ -33,6 +33,9 @@ export const WRITE_ROUTES: Array<[string, string]> = [
   ["POST", "/api/bug-reports"],
   ["POST", "/api/translate"],
   ["POST", "/api/leagues/L1/seasons/S1/fixtures/F1/lobby/chat"],
+  // TourPlay import upload (lane L8): the organiser apply and a coach claim
+  ["POST", "/api/leagues/L1/tourplay/apply"],
+  ["POST", "/api/leagues/L1/tourplay/claims"],
 ];
 
 export const GET_MUTATIONS: string[] = [

@@ -454,7 +454,7 @@ export const STORE_COLLECTORS: StoreCollector[] = [
   },
   {
     id: "leagues",
-    location: "FORK_STATE_DIR/leagues/<id>/ (league.json, seasons/; secrets.json never read)",
+    location: "FORK_STATE_DIR/leagues/<id>/ (league.json, seasons/, tourplay-import.json; secrets.json never read)",
     export: (ctx) => {
       const leagues: unknown[] = [];
       for (const dir of leagueDirs(ctx.deps, false)) {
@@ -492,8 +492,11 @@ export const STORE_COLLECTORS: StoreCollector[] = [
           };
         }).filter((r) => r.teams.length + r.fixtures.length + r.resultEdits.length + r.participants.length + r.advancementRolls.length + r.standings.length + r.awards.length + r.registrations.length + r.takeoverApplications.length + r.paidActions.length > 0);
         const role = isMine(ctx.keys, league.owner) ? "owner" : (league.organisers ?? []).some((o) => isMine(ctx.keys, o)) ? "organiser" : undefined;
-        if (rows.length || role || awards.length || pins.length)
-          leagues.push({ league: league.name ?? league.id, id: league.id, ...(role ? { role } : {}), seasons: rows, ...(awards.length ? { awards } : {}), ...(pins.length ? { hallOfFame: pins } : {}) });
+        // TourPlay import (lane L8): the private rows linked to the coach (their TourPlay name, NAF user and number) and
+        // the claims they made. Rows of other coaches never.
+        const tourplay = tourplayImportExport(ctx.keys, readJsonLoose<Obj>(join(dir, "tourplay-import.json")));
+        if (rows.length || role || awards.length || pins.length || tourplay)
+          leagues.push({ league: league.name ?? league.id, id: league.id, ...(role ? { role } : {}), seasons: rows, ...(awards.length ? { awards } : {}), ...(pins.length ? { hallOfFame: pins } : {}), ...(tourplay ? { tourplayImport: tourplay } : {}) });
       }
       return [{ name: "league-teams.json", content: json(leagues) }];
     },
@@ -799,7 +802,8 @@ team-library.json       Your teams for Play on Super FUMBBL.
 team-logos/             Team logos you uploaded.
 tournament-entries.json Your tournament entries, fixtures, the tournaments you run, and tournament awards to or by you.
 league-teams.json       League teams, fixtures, standings and awards linked to your account, awards you gave,
-                        Hall of Fame entries you pinned, and leagues you run.
+                        Hall of Fame entries you pinned, leagues you run, and TourPlay import rows linked to you
+                        (your TourPlay name, NAF name and number from an organiser's upload) and your claims.
 tabletop-matches.json   Tabletop matches you played or recorded, with their event logs, your tabletop team history, and
                         the dice you rolled in the match recorder (the dice log).
 results.json            Game results with you as home or away coach, your rating title, and your cached NAF games
@@ -946,6 +950,50 @@ const LINKED_ROW = (an: Anonymiser, o: Obj): boolean => {
   const b = typeof o.coachId === "string" && o.coachId ? (o.coachId = an.swap(o.coachId as string), true) : false;
   return a || b;
 };
+
+/** The TourPlay import record's rows linked to the coach (by the account the row links) and the coach's claims. */
+function tourplayImportExport(keys: ReadonlySet<string>, file: Obj | undefined): { coaches: Obj[]; claims: Obj[] } | undefined {
+  if (!file) return undefined;
+  const rows = vals(file.coaches);
+  const linkedTo = (r: Obj): boolean => isMine(keys, r.coachId) || (isObj(r.decision) && isMine(keys, (r.decision as Obj).coachId));
+  const coaches = rows.filter(linkedTo).map((r) => ({
+    name: r.name, ...(r.nafUser ? { nafUser: r.nafUser } : {}), ...(r.nafNumber ? { nafNumber: r.nafNumber } : {}),
+    seasons: objs(r.seasons).map((x) => ({ number: x.number, teams: x.teams })), status: r.status, ...(r.basis ? { basis: r.basis } : {}),
+    ...(isObj(r.decision) ? { decision: { via: (r.decision as Obj).via, at: (r.decision as Obj).at } } : {}),
+  }));
+  const claims = objs(file.claims).filter((c) => isMine(keys, c.coach)).map((c) => ({
+    name: rows.find((r) => r.id === c.row)?.name ?? "", state: c.state, at: c.at, ...(c.decidedAt ? { decidedAt: c.decidedAt } : {}),
+  }));
+  return coaches.length || claims.length ? { coaches, claims } : undefined;
+}
+
+/**
+ * The TourPlay import record (private, lane L8): a row linked to the coach is erased (TourPlay name, NAF user and NAF
+ * number: private data, not public history); the coach's pending claims go and decided ones keep the pseudonym; their name
+ * as a candidate, a decision's organiser, a claim's decider or an importer becomes the pseudonym or is removed.
+ */
+function anonymiseTourplayImport(an: Anonymiser, f: Obj): boolean {
+  let changed = false;
+  const coaches = isObj(f.coaches) ? (f.coaches as Obj) : {};
+  for (const [key, r] of Object.entries(coaches)) {
+    if (!isObj(r)) continue;
+    const decision = isObj(r.decision) ? (r.decision as Obj) : undefined;
+    if (an.matches(r.coachId) || an.matches(decision?.coachId)) { delete coaches[key]; changed = true; continue; }
+    if (isObj(r.candidates)) for (const k of ["byName", "byNumber"]) {
+      const list = (r.candidates as Obj)[k];
+      if (Array.isArray(list) && list.some((x) => an.matches(x))) { (r.candidates as Obj)[k] = list.filter((x) => !an.matches(x)); changed = true; }
+    }
+    if (decision && an.fields(decision, ["by"], [])) changed = true;
+  }
+  if (Array.isArray(f.claims)) {
+    const before = (f.claims as unknown[]).length;
+    f.claims = (f.claims as unknown[]).filter((c) => !(isObj(c) && an.matches(c.coach) && c.state === "pending"));
+    if ((f.claims as unknown[]).length !== before) changed = true;
+    for (const c of objs(f.claims)) if (an.fields(c, ["coach", "decidedBy"], [])) changed = true;
+  }
+  for (const i of objs(f.imports)) if (an.fields(i, ["by"], [])) changed = true;
+  return changed;
+}
 
 /** league.json: owner, organisers, and the awards / Hall of Fame pins given on this site (recipient, giver, free text). */
 function anonymiseLeagueFile(an: Anonymiser, tx: TextReplacer, l: Obj): boolean {
@@ -1433,6 +1481,7 @@ export const DELETE_STEPS: DeleteStep[] = [
       for (const dir of leagueDirs(deps)) {
         rewriteJson(join(dir, "league.json"), (l) => anonymiseLeagueFile(an, tx, l));
         for (const p of listFiles(join(dir, "seasons"), ".json")) rewriteJson(p, (s) => anonymiseSeason(an, tx, displays, s));
+        rewriteJson(join(dir, "tourplay-import.json"), (f) => anonymiseTourplayImport(an, f));
       }
       return "done";
     },

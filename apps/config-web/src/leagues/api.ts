@@ -34,6 +34,10 @@
  *   A ladder is read like a season by the fixture / team / recorder routes (.../seasons/<ladderId>/...); season-only routes
  *   (join, registrations, stage, finish, reopen, podium, participants, deadlines) answer 404 for a ladder id.
  *
+ * TourPlay import upload (lane L8; organisers + admins, claims by any signed-in coach): see tourplayImport.ts.
+ *   POST .../tourplay/preview|apply, GET .../tourplay, POST .../tourplay/coaches/:row/assign, GET .../tourplay/claimable,
+ *   POST .../tourplay/claims, POST .../tourplay/claims/:claim/approve|decline|withdraw
+ *
  * League registration (lane L6; join, the Registrations tab, accept -> team, "I've paid"): see registrationApi.ts.
  *   GET .../seasons/:seasonId/join, GET|POST .../seasons/:seasonId/registrations, POST .../registrations/:rid/<verb>
  *   POST   /api/leagues/:id/discord/test                          send a small test embed to the webhook
@@ -104,6 +108,7 @@ import { draftAwareNotify, isDraftLeague, leagueVisibleTo, seasonStage, storeWit
 import { defaultSeasonRegistration, seasonRegistrationOf } from "./seasonRegistration.js";
 import { paymentLinksView } from "../payments/links.js";
 import { createLeagueRoute, leagueLifecycleRoutes } from "./wizard.js";
+import { tourplayImportRoutes } from "./tourplayImport.js";
 import { leagueCalendarEventRoutes, type LeagueEventsDeps } from "./leagueEvents.js";
 import { leagueEventsDiscordRoutes } from "./leagueEventsDiscord.js";
 import { leagueChampionsRoute, leagueLadderRoutes } from "./ladderApi.js";
@@ -182,6 +187,9 @@ export interface LeagueApiDeps extends LeagueRegistrationApiDeps, TeamLibraryApi
   store: LeagueStore;
   /** Fork identities (coach-name lookup for organisers; level "admin" rows are the site admins). */
   identities?: () => LeagueIdentityRow[];
+  /** Lane L8 TourPlay import: site coaches with their display name and profile NAF details (identities.json, read-only),
+   *  for matching and likely-match suggestions. Unset = nothing matches. */
+  coachProfiles?: () => import("./tourplayImport.js").TourplayProfile[];
   /** What the viewer sees of a member for this league (sharedContactFor, src/auth/contactFor.ts): the coach name plus only
    *  the fields the coach granted; undefined = the viewer does not organise it, or the coach has not joined. */
   memberContact?: (viewer: { coach: string; admin?: boolean }, coach: string, leagueId: string) => { coach: string } | undefined;
@@ -447,6 +455,9 @@ export async function leagueApi(
   }
   const lifecycle = await leagueLifecycleRoutes(method, route.rest, league, auth, deps);
   if (lifecycle) return lifecycle;
+  // TourPlay import upload (lane L8, tourplayImport.ts): preview / apply, the review list, coach claims.
+  const tourplay = await tourplayImportRoutes(method, route.rest, league, auth, deps);
+  if (tourplay) return tourplay;
   // League Events (leagueEvents.ts): GET|POST .../events, PATCH|DELETE .../events/:eventId, .../events/discord, GET .../schedule.
   const eventsDiscord = await leagueEventsDiscordRoutes(method, route.rest, league, auth, deps);
   if (eventsDiscord) return eventsDiscord;

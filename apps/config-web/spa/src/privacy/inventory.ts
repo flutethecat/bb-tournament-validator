@@ -119,9 +119,9 @@ export const INVENTORY: readonly InventoryRow[] = [
   },
   {
     id: "leagues", store: "data-store/leagues/",
-    data: "League teams, players, coach assignments, stats and honours; a league's Discord webhook (a secret, never shown).",
+    data: "League teams, players, coach assignments, stats and honours; a league's Discord webhook (a secret, never shown); from an organiser's TourPlay upload, each coach's NAF name and number (for matching coaches to accounts) and coaches' \"Is this you?\" claims.",
     purpose: "Running leagues.",
-    public: "yes", publicNote: "Everything except webhook secrets.",
+    public: "partly", publicNote: "Everything except webhook secrets, NAF numbers from TourPlay uploads and claims (the league's organisers and site admins only).",
     retention: HISTORY_RETENTION,
   },
   {

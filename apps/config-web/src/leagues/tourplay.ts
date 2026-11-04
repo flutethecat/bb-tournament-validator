@@ -4,7 +4,9 @@
  * The export is a folder of semicolon-separated CSV files (UTF-8 with BOM, CRLF): <slug>-fixtures.csv,
  * <slug>-participants.csv, <slug>-<category>-<phase>-standings.csv, <slug>-<category>-<stat>-<kind>-honors.csv,
  * <slug>-awards.csv and one <team>-<race>-<coach>-roster.csv per team (a coach name with "/" in it lands in a
- * sub-folder, so rosters are found recursively). Payment, NAF numbers and organiser observations are dropped.
+ * sub-folder, so rosters are found recursively). Payment, CheckedValid and organiser observations are dropped. NAF numbers
+ * never reach a season record: parseParticipantNaf reads them for the organiser upload's private matching record only
+ * (tourplayImport.ts, law 23).
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -149,33 +151,41 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-/** Reads an extracted export folder. The slug is the prefix of the top-level `*-fixtures.csv` file. */
-export function readTourplayDir(dir: string): TourplayFiles {
-  if (!existsSync(dir)) throw new Error(`No export folder at ${dir}.`);
-  const base = (f: string): string => relative(dir, f).replace(/\\/g, "/");
-  const files = walk(dir);
-  const fixturesFile = files.find((f) => /-fixtures\.csv$/i.test(f) && !base(f).includes("/"));
-  if (!fixturesFile) throw new Error(`No *-fixtures.csv in ${dir}.`);
-  const slug = base(fixturesFile).replace(/-fixtures\.csv$/i, "");
-  const read = (f: string): string => readFileSync(f, "utf8");
-  const pick = (suffix: string): string | undefined => {
-    const f = files.find((x) => base(x) === `${slug}${suffix}`);
-    return f ? read(f) : undefined;
-  };
+/** One export file by its path relative to the export folder ("/"-separated) and its text. */
+export interface TourplayEntry { path: string; text: string }
+
+/**
+ * The export's files from an in-memory list (paths relative to the export folder, "/"-separated). Pure: the CLI reads a
+ * folder into this list (readTourplayDir); the organiser upload (tourplayUpload.ts) hands over the files it unpacked.
+ * The slug is the prefix of the top-level `*-fixtures.csv` file.
+ */
+export function tourplayFilesFrom(entries: readonly TourplayEntry[], where = "the export"): TourplayFiles {
+  const files = [...entries].map((e) => ({ path: e.path.replace(/\\/g, "/"), text: e.text }));
+  const fixturesFile = files.find((f) => /-fixtures\.csv$/i.test(f.path) && !f.path.includes("/"));
+  if (!fixturesFile) throw new Error(`No *-fixtures.csv in ${where}.`);
+  const slug = fixturesFile.path.replace(/-fixtures\.csv$/i, "");
+  const pick = (suffix: string): string | undefined => files.find((x) => x.path === `${slug}${suffix}`)?.text;
   const out: TourplayFiles = {
-    slug, fixtures: read(fixturesFile), participants: pick("-participants.csv"), awards: pick("-awards.csv"),
+    slug, fixtures: fixturesFile.text, participants: pick("-participants.csv"), awards: pick("-awards.csv"),
     standings: [], honours: [], rosters: [],
   };
   for (const f of files) {
-    const name = base(f);
-    if (name.endsWith("-roster.csv")) out.rosters.push({ name, text: read(f) });
-    else if (name.startsWith(`${slug}-`) && name.endsWith("-standings.csv")) out.standings.push({ name, text: read(f) });
-    else if (name.startsWith(`${slug}-`) && name.endsWith("-honors.csv")) out.honours.push({ name: name.slice(slug.length + 1), text: read(f) });
+    const name = f.path;
+    if (name.endsWith("-roster.csv")) out.rosters.push({ name, text: f.text });
+    else if (name.startsWith(`${slug}-`) && name.endsWith("-standings.csv")) out.standings.push({ name, text: f.text });
+    else if (name.startsWith(`${slug}-`) && name.endsWith("-honors.csv")) out.honours.push({ name: name.slice(slug.length + 1), text: f.text });
   }
   out.standings.sort((a, b) => a.name.localeCompare(b.name));
   out.honours.sort((a, b) => a.name.localeCompare(b.name));
   out.rosters.sort((a, b) => a.name.localeCompare(b.name));
   return out;
+}
+
+/** Reads an extracted export folder. The slug is the prefix of the top-level `*-fixtures.csv` file. */
+export function readTourplayDir(dir: string): TourplayFiles {
+  if (!existsSync(dir)) throw new Error(`No export folder at ${dir}.`);
+  const entries = walk(dir).map((f) => ({ path: relative(dir, f).replace(/\\/g, "/"), text: readFileSync(f, "utf8") }));
+  return tourplayFilesFrom(entries, dir);
 }
 
 // ---- pieces ----
@@ -278,6 +288,18 @@ export function parseParticipants(text: string, mapCoach: CoachMapper): { partic
     };
   });
   return { participants, rulesets };
+}
+
+/**
+ * The participants file's NAF columns, for the organiser upload's PRIVATE matching record only (tourplayImport.ts):
+ * coach, NAF user, NAF number (digits; anything else dropped) and team. Never copied onto a season record or a public read.
+ */
+export function parseParticipantNaf(text: string): Array<{ coach: string; nafUser?: string; nafNumber?: string; team: string }> {
+  return csvRecords(text).map((r) => {
+    const digits = (r.NafNumber ?? "").trim();
+    const nafNumber = /^\d{1,10}$/.test(digits) ? digits.replace(/^0+(?=\d)/, "") : undefined;
+    return { coach: r.Coach ?? "", ...(r.NafUser ? { nafUser: r.NafUser } : {}), ...(nafNumber && nafNumber !== "0" ? { nafNumber } : {}), team: r.TeamName ?? "" };
+  });
 }
 
 export function parseAwards(text: string, mapCoach: CoachMapper): LeagueAward[] {

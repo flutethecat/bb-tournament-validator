@@ -1,15 +1,15 @@
 <script setup lang="ts">
 // Create a league, step 1 General (Played on lives here since creation wizards v2): name (the short name, e.g. "TABBL"), full name, the league address (derived from the
 // name, editable until the draft exists), description, logo and header bar (the settings tab's upload rules, sent after
-// the draft is made). Site admins also see "Import from TourPlay" (Q16; the upload itself is a later lane).
+// the draft is made). "Import from TourPlay" (lane L8): once the draft exists, the organiser uploads the export here
+// (LeagueTourplayImport, wizard mode); before that, a note says to press Next first.
 import { computed, inject, watch } from "vue";
-import { SESSION_KEY } from "../session";
 import { DESCRIPTION_MAX, FULL_NAME_MAX, LEAGUE_WIZARD_KEY, NAME_MAX, slugify } from "../leagues/wizard";
 import PlayedOnToggle from "./PlayedOnToggle.vue";
+import LeagueTourplayImport from "./LeagueTourplayImport.vue";
 import { timeZones } from "../shared/timeZone";
 
 const wizard = inject(LEAGUE_WIZARD_KEY)!;
-const session = inject(SESSION_KEY)!;
 const { state } = wizard;
 const f = computed(() => state.form.identity);
 const created = computed(() => Boolean(state.draft));
@@ -83,13 +83,16 @@ const zones = computed(() => timeZones(f.value.timeZone));
         </label>
       </fieldset>
       <p class="lw-help">Where the league plays (US or Canada) can be added later in League settings, Information.</p>
-      <section v-if="session.admin() && !created" class="lw-group lw-import" aria-labelledby="lw-import-h">
+      <section v-if="!created" class="lw-group lw-import" aria-labelledby="lw-import-h">
         <h3 id="lw-import-h" class="sf-k">Import from TourPlay</h3>
         <p class="lw-help">
-          Already running the league on TourPlay? Site admins import it from the export folders the organiser downloaded
-          (scripts/import-tourplay-league.ts). An upload here is coming.
+          Already running the league on TourPlay? Press Next to create the league, then upload the export you downloaded
+          from TourPlay here. You can also do it later in League settings, TourPlay import.
         </p>
       </section>
+      <div v-else-if="state.draft" class="lw-import" data-wizard-import>
+        <LeagueTourplayImport :league-id="state.draft.id" mode="wizard" />
+      </div>
     </div>
   </div>
 </template>

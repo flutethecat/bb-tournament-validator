@@ -5,7 +5,8 @@
 // Registrations, Team building, Inducements, Redraft (the budget formula and the organiser Redraft board, owner 11-02),
 // External connections (panels with their own Save, PATCH
 // /api/leagues/:id/settings sections), Schedule (League Events and, later, gates on one timeline), Participants (the season's participant flags, moved from the league page) and
-// Artwork (the league logo and header bar, moved from the league Overview).
+// Artwork (the league logo and header bar, moved from the league Overview) and TourPlay import (lane L8: upload, preview,
+// apply, the coach review list and claims).
 import { computed, inject, onMounted, provide } from "vue";
 import { usePageTitle } from "../shell/pageTitle";
 import { RouterLink, useRoute } from "vue-router";
@@ -27,6 +28,7 @@ import LeagueRedraftMine from "../components/LeagueRedraftMine.vue";
 import LeagueSchedule from "../components/LeagueSchedule.vue";
 import LeagueSettingsTemplates from "../components/LeagueSettingsTemplates.vue";
 import LeagueSettingsLadders from "../components/LeagueSettingsLadders.vue";
+import LeagueTourplayImport from "../components/LeagueTourplayImport.vue";
 import { followSeasons } from "../leagues/followSeasons";
 import { createLeagueDetail, LEAGUE_DETAIL_KEY, pickSeason } from "../leagues/league";
 import { createLeagueSettings, isSettingsTab, LEAGUE_SETTINGS_KEY, SETTINGS_TABS, type SettingsTab } from "../leagues/settings";
@@ -44,10 +46,11 @@ provide(LEAGUE_DETAIL_KEY, detail);
 
 /** The management groups: the settings tabs, then the season's Registrations (lane L6: entries to decide), and the two
  *  that moved here from the league page. */
-type ManageGroup = SettingsTab | "schedule" | "ladders" | "templates" | "entries" | "participants" | "artwork";
-const EXTRA = ["schedule", "ladders", "templates", "entries", "participants", "artwork"] as const;
+type ManageGroup = SettingsTab | "schedule" | "ladders" | "templates" | "entries" | "participants" | "artwork" | "tourplay";
+const EXTRA = ["schedule", "ladders", "templates", "entries", "participants", "artwork", "tourplay"] as const;
 const GROUPS: ReadonlyArray<{ id: ManageGroup; label: string }> = [
   ...SETTINGS_TABS, { id: "schedule", label: "Schedule" }, { id: "ladders", label: "Ladders" }, { id: "templates", label: "Templates" }, { id: "entries", label: "Registrations" }, { id: "participants", label: "Participants" }, { id: "artwork", label: "Artwork" },
+  { id: "tourplay", label: "TourPlay import" },
 ];
 const tab = computed<ManageGroup>(() => {
   const q = route.query.tab;
@@ -113,6 +116,7 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} settings` : ""));
         <p v-else class="hm-empty" role="status">Loading the seasons...</p>
       </template>
       <LeagueArtEdit v-else-if="tab === 'artwork'" />
+      <LeagueTourplayImport v-else-if="tab === 'tourplay'" :league-id="id" />
       <LeagueSettingsConnections v-else />
       </div>
     </div>

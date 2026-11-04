@@ -28,6 +28,7 @@ import LeagueTeams from "../components/LeagueTeams.vue";
 import LeagueLadder from "../components/LeagueLadder.vue";
 import LeagueJoin from "../components/LeagueJoin.vue";
 import LeagueTakeoverPanel from "../components/LeagueTakeoverPanel.vue";
+import LeagueClaimPrompt from "../components/LeagueClaimPrompt.vue";
 import { createLeagueJoin, LEAGUE_JOIN_KEY } from "../leagues/registration";
 import LeagueDraftNotice from "../components/LeagueDraftNotice.vue";
 import { SEASON_STAGE_LABEL, seasonStageOf, STAGE_TONE } from "../leagues/lifecycle";
@@ -187,6 +188,8 @@ usePageTitle(() => state.league?.name);
             v-for="s in olderOpenSeasons" :key="s.id" entry-only :league-id="id" :season-id="s.id" :league-name="state.league.name" :season-name="s.name"
           />
         </template>
+        <!-- "Is this you?" (lane L8): imported TourPlay names nobody is linked to; renders nothing when there are none -->
+        <LeagueClaimPrompt v-if="session.coach()" :league-id="id" />
         <!-- Available for Takeover (team library lane): the overview only, never a Browse leagues filter (round answer Q8) -->
         <LeagueTakeoverPanel v-if="season && season.status === 'active'" :league-id="id" :season="season" :crests="state.crests" :manage="manage" />
         <LeagueNews v-if="season" :season="season" :manage="manage" />

@@ -12,7 +12,7 @@ import { markSeasonCaptainVacancies } from "./captain.js";
 import { stampPlayedCoaches } from "./identity.js";
 import { applyTournamentResets } from "./ladder.js";
 import { recordLeagueExits } from "../auth/leagueSharing.js";
-import type { LeagueEventsFile, LeagueFixture, LeagueRecord, LeagueSecrets, LeagueTeam, SeasonRecord } from "./types.js";
+import type { LeagueEventsFile, LeagueFixture, LeagueRecord, LeagueSecrets, LeagueTeam, SeasonRecord, TourplayImportFile } from "./types.js";
 
 /** One player of a league fork game, public subset: the roster position, and from a full result the SPP the league banked and the server's injury names. */
 export interface LeagueGamePlayer { position?: string; spp?: number; injuries?: string[] }
@@ -325,6 +325,28 @@ export class LeagueStore {
       ...(file.discordDeletes?.length ? { discordDeletes: file.discordDeletes } : {}),
       ...(file.discordDeadLetters?.length ? { discordDeadLetters: file.discordDeadLetters } : {}),
     });
+  }
+
+  /**
+   * TourPlay import (lane L8, tourplayImport.ts): <leagueDir>/tourplay-import.json, the PRIVATE matching record (NAF
+   * numbers, the review list, coach claims). Organisers and site admins only; never in a read model of anyone else, never
+   * in export.zip. A missing file is empty; a file that exists but cannot be read throws (fail closed).
+   */
+  tourplayImport(id: string): TourplayImportFile {
+    const empty: TourplayImportFile = { version: 1, coaches: {}, claims: [], imports: [] };
+    if (!LEAGUE_ID.test(id)) return empty;
+    const path = join(this.root, id, "tourplay-import.json");
+    if (!existsSync(path)) return empty;
+    const raw = this.readJson<TourplayImportFile>(path);
+    if (!raw || typeof raw !== "object" || !raw.coaches || typeof raw.coaches !== "object" || !Array.isArray(raw.claims)) {
+      throw new LeagueStoreError(500, "The league's TourPlay import record could not be read.");
+    }
+    return { version: 1, coaches: raw.coaches, claims: raw.claims, imports: Array.isArray(raw.imports) ? raw.imports : [] };
+  }
+
+  putTourplayImport(id: string, file: TourplayImportFile): void {
+    if (!this.league(id)) throw new LeagueStoreError(404, "League not found.");
+    this.write(join(this.leagueDir(id), "tourplay-import.json"), file);
   }
 
   /** Every season of the league, newest first. A season stored before player ids existed is given the ids (and career links) the importer would assign.

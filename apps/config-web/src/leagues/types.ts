@@ -227,6 +227,57 @@ export interface LeagueEventsFile {
   discordDeadLetters?: DiscordDeadLetter[];
 }
 
+/**
+ * <leagueDir>/tourplay-import.json (lane L8, tourplayImport.ts): the PRIVATE record of the organiser's TourPlay uploads.
+ * NAF numbers live here and nowhere else (law 23): read only by the import's matching and by the league's organisers
+ * and site admins. Covered by the privacy export and delete (src/privacy/collectors.ts, leagues).
+ */
+export interface TourplayImportFile {
+  version: 1;
+  /** One row per TourPlay coach, keyed "naf:<NAF user, lower case>" or "name:<display name key>". */
+  coaches: Record<string, TourplayCoachRecord>;
+  claims: TourplayClaim[];
+  /** Newest first, at most 20. */
+  imports: Array<{ at: string; by: string; seasons: Array<{ id: string; slug: string; number: number; action: string }> }>;
+}
+
+export type TourplayMatchStatus = "matched" | "unmatched" | "ambiguous" | "conflict";
+export type TourplayMatchBasis = "naf-name" | "naf-number" | "naf-name+number";
+
+export interface TourplayCoachRecord {
+  /** Opaque row id (hash of the key): what routes and the SPA name a row by. */
+  id: string;
+  key: string;
+  /** The TourPlay display name (public: it is on the season records too). */
+  name: string;
+  nafUser?: string;
+  /** PRIVATE: the export's NAF number (digits). */
+  nafNumber?: string;
+  /** Teams per season (team ids of the stored season). */
+  seasons: Array<{ seasonId: string; number: number; teamIds: string[]; teams: string[] }>;
+  /** The exact-match outcome at the last import. */
+  status: TourplayMatchStatus;
+  basis?: TourplayMatchBasis;
+  /** The account the last import linked (exact match or decision). */
+  coachId?: string;
+  /** Site coaches behind an ambiguous / conflicting match. */
+  candidates?: { byName: string[]; byNumber: string[] };
+  reason?: string;
+  /** An organiser's choice (review list, preview) or an approved claim: wins over matching on every re-import. null = no account. */
+  decision?: { coachId: string | null; by: string; at: string; via: "organiser" | "claim" };
+}
+
+export interface TourplayClaim {
+  id: string;
+  /** The coach row's id. */
+  row: string;
+  coach: string;
+  at: string;
+  state: "pending" | "approved" | "declined" | "withdrawn";
+  decidedBy?: string;
+  decidedAt?: string;
+}
+
 /** <leagueDir>/secrets.json: server-side only, masked in every read model, never logged. */
 export interface LeagueSecrets {
   discordWebhookUrl?: string;
