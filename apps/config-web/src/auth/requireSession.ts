@@ -125,6 +125,9 @@ function isPublicRequest(method: string, pathname: string): boolean {
       // Tournament Series: list and series pages are public reads; writes stay session-gated in-handler.
       pathname === "/api/series" ||
       /^\/api\/series\/[^/]+$/.test(pathname) ||
+      // Site ratings (src/ratings/api.ts): the leaderboard and one coach's ratings are public reads.
+      pathname === "/api/ratings" ||
+      /^\/api\/ratings\/coaches\/[^/]{1,200}$/.test(pathname) ||
       // Clubs (src/clubs/api.ts isPublicClubRead): the directory, a club page, its stats and its crest are public reads;
       // the board, the admin view and every write stay session-gated.
       pathname === "/api/clubs" ||

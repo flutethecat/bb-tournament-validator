@@ -589,8 +589,8 @@ export const entrantStatus = (e: TournamentEntrant): string => (e.droppedAt ? "D
 
 // ---- phase 2/3 display helpers (pure) ----
 
-export const PAIRING_LABEL: Record<TournamentPairingSystem, string> = { dutch: "Dutch", monrad: "Monrad", eloSeeded: "Elo-seeded" };
-export const SEEDING_LABEL: Record<TournamentSeedingMode, string> = { elo: "By rating (Elo)", manual: "Manual seeds" };
+export const PAIRING_LABEL: Record<TournamentPairingSystem, string> = { dutch: "Dutch", monrad: "Monrad", eloSeeded: "Rating-seeded" };
+export const SEEDING_LABEL: Record<TournamentSeedingMode, string> = { elo: "By rating", manual: "Manual seeds" };
 export type TournamentPrimaryTiebreaker = "buchholz" | "sonnebornBerger";
 export const TIEBREAKER_LABEL: Record<TournamentPrimaryTiebreaker, string> = { buchholz: "Buchholz", sonnebornBerger: "Sonneborn-Berger" };
 

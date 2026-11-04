@@ -533,7 +533,7 @@ describe("tournament routes (server-rendered against a mocked API)", () => {
     expect(html).toContain("2026-11-01 to 2026-11-03");
     expect(html).toContain("Not set");
     expect(html).toContain("Nut Cup");
-    expect(html).toContain("Swiss · Elo-seeded · 3 rounds");
+    expect(html).toContain("Swiss · Rating-seeded · 3 rounds");
     expect(html).toContain("2 of 8 · 6 places left");
     expect(html).toContain("3 of 4 · 1 place left");
     expect(html).toContain("<dd>5</dd>");

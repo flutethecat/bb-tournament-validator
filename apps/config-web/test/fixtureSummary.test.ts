@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { CoachEloRating } from "../src/coachElo";
+import type { CoachRatingInput } from "../src/ratings/glicko";
 import { WORDS_ROT13 } from "../src/discord/profanityList";
 import { ASK_LIMIT, LobbyNoticeGate, NOTICE_GAP_MS, winRateOf } from "../src/fixtureLobby/api";
 import { SenderRateLimiter } from "../src/notifications";
@@ -29,7 +29,7 @@ import { RATING_LABEL, coachCardLines, meetingLine, recordLine, scheduleLine } f
 import { profanitySetting, shown } from "../spa/src/shared/profanity";
 
 // Fixture summary (league UX pass 11-02, lane UX-B): the match page before kick-off. The summary fields from the server
-// (team value, record, position, form, agreed time), the coach cards' Rating (the existing Elo), head-to-head maths
+// (team value, record, position, form, agreed time), the coach cards' Rating (the site Glicko-2), head-to-head maths
 // (coaches and teams, the last meeting), the inducement budget against the recorder's own maths, pick privacy and
 // own-coach writes, the pre-fill into the recorder's picker, the coaches' messages (two coaches; organisers only after
 // "Ask an organiser"; others 403; anonymous 401), the inbox copy and notes / DMs (stubbed), the profanity viewer option,
@@ -75,8 +75,8 @@ describe("fixture summary routes (league)", () => {
   let allowed = true;
   let asks: SenderRateLimiter;
   let clock = 0;
-  const ratings = new Map<string, CoachEloRating>([
-    ["ann", { rating: 1561.4, games: 12, provisional: false }],
+  const ratings = new Map<string, CoachRatingInput>([
+    ["ann", { rating: 1561.4, rd: 87.4, games: 12, provisional: false }],
     ["bob", { rating: 1488.2, games: 4, provisional: true }],
     ["cat", { rating: 1600, games: 30, provisional: false }],
     ["dee", { rating: 1500, games: 0, provisional: true }],
@@ -135,8 +135,8 @@ describe("fixture summary routes (league)", () => {
     expect(v.sides.home.standing).toMatchObject({ rank: 1, played: 2, wins: 1, draws: 1, losses: 0, latest: ["W", "D"] });
     expect(v.sides.away.standing).toMatchObject({ rank: 2, played: 2, wins: 0, draws: 1, losses: 1, latest: ["L", "D"] });
     expect(v.header.scheduled).toEqual(AGREED);
-    // Rating = the existing Elo, rank among rated coaches (a coach without a rated game is not ranked)
-    expect(v.sides.home.rating).toEqual({ value: 1561, games: 12, provisional: false, rank: 2, of: 3 });
+    // Rating = the site Glicko-2 (with its RD when the server has one), rank among rated coaches (a coach without a rated game is not ranked)
+    expect(v.sides.home.rating).toEqual({ value: 1561, rd: 87, games: 12, provisional: false, rank: 2, of: 3 });
     expect(v.sides.away.rating).toEqual({ value: 1488, games: 4, provisional: true, rank: 3, of: 3 });
     // all-time: Ann W W D (season 1 vs Cat, then Bob twice) -> (2 + 0.5) / 3
     expect(v.sides.home.winRate).toBeCloseTo(0.833, 3);
@@ -408,10 +408,10 @@ describe("fixture summary maths (pure)", () => {
 
   it("SPA helpers: the Rating label, coach card lines, record, schedule and meeting lines (server figures only)", () => {
     expect(RATING_LABEL).toBe("Rating");
-    expect(coachCardLines({ rating: { value: 1561, games: 12, provisional: false, rank: 2, of: 3 }, winRate: 0.833, stats: { allTime: { played: 3 } } } as never))
-      .toEqual([{ k: "Rating", v: "1561" }, { k: "Win rate", v: "83%" }, { k: "Games", v: "3" }, { k: "Overall rank", v: "#2 of 3" }]);
+    expect(coachCardLines({ rating: { value: 1561, rd: 87, games: 12, provisional: false, rank: 2, of: 3 }, winRate: 0.833, stats: { allTime: { played: 3 } } } as never))
+      .toEqual([{ k: "Rating", v: "1561 ±87" }, { k: "Win rate", v: "83%" }, { k: "Games", v: "3" }, { k: "Overall rank", v: "#2 of 3" }]);
     expect(coachCardLines({ rating: { value: 1488, games: 4, provisional: true }, winRate: null, stats: { allTime: { played: 0 } } } as never))
-      .toEqual([{ k: "Rating", v: "1488 (provisional)" }, { k: "Win rate", v: "-" }, { k: "Games", v: "0" }]);
+      .toEqual([{ k: "Rating", v: "1488 · Provisional" }, { k: "Win rate", v: "-" }, { k: "Games", v: "0" }]);
     expect(coachCardLines({ rating: null, winRate: null, stats: { allTime: { played: 0 } } } as never)[0]).toEqual({ k: "Rating", v: "Unrated" });
     expect(recordLine({ wins: 1, draws: 1, losses: 0 })).toBe("1-1-0");
     expect(recordLine(null)).toBe("-");

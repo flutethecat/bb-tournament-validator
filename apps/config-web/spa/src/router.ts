@@ -13,7 +13,7 @@ import AdminTournamentsView from "./views/AdminTournamentsView.vue";
 import HelpView from "./views/HelpView.vue";
 import GameSummaryView from "./views/GameSummaryView.vue";
 import HomeView from "./views/HomeView.vue";
-import LeaderboardsView from "./views/LeaderboardsView.vue";
+import RatingsView from "./views/RatingsView.vue";
 import FixtureLobbyView from "./views/FixtureLobbyView.vue";
 import LeagueDetailView from "./views/LeagueDetailView.vue";
 import RosterBuilderRedraftView from "./views/RosterBuilderRedraftView.vue";
@@ -62,7 +62,9 @@ export const routes: RouteRecordRaw[] = [
   // the owner moves it. The coach page lives at /home.
   { path: "/", redirect: "/lobby" },
   { path: "/home", name: "home", component: HomeView, meta: { requiresAuth: true, title: "Coach page" } },
-  { path: "/leaderboards", name: "leaderboards", component: LeaderboardsView, meta: { title: "Leaderboards" } },
+  // Leaderboards = the site Ratings (owner round 2, 11-04): the sidebar's Leaderboards link lands on the Ratings page.
+  { path: "/leaderboards", redirect: "/ratings" },
+  { path: "/ratings", name: "ratings", component: RatingsView, meta: { title: "Ratings" } },
   // Global site search (owner 11-04): the full results page behind the header search bar.
   { path: "/search", name: "search", component: () => import("./views/SearchView.vue"), meta: { title: "Search" } },
   { path: "/help", name: "help", component: HelpView, meta: { title: "Help" } },

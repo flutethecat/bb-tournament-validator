@@ -83,7 +83,9 @@ export interface LadderRankRow {
   /** Points from outside results (champion bonuses; also in points). */
   bonus?: number;
   tdDiff: number;
+  /** The team's Glicko-2 rating and its RD (the site ratings' settings; forfeits and overrides never move it). */
   rating: number;
+  rd?: number;
   ranked: boolean;
   latest: Array<"W" | "D" | "L">;
   change?: number;
@@ -212,7 +214,7 @@ export interface LadderEntryRow {
 
 export const RANKING_LABEL: Record<LadderRanking, string> = { rating: "Rating", points: "Points", position: "Position swap" };
 export const RANKING_HELP: Record<LadderRanking, string> = {
-  rating: "Teams are ranked by a Glicko rating once they have played the minimum number of games.",
+  rating: "Teams are ranked by a Glicko-2 rating once they have played the minimum number of games. Forfeits never move it.",
   points: "Teams score points for each win, draw and loss.",
   position: "Challenge up to the set number of places above you; a winning challenger takes the defender's place.",
 };

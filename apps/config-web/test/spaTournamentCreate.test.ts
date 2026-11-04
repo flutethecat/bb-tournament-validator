@@ -265,7 +265,7 @@ describe("wizard controller (lane L3)", () => {
     expect(w.state.series).toEqual([{ id: "s1", name: "Mine", seeding: "elo" }]);
     const rows = summaryRows({ ...filled(), seriesId: "s1" }, w.state.series);
     expect(rows.general).toEqual(expect.arrayContaining([{ k: "Series", v: "Mine" }, { k: "Played on", v: "Tabletop" }]));
-    expect(rows.format).toEqual(expect.arrayContaining([{ k: "Pairing", v: "Elo-seeded" }, { k: "Points (W/D/L)", v: "3 / 1 / 0" }, { k: "Ranking", v: "Points, then Buchholz, then TD difference, then Casualty difference" }]));
+    expect(rows.format).toEqual(expect.arrayContaining([{ k: "Pairing", v: "Rating-seeded" }, { k: "Points (W/D/L)", v: "3 / 1 / 0" }, { k: "Ranking", v: "Points, then Buchholz, then TD difference, then Casualty difference" }]));
     expect(rows.ruleset).toEqual(expect.arrayContaining([{ k: "Prayers to Nuffle", v: "As the ruleset says" }, { k: "Progression", v: "Off (resurrection)" }]));
     expect(rows.registration).toEqual(expect.arrayContaining([{ k: "Opens", v: "When published" }, { k: "Places", v: "12" }, { k: "NAF", v: "Sanctioned" }]));
   });

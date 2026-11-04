@@ -350,7 +350,7 @@ describe("export", () => {
     const files = new Map((await collectExport(deps, "alice")).map((f) => [f.name, f.content]));
     expect([...files.keys()].sort()).toEqual([
       "README.txt", "account.json", "avatar.png", "bug-reports-index.json", "builder-saves.json", "league-teams.json", "notifications.json",
-      "organiser-requests.json", "results.json", "tabletop-matches.json", "team-library.json", "team-logos/library_t1.png", "team-logos/save_s1.png", "tournament-entries.json",
+      "organiser-requests.json", "ratings.json", "results.json", "tabletop-matches.json", "team-library.json", "team-logos/library_t1.png", "team-logos/save_s1.png", "tournament-entries.json",
     ]);
     const text = (n: string) => String(files.get(n));
     const account = JSON.parse(text("account.json"));

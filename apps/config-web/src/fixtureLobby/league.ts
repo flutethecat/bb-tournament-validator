@@ -29,7 +29,7 @@ import type { LeagueFixture, LeagueRecord, LeagueTeam, SeasonRecord } from "../l
 import type { TabletopTeamFile } from "../tabletop/postMatch.js";
 import { deriveTeamResult, type StoredTournamentResult } from "../tournamentResults.js";
 import { lobbyRoute, type LobbyDeps } from "./api.js";
-import type { CoachEloRating } from "../coachElo.js";
+import type { CoachRatingInput } from "../ratings/glicko.js";
 import { LOBBY_SIDES, type LobbyCoachRating, type LobbyCoachStats, type LobbyFixture, type LobbyFixtureSide, type LobbyHeadToHead, type LobbyMeeting, type LobbySide, type LobbyTeam } from "./types.js";
 import { publishedLeagues } from "../leagues/lifecycle.js";
 import { competitionPlaysOnFork } from "../leagues/ladder.js";
@@ -59,7 +59,7 @@ export interface LeagueLobbyDeps extends LobbyDeps {
   results?: () => StoredTournamentResult[];
   resultsRevision?: () => string;
   /** The site rating of every coach (the existing Elo, by lower-cased coach); absent = no Rating on the coach cards. */
-  ratings?: () => ReadonlyMap<string, CoachEloRating>;
+  ratings?: () => ReadonlyMap<string, CoachRatingInput>;
 }
 
 const enc = encodeURIComponent;
@@ -334,19 +334,19 @@ export function agreedTime(v: unknown): { start: string; end: string; agreedAt: 
 }
 
 /**
- * The coach's Rating (the existing Elo until Glicko lands) and their rank among every rated coach (highest first; a tie
- * shares the better rank). A coach with no rated game has no Rating (null).
+ * The coach's Rating (the site Glicko-2, src/ratings: rating, RD, provisional under 5 games) and their rank among every
+ * rated coach (highest first; a tie shares the better rank). A coach with no rated game has no Rating (null).
  */
 export function ratingsOf(deps: Pick<LeagueLobbyDeps, "ratings">): ((coach: string) => LobbyCoachRating | null) | undefined {
   if (!deps.ratings) return undefined;
-  let map: ReadonlyMap<string, CoachEloRating>;
+  let map: ReadonlyMap<string, CoachRatingInput>;
   try { map = deps.ratings(); } catch { return undefined; }
   const sorted = [...map.values()].filter((r) => r.games > 0).map((r) => r.rating).sort((a, b) => b - a);
   return (coach) => {
     const r = coach ? map.get(coach.trim().toLowerCase()) : undefined;
     if (!r || r.games <= 0) return null;
     const rank = sorted.findIndex((v) => v <= r.rating) + 1;
-    return { value: Math.round(r.rating), games: r.games, provisional: r.provisional, ...(rank > 0 ? { rank, of: sorted.length } : {}) };
+    return { value: Math.round(r.rating), ...(typeof r.rd === "number" ? { rd: Math.round(r.rd) } : {}), games: r.games, provisional: r.provisional, ...(rank > 0 ? { rank, of: sorted.length } : {}) };
   };
 }
 

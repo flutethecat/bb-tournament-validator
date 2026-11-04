@@ -38,7 +38,7 @@ import type { ScheduledMatchRecord, TournamentRecord, TournamentSubmission } fro
 import { lobbyRoute, type LobbyAuth, type LobbyDeps, type LobbyResult } from "./api.js";
 import { STAR_PREFIX } from "./core.js";
 import { agreedTime, coachHistory, headToHead, ratingsOf, statsOf, type Game } from "./league.js";
-import type { CoachEloRating } from "../coachElo.js";
+import type { CoachRatingInput } from "../ratings/glicko.js";
 import { LOBBY_SIDES, type LobbyFixture, type LobbyFixtureSide, type LobbyPick, type LobbySide, type LobbyTeam } from "./types.js";
 
 /** One side's team: the team file the lobby judges (race, TV, treasury, players) and what the Builder bought. */
@@ -60,7 +60,7 @@ export interface TournamentLobbyDeps extends LobbyDeps {
   results?: () => StoredTournamentResult[];
   resultsRevision?: () => string;
   /** The coaches' site rating (the existing Elo) for the fixture summary's coach cards. */
-  ratings?: () => ReadonlyMap<string, CoachEloRating>;
+  ratings?: () => ReadonlyMap<string, CoachRatingInput>;
   /** When the recorder's chain for a coach's save started (its baseline revision's createdAt); undefined = no chain. */
   chainStartedAt?(coach: string, saveId: string): Promise<string | undefined>;
 }

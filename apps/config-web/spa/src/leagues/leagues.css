@@ -799,6 +799,11 @@ button.lg-cog { margin: 0; padding: 0; font: inherit; color: inherit; cursor: po
 .cs-stats > div { display: grid; gap: 2px; padding: 8px 10px; background: color-mix(in srgb, var(--ui-surface-2) 70%, transparent); border: 1px solid var(--sf-panel-line); border-left: 3px solid var(--sf-gold); border-radius: 2px; }
 .cs-stats dt { font: 10px/1.4 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
 .cs-stats dd { margin: 0; font: 22px/1.1 var(--font-heading); font-variant-numeric: tabular-nums; color: var(--ui-text); }
+/* the coach's site ratings (owner round 2, 11-04): a second row under the league record; RD and the provisional chip ride along */
+.cs-ratings { margin-top: 8px; }
+.cs-ratings > div { border-left-color: var(--ui-heading); }
+.cs-ratings dd { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 18px; }
+.cs-prov { font-size: 10px; }
 .cs-seasons { margin: 0; }
 .rpop-facts dd { font-size: 18px; }
 .rpop-table { font-size: 15px; }

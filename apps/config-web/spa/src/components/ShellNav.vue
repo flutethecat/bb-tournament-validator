@@ -117,7 +117,7 @@ const categories = computed<Category[]>(() => [
 
 // One active item: the first in priority order whose target matches (coach tournament rows, Home and the category
 // headers, then the other rows). Empty-state notes never take the highlight: the header for the same list does.
-const PARENT_ROUTES: { key: string; to: string }[] = [{ key: "c:leaderboards", to: "/standings" }, { key: "c:help", to: "/whats-new" }];
+const PARENT_ROUTES: { key: string; to: string }[] = [{ key: "c:leaderboards", to: "/ratings" }, { key: "c:leaderboards", to: "/standings" }, { key: "c:help", to: "/whats-new" }];
 const activeKey = computed(() => {
   const cats = categories.value;
   const ordered: { key: string; to: string }[] = [

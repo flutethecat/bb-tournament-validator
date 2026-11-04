@@ -5,8 +5,9 @@
  *   state        setup (organisers only) -> active -> closed, derived from the season record (ladderState)
  *   membership   members who have not left and whose team was not moved elsewhere (a team plays in one place at a time:
  *                supersededTeams reads every competition's movedFrom links, so it is derived, never a stored flag)
- *   ranking      replayLadder replays joins, results and decline-rule losses in time order: Glicko rating per team (FUMBBL
- *                settings, one update per game; unranked until minGames), points (W/D/L + any point awards), and the position
+ *   ranking      replayLadder replays joins, results and decline-rule losses in time order: Glicko-2 rating per team (the
+ *                site ratings' engine and settings, src/ratings/glicko.ts: 1500 / RD 350 / volatility 0.06 / tau 0.5, one
+ *                update per game; forfeits and organiser overrides never move it, src/ratings/rules.ts; unranked until minGames), points (W/D/L + any point awards), and the position
  *                order (a winning challenger below its defender takes the defender's place; the teams in between move down
  *                one; a scheduled-round game counts the lower-ranked side as the challenger). Each ladder's ranking is its own:
  *                site ratings come from the games themselves (Super FUMBBL results / the tabletop recorder), as for any league
@@ -20,7 +21,9 @@
  *                league's with the ladder's override (redraftRules.ts effectiveRedraftRules).
  */
 import { randomBytes } from "node:crypto";
-import { displayedCr, FUMBBL_CR, glickoUpdate, type GlickoState } from "../coachGlicko.js";
+import { glickoUpdate, type GlickoState } from "../coachGlicko.js";
+import { SITE_GLICKO } from "../ratings/glicko.js";
+import { leagueFixtureVerdict } from "../ratings/rules.js";
 import { effectiveRedraftRules } from "./redraftRules.js";
 import { fixtureOutcome } from "./identity.js";
 import type { LadderChallenge, LadderChallengeState, LadderMember, LadderRanking, LadderRecord, LadderSettings, LadderState } from "./ladderTypes.js";
@@ -377,8 +380,10 @@ export interface LadderRankRow {
   /** Points from outside results (champion bonuses, organiser awards; also in points). */
   bonus: number;
   tdDiff: number;
-  /** The team's displayed Glicko rating (FUMBBL display: r - 5 * max(RD - 100, 0)). */
+  /** The team's Glicko-2 rating, rounded (the site ratings' settings). */
   rating: number;
+  /** Its rating deviation, rounded. */
+  rd: number;
   /** Rating ladders: ranked once it has played minGames. Always true for points and position ladders. */
   ranked: boolean;
   latest: Array<"W" | "D" | "L">;
@@ -393,7 +398,7 @@ export interface LadderSnapshot { order: string[]; stats: Map<string, LadderTeam
 
 const fresh = (teamId: string): LadderTeamStats => ({
   teamId, played: 0, wins: 0, draws: 0, losses: 0, declineLosses: 0, points: 0, bonus: 0, tdFor: 0, tdAgainst: 0,
-  glicko: { r: FUMBBL_CR.rating, rd: FUMBBL_CR.rd, sigma: FUMBBL_CR.sigma }, latest: [],
+  glicko: { r: SITE_GLICKO.rating, rd: SITE_GLICKO.rd, sigma: SITE_GLICKO.sigma }, latest: [],
 });
 
 /** When a ladder fixture's result happened (finished, else started, else its scheduled time, else the challenge answer). */
@@ -466,11 +471,15 @@ export function replayLadder(
     const at = new Date(e.at).toISOString();
     apply(hs, out.home, f.home.score ?? 0, f.away.score ?? 0, at);
     apply(as, out.away, f.away.score ?? 0, f.home.score ?? 0, at);
-    // Glicko-2 per game against the opponent's rating BEFORE this game (FUMBBL settings, no team-value term).
-    const score = out.home === "win" ? 1 : out.home === "draw" ? 0.5 : 0;
-    const hBefore = { ...hs.glicko }; const aBefore = { ...as.glicko };
-    hs.glicko = glickoUpdate(hBefore, [{ r: aBefore.r, rd: aBefore.rd, score }], FUMBBL_CR);
-    as.glicko = glickoUpdate(aBefore, [{ r: hBefore.r, rd: hBefore.rd, score: 1 - score }], FUMBBL_CR);
+    // Glicko-2 per game against the opponent's rating BEFORE this game (the site ratings' settings). A forfeit, a
+    // deadline decision, an override or an unbacked concession counts in the table but never moves the rating.
+    const verdict = leagueFixtureVerdict(f);
+    if (verdict.counts) {
+      const score = verdict.homeScore;
+      const hBefore = { ...hs.glicko }; const aBefore = { ...as.glicko };
+      hs.glicko = glickoUpdate(hBefore, [{ r: aBefore.r, rd: aBefore.rd, score }], SITE_GLICKO);
+      as.glicko = glickoUpdate(aBefore, [{ r: hBefore.r, rd: hBefore.rd, score: 1 - score }], SITE_GLICKO);
+    }
     // Position: only a CHALLENGER who wins takes the defender's place (if it still stands below it); a defender's win changes
     // nothing, whatever the order is by now. A scheduled-round game has no challenger: its lower-ranked winner moves up.
     const ch = f.ladder?.challengeId ? ladder.ladder?.challenges.find((c) => c.id === f.ladder!.challengeId) : undefined;
@@ -499,7 +508,7 @@ export function rankRows(ladder: SeasonRecord, snap: LadderSnapshot, members: Re
     const s = snap.stats.get(team.id) ?? fresh(team.id);
     return {
       teamId: team.id, team: team.name, race: team.race, coach: team.coach, played: s.played, wins: s.wins, draws: s.draws, losses: s.losses,
-      declineLosses: s.declineLosses, points: s.points, bonus: s.bonus, tdDiff: s.tdFor - s.tdAgainst, rating: displayedCr(s.glicko.r, s.glicko.rd),
+      declineLosses: s.declineLosses, points: s.points, bonus: s.bonus, tdDiff: s.tdFor - s.tdAgainst, rating: Math.round(s.glicko.r), rd: Math.round(s.glicko.rd),
       ranked: settings.ranking !== "rating" || s.played >= settings.minGames, latest: s.latest, teamValue: team.teamValue ?? null,
     };
   });

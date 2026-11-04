@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // Fixture summary, a coach card (league UX pass 11-02), in the Super FUMBBL client's coach-card style: avatar (the site's
-// public avatar route) with a presence dot, the coach name, and the figures the server sent: Rating (the existing Elo
-// until Glicko lands), win rate, games, and the overall rank when the server could rank the coach. A race rank is left
-// out: the rating is not kept per race. Clicking the name opens the shared coach summary popup (league pages only).
+// public avatar route) with a presence dot, the coach name, and the figures the server sent: Rating (the site Glicko-2
+// rating with its RD, "Provisional" under 5 rated games), win rate, games, and the overall rank when the server could rank
+// the coach. Clicking the name opens the shared coach summary popup (league pages only), which adds the race rating.
 // Public data only: never an email, phone or Discord id.
 import { computed, ref, watch } from "vue";
 import { initials } from "../leagues/league";

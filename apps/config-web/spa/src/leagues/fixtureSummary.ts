@@ -5,8 +5,14 @@
 
 import type { LobbyMeeting, LobbySideView, LobbyView } from "./lobby";
 
-/** The coach card's rating caption: the existing Elo, shown as "Rating" until Glicko lands (owner round answer Q1). */
+/** The coach card's rating caption: the site Glicko-2 rating (owner round 2, 11-04: it replaces the Elo "Rating"). */
 export const RATING_LABEL = "Rating";
+
+/** "1561 ±87", "1488 ±210 · Provisional": the rating, its deviation when the server sent one, and the provisional mark
+ *  (under 5 rated games). */
+export function ratingText(r: { value: number; rd?: number; provisional: boolean }): string {
+  return `${r.value}${typeof r.rd === "number" ? ` ±${r.rd}` : ""}${r.provisional ? " · Provisional" : ""}`;
+}
 
 const pctOf = (x: number): string => `${Math.round(x * 100)}%`;
 
@@ -14,7 +20,7 @@ const pctOf = (x: number): string => `${Math.round(x * 100)}%`;
 export function coachCardLines(s: Pick<LobbySideView, "rating" | "winRate"> & { stats: { allTime: { played: number } } }): Array<{ k: string; v: string }> {
   const r = s.rating;
   const lines = [
-    { k: RATING_LABEL, v: r ? `${r.value}${r.provisional ? " (provisional)" : ""}` : "Unrated" },
+    { k: RATING_LABEL, v: r ? ratingText(r) : "Unrated" },
     { k: "Win rate", v: typeof s.winRate === "number" ? pctOf(s.winRate) : "-" },
     { k: "Games", v: String(s.stats.allTime.played) },
   ];

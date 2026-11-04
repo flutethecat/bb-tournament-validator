@@ -40,9 +40,9 @@ export interface SeriesStandings { scoring: SeriesScoring; bestN?: number; tiebr
 export interface SeriesDetail { series: SeriesRecord; standings: SeriesStandings; attachable?: Array<{ id: string; name: string; status: SeriesEventStatus }> }
 
 export const SEEDING_OPTIONS: ReadonlyArray<{ id: SeriesSeeding; label: string }> = [
-  { id: "dutch", label: "Dutch" }, { id: "monrad", label: "Monrad" }, { id: "elo", label: "Elo seeded" },
+  { id: "dutch", label: "Dutch" }, { id: "monrad", label: "Monrad" }, { id: "elo", label: "Rating seeded" },
 ];
-export const SEEDING_LABEL: Record<SeriesSeeding, string> = { dutch: "Dutch", monrad: "Monrad", elo: "Elo seeded" };
+export const SEEDING_LABEL: Record<SeriesSeeding, string> = { dutch: "Dutch", monrad: "Monrad", elo: "Rating seeded" };
 
 /** "All events" or "Best 3 events". */
 export function scoringLabel(s: Pick<SeriesRecord, "scoring" | "bestN">): string {

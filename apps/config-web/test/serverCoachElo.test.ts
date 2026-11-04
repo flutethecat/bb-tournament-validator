@@ -98,6 +98,22 @@ afterAll(async () => {
   rmSync(root, { recursive: true, force: true });
 });
 
+describe("site ratings HTTP surfaces (src/ratings)", () => {
+  it("are public reads through the session gate: the leaderboard lists account holders only, the coach read 404s anyone else", async () => {
+    const board = await fetch(`${origin}/api/ratings?provisional=1`);
+    expect(board.status).toBe(200);
+    const body = await board.json() as { rows: Array<{ coach: string; rating: number; rd: number; games: number; provisional: boolean }> };
+    expect(body.rows.map((r) => r.coach)).toEqual(["Alice"]); // Bob has no account on the site
+    expect(body.rows[0]).toMatchObject({ games: 1, provisional: true });
+    expect(body.rows[0]!.rating).toBeGreaterThan(1500);
+    expect((await (await fetch(`${origin}/api/ratings`)).json() as { rows: unknown[] }).rows).toEqual([]); // provisional hidden by default
+    const alice = await fetch(`${origin}/api/ratings/coaches/alice`);
+    expect(alice.status).toBe(200);
+    expect(await alice.json()).toMatchObject({ coach: "Alice", overall: { games: 1, provisional: true } });
+    expect((await fetch(`${origin}/api/ratings/coaches/Bob`)).status).toBe(404);
+  });
+});
+
 describe("Coach Elo HTTP surfaces", () => {
   it("adds case-insensitive Elo fields to the public records rows", async () => {
     const response = await fetch(`${origin}/api/fork/records`);

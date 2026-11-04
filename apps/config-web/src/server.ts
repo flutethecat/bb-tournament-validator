@@ -267,6 +267,8 @@ import { setResultCoachFilter,
 } from "./tournamentResults.js";
 import { computeElo } from "./coachElo.js";
 import { computeGlicko, unratedGlicko } from "./coachGlicko.js";
+import { SiteRatingsService } from "./ratings/service.js";
+import { isRatingsPath, ratingsRoute } from "./ratings/api.js";
 import { CoachTitleStore } from "./coachRank.js";
 import { NafRecordStore, nafResultRows, nafRevision, nafSummaryFor, refreshNafForCoaches } from "./nafRecords.js";
 import {
@@ -537,6 +539,23 @@ const nafRecords = new NafRecordStore(FORK_STATE_DIR);
 const tournamentStore = new TournamentStore(TOURNAMENTS_DIR);
 // Leagues (TABBL and later): <FORK_STATE_DIR>/leagues/<id>/; public reads, organiser/admin artwork writes (src/leagues/api.ts).
 const leagueStore = new LeagueStore(FORK_STATE_DIR);
+// Site ratings (owner round 2, 11-04; src/ratings): Glicko-2 overall and per race, derived from league, ladder, tournament
+// and Super FUMBBL results on every read (cached by the stores' revisions). Replaces the Elo "Rating".
+const tournamentsFileStamp = (): string => { try { const st = statSync(join(TOURNAMENTS_DIR, "tournaments.json")); return `${st.size}:${st.mtimeMs}`; } catch { return "none"; } };
+const siteRatings = new SiteRatingsService({
+  stateDir: FORK_STATE_DIR,
+  leagues: leagueStore,
+  tournaments: () => tournamentStore.snapshot(),
+  tournamentsStamp: tournamentsFileStamp,
+  results: () => tournamentResults.list(),
+  resultsRevision: () => tournamentResults.revision(),
+  // a Super FUMBBL game's races: its teams in the team library (read once per replay)
+  forkRaces: () => {
+    const races = new Map<string, string>();
+    try { for (const c of libraryCoaches(LIBRARY_DIR)) for (const t of readLibrary(LIBRARY_DIR, c)) if (t?.teamId && t.race) races.set(t.teamId, t.race); } catch { /* races unknown: overall only */ }
+    return (teamId) => races.get(teamId);
+  },
+});
 /** Roster Builder league mode (lane L7): resolveBuilderPackage's hook for "league:<leagueId>:<seasonId>". */
 const leagueBuilderPackage = (name: string) => resolveLeaguePackage(leagueStore, name);
 // Fixture lobby (src/fixtureLobby): one file per fixture; presence in memory; chat 20 messages a minute per coach and lobby.
@@ -956,6 +975,7 @@ const privacyService = new PrivacyService({
     gameLoader.clear();
     dropAllSnapshots();
     leagueStore.invalidate();
+    siteRatings.clear();
     clearLeagueStatsCache();
     void coachAvatars.identitiesWritten(readIdentities());
   },
@@ -1403,9 +1423,9 @@ function fixtureLobbyDeps(): LeagueLobbyDeps {
     chatLimiter: fixtureLobbyChatLimiter,
     results: () => tournamentResults.list(),
     resultsRevision: () => tournamentResults.revision(),
-    // fixture summary (league UX pass 11-02): the coach cards' Rating (the existing Elo until Glicko lands), the
+    // fixture summary (league UX pass 11-02): the coach cards' Rating (the site Glicko-2, src/ratings), the
     // coaches' messages copied into their Messages inboxes, and the inbox notes (actionable rows queue the Discord DM)
-    ratings: () => computeElo(tournamentResults.list()),
+    ratings: () => siteRatings.overall(),
     notify: leagueNotify,
     mirror: (from, to, text, context) => appendFixtureMessage(socialDeps, from, to, text, context),
     messageAllowed: (coach) => fixtureMessageAllowed(socialDeps, coach),
@@ -2069,6 +2089,7 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
   // Leagues: public reads (incl. .../seasons/:seasonId/inducements/usage); artwork writes are session + organiser/admin
   // gated in-handler (src/leagues/api.ts).
   if (leaguePath(pathname) !== undefined) return true;
+  if ((req.method === "GET" || req.method === "HEAD") && isRatingsPath(pathname)) return true; // site ratings: public reads
   if (seriesPath(pathname) !== undefined) return true; // Tournament Series: public reads, writes gated in-handler
   if (isClubsApiPath(pathname)) return true; // Clubs: public reads (directory, page, stats, crest), writes gated in-handler
   if ((req.method === "GET" || req.method === "HEAD") && pathname === SEARCH_PATH) return true; // site search: public read, viewer-aware in-handler
@@ -2896,7 +2917,6 @@ async function handleApi(
       }
     }
     const body = WRITE_METHODS.has(method) && method !== "DELETE" ? await readBody(req) : undefined;
-    let eloSnapshot: ReturnType<typeof computeElo> | undefined;
     const result = await tournamentApi(method, path, query, auth && tournamentTestSession ? { ...auth, test: true } : auth, body, {
       store: tournamentStore,
       teamBuild: (teamId) => libraryTeamForId(teamId),
@@ -2923,12 +2943,9 @@ async function handleApi(
       },
       registeredCoach: (coachId) => readIdentities().coaches[normalizeFfbCoachId(coachId)]?.ffbCoachId,
       coachRating: (coach) => {
-        // Seeding uses TOURNAMENT ELO (owner 08-27: only tournament matches move the
-        // competitive rating); all-provisional fields fall to the stable tie-flip fairly.
-        eloSnapshot ??= computeElo(
-          tournamentResults.list().filter((game) => tournamentMatches.get(game.gameId) !== undefined),
-        );
-        return eloSnapshot.get(coach.trim().toLowerCase())?.rating;
+        // Seeding uses the site Glicko-2 overall rating (owner round 2, 11-04: it replaces the Elo); an unrated coach
+        // seeds as unrated, and all-unrated fields fall to the stable tie-flip fairly.
+        try { return siteRatings.overall().get(normalizeFfbCoachId(coach))?.rating; } catch { return undefined; }
       },
     });
     if (result) {
@@ -3910,6 +3927,15 @@ async function handleApi(
       return sendJson(res, 400, { error: "A package name is required." });
     const { pkg } = loadPackage(body);
     return sendJson(res, 200, { prompt: renderArtPrompt(pkg) });
+  }
+
+  // Site ratings (src/ratings/api.ts): the leaderboard and one coach's ratings, public reads.
+  {
+    const rated = ratingsRoute(method, path, query, siteRatings);
+    if (rated) {
+      for (const [name, value] of Object.entries(rated.headers ?? {})) res.setHeader(name, value);
+      return sendJson(res, rated.status, rated.body);
+    }
   }
 
   if (path === "/api/coaches" && method === "GET") {

@@ -30,6 +30,10 @@ import { anonymiseLeagueRegistration, anonymiseRegistrationTrail, ownLeagueRegis
 import { createAnonymiser, createTextReplacer, nameKey, textAliases, type Anonymiser, type TextReplacer } from "./anonymise.js";
 import { coachKeyHash, isReservedCoachName } from "./fence.js";
 import { addToBlocklist, mapHash, markRecentDeletion, recordDeletedCoach, type StepStatus } from "./state.js";
+import { LeagueStore } from "../leagues/store.js";
+import { TournamentStore } from "../tournaments/store.js";
+import { TournamentResultStore } from "../tournamentResults.js";
+import { SiteRatingsService } from "../ratings/service.js";
 
 // ---- deps / contexts --------------------------------------------------------------------------------------------
 
@@ -560,6 +564,36 @@ export const STORE_COLLECTORS: StoreCollector[] = [
   { id: "tournament-matches", location: "FORK_STATE_DIR/tournament-matches.json", export: { none: "Match metadata only; the games are in results.json." }, erase: ["anonymise-results"] },
   { id: "naf-games", location: "FORK_STATE_DIR/naf-games.json", export: { none: "Included in results.json (nafRecord, verified NAF link only)." }, erase: ["anonymise-naf"] },
   { id: "coach-titles", location: "FORK_STATE_DIR/coach-titles.json", export: { none: "Included in results.json (title)." }, erase: ["anonymise-ratings"] },
+  // Site ratings (src/ratings): derived from the results on every read; FORK_STATE_DIR/site-ratings.json holds only the
+  // go-live reset time. Deleting the coach anonymises every input (results, leagues, tournaments) and removes the account,
+  // so no rating stays under their name and the leaderboards never list a deleted coach; the cache is dropped.
+  {
+    id: "site-ratings",
+    location: "derived from results, leagues and tournaments (FORK_STATE_DIR/site-ratings.json: the reset time only)",
+    export: (ctx) => {
+      try {
+        const service = new SiteRatingsService({
+          stateDir: ctx.deps.stateDir,
+          leagues: new LeagueStore(ctx.deps.stateDir),
+          tournaments: () => new TournamentStore(ctx.deps.tournamentsDir).snapshot(),
+          tournamentsStamp: () => "export",
+          results: () => new TournamentResultStore(ctx.deps.stateDir).list(),
+          resultsRevision: () => "export",
+          ttlMs: 0,
+        });
+        const mine = service.exportFor(ctx.coach);
+        const round = (r: { rating: number; rd: number; volatility: number }) => ({ ...r, rating: Math.round(r.rating * 100) / 100, rd: Math.round(r.rd * 100) / 100 });
+        return [{ name: "ratings.json", content: json({
+          overall: mine.overall ? round(mine.overall) : null,
+          races: mine.races.map(round),
+          countsFrom: mine.resetAt,
+        }) }];
+      } catch {
+        return [{ name: "ratings.json", content: json({ unavailable: "Your ratings could not be worked out right now; they follow from results.json and league-teams.json." }) }];
+      }
+    },
+    erase: ["anonymise-results", "anonymise-leagues", "anonymise-tournaments", "identity"],
+  },
   { id: "replay-moments", location: "FORK_STATE_DIR/replay-moments/", export: { none: "Public game highlights derived from the game server; no data beyond results.json." }, erase: ["anonymise-replays"] },
   {
     id: "notifications",
@@ -766,7 +800,7 @@ export const KNOWN_STORES = [
   "team-library", "fork-db", "tournaments", "leagues", "tabletop", "tabletop-teams", "tournament-results", "tournament-matches", "naf-games",
   "coach-titles", "replay-moments", "notifications", "bug-reports", "test-games", "logs", "fork-teams-xml", "bot-registry",
   "privacy-blocklist", "lobby-chat", "desktop-claims", "translation-cache", "mail", "friends", "blocks", "messages",
-  "fixture-lobbies", "schedule-proposals", "organiser-requests", "competition-templates", "clubs", "club-boards",
+  "fixture-lobbies", "schedule-proposals", "organiser-requests", "competition-templates", "clubs", "club-boards", "site-ratings",
 ] as const;
 
 /**
@@ -784,7 +818,7 @@ export const INVENTORY_ROWS: Record<(typeof KNOWN_STORES)[number], string[]> = {
   "translation-cache": ["translation-cache"], mail: ["mail"], friends: ["friends"], blocks: ["blocks"], messages: ["messages"],
   "fixture-lobbies": ["fixture-lobbies"], "schedule-proposals": ["schedule-proposals"], "organiser-requests": ["organiser-requests"],
   "competition-templates": ["competition-templates"],
-  clubs: ["clubs"], "club-boards": ["club-boards"],
+  clubs: ["clubs"], "club-boards": ["club-boards"], "site-ratings": ["results"],
 };
 
 /** Team keys whose logos belong to the coach: their builder saves and library teams. */
@@ -824,6 +858,7 @@ tabletop-matches.json   Tabletop matches you played or recorded, with their even
                         the dice you rolled in the match recorder (the dice log).
 results.json            Game results with you as home or away coach, your rating title, and your cached NAF games
                         (when your NAF link is verified).
+ratings.json            Your site ratings (Glicko-2): overall and per race, with rating deviation, volatility and games.
 notifications.json      Your notifications.
 friends.json            Your friends and friend requests (coach names only).
 blocks.json             The coaches you blocked.

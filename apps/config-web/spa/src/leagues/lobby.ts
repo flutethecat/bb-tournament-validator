@@ -25,8 +25,8 @@ export interface LobbySideView {
   };
   standing: { rank: number; points: number; group: string; played?: number; wins?: number; draws?: number; losses?: number; latest?: Array<"W" | "D" | "L"> } | null;
   stats: { season: LobbyStats; allTime: LobbyStats };
-  /** The coach's Rating (the existing Elo until Glicko lands) and overall rank; null = unrated. */
-  rating?: { value: number; games: number; provisional: boolean; rank?: number; of?: number } | null;
+  /** The coach's Rating (the site Glicko-2 rating and RD, src/ratings) and overall rank; null = unrated. */
+  rating?: { value: number; rd?: number; games: number; provisional: boolean; rank?: number; of?: number } | null;
   /** All-time win rate, 0..1 (a draw is half); null without games. */
   winRate?: number | null;
   /** SPA path of the full roster (tournaments: the entrant's team page); absent = the competition's team tab. */

@@ -419,7 +419,7 @@ describe("phase 2/3 views (server-rendered against a mocked API)", () => {
     expect(html).toContain("Pairing system");
     expect(html).toContain("Dutch");
     expect(html).toContain("Monrad");
-    expect(html).toContain("Elo-seeded");
+    expect(html).toContain("Rating-seeded");
     expect(html).toContain('type="datetime-local"');
     expect(html).toContain("Add organiser");
     expect(html).toContain(">Set owner</button>");
@@ -478,7 +478,7 @@ describe("phase 2/3 views (server-rendered against a mocked API)", () => {
     });
     expect(html).toContain("Generate fixtures · Round 1");
     expect(html).toContain("Pairing system");
-    expect(html).toContain("By rating (Elo)");
+    expect(html).toContain("By rating");
     expect(html).toContain("Manual seeds");
     expect(html).toContain(">Preview round 1</button>");
     expect(html).toContain(">Generate round 1</button>");

@@ -172,8 +172,9 @@ export interface LobbyHeadToHead {
   meetings: LobbyMeeting[];
 }
 
-/** The coach's site rating (the existing Elo, labelled "Rating" until Glicko lands); rank among every rated coach. */
-export interface LobbyCoachRating { value: number; games: number; provisional: boolean; rank?: number; of?: number }
+/** The coach card's Rating: the site Glicko-2 rating and RD (src/ratings), rounded; provisional under 5 rated games;
+ *  rank among every rated coach. */
+export interface LobbyCoachRating { value: number; rd?: number; games: number; provisional: boolean; rank?: number; of?: number }
 
 export interface LobbyFixtureSide {
   /** The seat's fork account (empty when the side has no account yet). */

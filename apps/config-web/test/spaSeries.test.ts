@@ -152,7 +152,7 @@ describe("series views (server-rendered against a mocked API)", () => {
     const overview = await render("/series/s1", { "/api/series/s1": DETAIL() });
     expect(overview).toContain('<h2 class="sh-name" title="Valley Series">Valley Series</h2>'); // the shared section header
     expect(overview).toMatch(/data-scoring="true">Best 2 events</);
-    expect(overview).toMatch(/data-seeding="true">Seeding: Elo seeded</);
+    expect(overview).toMatch(/data-seeding="true">Seeding: Rating seeded</);
     expect(overview).toContain("Veers, Piett");
     for (const t of ["Overview", "Schedule", "Standings"]) expect(overview).toContain(`>${t}</a>`);
     const schedule = await render("/series/s1?tab=schedule", { "/api/series/s1": DETAIL() });
