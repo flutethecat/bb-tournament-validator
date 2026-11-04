@@ -85,3 +85,7 @@
   .tr-reg-actions { justify-content: flex-start; }
 }
 .tr-noshow { border-left-color: var(--ui-danger); }
+
+/* The club pick (clubs lane, ClubPickField.vue): caption above, help below. */
+.tr-sheet [data-club-pick] { display: grid; gap: 4px; justify-items: start; }
+.tr-sheet [data-club-pick] select { min-width: min(100%, 320px); }

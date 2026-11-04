@@ -31,6 +31,8 @@ import OrganiserRequestView from "./views/OrganiserRequestView.vue";
 import PrivacyView from "./views/PrivacyView.vue";
 import SeriesDetailView from "./views/SeriesDetailView.vue";
 import SeriesListView from "./views/SeriesListView.vue";
+import ClubDetailView from "./views/ClubDetailView.vue";
+import ClubListView from "./views/ClubListView.vue";
 import StandingsView from "./views/StandingsView.vue";
 import TabletopListView from "./views/TabletopListView.vue";
 import TabletopOrganiserView from "./views/TabletopOrganiserView.vue";
@@ -120,6 +122,10 @@ export const routes: RouteRecordRaw[] = [
   { path: "/series/:id([\\w-]{1,64})", name: "series-detail", component: SeriesDetailView, props: true, meta: { title: "Series" } },
   // The series' management sub-panel (the section header's cog): Edit, Delete, New / Add / Remove tournament.
   { path: "/series/:id([\\w-]{1,64})/manage", name: "series-manage", component: SeriesDetailView, props: (r) => ({ id: String(r.params.id), manage: true }), meta: { title: "Series" } },
+  // Coach clubs (owner 11-02): public directory and club pages; the cog is the club admins' management sub-panel.
+  { path: "/clubs", name: "clubs", component: ClubListView, meta: { title: "Clubs" } },
+  { path: "/clubs/:id([a-z0-9-]{1,64})", name: "club-detail", component: ClubDetailView, props: true, meta: { title: "Club" } },
+  { path: "/clubs/:id([a-z0-9-]{1,64})/manage", name: "club-manage", component: ClubDetailView, props: (r) => ({ id: String(r.params.id), manage: true }), meta: { title: "Club" } },
   // Opponent's team: the server answers the coach, their current-round opponent and the managers only.
   {
     path: "/tournaments/:id([\\w-]{1,64})/team/:eid([\\w:.-]{1,160})",

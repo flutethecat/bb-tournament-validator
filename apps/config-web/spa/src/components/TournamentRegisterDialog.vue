@@ -19,6 +19,8 @@ import {
   linkProfileNaf, nafProblem, rulesetBuilderHref, TOURNAMENT_DETAIL_KEY, type NafLinkDraft, type ProfileNafView,
 } from "../tournaments/detail";
 import { approvalWords, expectedOutcome, placesLine, registerBody, registerChoices } from "../tournaments/registration";
+import ClubPickField from "./ClubPickField.vue";
+import { loadMyClubs, type MyClub } from "../clubs/clubs";
 import "../leagues/leagues.css";
 import "../tournaments/registration.css";
 
@@ -40,6 +42,10 @@ watch(choices, (list) => { if (!list.some((c) => c.ref === teamRef.value)) teamR
 const chosen = computed(() => choices.value.find((c) => c.ref === teamRef.value));
 const regions = computed(() => t.value.regions ?? []);
 const region = ref("");
+// The club the coach represents here (clubs lane): one of their clubs or none.
+const clubId = ref("");
+const myClubs = ref<MyClub[]>([]);
+const clubName = computed(() => myClubs.value.find((c) => c.id === clubId.value)?.name ?? "No club");
 const teamTouched = ref(false);
 const teamProblem = computed(() => (!teamRef.value
   ? "Pick a team, or build one in the Roster Builder first."
@@ -71,6 +77,7 @@ onMounted(() => {
   const coach = session.coach();
   if (coach && state.teamOptions.status === "idle") void detail.loadTeamOptions(coach);
   if (sharing) void sharing.load();
+  if (fetcher) void loadMyClubs(fetcher).then((c) => { myClubs.value = c; });
 });
 
 const busy = computed(() => state.busy === "register" || nafLinking.value);
@@ -125,7 +132,7 @@ async function next() {
   }
   if (!(await ensureProfileNaf())) { step.value = "share"; return; }
   const declared = sanctioned.value && notNafMember.value && !profileNaf.value;
-  const ok = await detail.registerEntry(registerBody({ teamRef: teamRef.value, region: region.value, share: share.value, notNafMember: declared }, regions.value.length > 0));
+  const ok = await detail.registerEntry(registerBody({ teamRef: teamRef.value, region: region.value, share: share.value, notNafMember: declared, clubId: clubId.value }, regions.value.length > 0));
   if (ok) emit("close");
 }
 </script>
@@ -161,6 +168,7 @@ async function next() {
         </select>
         <small class="muted hm-small">The organisers use regions to pair coaches.</small>
       </label>
+      <ClubPickField v-model="clubId" :clubs="myClubs" />
       <p v-if="teamTouched && teamProblem" class="sf-error" role="alert">{{ teamProblem }}</p>
     </template>
 
@@ -184,6 +192,7 @@ async function next() {
       <dl class="tr-sum">
         <dt>Team</dt><dd>{{ chosen?.label ?? "" }}<span v-if="chosen" class="muted"> · {{ chosen.sub }}</span></dd>
         <dt v-if="regions.length">Region</dt><dd v-if="regions.length">{{ region }}</dd>
+        <dt v-if="myClubs.length">Club</dt><dd v-if="myClubs.length" data-club-summary>{{ clubName }}</dd>
         <dt>Places</dt><dd>{{ placesLine(status) }}</dd>
         <dt>Approval</dt><dd>{{ approvalWords(status) }}</dd>
         <dt v-if="t.entryFee">Entry fee</dt><dd v-if="t.entryFee">{{ t.entryFee }}<span class="muted"> · paid to the organiser; your reference code shows in My entry</span></dd>

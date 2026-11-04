@@ -46,6 +46,9 @@ export interface LeagueMyEntry {
   kind: "new" | "existing";
   enteredAt: string;
   region?: string;
+  /** The club the coach represents here (clubs lane). */
+  clubId?: string;
+  clubName?: string;
   position?: number;
   teamId?: string;
   midSeason?: boolean;
@@ -67,6 +70,9 @@ export interface LeagueRegistrationRowView {
   kind?: "new" | "existing";
   submittedAt?: string;
   region?: string;
+  /** The club the coach represents here (clubs lane). */
+  clubId?: string;
+  clubName?: string;
   players?: number;
   cost?: number;
   validation?: { ok: boolean; problems: string[] };
@@ -126,7 +132,7 @@ export function joinChoices(saves: readonly BuilderSaveSummary[], leagueTeams: r
   return out;
 }
 
-export interface JoinDraft { teamRef: string; region: string; share: ShareField[]; acknowledged: boolean }
+export interface JoinDraft { teamRef: string; region: string; share: ShareField[]; acknowledged: boolean; clubId?: string }
 
 /** POST .../registrations: the team, the share picker (always sent, [] = nothing), the acknowledgement, the region. */
 export function joinBody(draft: JoinDraft, hasRegions: boolean) {
@@ -135,6 +141,7 @@ export function joinBody(draft: JoinDraft, hasRegions: boolean) {
     share: draft.share,
     acknowledged: draft.acknowledged,
     ...(hasRegions && draft.region ? { region: draft.region } : {}),
+    ...(draft.clubId ? { clubId: draft.clubId } : {}),
   };
 }
 

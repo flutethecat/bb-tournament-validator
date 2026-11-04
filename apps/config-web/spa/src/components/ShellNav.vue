@@ -3,7 +3,7 @@
 // Resources, and Testing for site admins only. Each top-level item is an uppercase band-font label with an
 // original pixel icon (/icons/nav/). Children keep the 16 px row style, indented 14 px per level; the active item is seat
 // blue with a 3 px left bar. Collapsed (56 px rail) only the icons show; a category icon expands the rail and opens it.
-import { computed, inject, onMounted, reactive, watch } from "vue";
+import { computed, inject, onMounted, reactive, ref, watch } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import Crest from "./Crest.vue";
 import { COACH_TREE_KEY, pickActive, type ChipTone } from "../home/tree";
@@ -15,6 +15,8 @@ import { creatorAllowed } from "../tournaments/creator";
 import { NOTIFICATIONS_KEY, homeBadgeCount, unreadBadge } from "../home/notifications";
 import { MESSAGES_KEY } from "../home/social";
 import { PROPOSALS_KEY } from "../schedule/schedule";
+import { loadMyClubs, type MyClub } from "../clubs/clubs";
+import { API_KEY } from "../app";
 import {
   HOME_LINK, LEAGUES_TO, NAV_ICON, railIntercepts, readNavOpen, rememberNavOpen, RESOURCES, TESTING_TOOLS,
   type ExternalLink, type NavCategoryId,
@@ -28,6 +30,11 @@ const proposals = inject(PROPOSALS_KEY, undefined);
 const ui = inject(SHELL_UI_KEY)!;
 const route = useRoute();
 const open = reactive(readNavOpen());
+const fetcher = inject(API_KEY, undefined);
+// Clubs (owner 11-02): the coach's clubs under the Clubs header, re-read on sign-in (none when signed out).
+const myClubs = ref<MyClub[]>([]);
+const refreshClubs = async () => { myClubs.value = session.signedIn() && fetcher ? await loadMyClubs(fetcher) : []; };
+const clubRows = computed<Row[]>(() => myClubs.value.map((c) => ({ key: `c-club:${c.id}`, to: `/clubs/${encodeURIComponent(c.id)}`, label: c.name, level: 1, ...(c.crestUrl ? { crest: c.crestUrl } : {}) })));
 
 interface Row { key: string; to: string; label: string; level: number; count?: number; chip?: { label: string; tone: ChipTone }; muted?: boolean; crest?: string; logo?: string; sub?: string; wrap?: boolean; propose?: boolean }
 interface NavAction { key: string; label: string; to: string }
@@ -93,13 +100,15 @@ const refreshMessages = () => {
   if (messages && session.signedIn()) void messages.load(); else messages?.set(0);
   if (proposals && session.signedIn()) void proposals.load(); else proposals?.set(0);
 };
-onMounted(refreshMessages);
+onMounted(() => { refreshMessages(); void refreshClubs(); });
+watch(() => session.signedIn(), () => void refreshClubs());
 watch(() => [session.signedIn(), notifications.unread.value], refreshMessages);
 
 const categories = computed<Category[]>(() => [
   // Action buttons under the rows (owner 10-31): Browse Leagues; Build a team (Roster Builder) and Browse Tournaments.
   { id: "leagues", label: "Leagues", icon: "leagues", to: LEAGUES_TO, rows: leagueRows.value, actions: [{ key: "a:leagues", label: "Browse Leagues", to: LEAGUES_TO }], count: session.signedIn() ? tree.state.leagues.length : 0 },
   { id: "tournaments", label: "Tournaments", icon: "tournaments", to: "/tournaments", rows: tournamentRows.value, actions: [{ key: "a:build", label: "Build a team", to: "/tournament-team-builder" }, { key: "a:tournaments", label: "Browse Tournaments", to: "/tournaments" }], count: tree.state.tournaments.length },
+  { id: "clubs", label: "Clubs", icon: "clubs", to: "/clubs", rows: clubRows.value, actions: [{ key: "a:clubs", label: "Browse Clubs", to: "/clubs" }], count: 0 },
   { id: "leaderboards", label: "Leaderboards", icon: "leaderboards", to: "/leaderboards", rows: [], count: 0 },
   { id: "help", label: "Help", icon: "help", to: "/help", rows: [], count: 0 },
   { id: "resources", label: "Resources", icon: "resources", rows: [], external: RESOURCES, count: 0 },

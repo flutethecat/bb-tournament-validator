@@ -113,7 +113,7 @@ function seed(e: TournamentEntrant, raw: string) {
           </td>
           <td data-label="Team" class="tn-team">
             <Crest :url="r.e.logoUrl" />
-            <span class="tn-side-text"><strong>{{ r.e.submission?.teamName || r.e.teamName || r.e.teamId || "Roster to come" }}</strong><span class="muted">{{ r.e.coachId }}{{ r.e.region ? ` · ${r.e.region}` : "" }}</span><span v-if="r.e.refCode" class="muted" data-ref-code="true">Ref {{ r.e.refCode }}</span></span>
+            <span class="tn-side-text"><strong>{{ r.e.submission?.teamName || r.e.teamName || r.e.teamId || "Roster to come" }}</strong><span class="muted">{{ r.e.coachId }}{{ r.e.region ? ` · ${r.e.region}` : "" }}{{ r.e.clubName ? ` · ${r.e.clubName}` : "" }}</span><span v-if="r.e.refCode" class="muted" data-ref-code="true">Ref {{ r.e.refCode }}</span></span>
           </td>
           <td data-label="Shared" class="tn-shared">
             <span v-for="(line, i) in sharedLines(r.e)" :key="i">{{ line }}</span>

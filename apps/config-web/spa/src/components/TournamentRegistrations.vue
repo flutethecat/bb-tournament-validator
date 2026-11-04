@@ -80,7 +80,7 @@ async function act(r: TournamentRegistrationRow, verb: "accept" | "waitlist" | "
           <div v-for="r in pending" :key="r.id" class="tr-reg-row" data-state="pending" :data-entry="r.id">
             <div class="tr-reg-who">
               <span class="tn-team"><Crest :url="r.logoUrl" /><strong>{{ team(r) }}</strong></span>
-              <span class="muted">{{ r.coachId }}{{ r.race ? ` · ${r.race}` : "" }}{{ r.region ? ` · ${r.region}` : "" }} · entered {{ utcLabel(r.enteredAt) }}</span>
+              <span class="muted">{{ r.coachId }}{{ r.race ? ` · ${r.race}` : "" }}{{ r.region ? ` · ${r.region}` : "" }}{{ r.clubName ? ` · ${r.clubName}` : "" }} · entered {{ utcLabel(r.enteredAt) }}</span>
             </div>
             <div class="tr-reg-info">
               <span><span class="sf-chip" :data-tone="ROSTER_TONE[rosterState({ submission: r.submission, flags: r.flags })]">{{ ROSTER_LABEL[rosterState({ submission: r.submission, flags: r.flags })] }}</span></span>

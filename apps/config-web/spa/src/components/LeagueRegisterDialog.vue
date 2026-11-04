@@ -17,6 +17,8 @@ import { createSharing, SHARE_LABEL, type ShareField } from "../account/sharing"
 import {
   joinBody, joinChoices, joinOutcome, LEAGUE_JOIN_KEY, leagueApprovalWords, leagueBuilderHref, leaguePlacesLine, raceLine,
 } from "../leagues/registration";
+import ClubPickField from "./ClubPickField.vue";
+import { loadMyClubs, type MyClub } from "../clubs/clubs";
 import "../leagues/leagues.css";
 import "../tournaments/registration.css";
 import "../leagues/registration.css";
@@ -41,6 +43,10 @@ const chosen = computed(() => choices.value.find((c) => c.ref === teamRef.value)
 const raceOf = (sub: string): string => sub.split(" · ")[0] ?? "";
 const regions = computed(() => status.value?.regions ?? []);
 const region = ref("");
+// The club the coach represents in this season (clubs lane): one of their clubs or none.
+const clubId = ref("");
+const myClubs = ref<MyClub[]>([]);
+const clubName = computed(() => myClubs.value.find((c) => c.id === clubId.value)?.name ?? "No club");
 const teamTouched = ref(false);
 const teamProblem = computed(() => (!teamRef.value
   ? "Pick a team, or build one for this season first."
@@ -57,6 +63,7 @@ onMounted(() => {
   const coach = session.coach();
   if (coach && state.options.status === "idle") void join.loadOptions(coach);
   if (sharing) void sharing.load();
+  if (fetcher) void loadMyClubs(fetcher).then((c) => { myClubs.value = c; });
 });
 
 const busy = computed(() => state.busy === "join");
@@ -84,7 +91,7 @@ async function next() {
     if (acknowledged.value) step.value = "confirm";
     return;
   }
-  const ok = await join.join(joinBody({ teamRef: teamRef.value, region: region.value, share: share.value, acknowledged: acknowledged.value }, regions.value.length > 0));
+  const ok = await join.join(joinBody({ teamRef: teamRef.value, region: region.value, share: share.value, acknowledged: acknowledged.value, clubId: clubId.value }, regions.value.length > 0));
   if (ok) emit("close");
 }
 </script>
@@ -122,6 +129,7 @@ async function next() {
         </select>
         <small class="muted hm-small">The organisers use regions when they make fixtures.</small>
       </label>
+      <ClubPickField v-model="clubId" :clubs="myClubs" />
       <p v-if="teamTouched && teamProblem" class="sf-error" role="alert">{{ teamProblem }}</p>
     </template>
 
@@ -145,6 +153,7 @@ async function next() {
       <dl class="tr-sum">
         <dt>Team</dt><dd>{{ chosen?.label ?? "" }}<span v-if="chosen" class="muted"> · {{ chosen.sub }}</span></dd>
         <dt v-if="regions.length">Region</dt><dd v-if="regions.length">{{ region }}</dd>
+        <dt v-if="myClubs.length">Club</dt><dd v-if="myClubs.length" data-club-summary>{{ clubName }}</dd>
         <dt>Places</dt><dd>{{ leaguePlacesLine(status) }}<span v-if="chosen && raceLine(status, raceOf(chosen.sub))" class="muted"> · {{ raceLine(status, raceOf(chosen.sub)) }}</span></dd>
         <dt>Approval</dt><dd>{{ leagueApprovalWords(status) }}</dd>
         <dt v-if="status?.entryFee">Entry fee</dt><dd v-if="status?.entryFee">{{ status.entryFee }}<span class="muted"> · paid to the organisers; your reference code shows on the league page</span></dd>

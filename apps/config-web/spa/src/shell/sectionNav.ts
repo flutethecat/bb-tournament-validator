@@ -6,10 +6,10 @@
 
 import type { RouteLocationRaw } from "vue-router";
 
-export type SectionKind = "league" | "tournament" | "series";
+export type SectionKind = "league" | "tournament" | "series" | "club";
 export type SectionTabId =
   | "overview" | "fixtures" | "standings" | "board" | "calendar" | "honours" | "statistics" | "stars" | "participants" | "draws" | "awards"
-  | "events" | "schedule" | "ladder";
+  | "events" | "schedule" | "ladder" | "members" | "results";
 /** The management sub-panel (the cog): not a tab, but the header shows the cog as current. */
 export type SectionActive = SectionTabId | "manage";
 
@@ -61,6 +61,14 @@ export const SECTION_TABS: Readonly<Record<SectionKind, readonly SectionTabDef[]
     { id: "schedule", label: "Schedule" },
     { id: "standings", label: "Standings" },
   ],
+  // Coach clubs (owner 11-02, Q14): Overview, Members, Results, Stats, Board. The club Board is live (the first Board).
+  club: [
+    { id: "overview", label: "Overview" },
+    { id: "members", label: "Members" },
+    { id: "results", label: "Results" },
+    { id: "statistics", label: "Stats", query: "stats" },
+    { id: "board", label: "Board" },
+  ],
 };
 
 /** What the section has today, from the data its page already loaded (a missing fact = nothing yet). */
@@ -89,7 +97,7 @@ export function tabFromQuery(kind: SectionKind, value: unknown): SectionTabId {
 /** Where a tab lives. `keep` carries query values that span tabs (a league's ?season=). */
 export function tabLocation(kind: SectionKind, id: string, tab: SectionTabId, keep: Record<string, string> = {}): RouteLocationRaw {
   if (kind === "league" && tab === "statistics") return { name: "league-stats", params: { id }, query: { ...keep } };
-  const name = kind === "league" ? "league-detail" : kind === "tournament" ? "tournament-detail" : "series-detail";
+  const name = kind === "league" ? "league-detail" : kind === "tournament" ? "tournament-detail" : kind === "club" ? "club-detail" : "series-detail";
   const query: Record<string, string> = { ...keep };
   if (tab !== "overview") query.tab = queryOf(kind, tab);
   return { name, params: { id }, query };
@@ -97,7 +105,7 @@ export function tabLocation(kind: SectionKind, id: string, tab: SectionTabId, ke
 
 /** The management sub-panel of a section (the cog). */
 export function manageLocation(kind: SectionKind, id: string, keep: Record<string, string> = {}): RouteLocationRaw {
-  const name = kind === "league" ? "league-settings" : kind === "tournament" ? "tournament-manage" : "series-manage";
+  const name = kind === "league" ? "league-settings" : kind === "tournament" ? "tournament-manage" : kind === "club" ? "club-manage" : "series-manage";
   return { name, params: { id }, query: { ...keep } };
 }
 
@@ -171,6 +179,11 @@ export function leagueFacts(s: {
   };
 }
 
+/** Club: every tab always shows (an empty one says so). */
+export function clubFacts(): SectionFacts {
+  return { members: true, results: true, statistics: true, board: true };
+}
+
 /** Series: its events and standings rows. */
 export function seriesFacts(s: { events: readonly unknown[]; rows: readonly unknown[] }): SectionFacts {
   return { schedule: s.events.length > 0, standings: s.events.length > 0 || s.rows.length > 0 };
@@ -186,7 +199,7 @@ export function seriesFacts(s: { events: readonly unknown[]; rows: readonly unkn
 export function activeTab(kind: SectionKind, route: { name?: unknown; query?: Record<string, unknown> }): SectionActive {
   const name = String(route.name ?? "");
   switch (name) {
-    case "league-settings": case "tournament-manage": case "series-manage": return "manage";
+    case "league-settings": case "tournament-manage": case "series-manage": case "club-manage": return "manage";
     case "league-stats": return "statistics";
     case "league-fixture-lobby": case "tournament-fixture-lobby": case "game": return "fixtures";
     case "tournament-team": case "roster-builder-redraft": case "tournament-team-builder": return "participants";
@@ -222,9 +235,9 @@ export function seasonSwitchQuery(query: Record<string, unknown>, seasonId: stri
 
 // ---- roles ----
 
-export type SectionRole = "organiser" | "admin" | "entrant" | "coach" | "";
-export const ROLE_LABEL: Record<Exclude<SectionRole, "">, string> = { organiser: "Organiser", admin: "Admin", entrant: "Entrant", coach: "Coach" };
-export const ROLE_TONE: Record<Exclude<SectionRole, "">, string> = { organiser: "soon", admin: "info", entrant: "ok", coach: "ok" };
+export type SectionRole = "organiser" | "admin" | "entrant" | "coach" | "member" | "";
+export const ROLE_LABEL: Record<Exclude<SectionRole, "">, string> = { organiser: "Organiser", admin: "Admin", entrant: "Entrant", coach: "Coach", member: "Member" };
+export const ROLE_TONE: Record<Exclude<SectionRole, "">, string> = { organiser: "soon", admin: "info", entrant: "ok", coach: "ok", member: "ok" };
 
 /** The viewer's role chip: organiser of this section first, then a site admin managing it, then a participant. */
 export function sectionRole(o: { organiser: boolean; admin?: boolean; participant?: boolean; participantRole?: "entrant" | "coach" }): SectionRole {
@@ -276,6 +289,7 @@ export const SECTION_UP: Readonly<Record<SectionKind, { to: string; label: strin
   league: { to: "/leagues", label: "All leagues", noun: "League" },
   tournament: { to: "/tournaments", label: "All tournaments", noun: "Tournament" },
   series: { to: "/series", label: "All series", noun: "Series" },
+  club: { to: "/clubs", label: "All clubs", noun: "Club" },
 };
 
 export interface SectionChip { label: string; tone: string; to?: RouteLocationRaw; key?: string }

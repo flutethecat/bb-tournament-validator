@@ -1,0 +1,109 @@
+/* Coach clubs: the directory cards, the club page tabs (Overview, Members, Results, Stats), the admins' management and the
+   board. Panels, bands, chips, buttons, fields and the table are the shared ones (home.css .hm-panel / .hm-band / .sf-*);
+   tokens only (design.md §3). */
+
+.cl-page { display: grid; gap: 16px; align-content: start; min-width: 0; }
+
+/* Directory */
+.cl-toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.cl-search { flex: 1 1 260px; max-width: 420px; }
+.cl-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); align-content: start; }
+.cl-card { height: 100%; }
+.cl-card > .hm-band { margin-bottom: 8px; }
+.cl-card-body { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; align-items: start; }
+.cl-card-text { min-width: 0; }
+.cl-name { margin: 0 0 4px; font: 500 20px/1.2 var(--font-heading); overflow-wrap: anywhere; }
+.cl-name a { color: var(--ui-text); text-decoration: none; }
+.cl-name a:hover { color: var(--ui-heading); text-decoration: underline; }
+.cl-name a:focus-visible, .cl-more:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.cl-region { margin: 0 0 4px; color: var(--sf-gold); font: 12px/1.3 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; }
+.cl-desc { margin: 0; color: var(--ui-muted); font-size: 14px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.cl-desc-full { display: block; color: var(--ui-text); font-size: 15px; white-space: pre-line; max-width: 72ch; -webkit-line-clamp: unset; }
+.cl-help { margin: 0 0 10px; color: var(--ui-muted); }
+
+/* Crests: the uploaded image, or the initials badge */
+.cl-crest { width: 64px; height: 64px; object-fit: contain; border: 2px solid var(--sf-panel-line); border-radius: 2px; background: var(--ui-surface-2); box-shadow: 0 2px 0 var(--sf-panel-drop); }
+.cl-crest-blank { display: grid; place-items: center; font: 22px/1 var(--font-heading); color: var(--ui-heading); }
+.cl-crest-lg { width: 96px; height: 96px; flex: none; }
+
+/* Club page grid */
+.cl-grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: start; align-content: start; }
+.cl-overview .cl-latest { grid-column: 1 / -1; }
+.cl-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.cl-manage { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 1100px) { .cl-grid, .cl-stats, .cl-manage { grid-template-columns: minmax(0, 1fr); } }
+
+.cl-about-body { display: flex; gap: 16px; align-items: flex-start; }
+@media (max-width: 480px) { .cl-about-body { flex-direction: column; } }
+.cl-kv { display: grid; gap: 6px; margin: 12px 0 0; }
+.cl-kv > div { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 8px; }
+.cl-kv dt { color: var(--ui-muted); font: 11px/1.6 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; }
+.cl-kv dd { margin: 0; overflow-wrap: anywhere; }
+.cl-you-body, .cl-edit-body { display: grid; gap: 10px; }
+.cl-you-body p, .cl-edit-body p { margin: 0; }
+.cl-more { color: var(--sf-gold); text-decoration: none; }
+.cl-latest-list { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr)); }
+
+/* Tables */
+.cl-table { width: 100%; }
+.cl-table .num { text-align: right; white-space: nowrap; }
+.cl-table th[scope="row"] { text-align: left; font-weight: 600; overflow-wrap: anywhere; }
+.cl-table small, .cl-honours small, .cl-page .muted { font-size: 13px; color: var(--ui-muted); }
+.cl-score { font: 15px/1 var(--font-heading); }
+.cl-sub { margin: 16px 0 6px; font: 13px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-muted); }
+@media (max-width: 640px) {
+  .cl-results thead { display: none; }
+  .cl-results tr { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; padding: 8px 0; border-bottom: 1px solid var(--sf-panel-line); }
+  .cl-results td, .cl-results th { display: block; text-align: left; }
+  .cl-results .cl-score { text-align: left; }
+  .cl-results td, .cl-results th { padding: 0; border: 0; }
+  .cl-table:not(.cl-results) { font-size: 13px; }
+}
+
+/* Stats */
+.cl-figures { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 0; }
+.cl-figures > div { padding: 8px 10px; border: 2px solid var(--sf-panel-line); border-radius: 2px; background: var(--ui-surface-2); }
+.cl-figures dt { color: var(--ui-muted); font: 11px/1.4 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; }
+.cl-figures dd { margin: 2px 0 0; font: 24px/1.1 var(--font-heading); color: var(--ui-text); }
+.cl-leaders > div { grid-template-columns: 140px minmax(0, 1fr); }
+.cl-honours { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.cl-honours a { color: var(--ui-accent); }
+
+/* Management */
+.cl-rows { list-style: none; margin: 0; padding: 0; display: grid; }
+.cl-row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--sf-panel-line); }
+.cl-row:last-child { border-bottom: 0; }
+.cl-row-main { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; min-width: 0; }
+.cl-msg { flex-basis: 100%; color: var(--ui-muted); font-size: 14px; overflow-wrap: anywhere; }
+.cl-masked { font-family: var(--font-body); color: var(--ui-muted); overflow-wrap: anywhere; }
+.cl-art-row { display: flex; gap: 12px; align-items: center; }
+.cl-edit textarea, .cb-text { resize: vertical; }
+
+/* Board */
+.cb-body { display: grid; gap: 12px; align-content: start; }
+.cb-compose { display: grid; gap: 8px; justify-items: start; }
+.cb-compose .cb-form { justify-self: stretch; }
+.cb-form { display: grid; gap: 8px; }
+.cb-thread { padding: 12px; border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--ui-heading); border-radius: 2px; background: var(--ui-surface-2); display: grid; gap: 8px; }
+.cb-thread[data-new="true"] { border-left-color: var(--sf-gold); }
+.cb-thread-h { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; align-items: baseline; }
+.cb-title { margin: 0; font: 600 17px/1.25 var(--font-heading); overflow-wrap: anywhere; }
+.cb-meta { display: inline-flex; gap: 6px; align-items: center; color: var(--ui-muted); font-size: 13px; }
+.cb-text-view { margin: 0; white-space: pre-line; overflow-wrap: anywhere; }
+.cb-text-view[data-removed="true"] { color: var(--ui-text-dim); font-style: italic; }
+.cb-actions { display: flex; gap: 6px; }
+.cb-replies { list-style: none; margin: 0; padding: 0 0 0 14px; border-left: 2px solid var(--sf-panel-line); display: grid; gap: 8px; }
+.cb-reply { display: grid; gap: 4px; }
+.cb-reply-form { display: flex; gap: 8px; }
+.cb-reply-form .sf-input { flex: 1 1 auto; min-width: 0; }
+
+/* Fields in club forms stack: caption above, control below (design.md §5 form fields). */
+.cl-page .sf-field, .cl-dialog .sf-field { display: grid; gap: 4px; align-items: start; }
+.cl-page .sf-field > .sf-input, .cl-dialog .sf-field > .sf-input { width: 100%; box-sizing: border-box; }
+.cl-manage > *, .cl-grid > * { min-width: 0; }
+.cl-manage > form.hm-panel { width: 100%; box-sizing: border-box; margin: 0; }
+/* Wide tables scroll inside their pane, never the page. */
+.cl-page .sf-pane-body { overflow-x: auto; min-width: 0; }
+.cl-page .sf-pane { min-width: 0; max-width: 100%; }
+@media (max-width: 640px) { .cl-results th[scope="row"], .cl-results td { white-space: normal; overflow-wrap: anywhere; } }
+.cl-honours small { margin-left: 4px; }

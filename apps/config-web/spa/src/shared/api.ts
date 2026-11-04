@@ -237,6 +237,9 @@ export interface TournamentEntrant {
   coachSaysPaid?: { at: string };
   checkedInBy?: { by: string; at: string };
   region?: string;
+  /** The club the coach represents here (clubs lane). */
+  clubId?: string;
+  clubName?: string;
 }
 
 /** Registration (lane L4): an entry's state (only accepted entries are ever in `entrants`). */

@@ -3,12 +3,14 @@
 // /icons/nav/ (README there). Which categories are open is remembered per category in localStorage when the browser
 // allows it, never required.
 
-export type NavCategoryId = "leagues" | "tournaments" | "leaderboards" | "help" | "resources" | "testing";
+export type NavCategoryId = "leagues" | "tournaments" | "clubs" | "leaderboards" | "help" | "resources" | "testing";
 
 export interface NavLink { label: string; to: string }
 export interface ExternalLink { label: string; href: string; icon: string }
 
-export const NAV_ICON = (name: string): string => `/icons/nav/${name}.png`;
+/** Categories drawn with one of our existing icons from another set (no new art: law 16). */
+const NAV_ICON_FROM: Readonly<Record<string, string>> = { clubs: "/icons/panel/friends.png" };
+export const NAV_ICON = (name: string): string => NAV_ICON_FROM[name] ?? `/icons/nav/${name}.png`;
 
 export const HOME_LINK: NavLink = { label: "Home", to: "/home" };
 
@@ -36,7 +38,7 @@ export const NAV_OPEN_STORAGE_KEY = "sf.navOpen";
 
 /** Every category starts open except Resources and Testing. */
 export const NAV_OPEN_DEFAULTS: Readonly<Record<NavCategoryId, boolean>> = {
-  leagues: true, tournaments: true, leaderboards: true, help: true, resources: false, testing: false,
+  leagues: true, tournaments: true, clubs: true, leaderboards: true, help: true, resources: false, testing: false,
 };
 
 // Resolved inside each function's try: in a sandboxed frame or with site data blocked, merely reading

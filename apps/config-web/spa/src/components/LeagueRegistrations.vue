@@ -74,7 +74,7 @@ async function act(r: LeagueRegistrationRowView, verb: "accept" | "waitlist" | "
           <div v-for="r in pending" :key="r.id" class="tr-reg-row" data-state="pending" :data-entry="r.id">
             <div class="tr-reg-who">
               <strong>{{ r.teamName }}</strong>
-              <span class="muted">{{ r.coachId }} · {{ r.race }}{{ r.region ? ` · ${r.region}` : "" }} · {{ r.kind === "existing" ? "existing team" : "new team" }} · {{ utcLabel(r.enteredAt) }}</span>
+              <span class="muted">{{ r.coachId }} · {{ r.race }}{{ r.region ? ` · ${r.region}` : "" }}{{ r.clubName ? ` · ${r.clubName}` : "" }} · {{ r.kind === "existing" ? "existing team" : "new team" }} · {{ utcLabel(r.enteredAt) }}</span>
             </div>
             <div class="tr-reg-info">
               <span><span class="sf-chip" :data-tone="r.validation?.ok ? 'ok' : 'urgent'">{{ r.validation?.ok ? "Meets the season's rules" : "Problems" }}</span><span class="muted"> {{ r.players }} players · {{ money(r.cost) }}</span></span>
@@ -123,7 +123,7 @@ async function act(r: LeagueRegistrationRowView, verb: "accept" | "waitlist" | "
           <div v-for="r in accepted" :key="r.id" class="tr-reg-row" data-state="accepted" :data-entry="r.id">
             <div class="tr-reg-who">
               <strong>{{ r.teamName }}</strong>
-              <span class="muted">{{ r.coachId }} · {{ r.race }}{{ r.region ? ` · ${r.region}` : "" }}{{ r.decided ? ` · accepted by ${r.decided.by}` : "" }}</span>
+              <span class="muted">{{ r.coachId }} · {{ r.race }}{{ r.region ? ` · ${r.region}` : "" }}{{ r.clubName ? ` · ${r.clubName}` : "" }}{{ r.decided ? ` · accepted by ${r.decided.by}` : "" }}</span>
             </div>
             <div class="tr-reg-info">
               <span v-if="r.midSeason"><span class="sf-chip" data-tone="soon">Joined mid-season: add fixtures</span></span>

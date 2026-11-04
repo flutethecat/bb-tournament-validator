@@ -41,6 +41,8 @@ export interface RegisterDraft {
   region: string;
   share: ShareField[];
   notNafMember: boolean;
+  /** The club the coach represents (clubs lane); "" or absent = no club. */
+  clubId?: string;
 }
 
 /** POST /api/tournaments/:id/entrants: the team (or rosterLater), the share picker (always sent, [] = nothing), the region
@@ -51,6 +53,7 @@ export function registerBody(draft: RegisterDraft, hasRegions: boolean) {
     share: draft.share,
     ...(hasRegions && draft.region ? { region: draft.region } : {}),
     ...(draft.notNafMember ? { notNafMember: true } : {}),
+    ...(draft.clubId ? { clubId: draft.clubId } : {}),
   };
 }
 

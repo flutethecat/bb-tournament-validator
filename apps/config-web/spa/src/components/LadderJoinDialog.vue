@@ -5,6 +5,8 @@
 // WITH its progression (the organisers approve those; a team with unplayed fixtures or open challenges can't move yet).
 // 2. Share & join: the league notice, the share boxes (nothing ticked) and the acknowledgement. The server decides.
 import { computed, inject, onMounted, ref, watch } from "vue";
+import ClubPickField from "./ClubPickField.vue";
+import { loadMyClubs, type MyClub } from "../clubs/clubs";
 import LeagueDialog from "./LeagueDialog.vue";
 import ShareFieldsPicker from "./ShareFieldsPicker.vue";
 import DiscordDmNotice from "./DiscordDmNotice.vue";
@@ -42,6 +44,9 @@ const outcome = computed(() => (chosenMove.value || chosen.value?.kind === "exis
   : "Built and validated for this ladder: your team joins straight away."));
 const regions = computed(() => status.value?.regions ?? []);
 const region = ref("");
+// The club the coach represents on this ladder (clubs lane): one of their clubs or none.
+const clubId = ref("");
+const myClubs = ref<MyClub[]>([]);
 const touched = ref(false);
 const problem = computed(() => (!pick.value ? "Pick a team, or build one for this ladder first." : regions.value.length && !region.value ? "Pick your region." : ""));
 const fetcher = inject(API_KEY, null);
@@ -56,6 +61,7 @@ const tv = (v: number | null): string => (typeof v === "number" ? `${Math.round(
 onMounted(() => {
   void ladders.loadOptions(session.coach());
   if (sharing) void sharing.load();
+  if (fetcher) void loadMyClubs(fetcher).then((c) => { myClubs.value = c; });
 });
 
 async function next(): Promise<void> {
@@ -71,6 +77,7 @@ async function next(): Promise<void> {
   const body: Record<string, unknown> = {
     ...(m ? { move: { id: m.id, teamId: m.teamId } } : { teamRef: pick.value }),
     share: share.value, acknowledged: true, ...(regions.value.length && region.value ? { region: region.value } : {}),
+    ...(clubId.value ? { clubId: clubId.value } : {}),
   };
   if (await ladders.join(body)) emit("close");
 }
@@ -114,6 +121,7 @@ async function next(): Promise<void> {
           <option v-for="r in regions" :key="r" :value="r">{{ r }}</option>
         </select>
       </label>
+      <ClubPickField v-model="clubId" :clubs="myClubs" />
       <p class="sf-notice ld-outcome">{{ outcome }}</p>
       <p v-if="touched && problem" class="sf-error" role="alert">{{ problem }}</p>
     </template>
