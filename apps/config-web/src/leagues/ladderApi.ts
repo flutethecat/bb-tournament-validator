@@ -21,6 +21,15 @@
  *   POST   /api/leagues/:id/ladders/:ladderId/challenges/:cid/(accept|decline|withdraw)
  *   POST   /api/leagues/:id/ladders/:ladderId/rounds                 organisers: { name?, deadline?, pairs: [{ home, away }] }
  *   POST   /api/leagues/:id/ladders/:ladderId/teams/:teamId/move     organisers: { seasonId } back to a season, with its progression
+ *   Titles (ladderTitles.ts; each write runs the title rules in the same write, then tells the coaches):
+ *   POST   .../ladders/:ladderId/titles/(vacate|crown|inactive|return)  organisers: { reason? } / { teamId }
+ *   POST   .../ladders/:ladderId/bouts/:boutId/(extend|cancel)          organisers: { days } a title game's deadline, or call it off
+ *   POST   .../ladders/:ladderId/contracts                              organisers: { teamId, note? } a Money in the Bank contract
+ *   POST   .../ladders/:ladderId/contracts/:contractId/cash-in          the contract's coach: the champion can't decline
+ *   POST   .../ladders/:ladderId/rumbles                                organisers: { name?, date, field: top8|open, roundDays?, points? }
+ *   POST   .../ladders/:ladderId/rumbles/:rumbleId/(enter|withdraw)     a coach: { teamId } (open entry, before the date)
+ *   POST   .../ladders/:ladderId/rumbles/:rumbleId/cancel               organisers
+ *   GET    /api/leagues/:id/champions                                   public: the Current Champions panel (cups and belts)
  *
  * Fixture, team, recorder and Super FUMBBL routes read a ladder like a season (/api/leagues/:id/seasons/<ladderId>/...).
  * Privacy: challenges and members carry team ids only; coach names come from the (public) team rows; registration contacts
@@ -45,6 +54,11 @@ import { copyTeamForMove, ladderRegistrationService, myLadderEntry, snapshotFrom
 import { clubLabel, priorClubEntry, resolveClubPick } from "../clubs/pick.js";
 import { teamGamesPlayed } from "./teamOps.js";
 import type { LadderChallenge, LadderRanking, LadderRound } from "./ladderTypes.js";
+import {
+  awardContract, beltHolders, beltOn, cancelBout, cashIn, createRumble, finalHonours, titleReplay, titlesOf, titleTick, titleView, type TitleNote, type TitleTickContext,
+} from "./ladderTitles.js";
+import { hallOfFame } from "./awards.js";
+import { deriveStandings } from "./standings.js";
 import { LADDER_RANKINGS } from "./ladderTypes.js";
 import { canonicalRace, rosterAllowed } from "./leagueBuilder.js";
 import { managesLeague } from "./lifecycle.js";
@@ -170,7 +184,9 @@ function ladderView(league: LeagueRecord, ladder: SeasonRecord, auth: LeagueApiI
     }
   }
   const window = currentRedraftWindow(league, ladder, now);
+  const titles = beltOn(ladder.ladder) || ladder.ladder?.titles || ladder.ladder?.rumbles?.length ? titleView(league, ladder, now, viewer, manage) : null;
   return {
+    titles,
     ladder: {
       ...summaryOf(ladder, now, comps),
       description: ladder.ladder?.description ?? "",
@@ -270,6 +286,27 @@ async function route(
   if (what === "rounds" && sub === undefined) {
     if (method !== "POST") return fail(405, "Use POST.");
     return createRound(league, ladder.id, auth, deps, now);
+  }
+  if (what === "titles" && sub && verb === undefined) {
+    if (method !== "POST") return fail(405, "Use POST.");
+    if (!["vacate", "crown", "inactive", "return"].includes(sub)) return fail(404, "Not found.");
+    return titleAction(league, ladder.id, sub as "vacate" | "crown" | "inactive" | "return", auth, deps);
+  }
+  if (what === "bouts" && sub && (verb === "extend" || verb === "cancel")) {
+    if (method !== "POST") return fail(405, "Use POST.");
+    return boutAction(league, ladder.id, sub, verb, auth, deps);
+  }
+  if (what === "contracts") {
+    if (method !== "POST") return fail(405, "Use POST.");
+    if (sub === undefined) return contractAward(league, ladder.id, auth, deps);
+    if (verb === "cash-in") return contractCashIn(league, ladder.id, sub, auth, deps);
+    return fail(404, "Not found.");
+  }
+  if (what === "rumbles") {
+    if (method !== "POST") return fail(405, "Use POST.");
+    if (sub === undefined) return rumbleCreate(league, ladder.id, auth, deps);
+    if (verb === "enter" || verb === "withdraw" || verb === "cancel") return rumbleAction(league, ladder.id, sub, verb, auth, deps);
+    return fail(404, "Not found.");
   }
   if (what === "teams" && sub && verb === "move") {
     if (method !== "POST") return fail(405, "Use POST.");
@@ -381,7 +418,13 @@ async function patchLadder(league: LeagueRecord, ladderId: string, auth: LeagueA
     }
     if (r.houseRules !== undefined) next.ladder.houseRules = parseLeagueHouseRules(r.houseRules, { houseRules: next.ladder.houseRules });
   }
-  if (input.settings !== undefined) next.ladder.settings = parseLadderSettings(input.settings, settingsOf(ladder.ladder), now);
+  if (input.settings !== undefined) {
+    const was = settingsOf(ladder.ladder).titles;
+    next.ladder.settings = parseLadderSettings(input.settings, settingsOf(ladder.ladder), now);
+    const is = next.ladder.settings.titles;
+    if (is?.belt && !was?.belt) titlesOf(next.ladder).beltOnAt = now.toISOString();
+    if (is?.mitb.enabled && !was?.mitb.enabled) titlesOf(next.ladder).mitbOnAt = now.toISOString();
+  }
   if (input.step !== undefined) {
     if (typeof input.step !== "number" || !Number.isInteger(input.step) || input.step < 1 || input.step > 4) return fail(400, "step must be 1 to 4.", { field: "step" });
     next.ladder.wizard = { ...(next.ladder.wizard ?? {}), step: Math.max(next.ladder.wizard?.step ?? 1, input.step) };
@@ -431,9 +474,13 @@ export function closeLadderRecord(ladder: SeasonRecord, now: Date, reason: strin
     if (!fixtureOpen(f)) continue;
     f.deadlineOutcome = { outcome: "no-result", auto: true, at };
   }
+  for (const b of ladder.ladder?.titles?.bouts ?? []) if (b.state === "scheduled") cancelBout(ladder, b, at, `The ladder was ${reason}.`);
+  for (const ru of ladder.ladder?.rumbles ?? []) if (ru.state === "entry" || ru.state === "running") { ru.state = "cancelled"; ru.note = `The ladder was ${reason}.`; }
   ladder.status = "completed";
   ladder.endedAt = at;
   if (ladder.ladder) { ladder.ladder.closedAt = at; ladder.ladder.closedReason = reason; }
+  // The final standings freeze: the top 3 and the belt holder at close go into league Honours.
+  finalHonours(ladder, now);
   return notes;
 }
 
@@ -753,6 +800,11 @@ async function answerChallenge(league: LeagueRecord, ladderId: string, cid: stri
   ch.answeredAt = at;
   ch.deadline = new Date(now.getTime() + s.playByDays * DAY_MS).toISOString();
   const fixture = challengeFixture(ladder, ch, defender, challenger);
+  // Titles: a challenge the champion accepts (only the top N may make one) is a title defence.
+  if (beltOn(ladder.ladder)) {
+    const held = titleReplay(ladder, now);
+    if (held.holder?.teamId === defender.id && !held.inactiveSince) fixture.ladder = { ...fixture.ladder, title: "defence" };
+  }
   ch.fixtureId = fixture.id;
   ch.told = [...(ch.told ?? []), "answered"];
   ladder.fixtures.push(fixture);
@@ -862,6 +914,193 @@ async function moveToSeason(league: LeagueRecord, ladderId: string, teamId: stri
   deps.store.putSeason(fresh);
   tell(deps, teamAccount(member.team), { type: "ladder", title: `${member.team.name} moved to ${target.name}`, body: `The organisers moved your team from ${ladder.name} to ${target.name}, with its progression.`, link: `/app/leagues/${enc(lg.id)}?season=${enc(target.id)}&tab=teams`, from: who.coach, subject: lg.name });
   return res(200, { ok: true, teamId: copy.id, seasonId: target.id });
+}
+
+
+// ---- titles (ladderTitles.ts) -------------------------------------------------------------------------------------------------
+
+/** Sends the title rules' notes (after the write). */
+function sendTitleNotes(deps: LeagueApiDeps, lg: LeagueRecord, ladder: SeasonRecord, notes: readonly TitleNote[], from?: string): void {
+  for (const n of notes) {
+    const fixtureId = n.propose ? n.propose.split(":")[3] : undefined;
+    tell(deps, n.coach, { type: "ladder", title: n.title, body: n.body, link: fixtureId ? proposeLink(lg.id, ladder.id, fixtureId) : ladderLink(lg.id, ladder.id), subject: `${lg.name} ${ladder.name}`, ...(n.propose ? { action: true } : {}), ...(from ? { from } : {}) });
+  }
+}
+export { sendTitleNotes };
+
+type TitleFn = (ctx: TitleTickContext, input: Record<string, unknown>, who: LeagueApiIdentity) => string | void;
+
+/**
+ * A title write: the body, the league and ladder as they are now (organiser routes need an organiser; coach routes a session),
+ * the action, then the title rules (titleTick) in the SAME write, then the notes. Answers the Ladder tab's titles part.
+ */
+async function titleWrite(league: LeagueRecord, ladderId: string, auth: LeagueApiIdentity | undefined, deps: LeagueApiDeps, organiser: boolean, fn: TitleFn): Promise<LeagueApiResult> {
+  const w = organiser ? await organiserWrite(league, ladderId, auth, deps) : await coachWrite(league, ladderId, auth, deps);
+  if ("result" in w) return w.result!;
+  const { input, league: lg, who, now } = w;
+  const ladder = w.ladder!;
+  if (ladderState(ladder) !== "active") return fail(409, ladderState(ladder) === "closed" ? "The ladder is closed." : "The ladder has not started yet.");
+  const ctx: TitleTickContext = { league: lg, ladder, competitions: deps.store.competitions(lg.id).map((c) => (c.id === ladder.id ? ladder : c)), now, notes: [] };
+  const done = fn(ctx, input, who);
+  titleTick(ctx);
+  deps.store.putSeason(ladder);
+  sendTitleNotes(deps, lg, ladder, ctx.notes, who.coach);
+  const saved = deps.store.season(lg.id, ladder.id) ?? ladder;
+  return res(200, { ok: true, ...(done ? { notice: done } : {}), titles: titleView(lg, saved, now, who.coach, managesLeague(lg, who)) });
+}
+
+const noteText = (v: unknown, field: string): string => {
+  if (v === undefined || v === null || v === "") return "";
+  if (typeof v !== "string" || [...v.trim()].length > 200) throw new LadderError(400, `${field} must be text of at most 200 characters.`, field);
+  return v.replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
+};
+
+function titleAction(league: LeagueRecord, ladderId: string, verb: "vacate" | "crown" | "inactive" | "return", auth: LeagueApiIdentity | undefined, deps: LeagueApiDeps): Promise<LeagueApiResult> {
+  return titleWrite(league, ladderId, auth, deps, true, (ctx, input) => {
+    const rec = ctx.ladder.ladder!;
+    if (!beltOn(rec)) throw new LadderError(409, "This ladder has no belt.");
+    const state = titleReplay(ctx.ladder, ctx.now);
+    const at = ctx.now.toISOString();
+    const t = titlesOf(rec);
+    const id = newLadderId("te");
+    const name = (tid?: string) => ctx.ladder.teams.find((x) => x.id === tid)?.name ?? "A team";
+    if (verb === "vacate") {
+      if (!state.holder) throw new LadderError(409, "The belt is already vacant.");
+      const reason = noteText(input.reason, "reason") || "by the organisers";
+      t.events.push({ id, kind: "vacated", at, by: "organiser", reason });
+      const holder = ctx.ladder.teams.find((x) => x.id === state.holder!.teamId);
+      ctx.notes.push({ coach: holder ? teamAccount(holder) : "", title: `${league.name} ${ctx.ladder.name}: the title was vacated`, body: `The organisers vacated the belt (${reason}).` });
+      return "The belt is vacant.";
+    }
+    if (verb === "crown") {
+      const members = activeMembers(ctx.ladder, supersededTeams(ctx.competitions));
+      const team = members.find((m) => m.team.id === input.teamId)?.team;
+      if (!team) throw new LadderError(404, "That team is not in the ladder.", "teamId");
+      if (state.holder?.teamId === team.id && !state.inactiveSince) throw new LadderError(409, `${team.name} already holds the belt.`);
+      t.events.push({ id, kind: "crowned", teamId: team.id, at, by: "organiser", reason: noteText(input.reason, "reason") || "organiser" });
+      return `${team.name} holds the belt.`;
+    }
+    if (verb === "inactive") {
+      if (!state.holder) throw new LadderError(409, "The belt is vacant.");
+      if (state.inactiveSince) throw new LadderError(409, "The champion is already marked inactive.");
+      t.events.push({ id, kind: "inactive", at, by: "organiser", reason: noteText(input.reason, "reason") || "marked inactive" });
+      return `${name(state.holder.teamId)} is marked inactive: the top two contenders play for the interim belt.`;
+    }
+    if (!state.holder || !state.inactiveSince) throw new LadderError(409, "The champion is not marked inactive.");
+    t.events.push({ id, kind: "returned", at, by: "organiser", reason: "returned" });
+    return state.interim ? "The champion is back: the unification game is scheduled." : "The champion is back.";
+  });
+}
+
+function boutAction(league: LeagueRecord, ladderId: string, boutId: string, verb: "extend" | "cancel", auth: LeagueApiIdentity | undefined, deps: LeagueApiDeps): Promise<LeagueApiResult> {
+  return titleWrite(league, ladderId, auth, deps, true, (ctx, input) => {
+    const bout = ctx.ladder.ladder?.titles?.bouts.find((b) => b.id === boutId);
+    if (!bout) throw new LadderError(404, "Title game not found.");
+    if (bout.state !== "scheduled") throw new LadderError(409, "This title game is no longer scheduled.");
+    if (verb === "cancel") {
+      cancelBout(ctx.ladder, bout, ctx.now.toISOString(), noteText(input.reason, "reason") || "Called off by the organisers.");
+      return "Title game called off.";
+    }
+    if (typeof input.days !== "number" || !Number.isInteger(input.days) || input.days < 1 || input.days > 60) throw new LadderError(400, "days must be a whole number from 1 to 60.", "days");
+    const deadline = new Date(Math.max(Date.parse(bout.deadline), ctx.now.getTime()) + input.days * DAY_MS).toISOString();
+    bout.deadline = deadline;
+    const f = ctx.ladder.fixtures.find((x) => x.id === bout.fixtureId);
+    if (f) f.deadline = deadline;
+    for (const id of [bout.homeTeamId, bout.awayTeamId]) {
+      const t = ctx.ladder.teams.find((x) => x.id === id);
+      if (t) ctx.notes.push({ coach: teamAccount(t), title: `${league.name} ${ctx.ladder.name}: more time for a title game`, body: `The organisers moved the deadline to ${deadline.slice(0, 10)}.` });
+    }
+    return `New deadline ${deadline.slice(0, 10)}.`;
+  });
+}
+
+function contractAward(league: LeagueRecord, ladderId: string, auth: LeagueApiIdentity | undefined, deps: LeagueApiDeps): Promise<LeagueApiResult> {
+  return titleWrite(league, ladderId, auth, deps, true, (ctx, input) => {
+    for (const k of Object.keys(input)) if (k !== "teamId" && k !== "note") throw new LadderError(400, `Unknown field: ${k.slice(0, 40)}.`);
+    if (typeof input.teamId !== "string") throw new LadderError(400, "Pick a team.", "teamId");
+    const c = awardContract(ctx, input.teamId, noteText(input.note, "note"));
+    return `Contract given to ${ctx.ladder.teams.find((x) => x.id === c.teamId)?.name ?? "the team"}.`;
+  });
+}
+
+function contractCashIn(league: LeagueRecord, ladderId: string, contractId: string, auth: LeagueApiIdentity | undefined, deps: LeagueApiDeps): Promise<LeagueApiResult> {
+  return titleWrite(league, ladderId, auth, deps, false, (ctx, _input, who) => {
+    const c = ctx.ladder.ladder?.titles?.contracts.find((x) => x.id === contractId);
+    if (!c) throw new LadderError(404, "Contract not found.");
+    const team = ctx.ladder.teams.find((x) => x.id === c.teamId);
+    if (!team || !ownsTeam(team, who.coach)) throw new LadderError(403, "Only the contract's coach can cash it in.");
+    cashIn(ctx, contractId);
+    return "Cashed in: the champion can't decline. Agree a time now.";
+  });
+}
+
+function rumbleCreate(league: LeagueRecord, ladderId: string, auth: LeagueApiIdentity | undefined, deps: LeagueApiDeps): Promise<LeagueApiResult> {
+  return titleWrite(league, ladderId, auth, deps, true, (ctx, input, who) => {
+    const ru = createRumble(ctx.ladder, input, who.coach, ctx.now);
+    const members = activeMembers(ctx.ladder, supersededTeams(ctx.competitions));
+    for (const m of members) ctx.notes.push({ coach: teamAccount(m.team), title: `${league.name} ${ctx.ladder.name}: ${ru.name} on ${ru.date.slice(0, 10)}`, body: ru.field === "top8" ? "The top 8 of the ranking on that day play a quick knockout. The winner gets a guaranteed title shot." : "Enter from the Ladder tab before the date. The winner gets a guaranteed title shot." });
+    return `${ru.name} set for ${ru.date.slice(0, 10)}.`;
+  });
+}
+
+function rumbleAction(league: LeagueRecord, ladderId: string, rumbleId: string, verb: "enter" | "withdraw" | "cancel", auth: LeagueApiIdentity | undefined, deps: LeagueApiDeps): Promise<LeagueApiResult> {
+  return titleWrite(league, ladderId, auth, deps, verb === "cancel", (ctx, input, who) => {
+    const ru = ctx.ladder.ladder?.rumbles?.find((r) => r.id === rumbleId);
+    if (!ru) throw new LadderError(404, "Rumble not found.");
+    if (verb === "cancel") {
+      if (ru.state !== "entry" && ru.state !== "running") throw new LadderError(409, "This Rumble is over.");
+      ru.state = "cancelled";
+      ru.note = "Called off by the organisers.";
+      for (const r of ru.rounds) for (const m of r.matches) if (!m.winnerTeamId && m.fixtureId) {
+        const f = ctx.ladder.fixtures.find((x) => x.id === m.fixtureId);
+        if (f && fixtureOpen(f)) f.deadlineOutcome = { outcome: "no-result", auto: true, at: ctx.now.toISOString() };
+      }
+      return `${ru.name} called off.`;
+    }
+    if (ru.field !== "open") throw new LadderError(409, "The top 8 play this Rumble: there is no entry.");
+    if (ru.state !== "entry" || ctx.now.getTime() >= Date.parse(ru.date)) throw new LadderError(409, "Entry for this Rumble has closed.");
+    const members = activeMembers(ctx.ladder, supersededTeams(ctx.competitions));
+    const team = members.find((m) => m.team.id === input.teamId)?.team;
+    if (!team) throw new LadderError(404, "That team is not in the ladder.", "teamId");
+    if (!ownsTeam(team, who.coach)) throw new LadderError(403, "Only the team's coach can enter it.");
+    if (verb === "enter") {
+      if (ru.entries.includes(team.id)) throw new LadderError(409, `${team.name} is already entered.`);
+      if (ru.entries.length >= 64) throw new LadderError(409, "The Rumble is full.");
+      ru.entries.push(team.id);
+      return `${team.name} is in ${ru.name}.`;
+    }
+    if (!ru.entries.includes(team.id)) throw new LadderError(409, `${team.name} is not entered.`);
+    ru.entries = ru.entries.filter((x) => x !== team.id);
+    return `${team.name} withdrew from ${ru.name}.`;
+  });
+}
+
+// ---- the Current Champions panel ------------------------------------------------------------------------------------------------
+
+/**
+ * GET /api/leagues/:id/champions (public, the league's visibility): cups = the latest finished season's champion, plus each
+ * division's winner when that season's table had divisions; belts = every open belt ladder's champion with days held and
+ * defences (and the interim champion). The panel hides an empty part, and itself when both are empty.
+ */
+export function leagueChampionsRoute(method: string, rest: string[], league: LeagueRecord | undefined, deps: LeagueApiDeps): LeagueApiResult | undefined {
+  if (rest[0] !== "champions" || rest.length !== 1) return undefined;
+  if (method !== "GET" && method !== "HEAD") return fail(405, "Use GET.");
+  if (!league) return fail(404, "League not found.");
+  const now = deps.now?.() ?? new Date();
+  const seasons = deps.store.seasons(league.id);
+  const cups: Array<{ seasonId: string; seasonName: string; label: string; division?: string; team: string; coach: string; race: string; teamId?: string }> = [];
+  const latest = seasons.filter((s) => s.status === "completed").sort((a, b) => b.number - a.number)[0];
+  if (latest) {
+    const card = hallOfFame([latest])[0];
+    if (card?.champion) cups.push({ seasonId: latest.id, seasonName: latest.name, label: "Champion", team: card.champion.team, coach: card.champion.coach, race: card.champion.race, ...(card.champion.teamId ? { teamId: card.champion.teamId } : {}) });
+    const table = deriveStandings(latest).find((p) => p.format !== "knockout" && new Set(p.standings.map((r) => r.group)).size > 1);
+    for (const g of [...new Set(table?.standings.map((r) => r.group) ?? [])]) {
+      const top = table!.standings.filter((r) => r.group === g).sort((a, b) => a.rank - b.rank)[0];
+      if (top && top.played > 0) cups.push({ seasonId: latest.id, seasonName: latest.name, label: `${g || "Division"} winner`, division: g, team: top.team, coach: top.coach, race: top.race, ...(top.teamId ? { teamId: top.teamId } : {}) });
+    }
+  }
+  const belts = beltHolders(deps.store.ladders(league.id), now);
+  return res(200, { cups, belts }, { "cache-control": "no-store" });
 }
 
 export type { LadderRankRow };

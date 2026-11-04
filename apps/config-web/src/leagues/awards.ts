@@ -31,6 +31,8 @@ import { PODIUM_AWARD } from "./standings.js";
 import { isLeagueOrganiser, type LeagueStore } from "./store.js";
 import type { HallOfFamePin, LeagueAward, LeagueCustomAward, LeagueRecord, SeasonRecord } from "./types.js";
 import { publishedLeagues } from "./lifecycle.js";
+import { isLadder } from "./ladder.js";
+import { ladderHonourAwards } from "./ladderTitles.js";
 
 export const HONOURS_MAX_BYTES = 16 * 1024;
 export const AWARDS_MAX = 500;
@@ -150,18 +152,28 @@ export function seasonAwardIds(s: Pick<SeasonRecord, "id" | "awards">): string[]
 
 const seasonAt = (s: SeasonRecord): string | undefined => s.podium?.at ?? s.endedAt ?? s.importedAt;
 
+/**
+ * A competition's award rows with their ids: a season's stored awards, or a ladder's honours (ladderTitles.ts: the stored period
+ * and final places plus every finished reign, derived), whose ids come from their stable keys.
+ */
+export function competitionAwards(s: SeasonRecord, now = new Date()): Array<{ id: string; award: LeagueAward }> {
+  if (isLadder(s)) return ladderHonourAwards(s, now).map((a, i) => ({ id: `l-${sha(`${s.id}\0${a.key ?? i}`).slice(0, 24)}`, award: a }));
+  const ids = seasonAwardIds(s);
+  return s.awards.map((a, i) => ({ id: ids[i]!, award: a }));
+}
+const seasonsOnly = (list: readonly SeasonRecord[]): SeasonRecord[] => list.filter((s) => !isLadder(s));
+
 /** The season awards and the custom awards, newest first. */
 export function awardList(league: Pick<LeagueRecord, "awards">, seasons: readonly SeasonRecord[]): AwardView[] {
   const names = new Map(seasons.map((s) => [s.id, s.name]));
   const out: Array<AwardView & { n: number }> = [];
   for (const s of seasons) {
     const at = seasonAt(s);
-    const ids = seasonAwardIds(s);
-    for (const [i, a] of s.awards.entries()) {
+    for (const { id, award: a } of competitionAwards(s)) {
       out.push({
-        id: ids[i]!, source: a.podium ? "podium" : "imported", title: a.type === "Honorary award" ? a.name || a.type : a.type,
+        id, source: a.podium ? "podium" : "imported", title: a.type === "Honorary award" ? a.name || a.type : a.type,
         icon: seasonAwardIcon(a), ...(a.coach ? { toCoach: a.coach } : {}), ...(a.team ? { toTeam: a.team } : {}), ...(a.race ? { race: a.race } : {}),
-        seasonId: s.id, seasonName: s.name, note: a.description ?? "", ...(at ? { at } : {}), star: a.goldenStar === true, n: s.number,
+        seasonId: s.id, seasonName: s.name, note: a.description ?? "", ...(a.at ?? at ? { at: a.at ?? at } : {}), star: a.goldenStar === true, n: s.number,
       });
     }
   }
@@ -183,7 +195,7 @@ const placeOf = (a: LeagueAward | undefined, teamId?: string): HallPlace | undef
 
 /** One card per finished season, newest first: the podium (crowned here) or the imported places. */
 export function hallOfFame(seasons: readonly SeasonRecord[]): HallSeason[] {
-  return seasons.filter((s) => s.status === "completed").sort((a, b) => b.number - a.number).map((s) => {
+  return seasonsOnly(seasons).filter((s) => s.status === "completed").sort((a, b) => b.number - a.number).map((s) => {
     const podium = s.awards.filter((a) => a.podium);
     const pool = podium.length ? podium : s.awards.filter((a) => !a.podium);
     const pick = (type: string): LeagueAward | undefined => pool.find((a) => a.type === type);
@@ -217,7 +229,7 @@ function resolvePins(pins: readonly HallOfFamePin[], hall: HallSeason[], awards:
 
 /** Teams and coaches an award may go to (managers only): every season's teams and participants. */
 export function honoursRecipients(seasons: readonly SeasonRecord[]): HonoursRecipients {
-  const ordered = [...seasons].sort((a, b) => b.number - a.number);
+  const ordered = seasonsOnly(seasons).sort((a, b) => b.number - a.number);
   const coaches = new Map<string, { id: string; name: string; seasonIds: string[] }>();
   const addCoach = (name: string | undefined, account: string | undefined, seasonId: string): void => {
     const id = (account ?? "").trim();
@@ -259,9 +271,10 @@ export function myAwards(store: LeagueStore, coach: string): Array<AwardView & {
   if (!me) return [];
   const out: Array<AwardView & { leagueId: string; leagueName: string }> = [];
   for (const league of publishedLeagues(store.list())) {
-    const seasons = store.seasons(league.id);
+    // Seasons and ladders (a ladder's honours: period / final places and reigns).
+    const seasons = store.competitions(league.id).filter((s) => !isLadder(s) || s.stage !== "setup");
     const mine = new Set<string>();
-    for (const s of seasons) { const ids = seasonAwardIds(s); s.awards.forEach((a, i) => { if (key(a.coachId) === me) mine.add(ids[i]!); }); }
+    for (const s of seasons) for (const { id, award } of competitionAwards(s)) if (key(award.coachId) === me) mine.add(id);
     for (const a of league.awards ?? []) if (key(a.toCoachId) === me) mine.add(a.id);
     if (!mine.size) continue;
     for (const a of awardList(league, seasons)) if (mine.has(a.id)) out.push({ ...a, leagueId: league.id, leagueName: league.name });
@@ -346,7 +359,7 @@ export async function leagueHonoursRoutes(
   if (first === "honours" && second === undefined) {
     if (!read) return fail(405, "Use GET.");
     if (!league) return fail(404, "League not found.");
-    return ok(200, { ...honoursView(league, deps.store.seasons(league.id), auth) });
+    return ok(200, { ...honoursView(league, honoursCompetitions(deps, league.id), auth) });
   }
   const awards = first === "awards" && third === undefined && more.length === 0;
   const pins = first === "hall-of-fame" && ((second === "pins" && more.length === 0) || (second === "order" && third === undefined && more.length === 0));
@@ -375,7 +388,7 @@ export async function leagueHonoursRoutes(
   if (asked !== current) return fail(409, "The awards or Hall of Fame changed since you opened them. Reload to see the latest.", { revision: current });
   const who = auth!;
   const now = (deps.now?.() ?? new Date()).toISOString();
-  const seasons = deps.store.seasons(lg.id);
+  const seasons = honoursCompetitions(deps, lg.id);
   try {
     if (awards && second === undefined) return giveAward(lg, seasons, who, input, now, deps);
     if (awards) return removeAward(lg, second!, who, deps);
@@ -419,7 +432,7 @@ function giveAward(lg: LeagueRecord, seasons: SeasonRecord[], who: LeagueApiIden
 }
 
 function removeAward(lg: LeagueRecord, awardId: string, who: LeagueApiIdentity, deps: LeagueApiDeps): LeagueApiResult {
-  const seasons = deps.store.seasons(lg.id);
+  const seasons = honoursCompetitions(deps, lg.id);
   if (!(lg.awards ?? []).some((a) => a.id === awardId)) {
     const season = awardList({ awards: [] }, seasons).find((a) => a.id === awardId);
     if (season) return fail(409, season.source === "podium" ? "Podium awards follow the season: reopen the season to change them." : "Imported awards cannot be removed here.");
@@ -461,7 +474,7 @@ function removePin(lg: LeagueRecord, pinId: string, who: LeagueApiIdentity, deps
     l.hallOfFame = (l.hallOfFame ?? []).filter((p) => p.id !== pinId);
     if (!l.hallOfFame.length) delete l.hallOfFame;
   });
-  return ok(200, { honours: honoursView(updated, deps.store.seasons(lg.id), who) });
+  return ok(200, { honours: honoursView(updated, honoursCompetitions(deps, lg.id), who) });
 }
 
 function reorderPins(lg: LeagueRecord, who: LeagueApiIdentity, input: Record<string, unknown>, deps: LeagueApiDeps): LeagueApiResult {
@@ -470,5 +483,10 @@ function reorderPins(lg: LeagueRecord, who: LeagueApiIdentity, input: Record<str
   if (!Array.isArray(order) || order.length !== list.length || new Set(order).size !== order.length || !order.every((id) => list.some((p) => p.id === id)))
     throw new HonoursError(400, "order must list every pinned entry once.", "order");
   const updated = write(lg, deps, (l) => { l.hallOfFame = (order as string[]).map((id) => (l.hallOfFame ?? []).find((p) => p.id === id)!); });
-  return ok(200, { honours: honoursView(updated, deps.store.seasons(lg.id), who) });
+  return ok(200, { honours: honoursView(updated, honoursCompetitions(deps, lg.id), who) });
+}
+
+/** The competitions the honours read: seasons and started ladders (a ladder in setup is organisers-only and has no honours). */
+function honoursCompetitions(deps: Pick<LeagueApiDeps, "store">, leagueId: string): SeasonRecord[] {
+  return deps.store.competitions(leagueId).filter((s) => !isLadder(s) || (s.stage !== "setup" && s.stage !== "registration"));
 }

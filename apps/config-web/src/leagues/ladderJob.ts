@@ -11,12 +11,16 @@
  *   played          an accepted challenge whose fixture has a result is marked played
  *   tournament      tournament-style ladders reset a team's roster to the one it joined with after each of its games (the
  *                   players' stat counters are kept, so honours still count)
+ *   titles          the belt rules (ladderTitles.ts titleTick): title games settled or lapsed (eliminator fallback, the mandatory
+ *                   passing to the challenger), the eliminator / mandatory / vacant / interim / unification games set up, the
+ *                   inactivity reminder and vacate, Money in the Bank streaks, the Rumble's draw and rounds, period honours
  *
  * Each ladder is ONE write per tick, made before anyone is told; markers on the record (challenge.told, a processed window,
  * member.reset.after) make every notice go once across restarts. Notifications go through the league's draft-aware notifier.
  */
 import type { NotificationInput } from "../notifications.js";
-import { closeLadderRecord, ladderLink } from "./ladderApi.js";
+import { closeLadderRecord, ladderLink, proposeLink } from "./ladderApi.js";
+import { titleTick } from "./ladderTitles.js";
 import { applyTournamentResets, challengeState, currentRedraftWindow, declineLosses, fixtureOpen, isLadder, ladderState, liveChallenge, settingsOf, teamAccount } from "./ladder.js";
 import { draftAwareNotify } from "./lifecycle.js";
 import type { LeagueStore } from "./store.js";
@@ -37,17 +41,18 @@ export interface LadderJobOutcome {
   closed: string[];
   windows: string[];
   resets: string[];
+  titles: string[];
   failed: string[];
 }
 
-interface Note { coach: string; title: string; body: string }
+interface Note { coach: string; title: string; body: string; link?: string; action?: boolean }
 
 const day = (iso: string): string => iso.slice(0, 10);
 
 /** One pass over every open ladder. Never throws (a ladder whose write fails is retried on the next tick). */
 export function runLadderJob(deps: LadderJobDeps): LadderJobOutcome {
   const now = deps.now?.() ?? new Date();
-  const out: LadderJobOutcome = { expired: [], discarded: [], played: [], losses: [], closed: [], windows: [], resets: [], failed: [] };
+  const out: LadderJobOutcome = { expired: [], discarded: [], played: [], losses: [], closed: [], windows: [], resets: [], titles: [], failed: [] };
   let leagues: ReturnType<LeagueStore["list"]> = [];
   try { leagues = deps.store.list(); } catch { return out; }
   for (const league of leagues) {
@@ -61,13 +66,14 @@ export function runLadderJob(deps: LadderJobDeps): LadderJobOutcome {
         const ladder = deps.store.season(league.id, listed.id);
         if (!ladder || !isLadder(ladder) || ladderState(ladder) !== "active") continue;
         const notes: Note[] = [];
-        const changed = tick(league.name, ladder, now, notes, out, key, league);
+        const comps = deps.store.competitions(league.id).map((c) => (c.id === ladder.id ? ladder : c));
+        const changed = tick(league.name, ladder, now, notes, out, key, league, comps);
         if (!changed) continue;
         deps.store.putSeason(ladder);
         const link = ladderLink(league.id, ladder.id);
         for (const n of notes) {
           if (!n.coach) continue;
-          try { notify?.(n.coach, { type: "ladder", title: n.title, body: n.body, link, subject: `${league.name} ${ladder.name}` }); } catch { /* fire-and-forget */ }
+          try { notify?.(n.coach, { type: "ladder", title: n.title, body: n.body, link: n.link ?? link, subject: `${league.name} ${ladder.name}`, ...(n.action ? { action: true } : {}) }); } catch { /* fire-and-forget */ }
         }
       } catch {
         out.failed.push(key);
@@ -77,7 +83,7 @@ export function runLadderJob(deps: LadderJobDeps): LadderJobOutcome {
   return out;
 }
 
-function tick(leagueName: string, ladder: SeasonRecord, now: Date, notes: Note[], out: LadderJobOutcome, key: string, league: Parameters<typeof currentRedraftWindow>[0]): boolean {
+function tick(leagueName: string, ladder: SeasonRecord, now: Date, notes: Note[], out: LadderJobOutcome, key: string, league: Parameters<typeof currentRedraftWindow>[0] & { id: string; name: string }, comps: readonly SeasonRecord[]): boolean {
   const rec = ladder.ladder!;
   const s = settingsOf(rec);
   const at = now.toISOString();
@@ -159,6 +165,14 @@ function tick(leagueName: string, ladder: SeasonRecord, now: Date, notes: Note[]
   // 6. Tournament style: rosters reset in the write that records a result (LeagueStore.putSeason); anything a writer outside
   // the store left behind is caught here.
   for (const id of applyTournamentResets(ladder)) { out.resets.push(`${key}/${id}`); changed = true; }
+
+  // 7. Titles: the belt, the mandatory challenger, Money in the Bank, the Rumble and period honours (ladderTitles.ts).
+  const titleNotes: Parameters<typeof titleTick>[0]["notes"] = [];
+  if (titleTick({ league, ladder, competitions: comps, now, notes: titleNotes })) { out.titles.push(key); changed = true; }
+  for (const n of titleNotes) {
+    const fixtureId = n.propose ? n.propose.split(":")[3] : undefined;
+    notes.push({ coach: n.coach, title: n.title, body: n.body, ...(fixtureId ? { link: proposeLink(league.id, ladder.id, fixtureId), action: true } : {}) });
+  }
   return changed;
 }
 

@@ -106,7 +106,7 @@ import { paymentLinksView } from "../payments/links.js";
 import { createLeagueRoute, leagueLifecycleRoutes } from "./wizard.js";
 import { leagueCalendarEventRoutes, type LeagueEventsDeps } from "./leagueEvents.js";
 import { leagueEventsDiscordRoutes } from "./leagueEventsDiscord.js";
-import { leagueLadderRoutes } from "./ladderApi.js";
+import { leagueChampionsRoute, leagueLadderRoutes } from "./ladderApi.js";
 import { competitionPlaysOnFork, isLadder, isLadderId, ladderVisible } from "./ladder.js";
 import { TEST_SESSION_REFUSAL, testSessionMayWrite } from "../registration/testSession.js";
 import { leagueTimeZone } from "./timeZone.js";
@@ -455,6 +455,9 @@ export async function leagueApi(
   // League ladders (ladderApi.ts).
   const ladders = await leagueLadderRoutes(method, route.rest, league, auth, deps);
   if (ladders) return ladders;
+  // The Current Champions panel (ladderApi.ts): season cups and ladder belts.
+  const champions = leagueChampionsRoute(method, route.rest, league, deps);
+  if (champions) return champions;
 
   if (first === "logo" || first === "banner") {
     if (second !== undefined) return { status: 404, body: { error: "Not found." } };

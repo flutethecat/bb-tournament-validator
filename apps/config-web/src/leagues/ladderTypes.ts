@@ -41,14 +41,23 @@ export interface LadderRedraftSettings {
   rules?: Partial<RedraftRules>;
 }
 
-/** Titles and belts (spec rounds 4-5): a LATER lane. Shaped here so the data needs no migration; nothing reads it yet. */
+/** Titles and belts (spec rounds 4-5, ladderTitles.ts). Off by default: a ladder with the belt on ranks by points. */
 export interface LadderTitleSettings {
   belt: boolean;
-  /** Champion bonuses in points: +defence per successful defence, +weekHeld per full week, +winBelt for taking it. */
-  bonuses: { defence: number; weekHeld: number; winBelt: number; moneyInTheBank: number };
-  /** Mandatory challenger window in days (the #2 v #3 eliminator, then the champion's mandatory defence). */
+  /** Champion bonuses in points: +defence per successful defence, +weekHeld per full week, +winBelt for taking it in a game,
+   *  +moneyInTheBank on top of winBelt for winning a cash-in, +rumble for winning a Rumble. All editable. */
+  bonuses: { defence: number; weekHeld: number; winBelt: number; moneyInTheBank: number; rumble: number };
+  /** The champion must play the mandatory challenger within this many days, or the title passes to the challenger. */
   mandatoryDays: number;
-  rumble?: { field: "top8" | "open"; titleShot: boolean; points: number };
+  /** The #2 v #3 eliminator (and the vacant / interim title games) must be played within this many days. */
+  eliminatorDays: number;
+  /** Voluntary defences: only the top N of the ranking may challenge the champion. */
+  defenceRange: number;
+  /** No defence for this many days: the champion gets a reminder; graceDays later the title is vacated. */
+  inactivityDays: number;
+  graceDays: number;
+  /** Money in the Bank (off by default): a title-shot contract from an N-win streak or an organiser event. */
+  mitb: { enabled: boolean; streak: number; cashInDays: number; playHours: number };
 }
 
 export interface LadderSettings {
@@ -76,7 +85,7 @@ export interface LadderSettings {
   /** Optional scheduled end (UTC ISO): challenges stop, open fixtures are discarded, the ranking freezes. */
   endsAt?: string;
   redraft: LadderRedraftSettings;
-  /** The later titles lane. */
+  /** Titles and belts (ladderTitles.ts); absent = the defaults (belt off). */
   titles?: LadderTitleSettings;
 }
 
@@ -131,7 +140,7 @@ export interface LadderMember {
 /** A redraft window the ladder job opened (period end or fixed schedule): processed once. */
 export interface LadderRedraftWindowRecord { opensAt: string; closesAt: string; processedAt?: string }
 
-/** Points given outside results (the titles lane's champion bonuses): the points ranking adds them. Empty in this lane. */
+/** Points an organiser gave outside results: the points ranking adds them (the champion bonuses are derived, ladderTitles.ts). */
 export interface LadderPointAward { teamId: string; points: number; reason: string; at: string }
 
 export interface LadderRecord {
@@ -152,9 +161,15 @@ export interface LadderRecord {
   closedAt?: string;
   /** Gates (lane 8c): "Opens at" for ladder challenges after a redraft / period end. Off (absent) by default; no UI yet. */
   gates?: { challenges?: { opensAt: string; eventId?: string } };
-  /** Titles lane (later): the belt holder and history, interim champion, Rumble events. Never written in this lane. */
+  /** Titles (ladderTitles.ts): a mirror of the current champion the job keeps (the title replay is the authority). */
   belt?: { holderTeamId: string; since: string; defences: number; interim?: boolean };
-  rumbles?: Array<{ id: string; date: string; field: "top8" | "open"; tournamentId?: string }>;
+  /** Titles: stored decisions (crowned / vacated / inactive / returned...), the title games set up, the title-shot contracts and
+   *  the notices already sent. Reigns, defences and bonuses are derived from these plus the results (titleReplay). */
+  titles?: LadderTitlesRecord;
+  /** Rumble events (one-off knockouts inside the ladder, ladderTitles.ts). */
+  rumbles?: LadderRumble[];
+  /** Period honours already written (period number), so each period end is honoured once. */
+  periodHonours?: number[];
   /** Closed with the scheduled end: who / why. */
   closedReason?: string;
 }
@@ -165,3 +180,101 @@ export interface LadderRecord {
  */
 export interface ClubLadderSetting { ladderGamesCount: boolean }
 export const DEFAULT_CLUB_LADDER_SETTING: Readonly<ClubLadderSetting> = Object.freeze({ ladderGamesCount: false });
+
+// ---- titles (ladderTitles.ts) ------------------------------------------------------------------------------------------------
+
+export type TitleEventKind = "crowned" | "vacated" | "inactive" | "returned" | "interim-crowned";
+
+/** A stored title decision: an organiser's, or the job's at a deadline (unplayed mandatory, eliminator fallback, inactivity). */
+export interface TitleEvent {
+  id: string;
+  kind: TitleEventKind;
+  at: string;
+  teamId?: string;
+  /** organiser / the job's rule ("mandatory-unplayed", "inactivity", "left", "fallback"). */
+  by: "organiser" | "job";
+  reason: string;
+}
+
+export type TitleBoutKind = "eliminator" | "mandatory" | "vacant" | "cashin" | "shot" | "interim" | "unification";
+/** What a ladder fixture is for the titles: a title bout kind, a voluntary defence (an accepted challenge to the champion) or a Rumble game. */
+export type TitleFixtureKind = TitleBoutKind | "defence" | "rumble";
+
+/** A title game the ladder set up (a ladder fixture marked with the kind; home = the champion or the higher-ranked side). */
+export interface TitleBout {
+  id: string;
+  kind: TitleBoutKind;
+  homeTeamId: string;
+  awayTeamId: string;
+  createdAt: string;
+  deadline: string;
+  fixtureId: string;
+  contractId?: string;
+  /** Stored by the job / a write: scheduled until it is played, lapses at its deadline, or is cancelled. */
+  state: "scheduled" | "played" | "lapsed" | "cancelled";
+  closedAt?: string;
+  /** Who went through (eliminator / vacant / interim), and how: the result, or the higher-ranked side at the deadline. */
+  winnerTeamId?: string;
+  how?: "result" | "fallback";
+  note?: string;
+}
+
+/** A title-shot contract: Money in the Bank (a win streak or an organiser event) or a Rumble prize. */
+export interface TitleContract {
+  id: string;
+  teamId: string;
+  source: "streak" | "organiser" | "rumble";
+  earnedAt: string;
+  expiresAt: string;
+  /** The cash-in game (one at a time); cleared again if the game lapsed unplayed while the contract is still valid. */
+  boutId?: string;
+  usedAt?: string;
+  /** The fixture that completed the streak (streak contracts: never earned twice from one streak). */
+  fromFixtureId?: string;
+  note?: string;
+}
+
+export interface LadderTitlesRecord {
+  events: TitleEvent[];
+  bouts: TitleBout[];
+  contracts: TitleContract[];
+  /** When the belt / Money in the Bank were last switched on (streaks count from then). */
+  beltOnAt?: string;
+  mitbOnAt?: string;
+  /** Notices already sent (markers), so each goes once across restarts. */
+  told: string[];
+}
+
+export interface LadderRumbleMatch {
+  slot: number;
+  homeTeamId: string;
+  awayTeamId?: string;
+  fixtureId?: string;
+  winnerTeamId?: string;
+  how?: "result" | "bye" | "fallback";
+}
+
+/** A Rumble (spec round 5): an organiser-dated quick knockout inside the ladder; its games are ladder fixtures, the bracket is the
+ *  tournament engine's knockout pairing. The winner gets a title-shot contract and the points set here. */
+export interface LadderRumble {
+  id: string;
+  name: string;
+  /** When the field is fixed and round 1 is drawn. */
+  date: string;
+  field: "top8" | "open";
+  /** Days to play each round. */
+  roundDays: number;
+  points: number;
+  createdAt: string;
+  by: string;
+  /** Open entry: the teams entered. */
+  entries: string[];
+  state: "entry" | "running" | "finished" | "cancelled";
+  /** Seeded field (team ids, seed 1 first) once drawn. */
+  seeds?: string[];
+  rounds: Array<{ number: number; deadline: string; matches: LadderRumbleMatch[] }>;
+  winnerTeamId?: string;
+  finishedAt?: string;
+  contractId?: string;
+  note?: string;
+}

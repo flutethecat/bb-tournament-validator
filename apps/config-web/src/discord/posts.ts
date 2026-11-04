@@ -221,6 +221,14 @@ export function samplePost(competition: string, key: DiscordEventKey): DiscordPa
 }
 
 const SAMPLE_TEXT: Partial<Record<DiscordEventKey, string>> = {
+  ladderBeltWon: "Sample Orcs are the new champions! They beat Sample Elves.",
+  ladderBeltDefended: "Sample Orcs defended the belt against Sample Elves (defence 3).",
+  ladderTitleVacated: "The belt is vacant: no defence for 37 days.",
+  ladderMandatory: "Mandatory challenger: Sample Elves will face champions Sample Orcs. Play by 2026-12-01.",
+  ladderCashIn: "Sample Coach is cashing in!",
+  ladderInterim: "Sample Elves are the interim champions.",
+  ladderRumble: "The Rumble starts: 8 teams, quick knockout.",
+  ladderHonours: "Period 1 champion: Sample Orcs. Runner-up: Sample Elves. Third: Sample Dwarfs.",
   news: "A sample news post.",
   fixtureCreated: "Sample Orcs v Sample Elves\nRound 1",
   matchStarted: "Sample Orcs v Sample Elves has started.",

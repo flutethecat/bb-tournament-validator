@@ -46,6 +46,14 @@ export const DISCORD_EVENT_LABEL: Record<DiscordEventKey, string> = {
   ladderChallengeAccepted: "Ladder challenge accepted",
   ladderResult: "Ladder result",
   ladderRankChanges: "Ladder top-10 rank changes",
+  ladderBeltWon: "New belt holder",
+  ladderBeltDefended: "Belt defended",
+  ladderTitleVacated: "Title vacated",
+  ladderMandatory: "Eliminator and mandatory challenger set",
+  ladderCashIn: "Money in the Bank cash-in",
+  ladderInterim: "Interim champion and unification",
+  ladderRumble: "Rumble set, drawn and won",
+  ladderHonours: "Ladder period and final honours",
 };
 
 export function isDiscordWebhookUrl(url: unknown): url is string {

@@ -158,6 +158,8 @@ export const DISCORD_EVENT_KEYS = [
   "leagueEvent",
   // League ladders (lane 8b): on the ladder's own webhook (league fallback). Challenge issued is off by default.
   "ladderChallengeIssued", "ladderChallengeAccepted", "ladderResult", "ladderRankChanges",
+  // Ladder titles (ladderTitles.ts): belt won / defended, vacated, the mandatory and eliminator, cash-ins, interim, Rumble, honours.
+  "ladderBeltWon", "ladderBeltDefended", "ladderTitleVacated", "ladderMandatory", "ladderCashIn", "ladderInterim", "ladderRumble", "ladderHonours",
 ] as const;
 export type DiscordEventKey = (typeof DISCORD_EVENT_KEYS)[number];
 export type DiscordEvents = Record<DiscordEventKey, boolean>;
@@ -369,7 +371,7 @@ export interface LeagueFixture {
    *  defections. Absent = on (FFB rolls them after an illegal concession). */
   defectionRolls?: false;
   /** A ladder fixture (lane 8b): the challenge it was made from, or the organiser's scheduled round. */
-  ladder?: { challengeId?: string; roundId?: string };
+  ladder?: { challengeId?: string; roundId?: string; title?: import("./ladderTypes.js").TitleFixtureKind; boutId?: string; rumbleId?: string };
 }
 
 /** The public part of a forfeit. */
@@ -968,6 +970,9 @@ export interface LeagueAward {
   goldenStar: boolean;
   /** Written by Finish season (the podium); removed again when the season is reopened. */
   podium?: true;
+  /** Ladder honours (ladderTitles.ts): a stable key for the award id, and when it was won. */
+  key?: string;
+  at?: string;
 }
 
 export type PodiumSlot = "champion" | "runnerUp" | "consolation";

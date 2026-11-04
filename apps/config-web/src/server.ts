@@ -767,8 +767,8 @@ setInterval(leagueRedraftTick, 60_000).unref();
 const leagueLadderTick = (): void => {
   try {
     const out = runLadderJob({ store: leagueStore, notify: leagueNotify, isAdmin: (c) => isAdmin(c) });
-    const n = out.expired.length + out.discarded.length + out.closed.length + out.windows.length + out.losses.length;
-    if (n) console.log(`[leagues] ladder job: ${out.expired.length} expired, ${out.discarded.length} discarded, ${out.losses.length} decline losses, ${out.windows.length} redraft windows, ${out.closed.length} closed`);
+    const n = out.expired.length + out.discarded.length + out.closed.length + out.windows.length + out.losses.length + out.titles.length;
+    if (n) console.log(`[leagues] ladder job: ${out.expired.length} expired, ${out.discarded.length} discarded, ${out.losses.length} decline losses, ${out.windows.length} redraft windows, ${out.closed.length} closed, ${out.titles.length} title updates`);
     if (out.failed.length) console.error(`[leagues] ladder job could not write: ${out.failed.join(", ")}`);
   } catch (e) { console.error(`[leagues] ladder job failed: ${(e as Error).message}`); }
 };

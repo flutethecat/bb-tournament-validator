@@ -25,6 +25,7 @@ import { effectiveRedraftRules } from "./redraftRules.js";
 import { fixtureOutcome } from "./identity.js";
 import type { LadderChallenge, LadderChallengeState, LadderMember, LadderRanking, LadderRecord, LadderSettings, LadderState } from "./ladderTypes.js";
 import { LADDER_RANKINGS } from "./ladderTypes.js";
+import { defaultTitleSettings, parseTitleSettings, titleBonusAwards, titleChallengeRefusal, titleSettingsOf } from "./ladderTitles.js";
 import type { FixtureSide, LeagueFixture, LeagueRecord, LeagueTeam, RedraftRules, SeasonRecord } from "./types.js";
 
 export const LADDER_ID = /^ladder-[0-9]{1,6}$/;
@@ -63,6 +64,7 @@ export function defaultLadderSettings(ranking: LadderRanking = "position"): Ladd
     autoApproveValidated: true,
     periodDays: null,
     redraft: { trigger: "period-end", schedule: [], everyGames: 8, tvCap: null },
+    titles: defaultTitleSettings(),
   };
 }
 
@@ -76,6 +78,7 @@ export function settingsOf(ladder: Pick<LadderRecord, "settings"> | undefined): 
     points: { ...d.points, ...(s.points ?? {}) },
     declineRule: { ...d.declineRule, ...(s.declineRule ?? {}) },
     redraft: { ...d.redraft, ...(s.redraft ?? {}), schedule: [...(s.redraft?.schedule ?? [])] },
+    titles: titleSettingsOf(ladder),
   };
 }
 
@@ -109,7 +112,7 @@ const isoDate = (v: unknown, field: string, label: string): string => {
 };
 
 const SETTING_KEYS = new Set([
-  "ranking", "style", "minGames", "points", "challengeRange", "maxOpen", "playByDays", "rematchDays", "declineRule", "autoApproveValidated", "periodDays", "endsAt", "redraft",
+  "ranking", "style", "minGames", "points", "challengeRange", "maxOpen", "playByDays", "rematchDays", "declineRule", "autoApproveValidated", "periodDays", "endsAt", "redraft", "titles",
 ]);
 
 /**
@@ -177,6 +180,12 @@ export function parseLadderSettings(raw: unknown, prior: LadderSettings, now: Da
     }
     if (d.everyGames !== undefined) out.redraft.everyGames = int(d.everyGames, "settings.redraft.everyGames", "Games before a redraft", 1, 100);
     if (d.tvCap !== undefined) out.redraft.tvCap = d.tvCap === null ? null : int(d.tvCap, "settings.redraft.tvCap", "TV cap", 500_000, 5_000_000);
+  }
+  if (r.titles !== undefined) out.titles = parseTitleSettings(r.titles, titleSettingsOf({ settings: prior }));
+  // "A belt ladder always ranks by points" (spec round 5): switching the belt on moves the ladder to points.
+  if (out.titles?.belt) {
+    if (r.ranking !== undefined && r.ranking !== "points") throw new LadderError(400, "A ladder with a belt ranks by points.", "settings.ranking");
+    if (out.ranking !== "points") { out.ranking = "points"; out.declineRule = { ...out.declineRule, enabled: false }; if (prior.ranking === "position") out.challengeRange = null; }
   }
   if (out.ranking === "position" && out.challengeRange === null) out.challengeRange = 3;
   return out;
@@ -310,6 +319,8 @@ export interface LadderTeamStats {
   /** Decline-rule losses (also in losses). */
   declineLosses: number;
   points: number;
+  /** Points from outside results (champion bonuses, organiser awards; also in points). */
+  bonus: number;
   tdFor: number;
   tdAgainst: number;
   glicko: GlickoState;
@@ -330,6 +341,8 @@ export interface LadderRankRow {
   losses: number;
   declineLosses: number;
   points: number;
+  /** Points from outside results (champion bonuses, organiser awards; also in points). */
+  bonus: number;
   tdDiff: number;
   /** The team's displayed Glicko rating (FUMBBL display: r - 5 * max(RD - 100, 0)). */
   rating: number;
@@ -346,7 +359,7 @@ interface ReplayEvent { at: number; order: number; kind: "join" | "leave" | "res
 export interface LadderSnapshot { order: string[]; stats: Map<string, LadderTeamStats> }
 
 const fresh = (teamId: string): LadderTeamStats => ({
-  teamId, played: 0, wins: 0, draws: 0, losses: 0, declineLosses: 0, points: 0, tdFor: 0, tdAgainst: 0,
+  teamId, played: 0, wins: 0, draws: 0, losses: 0, declineLosses: 0, points: 0, bonus: 0, tdFor: 0, tdAgainst: 0,
   glicko: { r: FUMBBL_CR.rating, rd: FUMBBL_CR.rd, sigma: FUMBBL_CR.sigma }, latest: [],
 });
 
@@ -435,9 +448,12 @@ export function replayLadder(
     else if (out.away === "win") swapUp(awayId, homeId);
     opts.onEvent?.({ kind: "result", fixtureId: f.id, at: e.at }, snap(), before!);
   }
-  for (const a of ladder.ladder?.pointAwards ?? []) {
+  // Organiser point awards and the derived champion bonuses (ladderTitles.ts: defences, weeks held, belt / cash-in / Rumble wins).
+  for (const a of [...(ladder.ladder?.pointAwards ?? []), ...titleBonusAwards(ladder, now)]) {
     if (opts.until !== undefined && Date.parse(a.at) > opts.until) continue;
-    statOf(a.teamId).points += a.points;
+    const s = statOf(a.teamId);
+    s.points += a.points;
+    s.bonus += a.points;
   }
   return { order, stats };
 }
@@ -450,7 +466,7 @@ export function rankRows(ladder: SeasonRecord, snap: LadderSnapshot, members: Re
     const s = snap.stats.get(team.id) ?? fresh(team.id);
     return {
       teamId: team.id, team: team.name, race: team.race, coach: team.coach, played: s.played, wins: s.wins, draws: s.draws, losses: s.losses,
-      declineLosses: s.declineLosses, points: s.points, tdDiff: s.tdFor - s.tdAgainst, rating: displayedCr(s.glicko.r, s.glicko.rd),
+      declineLosses: s.declineLosses, points: s.points, bonus: s.bonus, tdDiff: s.tdFor - s.tdAgainst, rating: displayedCr(s.glicko.r, s.glicko.rd),
       ranked: settings.ranking !== "rating" || s.played >= settings.minGames, latest: s.latest, teamValue: team.teamValue ?? null,
     };
   });
@@ -516,6 +532,9 @@ export function challengeRefusal(input: ChallengeCheckInput): string {
   } else if (settings.challengeRange !== null && Math.abs(cRow.rank - dRow.rank) > settings.challengeRange) {
     return `You can challenge teams up to ${settings.challengeRange} places away.`;
   }
+  // Titles: only the top N may challenge the champion (voluntary defences), never while the champion is marked inactive.
+  const title = titleChallengeRefusal(ladder, challenger.id, defender.id, ranking, now);
+  if (title) return title;
   const challenges = ladder.ladder?.challenges ?? [];
   const states = challenges.map((ch) => ({ ch, st: challengeState(ch, ladder, now) }));
   const pair = (ch: LadderChallenge) => (ch.challengerTeamId === challenger.id && ch.defenderTeamId === defender.id) || (ch.challengerTeamId === defender.id && ch.defenderTeamId === challenger.id);

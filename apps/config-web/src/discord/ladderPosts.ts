@@ -7,12 +7,16 @@
  *   ladderChallengeAccepted  a challenge was accepted (play by <date>)
  *   ladderResult             a counted ladder result and what it did to the ranking ("takes 3rd place")
  *   ladderRankChanges        the top 10 changed after a result or a decline-rule loss
+ *   titles (ladderTitles.ts) a new belt holder (won, crowned, unified, interim), a defence, a vacated title, the eliminator and
+ *                            the mandatory challenger, "<Coach> is cashing in!", interim / unification games, the Rumble (set,
+ *                            drawn, won) and period / final honours. Markers are reign ids, fixture ids, bout ids and keys.
  *
  * And the Weekly Digest's ladder section (ladderDigestFields). Every post goes through postTo / postRaw -> cleanPayload, and
  * every name through safe(). Pure apart from the clock passed in.
  */
 import type { DiscordPayload } from "../leagues/discord.js";
 import { activeMembers, countsInRanking, ladderRanking, ladderState, rankRows, replayLadder, resultTime, settingsOf, supersededTeams } from "../leagues/ladder.js";
+import { BOUT_LABEL, championOf, titleReplay } from "../leagues/ladderTitles.js";
 import type { DiscordEventKey, LeagueRecord, SeasonRecord } from "../leagues/types.js";
 import { post, safe, simplePost, type PostField } from "./posts.js";
 
@@ -39,6 +43,7 @@ export function ladderEvents(league: LeagueRecord, ladder: SeasonRecord, now: Da
       });
     }
   }
+  out.push(...titleEvents(league, ladder, now));
   // Results and rank changes: one replay, a snapshot after each counted result / decline-rule loss.
   const members = activeMembers(ladder, supersededTeams(competitions));
   const settings = settingsOf(ladder.ladder);
@@ -90,7 +95,57 @@ export function ladderDigestFields(ladders: readonly SeasonRecord[], from: numbe
     const rows = ladderRanking(ladder, now, competitions).slice(0, 5);
     const ranking = settingsOf(ladder.ladder).ranking;
     const lines = rows.map((r) => `${r.rank}. ${safe(r.team, 60)}${ranking === "points" ? ` - ${r.points} pts` : ranking === "rating" ? ` - ${r.ranked ? r.rating : "unranked"}` : ""}`);
-    out.push({ name: `Ladder: ${safe(ladder.name, 80)}`, value: `${lines.join("\n")}\n${games.length} result${games.length === 1 ? "" : "s"} this period` });
+    // A belt ladder names its champion first.
+    const c = championOf(ladder, now);
+    const champ = c.champion ? `Champion: ${safe(c.champion.team, 60)} (${c.champion.days} day${c.champion.days === 1 ? "" : "s"}, ${c.champion.defences} defence${c.champion.defences === 1 ? "" : "s"})${c.interim ? `\nInterim champion: ${safe(c.interim.team, 60)}` : ""}\n` : settingsOf(ladder.ladder).titles?.belt ? "Champion: vacant\n" : "";
+    out.push({ name: `Ladder: ${safe(ladder.name, 80)}`, value: `${champ}${lines.join("\n")}\n${games.length} result${games.length === 1 ? "" : "s"} this period` });
   }
   return out.slice(0, 5);
+}
+
+/** The titles' Discord events (ladderTitles.ts), each keyed by a stable marker so it posts once. */
+function titleEvents(league: LeagueRecord, ladder: SeasonRecord, now: Date): LadderPending[] {
+  const rec = ladder.ladder;
+  if (!rec) return [];
+  const out: LadderPending[] = [];
+  const title = `${league.name} ${ladder.name}`;
+  const test = league.test === true;
+  const team = (id: string | undefined) => ladder.teams.find((t) => t.id === id);
+  const tn = (id: string | undefined) => safe(team(id)?.name ?? "A team", 60);
+  const state = titleReplay(ladder, now);
+  for (const r of state.reigns) {
+    out.push({
+      marker: `reign:${r.id}`, key: r.interim ? "ladderInterim" : "ladderBeltWon",
+      payload: () => simplePost(title, r.interim ? "ladderInterim" : "ladderBeltWon", `${tn(r.teamId)} ${r.interim ? "is the interim champion" : "is the new champion"}! ${safe(r.how, 160)}.`, { test, title: r.interim ? "interim champion" : "new champion" }),
+    });
+    if (r.ended?.startsWith("Vacated")) out.push({ marker: `vacated:${r.id}`, key: "ladderTitleVacated", payload: () => simplePost(title, "ladderTitleVacated", `${tn(r.teamId)} no longer holds the belt. ${safe(r.ended!, 160)}.`, { test, title: "title vacated" }) });
+  }
+  for (const d of state.defences) {
+    const n = state.reigns.find((r) => r.teamId === d.teamId && Date.parse(r.since) <= Date.parse(d.at) && (!r.until || Date.parse(r.until) >= Date.parse(d.at)));
+    const count = n ? state.defences.filter((x) => x.teamId === d.teamId && Date.parse(x.at) >= Date.parse(n.since) && Date.parse(x.at) <= Date.parse(d.at)).length : 0;
+    out.push({ marker: `defence:${d.fixtureId}`, key: "ladderBeltDefended", payload: () => simplePost(title, "ladderBeltDefended", `${tn(d.teamId)} defended the belt against ${tn(d.challengerTeamId)}${count ? ` (defence ${count})` : ""}.`, { test, title: "belt defended" }) });
+  }
+  for (const b of rec.titles?.bouts ?? []) {
+    const by = b.deadline.slice(0, 10);
+    if (b.kind === "eliminator") out.push({ marker: `bout:${b.id}`, key: "ladderMandatory", payload: () => simplePost(title, "ladderMandatory", `Eliminator: ${tn(b.homeTeamId)} v ${tn(b.awayTeamId)} for the mandatory title shot. Play by ${by}.`, { test, title: "eliminator" }) });
+    else if (b.kind === "mandatory") out.push({ marker: `bout:${b.id}`, key: "ladderMandatory", payload: () => simplePost(title, "ladderMandatory", `Mandatory challenger: ${tn(b.awayTeamId)} will face champion ${tn(b.homeTeamId)}. Play by ${by}.`, { test, title: "mandatory challenger" }) });
+    else if (b.kind === "cashin" || b.kind === "shot") out.push({ marker: `bout:${b.id}`, key: "ladderCashIn", payload: () => simplePost(title, "ladderCashIn", `${safe(team(b.awayTeamId)?.coach ?? "A coach", 60)} is cashing in! ${tn(b.awayTeamId)} takes on champion ${tn(b.homeTeamId)}${b.kind === "shot" ? " with the Rumble title shot" : ""}.`, { test, title: "cashing in" }) });
+    else if (b.kind === "interim" || b.kind === "unification") out.push({ marker: `bout:${b.id}`, key: "ladderInterim", payload: () => simplePost(title, "ladderInterim", `${BOUT_LABEL[b.kind]}: ${tn(b.homeTeamId)} v ${tn(b.awayTeamId)}. Play by ${by}.`, { test, title: BOUT_LABEL[b.kind].toLowerCase() }) });
+    else if (b.kind === "vacant") out.push({ marker: `bout:${b.id}`, key: "ladderMandatory", payload: () => simplePost(title, "ladderMandatory", `The belt is vacant: ${tn(b.homeTeamId)} v ${tn(b.awayTeamId)} for the title. Play by ${by}.`, { test, title: "vacant title game" }) });
+  }
+  for (const ru of rec.rumbles ?? []) {
+    out.push({ marker: `rumble:${ru.id}:set`, key: "ladderRumble", payload: () => simplePost(title, "ladderRumble", `${safe(ru.name, 60)} on ${ru.date.slice(0, 10)}: ${ru.field === "top8" ? "the top 8" : "open entry"}, a quick knockout. The winner gets a guaranteed title shot and ${ru.points} points.`, { test, title: "Rumble" }) });
+    if (ru.seeds?.length) out.push({ marker: `rumble:${ru.id}:drawn`, key: "ladderRumble", payload: () => simplePost(title, "ladderRumble", `${safe(ru.name, 60)} is drawn: ${ru.seeds!.length} teams.\n${(ru.rounds[0]?.matches ?? []).map((m) => `${tn(m.homeTeamId)} v ${m.awayTeamId ? tn(m.awayTeamId) : "bye"}`).join("\n")}`, { test, title: "Rumble drawn" }) });
+    if (ru.winnerTeamId) out.push({ marker: `rumble:${ru.id}:won`, key: "ladderRumble", payload: () => simplePost(title, "ladderRumble", `${tn(ru.winnerTeamId)} won ${safe(ru.name, 60)}!${ru.contractId ? " A guaranteed title shot awaits." : ""}`, { test, title: "Rumble winner" }) });
+  }
+  const groups = new Map<string, typeof ladder.awards>();
+  for (const a of ladder.awards ?? []) {
+    if (!a.key) continue;
+    const g = a.key.split(":").slice(0, -1).join(":") || a.key;
+    groups.set(g, [...(groups.get(g) ?? []), a]);
+  }
+  for (const [g, list] of groups) {
+    out.push({ marker: `honours:${g}`, key: "ladderHonours", payload: () => simplePost(title, "ladderHonours", list.map((a) => `${safe(a.type, 100)}: ${safe(a.team, 60)}`).join("\n"), { test, title: "honours" }) });
+  }
+  return out;
 }
