@@ -111,7 +111,7 @@ describe("league settings helpers and controller", () => {
     rows.sync("season-5", [a]);
     rows.rowOf("season-5", a).home = "7"; // a pending edit in Season 5
     rows.sync("season-6", [b]);
-    expect(rows.rowOf("season-6", b)).toEqual({ date: "2026-12-01", home: "", away: "", homeCas: "", awayCas: "" });
+    expect(rows.rowOf("season-6", b)).toEqual({ date: "2026-12-01", home: "", away: "", homeCas: "", awayCas: "", playedOn: "" });
     expect(rows.has("season-5", "f1")).toBe(false); // switching seasons dropped the pending edit
     rows.sync("season-5", [a]);
     expect(rows.rowOf("season-5", a).home).toBe("2"); // fresh from the stored fixture, not the abandoned "7"
