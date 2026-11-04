@@ -32,7 +32,8 @@ import { lobbyRoute, type LobbyDeps } from "./api.js";
 import type { CoachEloRating } from "../coachElo.js";
 import { LOBBY_SIDES, type LobbyCoachRating, type LobbyCoachStats, type LobbyFixture, type LobbyFixtureSide, type LobbyHeadToHead, type LobbyMeeting, type LobbySide, type LobbyTeam } from "./types.js";
 import { publishedLeagues } from "../leagues/lifecycle.js";
-import { fixtureRedraftBlock } from "../leagues/redraftWindow.js";
+import { competitionPlaysOnFork } from "../leagues/ladder.js";
+import { fixturePlayBlock } from "../leagues/playBlock.js";
 
 export const LOBBY_BODY_MAX = 16 * 1024;
 
@@ -120,12 +121,12 @@ export function leagueLobbyFixture(
       : season.status !== "active" ? "This season is finished."
         : !fixtureOpenForDeadline(f) ? "This fixture was decided at its deadline."
           : !(coachIds.home && coachIds.away) ? "Both teams need a coach account before the lobby opens."
-            : fixtureRedraftBlock(store.seasons(league.id), f, now);
+            : fixturePlayBlock(store, league.id, season.id, f, now);
   const deadline = effectiveDeadline(season, f);
   return {
     key: leagueFixtureRef(league.id, season.id, f.id),
     source: "league",
-    mode: league.playOnFork === true && f.forkEnabled === true && f.forkCancelled !== true ? "fork" : "tabletop",
+    mode: competitionPlaysOnFork(league, season) && f.forkEnabled === true && f.forkCancelled !== true ? "fork" : "tabletop",
     open: !closedReason,
     ...(closedReason ? { closedReason } : {}),
     header: {
@@ -241,7 +242,7 @@ export function coachHistory(store: LeagueStore, deps: LeagueLobbyDeps, coaches:
   const meetings: Meeting[] = [];
   const leagueGameIds = new Set<string>();
   for (const league of publishedLeagues(store.list())) {
-    for (const season of store.seasons(league.id)) {
+    for (const season of store.competitions(league.id)) {
       for (const f of season.fixtures) {
         if (f.fork?.result?.gameId) leagueGameIds.add(f.fork.result.gameId);
         if (f.fork?.gameId) leagueGameIds.add(f.fork.gameId);
@@ -341,7 +342,7 @@ export function teamMeetings(store: LeagueStore, league: LeagueRecord, sides: Re
   const ids = { home: sides.home.team.id, away: sides.away.team.id };
   if (!ids.home || !ids.away || ids.home === ids.away) return null;
   const meetings: Array<Meeting & { homeTeamId: string }> = [];
-  for (const season of store.seasons(league.id)) {
+  for (const season of store.competitions(league.id)) {
     for (const f of season.fixtures) {
       const t = [f.home.teamId, f.away.teamId];
       if (!(t.includes(ids.home) && t.includes(ids.away)) || !fixturePlayed(f) || f.home.score === null || f.away.score === null) continue;

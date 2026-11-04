@@ -38,10 +38,11 @@ import { readJsonObject, requestRevision } from "./http.js";
 import {
   activeMembers, challengeFixture, challengeRefusal, challengesPaused, challengeState, countsInRanking, currentRedraftWindow, DAY_MS, declineLosses,
   defaultLadderSettings, fixtureOpen, HOUR_MS, isLadder, LADDER_PHASES, ladderRanking, ladderRedraftRules, ladderState, ladderVisible, LADDERS_PER_LEAGUE_MAX, LadderError,
-  liveChallenge, newLadderId, openWork, ownsTeam, parseLadderDescription, parseLadderName, parseLadderSettings, RANKING_LABEL, resultTime, roundFixture, settingsOf,
+  liveChallenge, moveRefusal, newLadderId, openWork, ownsTeam, parseLadderDescription, parseLadderName, parseLadderSettings, RANKING_LABEL, resultTime, roundFixture, settingsOf,
   STATE_LABEL, supersededTeams, teamAccount, teamKey, teamRedraftBlock, type LadderRankRow,
 } from "./ladder.js";
 import { copyTeamForMove, ladderRegistrationService, myLadderEntry, snapshotFromTeam } from "./ladderRegistration.js";
+import { teamGamesPlayed } from "./teamOps.js";
 import type { LadderChallenge, LadderRanking, LadderRound } from "./ladderTypes.js";
 import { LADDER_RANKINGS } from "./ladderTypes.js";
 import { canonicalRace, rosterAllowed } from "./leagueBuilder.js";
@@ -293,7 +294,7 @@ async function organiserWrite(league: LeagueRecord, ladderId: string | undefined
   if (!lg || !managesLeague(lg, auth)) return { result: fail(403, "This league is not one of yours: only its organisers and site admins can manage its ladders.") } as const;
   const ladder = ladderId ? deps.store.season(lg.id, ladderId) : undefined;
   if (ladderId && (!ladder || !isLadder(ladder))) return { result: fail(404, "Ladder not found.") } as const;
-  return { input: b.value, league: lg, ladder, who: auth } as const;
+  return { input: b.value, league: lg, ladder, who: auth, now: deps.now?.() ?? new Date() } as const;
 }
 
 // ---- create / edit / start / close -------------------------------------------------------------------------------------
@@ -301,6 +302,7 @@ async function organiserWrite(league: LeagueRecord, ladderId: string | undefined
 async function createLadder(league: LeagueRecord, auth: LeagueApiIdentity | undefined, deps: LeagueApiDeps, now: Date): Promise<LeagueApiResult> {
   const w = await organiserWrite(league, undefined, auth, deps);
   if ("result" in w) return w.result!;
+  now = w.now; // the time of the write: taken after the body arrived, never before (a slow body cannot slip past an expiry)
   const { input, league: lg } = w;
   const extra = Object.keys(input).filter((k) => k !== "name" && k !== "ranking");
   if (extra.length) return fail(400, `Unknown field: ${extra[0]!.slice(0, 40)}.`);
@@ -338,6 +340,7 @@ async function createLadder(league: LeagueRecord, auth: LeagueApiIdentity | unde
 async function patchLadder(league: LeagueRecord, ladderId: string, auth: LeagueApiIdentity | undefined, deps: LeagueApiDeps, now: Date): Promise<LeagueApiResult> {
   const w = await organiserWrite(league, ladderId, auth, deps);
   if ("result" in w) return w.result!;
+  now = w.now; // the time of the write: taken after the body arrived, never before (a slow body cannot slip past an expiry)
   const { input, league: lg } = w;
   const ladder = w.ladder!;
   const allowed = new Set(["revision", "step", "general", "rules", "settings", "complete"]);
@@ -392,6 +395,7 @@ async function patchLadder(league: LeagueRecord, ladderId: string, auth: LeagueA
 async function startLadder(league: LeagueRecord, ladderId: string, auth: LeagueApiIdentity | undefined, deps: LeagueApiDeps, now: Date): Promise<LeagueApiResult> {
   const w = await organiserWrite(league, ladderId, auth, deps);
   if ("result" in w) return w.result!;
+  now = w.now; // the time of the write: taken after the body arrived, never before (a slow body cannot slip past an expiry)
   const ladder = w.ladder!;
   if (ladderState(ladder) !== "setup") return fail(409, ladderState(ladder) === "active" ? "The ladder is already open." : "The ladder is closed.");
   ladder.stage = "active";
@@ -434,6 +438,7 @@ export function closeLadderRecord(ladder: SeasonRecord, now: Date, reason: strin
 async function closeLadder(league: LeagueRecord, ladderId: string, auth: LeagueApiIdentity | undefined, deps: LeagueApiDeps, now: Date, reason: string): Promise<LeagueApiResult> {
   const w = await organiserWrite(league, ladderId, auth, deps);
   if ("result" in w) return w.result!;
+  now = w.now; // the time of the write: taken after the body arrived, never before (a slow body cannot slip past an expiry)
   const ladder = w.ladder!;
   if (ladderState(ladder) === "closed") return fail(409, "The ladder is already closed.");
   const notes = closeLadderRecord(ladder, now, reason);
@@ -456,7 +461,7 @@ function movableTeams(league: LeagueRecord, ladder: SeasonRecord, coach: string,
       if (!ownsTeam(t, coach) || superseded.has(teamKey(c.id, t.id))) continue;
       if (isLadder(c) && !(c.ladder?.members ?? []).some((m) => m.teamId === t.id && !m.leftAt)) continue;
       const games = c.fixtures.filter((f) => (f.home.teamId === t.id || f.away.teamId === t.id) && countsInRanking(f)).length;
-      const blocked = openWork(c, t.id, now);
+      const blocked = moveRefusal(c) || openWork(c, t.id, now);
       out.push({ id: c.id, competition: c.name, kind: isLadder(c) ? "ladder" : "season", teamId: t.id, team: t.name, race: t.race, teamValue: t.teamValue ?? null, games, ...(blocked ? { blocked } : {}) });
     }
   }
@@ -484,6 +489,7 @@ async function join(league: LeagueRecord, ladderId: string, auth: LeagueApiIdent
   const b = await body(deps);
   if (!b.ok) return b.result;
   const input = b.value;
+  now = deps.now?.() ?? new Date(); // after the body arrived
   const lg = deps.store.league(league.id);
   const ladder = lg ? deps.store.season(lg.id, ladderId) : undefined;
   if (!lg || !ladder || !isLadder(ladder) || !ladderVisible(ladder, managesLeague(lg, auth))) return fail(404, "Ladder not found.");
@@ -647,12 +653,13 @@ async function coachWrite(league: LeagueRecord, ladderId: string, auth: LeagueAp
   const lg = deps.store.league(league.id);
   const ladder = lg ? deps.store.season(lg.id, ladderId) : undefined;
   if (!lg || !ladder || !isLadder(ladder) || !ladderVisible(ladder, managesLeague(lg, auth))) return { result: fail(404, "Ladder not found.") } as const;
-  return { input: b.value, league: lg, ladder, who: auth } as const;
+  return { input: b.value, league: lg, ladder, who: auth, now: deps.now?.() ?? new Date() } as const;
 }
 
 async function issueChallenge(league: LeagueRecord, ladderId: string, auth: LeagueApiIdentity | undefined, deps: LeagueApiDeps, now: Date): Promise<LeagueApiResult> {
   const w = await coachWrite(league, ladderId, auth, deps);
   if ("result" in w) return w.result!;
+  now = w.now; // the time of the write: taken after the body arrived, never before (a slow body cannot slip past an expiry)
   const { input, league: lg, ladder, who } = w;
   const comps = deps.store.competitions(lg.id);
   const members = activeMembers(ladder, supersededTeams(comps));
@@ -686,6 +693,7 @@ async function answerChallenge(league: LeagueRecord, ladderId: string, cid: stri
   if (verb !== "accept" && verb !== "decline" && verb !== "withdraw") return fail(404, "Not found.");
   const w = await coachWrite(league, ladderId, auth, deps);
   if ("result" in w) return w.result!;
+  now = w.now; // the time of the write: taken after the body arrived, never before (a slow body cannot slip past an expiry)
   const { league: lg, ladder, who } = w;
   const ch = ladder.ladder!.challenges.find((c) => c.id === cid);
   if (!ch) return fail(404, "Challenge not found.");
@@ -728,8 +736,11 @@ async function answerChallenge(league: LeagueRecord, ladderId: string, cid: stri
   const comps = deps.store.competitions(lg.id);
   const members = activeMembers(ladder, supersededTeams(comps));
   if (!members.some((m) => m.team.id === challenger.id) || !members.some((m) => m.team.id === defender.id)) return fail(409, "Both teams must still be in the ladder.");
-  const paused = challengesPaused(lg, ladder, now) || teamRedraftBlock(lg, ladder, challenger, now) || teamRedraftBlock(lg, ladder, defender, now);
-  if (paused) return fail(409, paused, { code: "refused" });
+  // Every challenge rule again, now (range, rematch, limits, pauses, redraft blocks): ranks and games may have changed since
+  // it was issued. The challenge itself is left out, so it does not count against its own pair or the open limit.
+  const without = { ...ladder, ladder: { ...ladder.ladder!, challenges: ladder.ladder!.challenges.filter((c) => c.id !== ch.id) } } as SeasonRecord;
+  const refusal = challengeRefusal({ ladder: without, league: lg, challenger, defender, ranking: ladderRanking(without, now, comps), now });
+  if (refusal) return fail(409, refusal, { code: "refused" });
   const s = settingsOf(ladder.ladder);
   ch.state = "accepted";
   ch.answeredAt = at;
@@ -758,6 +769,7 @@ async function answerChallenge(league: LeagueRecord, ladderId: string, cid: stri
 async function createRound(league: LeagueRecord, ladderId: string, auth: LeagueApiIdentity | undefined, deps: LeagueApiDeps, now: Date): Promise<LeagueApiResult> {
   const w = await organiserWrite(league, ladderId, auth, deps);
   if ("result" in w) return w.result!;
+  now = w.now; // the time of the write: taken after the body arrived, never before (a slow body cannot slip past an expiry)
   const { input, league: lg } = w;
   const ladder = w.ladder!;
   if (ladderState(ladder) !== "active") return fail(409, "Rounds can be set while the ladder is open.");
@@ -812,6 +824,7 @@ async function createRound(league: LeagueRecord, ladderId: string, auth: LeagueA
 async function moveToSeason(league: LeagueRecord, ladderId: string, teamId: string, auth: LeagueApiIdentity | undefined, deps: LeagueApiDeps, now: Date): Promise<LeagueApiResult> {
   const w = await organiserWrite(league, ladderId, auth, deps);
   if ("result" in w) return w.result!;
+  now = w.now; // the time of the write: taken after the body arrived, never before (a slow body cannot slip past an expiry)
   const { input, league: lg, who } = w;
   const ladder = w.ladder!;
   const comps = deps.store.competitions(lg.id);
@@ -825,7 +838,9 @@ async function moveToSeason(league: LeagueRecord, ladderId: string, teamId: stri
   if (busy) return fail(409, busy, { code: "busy" });
   const at = now.toISOString();
   // The season write first (its movedFrom makes the ladder row superseded, ladder.ts), then the ladder's own record.
-  const copy = copyTeamForMove(member.team, target, { kind: "ladder", id: ladder.id }, at);
+  const refused = moveRefusal(ladder);
+  if (refused) return fail(409, refused, { code: "tournament-style" });
+  const copy = copyTeamForMove(member.team, target, { kind: "ladder", id: ladder.id }, at, teamGamesPlayed(ladder, teamId));
   target.teams.push(copy);
   target.participants.push({ coach: copy.coach, ...(copy.coachId ? { coachId: copy.coachId } : {}), ...(copy.coachAssigned && !copy.coachAssigned.cleared ? { coachAssigned: true as const } : {}), country: "", race: copy.race, team: copy.name, registeredAt: at, active: true, teamId: copy.id, addedHere: true });
   deps.store.putSeason(target);

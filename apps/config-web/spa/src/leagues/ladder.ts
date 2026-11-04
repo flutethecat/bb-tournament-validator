@@ -188,7 +188,7 @@ export function settingsLines(s: LadderSettings): string[] {
   if (s.periodDays) out.push(`Periods of ${s.periodDays} days.`);
   if (s.endsAt) out.push(`Ends ${s.endsAt.slice(0, 10)}.`);
   const r = s.redraft;
-  out.push(r.trigger === "games" ? `Teams redraft after ${r.everyGames} games.` : r.trigger === "schedule" ? `Redraft on fixed dates${r.schedule.length ? ` (${r.schedule.map((d) => d.slice(0, 10)).join(", ")})` : ""}.` : s.periodDays ? "Redraft at each period end." : "No redraft (no periods).");
+  out.push(r.trigger === "games" ? `Teams redraft after ${r.everyGames} games (applied once ladder redrafts open).` : r.trigger === "schedule" ? `Redraft on fixed dates${r.schedule.length ? ` (${r.schedule.map((d) => d.slice(0, 10)).join(", ")})` : ""}.` : s.periodDays ? "Redraft at each period end." : "No redraft (no periods).");
   if (r.tvCap) out.push(`TV cap ${Math.round(r.tvCap / 1000)}k.`);
   return out;
 }

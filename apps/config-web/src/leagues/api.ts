@@ -105,7 +105,7 @@ import { createLeagueRoute, leagueLifecycleRoutes } from "./wizard.js";
 import { leagueCalendarEventRoutes, type LeagueEventsDeps } from "./leagueEvents.js";
 import { leagueEventsDiscordRoutes } from "./leagueEventsDiscord.js";
 import { leagueLadderRoutes } from "./ladderApi.js";
-import { isLadder, isLadderId, ladderVisible } from "./ladder.js";
+import { competitionPlaysOnFork, isLadder, isLadderId, ladderVisible } from "./ladder.js";
 import { TEST_SESSION_REFUSAL, testSessionMayWrite } from "../registration/testSession.js";
 import { leagueTimeZone } from "./timeZone.js";
 import { isLeagueOrganiser, LEAGUE_ART_DIR, LEAGUE_ART_PATH, leagueOwner, LeagueStore, LeagueStoreError, SEASON_ID } from "./store.js";
@@ -1135,7 +1135,7 @@ async function patchFixture(league: LeagueRecord, seasonId: string, fixtureId: s
   if (!season) return { status: 404, body: { error: "Season not found." } };
   const fixture = season.fixtures.find((f) => f.id === fixtureId);
   if (!fixture) return { status: 404, body: { error: "Fixture not found." } };
-  if (on && league.playOnFork !== true) return { status: 409, body: { error: "Turn on Play on Super FUMBBL in League settings first." } };
+  if (on && !competitionPlaysOnFork(league, season)) return { status: 409, body: { error: season.competition === "ladder" ? "Set this ladder to be played on Super FUMBBL first." : "Turn on Play on Super FUMBBL in League settings first." } };
   const now = deps.now?.() ?? new Date();
   const wait = forkToggleWait(who.coach, now.getTime());
   if (wait > 0) return { status: 429, headers: { "retry-after": String(wait) }, body: { error: "Too many Super FUMBBL changes. Try again in a few minutes." } };

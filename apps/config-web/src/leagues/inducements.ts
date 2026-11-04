@@ -269,7 +269,7 @@ async function usageRoute(
   if (!season) return fail(404, "Season not found.");
   const raw = query.get("scope") ?? "season";
   if (raw !== "season" && raw !== "league") return fail(400, "scope must be season or league.");
-  const seasons = raw === "league" ? deps.store.seasons(league.id) : [season];
+  const seasons = raw === "league" ? deps.store.competitions(league.id) : [season];
   let games;
   try {
     games = await usageGames(seasons, deps.tabletop);

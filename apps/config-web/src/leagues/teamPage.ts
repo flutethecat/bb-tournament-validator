@@ -665,7 +665,7 @@ export async function teamPageRoutes(
       if (mode === "coach") { const why = coachBlock(season, team); if (why) return fail(409, why); }
       if (!Array.isArray(input.ops) || !input.ops.length || input.ops.length > MAX_OPS) return fail(400, `ops must be a list of 1 to ${MAX_OPS} changes.`, { field: "ops" });
       const pregame = teamPhase(season, team) === "pregame";
-      const usedIds = new Set(deps.store.seasons(lg.id).flatMap((s) => s.teams.flatMap((t) => [...t.players, ...t.formerPlayers].map((p) => p.playerId))));
+      const usedIds = new Set(deps.store.competitions(lg.id).flatMap((s) => s.teams.flatMap((t) => [...t.players, ...t.formerPlayers].map((p) => p.playerId))));
       // An advancement roll is a request of its own: its dice are logged before the season is saved, so nothing else may
       // ride along and fail after it.
       const rolls = input.ops.filter((o: unknown) => o && typeof o === "object" && ["rollAdvance", "resolveAdvance"].includes(String((o as Record<string, unknown>).op)));

@@ -10,6 +10,7 @@ import { atomicWriteTextFile } from "@bb/fork-ops";
 import { linkPlayerCareers, needsPlayerIds } from "./playerIds.js";
 import { markSeasonCaptainVacancies } from "./captain.js";
 import { stampPlayedCoaches } from "./identity.js";
+import { applyTournamentResets } from "./ladder.js";
 import { recordLeagueExits } from "../auth/leagueSharing.js";
 import type { LeagueEventsFile, LeagueFixture, LeagueRecord, LeagueSecrets, LeagueTeam, SeasonRecord } from "./types.js";
 
@@ -380,6 +381,8 @@ export class LeagueStore {
     markSeasonCaptainVacancies(all.find((s) => s.id === season.id), season);
     // Records follow the coach of each game (team library lane): every result path freezes who played each side.
     stampPlayedCoaches(season);
+    // Tournament-style ladders (lane 8b): a team's roster resets in the same write that records its result, whoever wrote it.
+    applyTournamentResets(season);
     this.write(join(dir, `${season.id}.json`), season);
     this.seasonWrites += 1;
     this.unindexSeason(season.leagueId, season.id);

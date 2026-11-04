@@ -432,7 +432,7 @@ export class LeagueRegistrationAdapter implements RegistrationAdapter {
     registrationCommitGuard(league, season, changes, now);
     const rows = structuredClone(season.registrations ?? []);
     const codes = new Set(rows.map((r) => r.refCode).filter((c): c is string => Boolean(c)));
-    const seasons = this.store.seasons(league.id);
+    const seasons = this.store.competitions(league.id);
     const released: string[] = [];
     for (const change of changes) {
       const after = change.after;

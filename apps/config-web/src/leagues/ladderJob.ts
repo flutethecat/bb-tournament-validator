@@ -17,7 +17,7 @@
  */
 import type { NotificationInput } from "../notifications.js";
 import { closeLadderRecord, ladderLink } from "./ladderApi.js";
-import { challengeState, countsInRanking, currentRedraftWindow, declineLosses, fixtureOpen, isLadder, ladderState, liveChallenge, resultTime, settingsOf, teamAccount } from "./ladder.js";
+import { applyTournamentResets, challengeState, currentRedraftWindow, declineLosses, fixtureOpen, isLadder, ladderState, liveChallenge, settingsOf, teamAccount } from "./ladder.js";
 import { draftAwareNotify } from "./lifecycle.js";
 import type { LeagueStore } from "./store.js";
 import type { LeagueTeam, SeasonRecord } from "./types.js";
@@ -156,28 +156,9 @@ function tick(leagueName: string, ladder: SeasonRecord, now: Date, notes: Note[]
     changed = true;
   }
 
-  // 6. Tournament style: a team's roster goes back to the one it joined with after each of its games.
-  if (s.style === "tournament") {
-    for (const m of rec.members) {
-      if (!m.reset || m.leftAt) continue;
-      const i = ladder.teams.findIndex((t) => t.id === m.teamId);
-      if (i < 0) continue;
-      const last = Math.max(0, ...ladder.fixtures.filter((f) => countsInRanking(f) && (f.home.teamId === m.teamId || f.away.teamId === m.teamId)).map((f) => resultTime(ladder, f)));
-      const since = Date.parse(m.reset.after ?? m.joinedAt) || 0;
-      if (!last || last <= since) continue;
-      const current = ladder.teams[i]!;
-      const base = structuredClone(m.reset.roster) as LeagueTeam;
-      const stats = new Map([...current.players, ...(current.formerPlayers ?? [])].map((p) => [p.playerId, p.stats] as const));
-      ladder.teams[i] = {
-        ...base, id: current.id, name: current.name, coach: current.coach, ...(current.coachId ? { coachId: current.coachId } : {}),
-        ...(current.coachAssigned ? { coachAssigned: current.coachAssigned } : {}), ...(current.history ? { history: current.history } : {}),
-        players: base.players.map((p) => ({ ...p, stats: stats.get(p.playerId) ?? p.stats })), formerPlayers: [],
-      };
-      m.reset = { ...m.reset, after: new Date(last).toISOString() };
-      out.resets.push(`${key}/${m.teamId}`);
-      changed = true;
-    }
-  }
+  // 6. Tournament style: rosters reset in the write that records a result (LeagueStore.putSeason); anything a writer outside
+  // the store left behind is caught here.
+  for (const id of applyTournamentResets(ladder)) { out.resets.push(`${key}/${id}`); changed = true; }
   return changed;
 }
 

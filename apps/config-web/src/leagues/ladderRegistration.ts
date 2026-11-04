@@ -19,7 +19,8 @@ import { createHash, randomBytes } from "node:crypto";
 import {
   createRegistrationService, RegistrationError, type ApprovalMode, type CompetitionSnapshot, type RegistrationEntry, type RegistrationNotifySink,
 } from "../registration/index.js";
-import { isLadder, openWork, settingsOf, supersededTeams, teamKey } from "./ladder.js";
+import { isLadder, moveRefusal, openWork, settingsOf, supersededTeams, teamKey } from "./ladder.js";
+import { teamGamesPlayed } from "./teamOps.js";
 import { playerIdFor } from "./playerIds.js";
 import {
   LeagueRegistrationAdapter, parseCompetitionId, placeRegisteredTeam, rowToEntry, type LeagueRegistrationRow, type LeagueTeamSnapshot,
@@ -45,7 +46,7 @@ export function snapshotFromTeam(team: LeagueTeam): LeagueTeamSnapshot {
  * A copy of `team` for `target` (a move): same lineage (teamUid), a fresh entry, fresh player ids that name the old ones
  * (previousIds; careerKey kept), the competition's counters cleared, progression kept. Not placed: the caller adds it.
  */
-export function copyTeamForMove(team: LeagueTeam, target: SeasonRecord, from: { kind: "season" | "ladder"; id: string }, at: string): LeagueTeam {
+export function copyTeamForMove(team: LeagueTeam, target: SeasonRecord, from: { kind: "season" | "ladder"; id: string }, at: string, sourceGames: number): LeagueTeam {
   const taken = new Set((target.teams ?? []).map((t) => t.id));
   let id = team.id;
   while (taken.has(id)) id = mint("t", 5);
@@ -58,7 +59,15 @@ export function copyTeamForMove(team: LeagueTeam, target: SeasonRecord, from: { 
     while (used.has(playerId)) playerId = playerIdFor(ctx, id, p.number, p.name, p.position, ++ord);
     used.add(playerId);
     remap.set(p.playerId, playerId);
-    return { ...structuredClone(p), playerId, careerKey: p.careerKey ?? careerOf(p.playerId), previousIds: [...(p.previousIds ?? []), p.playerId], stats: { ...EMPTY_PLAYER_STATS } };
+    const copy = { ...structuredClone(p), playerId, careerKey: p.careerKey ?? careerOf(p.playerId), previousIds: [...(p.previousIds ?? []), p.playerId], stats: { ...EMPTY_PLAYER_STATS } };
+    // A team-page MNG counts games in the competition it was set in (teamOps.ts settleServedMng): one already served there
+    // clears; one still to serve restarts from the destination's count for this team (0 games so far), so the next game
+    // there serves it.
+    if (copy.mngGames !== undefined) {
+      if (!copy.missNextGame || sourceGames > copy.mngGames) { if (copy.missNextGame) copy.missNextGame = false; delete copy.mngGames; }
+      else copy.mngGames = teamGamesPlayed(target, id);
+    }
+    return copy;
   });
   const copy: LeagueTeam = {
     ...structuredClone(team), id, players, formerPlayers: [], entryId: mint("en"),
@@ -83,10 +92,12 @@ export function placeMovedTeam(store: LeagueStore, league: LeagueRecord, target:
   const team = source?.teams.find((t) => t.id === move.teamId);
   if (!source || !team) throw new RegistrationError(409, "invalid-transition", "That team is no longer in the league.");
   if (supersededTeams(store.competitions(league.id)).has(teamKey(source.id, team.id))) throw new RegistrationError(409, "invalid-transition", "That team has already moved.");
+  const refused = moveRefusal(source);
+  if (refused) throw new RegistrationError(409, "invalid-transition", refused);
   const busy = openWork(source, team.id, now);
   if (busy) throw new RegistrationError(409, "invalid-transition", busy);
   const at = now.toISOString();
-  const copy = copyTeamForMove(team, target, { kind: isLadder(source) ? "ladder" : "season", id: source.id }, at);
+  const copy = copyTeamForMove(team, target, { kind: isLadder(source) ? "ladder" : "season", id: source.id }, at, teamGamesPlayed(source, team.id));
   refreshTeamValue(copy, target.ruleset);
   target.teams = [...(target.teams ?? []), copy];
   target.participants = [...(target.participants ?? []), participantFor(copy, at)];

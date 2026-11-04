@@ -30,6 +30,12 @@ import type { FixtureSide, LeagueFixture, LeagueRecord, LeagueTeam, RedraftRules
 export const LADDER_ID = /^ladder-[0-9]{1,6}$/;
 export const isLadderId = (id: string | undefined): boolean => Boolean(id && LADDER_ID.test(id));
 export const isLadder = (s: Pick<SeasonRecord, "competition" | "ladder"> | undefined): s is SeasonRecord & { ladder: LadderRecord } => s?.competition === "ladder" && Boolean(s.ladder);
+/**
+ * Is this competition played on Super FUMBBL (its "Played on")? A ladder has its own setting (copied from the league when it
+ * is made, editable in its wizard); a season reads the league's. Fixtures still need an admin's per-fixture allow.
+ */
+export const competitionPlaysOnFork = (league: Pick<LeagueRecord, "playOnFork">, season: Pick<SeasonRecord, "competition" | "ladder"> | undefined): boolean =>
+  season?.competition === "ladder" && season.ladder ? season.ladder.playOnFork === true : league.playOnFork === true;
 export const CHALLENGE_PHASE = "ladder-challenges";
 export const ROUND_PHASE = "ladder-rounds";
 export const LADDER_NAME_MAX = 60;
@@ -419,8 +425,13 @@ export function replayLadder(
     const hBefore = { ...hs.glicko }; const aBefore = { ...as.glicko };
     hs.glicko = glickoUpdate(hBefore, [{ r: aBefore.r, rd: aBefore.rd, score }], FUMBBL_CR);
     as.glicko = glickoUpdate(aBefore, [{ r: hBefore.r, rd: hBefore.rd, score: 1 - score }], FUMBBL_CR);
-    // Position: the winner moves up into the loser's place when it stood below (a challenge's challenger, or a round's lower side).
-    if (out.home === "win") swapUp(homeId, awayId);
+    // Position: only a CHALLENGER who wins takes the defender's place (if it still stands below it); a defender's win changes
+    // nothing, whatever the order is by now. A scheduled-round game has no challenger: its lower-ranked winner moves up.
+    const ch = f.ladder?.challengeId ? ladder.ladder?.challenges.find((c) => c.id === f.ladder!.challengeId) : undefined;
+    if (ch) {
+      const challengerWon = (out.home === "win" && homeId === ch.challengerTeamId) || (out.away === "win" && awayId === ch.challengerTeamId);
+      if (challengerWon) swapUp(ch.challengerTeamId, ch.defenderTeamId);
+    } else if (out.home === "win") swapUp(homeId, awayId);
     else if (out.away === "win") swapUp(awayId, homeId);
     opts.onEvent?.({ kind: "result", fixtureId: f.id, at: e.at }, snap(), before!);
   }
@@ -577,12 +588,9 @@ export function teamRedraftBlock(league: Pick<LeagueRecord, "redraftRules" | "re
   void league; void now;
   const s = settingsOf(ladder.ladder).redraft;
   if (s.tvCap !== null && typeof team.teamValue === "number" && team.teamValue > s.tvCap) return `${team.name} is over the ladder's TV cap and must redraft before its next challenge.`;
-  if (s.trigger === "games") {
-    const m = (ladder.ladder?.members ?? []).find((x) => x.teamId === team.id);
-    const since = Date.parse(m?.redraftedAt ?? m?.joinedAt ?? "") || 0;
-    const games = (ladder.fixtures ?? []).filter((f) => countsInRanking(f) && (f.home.teamId === team.id || f.away.teamId === team.id) && resultTime(ladder, f) >= since).length;
-    if (games >= s.everyGames) return `${team.name} has played ${games} games and must redraft before its next challenge.`;
-  }
+  // The per-team "after N games" trigger is stored but NOT enforced yet: nothing can redraft a ladder team until the ladder
+  // redraft board exists (a later lane), so enforcing it would block a team for good. ladderTeamGamesSinceRedraft() is the
+  // count that lane will compare. (A team over the TV cap can get under it from its team page, so the cap is enforced.)
   return "";
 }
 
@@ -625,6 +633,49 @@ export const LADDER_PHASES = (): SeasonRecord["phases"] => [
   { id: CHALLENGE_PHASE, category: "Ladder", name: "Challenges", groups: [""], standings: [] },
   { id: ROUND_PHASE, category: "Ladder", name: "Rounds", groups: [""], standings: [] },
 ];
+
+/** Games a ladder team has played since it joined (or last redrafted): the per-team redraft trigger's count (not enforced yet). */
+export function ladderTeamGamesSinceRedraft(ladder: SeasonRecord, teamId: string): number {
+  const m = (ladder.ladder?.members ?? []).find((x) => x.teamId === teamId);
+  const since = Date.parse(m?.redraftedAt ?? m?.joinedAt ?? "") || 0;
+  return (ladder.fixtures ?? []).filter((f) => countsInRanking(f) && (f.home.teamId === teamId || f.away.teamId === teamId) && resultTime(ladder, f) >= since).length;
+}
+
+/** Why a team may not move out of this competition at all ("" = it may, with nothing open): tournament-style ladder rosters
+ *  reset after every game, so a move would carry progression that the ladder never gives. */
+export function moveRefusal(comp: SeasonRecord): string {
+  return isLadder(comp) && settingsOf(comp.ladder).style === "tournament" ? "Teams in a tournament-style ladder can't move: their rosters reset after every game." : "";
+}
+
+/**
+ * Tournament-style ladders: every member whose team has a result newer than its last reset goes back to the roster it joined
+ * with (the players' stat counters are kept, so honours still count; the coach fields come from the live team). In place;
+ * answers the team ids reset. Called by LeagueStore.putSeason, so the reset is in the SAME write that records a result,
+ * whichever path wrote it (recorder, Super FUMBBL, organiser, forfeit).
+ */
+export function applyTournamentResets(ladder: SeasonRecord): string[] {
+  if (!isLadder(ladder) || settingsOf(ladder.ladder).style !== "tournament") return [];
+  const out: string[] = [];
+  for (const m of ladder.ladder.members) {
+    if (!m.reset || m.leftAt) continue;
+    const i = ladder.teams.findIndex((t) => t.id === m.teamId);
+    if (i < 0) continue;
+    const last = Math.max(0, ...ladder.fixtures.filter((f) => countsInRanking(f) && (f.home.teamId === m.teamId || f.away.teamId === m.teamId)).map((f) => resultTime(ladder, f)));
+    const since = Date.parse(m.reset.after ?? m.joinedAt) || 0;
+    if (!last || last <= since) continue;
+    const current = ladder.teams[i]!;
+    const base = structuredClone(m.reset.roster) as LeagueTeam;
+    const stats = new Map([...current.players, ...(current.formerPlayers ?? [])].map((p) => [p.playerId, p.stats] as const));
+    ladder.teams[i] = {
+      ...base, id: current.id, name: current.name, coach: current.coach, ...(current.coachId ? { coachId: current.coachId } : {}),
+      ...(current.coachAssigned ? { coachAssigned: current.coachAssigned } : {}), ...(current.history ? { history: current.history } : {}),
+      players: base.players.map((p) => ({ ...p, stats: stats.get(p.playerId) ?? p.stats })), formerPlayers: [],
+    };
+    m.reset = { ...m.reset, after: new Date(last).toISOString() };
+    out.push(m.teamId);
+  }
+  return out;
+}
 
 /** Teams with an unplayed fixture or a live challenge in a competition (a team moves only with nothing open). */
 export function openWork(comp: SeasonRecord, teamId: string, now: Date): string {

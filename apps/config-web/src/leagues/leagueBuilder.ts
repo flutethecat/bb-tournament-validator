@@ -30,6 +30,7 @@ import { seasonRegistrationOf, seasonWindowStatus } from "./seasonRegistration.j
 import { teamBuildingTable } from "./settings.js";
 import type { LeagueStore } from "./store.js";
 import type { LeagueRecord, LeagueRegistrations, SeasonRecord } from "./types.js";
+import { isLadder, ladderState } from "./ladder.js";
 
 // ---- roster classes (Q10) ----
 
@@ -219,7 +220,9 @@ export function resolveLeaguePackage(store: Pick<LeagueStore, "league" | "season
   // A draft league (lifecycle.ts) is no league to the builder: its name never reaches a save, a share or a preview.
   const found = store.league(ref.leagueId);
   const league = found && !isDraftLeague(found) ? found : undefined;
-  const season = league ? store.season(league.id, ref.seasonId) : undefined;
+  const found2 = league ? store.season(league.id, ref.seasonId) : undefined;
+  // A ladder in setup (lane 8b) is seen by its organisers only on the league pages: to the builder it does not exist yet.
+  const season = found2 && !(isLadder(found2) && ladderState(found2) === "setup") ? found2 : undefined;
   if (!league || !season) return { error: LEAGUE_UNKNOWN };
   const pkg = leagueSeasonPackage(league, season);
   return {

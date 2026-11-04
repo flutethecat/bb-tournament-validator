@@ -187,7 +187,7 @@ export async function cleanupFixtureForkTeams(deps: ForkCleanupDeps, r: FixtureR
 function unmarkedFinished(store: LeagueStore): Map<string, { ref: FixtureRef; reason: string }> {
   const out = new Map<string, { ref: FixtureRef; reason: string }>();
   for (const league of store.list()) {
-    for (const season of store.seasons(league.id)) {
+    for (const season of store.competitions(league.id)) {
       for (const f of season.fixtures) {
         const reason = forkCleanupReason(f);
         if (!reason || f.fork?.cleanup) continue;
@@ -259,7 +259,7 @@ export async function runForkTeamCleanup(deps: ForkCleanupDeps): Promise<{ remov
   }
   const due: FixtureRef[] = [];
   for (const league of deps.store.list()) {
-    for (const season of deps.store.seasons(league.id)) {
+    for (const season of deps.store.competitions(league.id)) {
       for (const f of season.fixtures) {
         if (!forkCleanupReason(f)) continue;
         const ref = { leagueId: league.id, seasonId: season.id, fixtureId: f.id };
@@ -306,7 +306,7 @@ export async function forkTeamBackfill(deps: ForkCleanupDeps, opts: { apply?: bo
   if (!deps.fork.teamCopies) throw new Error("this fork client cannot list team copies");
   const rows: BackfillRow[] = [];
   for (const league of deps.store.list()) {
-    for (const season of deps.store.seasons(league.id)) {
+    for (const season of deps.store.competitions(league.id)) {
       const needed = (id: string): Set<string> => neededElsewhere(season, id);
       for (const f of season.fixtures) {
         const reason = forkCleanupReason(f);

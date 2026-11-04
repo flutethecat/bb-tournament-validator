@@ -38,6 +38,8 @@ import type { FixtureForkState, FixtureForkStatus, ForkSide, LeagueFixture, Leag
 import { publicFixture } from "./fixturePublic.js";
 import { publishedLeagues } from "./lifecycle.js";
 import { fixtureRedraftBlock } from "./redraftWindow.js";
+import { competitionPlaysOnFork } from "./ladder.js";
+import { fixturePlayBlock } from "./playBlock.js";
 
 /** Error a fork client throws with an HTTP status for the coach (503 no account store, 404 no fork account, ...). */
 export class ForkClientError extends Error {
@@ -161,7 +163,7 @@ export function seatOf(f: LeagueFixture, coach: string | undefined): ForkSide | 
 
 /** Why this fixture cannot be generated on Super FUMBBL right now ("" = it can). */
 export function generateBlocker(league: LeagueRecord, season: SeasonRecord, f: LeagueFixture): string {
-  if (league.playOnFork !== true) return "Play on Super FUMBBL is off for this league.";
+  if (!competitionPlaysOnFork(league, season)) return season.competition === "ladder" ? "This ladder is played on the tabletop." : "Play on Super FUMBBL is off for this league.";
   const edition = rulesetBlocker(season.ruleset);
   if (edition) return edition;
   if (f.forkEnabled !== true) return "An organiser has not allowed this fixture on Super FUMBBL.";
@@ -214,7 +216,7 @@ export function fixtureForkView(league: LeagueRecord, season: SeasonRecord, f: L
   const involved = manager || Boolean(mySide);
   const result = fork?.result;
   return {
-    enabled: league.playOnFork === true && f.forkEnabled === true,
+    enabled: competitionPlaysOnFork(league, season) && f.forkEnabled === true,
     status,
     statusLabel: FORK_STATUS_LABEL[status],
     allowLate: f.forkAllowLate === true,
@@ -410,7 +412,7 @@ async function generate(deps: ForkRouteDeps, client: LeagueForkClient, leagueId:
     if (status === "scheduled" || status === "in_progress") return res(200, { ok: true, fork: fixtureForkView(x.league, x.season, x.fixture, who) });
     if (status === "finished") return fail(409, "This fixture's Super FUMBBL game is finished.");
     if (status === "launch_failed") return fail(409, "The last attempt failed. An organiser can reset the game and try again.");
-    const blocker = generateBlocker(x.league, x.season, x.fixture);
+    const blocker = generateBlocker(x.league, x.season, x.fixture) || fixturePlayBlock(deps.store, x.league.id, x.season.id, x.fixture, deps.now?.() ?? new Date());
     return blocker ? fail(409, blocker) : undefined;
   };
   const early = precheck(at);
@@ -714,7 +716,7 @@ export async function syncLeagueForkResults(deps: SyncDeps, only?: { leagueId: s
   // Lane L5: a draft league's games sync once it is published (no result notices or posts about a hidden league).
   for (const league of publishedLeagues(deps.store.list())) {
     if (only && league.id !== only.leagueId) continue;
-    for (const season of deps.store.seasons(league.id)) {
+    for (const season of deps.store.competitions(league.id)) {
       if (only && season.id !== only.seasonId) continue;
       for (const f of season.fixtures) {
         if (only && f.id !== only.fixtureId) continue;
@@ -774,7 +776,7 @@ export async function leagueForkRoutes(
     const { league, season, fixture } = at;
     const { fork: _f, ...shown } = publicFixture(fixture) as LeagueFixture;
     return res(200, {
-      league: { id: league.id, name: league.name, playOnFork: league.playOnFork === true },
+      league: { id: league.id, name: league.name, playOnFork: competitionPlaysOnFork(league, season) },
       season: { id: season.id, name: season.name, status: season.status, ruleset: season.ruleset },
       fixture: shown,
       fork: fixtureForkView(league, season, fixture, auth),

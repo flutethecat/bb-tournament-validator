@@ -16,7 +16,7 @@ import type { DiscordEventKey, LeagueRecord } from "../leagues/types.js";
 import type { TournamentRecord } from "../tournaments/types.js";
 import type { DiscordPayload, WebhookPoster } from "../leagues/discord.js";
 import { isDraftLeague } from "../leagues/lifecycle.js";
-import { isLadderId } from "../leagues/ladder.js";
+import { isLadderId, ladderState } from "../leagues/ladder.js";
 import { effectiveConfig, type CompetitionKind, type EffectiveDiscordConfig } from "./catalogue.js";
 import { cleanPayload } from "./posts.js";
 import type { DiscordStateStore } from "./store.js";
@@ -75,15 +75,19 @@ export function seasonTarget(store: Pick<LeagueStore, "league" | "secrets">, lea
 }
 
 /** A ladder: its own webhook (blank = the league's) and options (absent = the league's), like a season. */
-export function ladderTarget(store: Pick<LeagueStore, "league" | "secrets">, league: LeagueRecord, ladderId: string): DiscordTarget {
+export function ladderTarget(store: Pick<LeagueStore, "league" | "secrets"> & Partial<Pick<LeagueStore, "season">>, league: LeagueRecord, ladderId: string): DiscordTarget {
   const fresh = store.league(league.id) ?? league;
+  // A ladder in setup is private (organisers only) even in a published league: nothing about it posts. A store that can't
+  // tell (no season reader) fails closed.
+  const ladder = store.season?.(league.id, ladderId);
+  const setup = !ladder || ladderState(ladder) === "setup";
   const secrets = store.secrets(league.id);
   const own = secrets.competitionWebhooks?.[ladderCompetitionKey(ladderId)];
   const url = own || secrets.discordWebhookUrl;
   return {
     kind: "ladder", key: `ladder:${league.id}:${ladderId}`, name: fresh.name, ...(url ? { url } : {}), inherited: !own && Boolean(url),
     config: effectiveConfig("league", fresh.competitionDiscord?.[ladderCompetitionKey(ladderId)], leagueEffective(fresh)),
-    draft: isDraftLeague(fresh), test: fresh.test === true, leagueId: league.id, seasonId: ladderId,
+    draft: isDraftLeague(fresh) || setup, test: fresh.test === true, leagueId: league.id, seasonId: ladderId,
   };
 }
 

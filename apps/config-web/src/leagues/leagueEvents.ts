@@ -723,7 +723,7 @@ export function runLeagueEventReminders(deps: ReminderJobDeps): { reminded: stri
     if (!changed) continue;
     try { deps.store.putLeagueEvents(league.id, file); } catch { continue; } // not written: nobody is told
     if (!due.length) continue;
-    const coaches = leagueCoaches(deps.store.seasons(league.id));
+    const coaches = leagueCoaches(deps.store.competitions(league.id));
     for (const { ev, o } of due) {
       out.push(`${league.id}/${ev.id}/${o.key}`);
       const where = ev.location.text ? ` ${ev.location.kind === "online" ? "Online" : "At"}: ${ev.location.text}.` : "";
@@ -764,7 +764,7 @@ export function announceUpcomingOnPublish(store: LeagueStore, league: LeagueReco
   if (!soon.length) return 0;
   const lines = soon.slice(0, 6).map(({ ev, o }) => `${ev.title}: ${whenText(o, zone)}`);
   const more = soon.length > 6 ? ` And ${soon.length - 6} more.` : "";
-  const coaches = leagueCoaches(store.seasons(league.id));
+  const coaches = leagueCoaches(store.competitions(league.id));
   tell(notify, coaches, {
     type: "league-broadcast", title: clip(`${league.name}: upcoming league events`, 120),
     body: clip(`${league.name} is open. Coming up (${zoneLabel(zone)}): ${lines.join("; ")}.${more}`, 600),

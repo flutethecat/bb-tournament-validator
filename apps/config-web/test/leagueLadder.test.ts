@@ -10,7 +10,7 @@ import type { LeagueTeamSheet } from "../src/leagues/registrationApi.js";
 import type { NotificationInput } from "../src/notifications.js";
 import type { LeagueFixture, LeagueRecord, LeagueTeam, SeasonRecord } from "../src/leagues/types.js";
 import {
-  challengeState, declineLosses, defaultLadderSettings, ladderRanking, ladderRedraftRules, parseLadderSettings, replayLadder, supersededTeams,
+  challengeState, declineLosses, defaultLadderSettings, ladderRanking, ladderRedraftRules, ladderTeamGamesSinceRedraft, parseLadderSettings, replayLadder, supersededTeams,
 } from "../src/leagues/ladder.js";
 import { runLadderJob } from "../src/leagues/ladderJob.js";
 import { createFixtureSource } from "../src/schedule/fixtures.js";
@@ -26,6 +26,12 @@ import type { DiscordPayload } from "../src/leagues/discord.js";
 import { gateScheduleSource } from "../src/leagues/leagueEvents.js";
 import { WORDS_ROT13 } from "../src/discord/profanityList.js";
 import { ACTION_DM, actionDmText } from "../src/mail/actionMessages.js";
+import { generateBlocker, syncLeagueForkResults } from "../src/leagues/forkPlay.js";
+import { leagueLobbyFixture } from "../src/fixtureLobby/league.js";
+import { leagueFixtureView, recordLeagueFixture } from "../src/leagues/tabletopFixtures.js";
+import { fixturePlayBlock } from "../src/leagues/playBlock.js";
+import { resolveLeaguePackage } from "../src/leagues/leagueBuilder.js";
+import { postTo } from "../src/discord/targets.js";
 import type { IncomingMessage } from "node:http";
 import { onboardingGateApplies } from "../src/auth/onboarding.js";
 
@@ -353,20 +359,21 @@ describe("joining through the ladder adapter", () => {
     // The snapshot carries no coach data (account deletion anonymises the team rows, not this copy).
     const snap = JSON.stringify(lad.ladder!.members.map((m) => m.reset));
     for (const k of ['"coach"', '"coachId"', '"coachAssigned"', '"history"']) expect(snap).not.toContain(k);
-    // A game: the roster gains SPP and a skill; the job puts the joined roster back but keeps the counters.
+    // A game: the roster gains SPP and a skill; the write that records the result puts the joined roster back (counters kept).
     const t = lad.teams[0]!;
     t.players[0]!.availableSpp = 8; t.players[0]!.skills = ["Dodge"]; t.players[0]!.stats.td = 2; t.treasury = 999_999;
     h.store.putSeason(lad);
     h.result(id, "Cara", "Eve", 2, 0, "2026-11-10T12:30:00.000Z");
     h.clock.now = new Date("2026-11-10T13:00:00.000Z");
-    const out = runLadderJob({ store: h.store, now: () => h.clock.now });
-    expect(out.resets).toHaveLength(2);
     const after = h.ladderOf(id).teams.find((x) => x.id === t.id)!;
     expect(after.players[0]!.availableSpp).toBe(0);
     expect(after.players[0]!.skills).toEqual([]);
     expect(after.players[0]!.stats.td).toBe(2);
     expect(after.treasury).not.toBe(999_999);
-    expect(runLadderJob({ store: h.store, now: () => h.clock.now }).resets).toHaveLength(0);
+    expect(runLadderJob({ store: h.store, now: () => h.clock.now }).resets).toHaveLength(0); // nothing left for the job
+    // A tournament-style team never moves (its roster resets every game): not offered, refused by the organiser route.
+    const s1 = h.store.season(L, "season-1")!;
+    expect(((await h.call("POST", `${base}/teams/${t.id}/move`, OLGA, { seasonId: s1.id })).body as { code: string }).code).toBe("tournament-style");
   });
 });
 
@@ -683,7 +690,9 @@ describe("redraft hooks and gates", () => {
     g.ladder!.settings = parseLadderSettings({ redraft: { tvCap: null, trigger: "games", everyGames: 1 } }, g.ladder!.settings, h.clock.now);
     h.store.putSeason(g);
     h.result(id, "Bob", "Cara", 1, 0, new Date(h.clock.now.getTime() - D).toISOString());
-    expect(((await h.call("POST", `${base}/challenges`, coach("Bob"), { challengerTeamId: tid("Bob"), defenderTeamId: tid("Amy") })).body as { error: string }).error).toContain("must redraft");
+    // Stored but not enforced until ladder redrafts exist (nothing could lift the block): the count is there for that lane.
+    expect(ladderTeamGamesSinceRedraft(h.ladderOf(id), tid("Bob"))).toBe(1);
+    expect((await h.call("POST", `${base}/challenges`, coach("Bob"), { challengerTeamId: tid("Bob"), defenderTeamId: tid("Amy") })).status).toBe(201);
   });
 
   it("the Schedule page's gate source lists a ladder's challenge gate while it is still to open (lane 8c hook), and the gate pauses challenges", async () => {
@@ -814,5 +823,184 @@ describe("access, CSRF, GETs", () => {
     expect(parseLadderSettings({ challengeRange: null }, defaultLadderSettings("points"), now).challengeRange).toBeNull();
     const snap = replayLadder({ fixtures: [], teams: [], ladder: { settings: defaultLadderSettings(), challenges: [], rounds: [], members: [], playOnFork: false } } as unknown as SeasonRecord, now);
     expect(snap.order).toEqual([]);
+  });
+});
+
+// ---- Sol review (11-03): each fix through the real wiring (routes, the store's write, the sync, the lobby, the recorder) ----
+
+describe("review fixes", () => {
+  const lobbyDeps = {} as never;
+
+  it("P1: Super FUMBBL results sync for ladder fixtures (the sync walks seasons AND ladders)", async () => {
+    const h = harness();
+    const id = await h.openLadder("points");
+    h.seedMembers(id, ["Amy", "Bob"]);
+    const lad = h.ladderOf(id);
+    const [a, b] = lad.teams;
+    const side = (t: LeagueTeam) => ({ team: t.name, teamId: t.id, coach: t.coach, coachId: t.coachId, race: t.race, score: null, cas: null, conceded: false });
+    lad.fixtures.push({
+      id: "lf-sync", category: "Ladder", phase: "Challenges", phaseId: "ladder-challenges", group: "", round: 0, table: 0, home: side(a!), away: side(b!), suspended: false, forkEnabled: true,
+      fork: { status: "scheduled", gameId: "7001", log: [], teams: {
+        home: { teamId: a!.id, forkTeamId: "ft-a", coach: "Amy", builtAt: "x", players: a!.players.map((p, i) => ({ forkPlayerId: `fa${i}`, playerId: p.playerId })) },
+        away: { teamId: b!.id, forkTeamId: "ft-b", coach: "Bob", builtAt: "x", players: b!.players.map((p, i) => ({ forkPlayerId: `fb${i}`, playerId: p.playerId })) },
+      } },
+    } as LeagueFixture);
+    h.store.putSeason(lad);
+    const fork = {
+      gameStates: async () => new Map([["7001", { status: "finished", playedAt: "2026-11-10T10:00:00.000Z" }]]),
+      result: async () => ({ gameId: "7001", source: "full", playedAt: "2026-11-10T10:00:00.000Z", teams: [
+        { teamId: "ft-a", score: 1, conceded: false, winnings: 50_000, players: [] }, { teamId: "ft-b", score: 0, conceded: false, winnings: 30_000, players: [] },
+      ] }),
+    } as never;
+    const out = await syncLeagueForkResults({ store: h.store, fork, now: () => h.clock.now });
+    expect(out.applied).toContain("7001");
+    const f = h.ladderOf(id).fixtures.find((x) => x.id === "lf-sync")!;
+    expect([f.home.score, f.away.score, f.fork?.status]).toEqual([1, 0, "finished"]);
+    expect(ladderRanking(h.ladderOf(id), h.clock.now)[0]).toMatchObject({ coach: "Amy", points: 3 });
+  });
+
+  it("a team that moved to a ladder can't be given or play fixtures in its old season (create, lobby, recorder, result entry)", async () => {
+    const h = harness();
+    const id = await h.openLadder("points");
+    const base = `/api/leagues/${L}/ladders/${id}`;
+    await h.call("POST", `${base}/registrations`, coach("Amy"), { move: { id: "season-1", teamId: "t-amy" }, share: [], acknowledged: true });
+    const rid = h.ladderOf(id).registrations![0]!.id;
+    expect((await h.call("POST", `${base}/registrations/${rid}/accept`, OLGA, {})).status).toBe(200);
+    const create = await h.call("POST", `/api/leagues/${L}/seasons/season-1/fixtures`, OLGA, { home: "t-amy", away: "t-bob", round: 2 });
+    expect(create.status).toBe(409);
+    expect((create.body as { error: string }).error).toContain("moved");
+    // A fixture that already named it (made by another writer) can't be played.
+    const s1 = h.store.season(L, "season-1")!;
+    const side = (t: LeagueTeam) => ({ team: t.name, teamId: t.id, coach: t.coach, coachId: t.coachId, race: t.race, score: null, cas: null, conceded: false });
+    s1.fixtures.push({ id: "old-f", category: "Season", phase: "Regular", phaseId: "season-regular", group: "", round: 3, table: 1, home: side(s1.teams[0]!), away: side(s1.teams[1]!), suspended: false });
+    h.store.putSeason(s1);
+    const s1b = h.store.season(L, "season-1")!;
+    const lobby = leagueLobbyFixture(h.store.league(L)!, s1b, s1b.fixtures.find((f) => f.id === "old-f")!, OLGA, h.store, lobbyDeps, h.clock.now);
+    expect(lobby.open).toBe(false);
+    expect(lobby.closedReason).toContain("moved");
+    expect(leagueFixtureView(h.store, `league:${L}:season-1:old-f`, h.clock.now)?.open).toBe(false);
+    expect(() => recordLeagueFixture(h.store, `league:${L}:season-1:old-f`, { expectedRevision: 0, homeScore: 1, awayScore: 0, homeCasualties: 0, awayCasualties: 0 }, h.clock.now)).toThrow(/moved/);
+    const result = await h.call("PATCH", `/api/leagues/${L}/seasons/season-1/fixtures/old-f`, OLGA, { result: { home: 1, away: 0, homeCas: null, awayCas: null } });
+    expect(result.status).toBe(409);
+    // Bob's team (never moved) is untouched.
+    expect(fixturePlayBlock(h.store, L, "season-1", { home: side(s1.teams[1]!), away: side(s1.teams[1]!) }, h.clock.now)).toBe("");
+  });
+
+  it("accepting re-runs every challenge rule inside the write: a rematch or range that no longer holds refuses it", async () => {
+    const h = harness();
+    const id = await h.openLadder("points", { challengeRange: 3, rematchDays: 7, maxOpen: 5 });
+    h.seedMembers(id, ["Amy", "Bob", "Cara", "Dan"]);
+    const base = `/api/leagues/${L}/ladders/${id}`;
+    const tid = (c: string) => h.ladderOf(id).teams.find((t) => t.coach === c)!.id;
+    const issue = async (a: string, b: string) => ((await h.call("POST", `${base}/challenges`, coach(a), { challengerTeamId: tid(a), defenderTeamId: tid(b) })).body as { challenge: { id: string } }).challenge.id;
+    const c1 = await issue("Cara", "Amy");
+    h.result(id, "Cara", "Amy", 1, 0, new Date(h.clock.now.getTime() - 60_000).toISOString()); // they met meanwhile
+    const r1 = await h.call("POST", `${base}/challenges/${c1}/accept`, coach("Amy"), {});
+    expect(r1.status).toBe(409);
+    expect((r1.body as { error: string }).error).toContain("rematch");
+    // Range: the last team challenged the first within 3 places; the organiser narrows the range to 1 before it is answered.
+    const before = ladderRanking(h.ladderOf(id), h.clock.now);
+    const top = before[0]!.coach; // Cara (they just met Amy: not Amy)
+    const last = before.filter((r) => r.coach !== top && r.coach !== "Amy").at(-1)!.coach;
+    expect(before.find((r) => r.coach === last)!.rank - 1).toBeGreaterThan(1);
+    const c2 = await issue(last, top);
+    const lad = h.ladderOf(id);
+    lad.ladder!.settings = parseLadderSettings({ challengeRange: 1 }, lad.ladder!.settings, h.clock.now);
+    h.store.putSeason(lad);
+    const r2 = await h.call("POST", `${base}/challenges/${c2}/accept`, coach(top), {});
+    expect(r2.status).toBe(409);
+    expect((r2.body as { error: string }).error).toContain("1 places");
+    expect(h.ladderOf(id).ladder!.challenges.find((c) => c.id === c2)!.state).toBe("open");
+  });
+
+  it("position swap: a defender who wins never moves up, even when the order changed before the game", async () => {
+    const h = harness();
+    const id = await h.openLadder("position");
+    h.seedMembers(id, ["Amy", "Bob", "Cara", "Dan"]);
+    const lad = h.ladderOf(id);
+    const tid = (c: string) => lad.teams.find((t) => t.coach === c)!.id;
+    lad.ladder!.challenges.push({ id: "lc-x", challengerTeamId: tid("Dan"), defenderTeamId: tid("Bob"), state: "accepted", createdAt: "2026-11-05T00:00:00.000Z", expiresAt: "2026-11-07T00:00:00.000Z", answeredAt: "2026-11-05T01:00:00.000Z", fixtureId: "f-ch" });
+    h.store.putSeason(lad);
+    // Before the challenge game, Dan wins a scheduled-round game against Amy and goes 1st.
+    h.result(id, "Dan", "Amy", 2, 0, "2026-11-06T12:00:00.000Z", { ladder: { roundId: "lr-1" } });
+    expect(order(ladderRanking(h.ladderOf(id), h.clock.now))).toEqual(["Dan", "Amy", "Bob", "Cara"]);
+    // Bob (defender, now 3rd) beats Dan (challenger, now 1st): nothing moves.
+    h.result(id, "Bob", "Dan", 2, 1, "2026-11-07T12:00:00.000Z", { ladder: { challengeId: "lc-x" } });
+    expect(order(ladderRanking(h.ladderOf(id), h.clock.now))).toEqual(["Dan", "Amy", "Bob", "Cara"]);
+  });
+
+  it("the write's clock is read after the body arrives: a slow body can't slip an accept past the 48 h expiry", async () => {
+    const h = harness();
+    const id = await h.openLadder("points");
+    h.seedMembers(id, ["Amy", "Bob"]);
+    const base = `/api/leagues/${L}/ladders/${id}`;
+    const tid = (c: string) => h.ladderOf(id).teams.find((t) => t.coach === c)!.id;
+    const cid = ((await h.call("POST", `${base}/challenges`, coach("Amy"), { challengerTeamId: tid("Amy"), defenderTeamId: tid("Bob") })).body as { challenge: { id: string } }).challenge.id;
+    h.clock.now = new Date(h.clock.now.getTime() + 48 * H - 1000);
+    const deps = { ...h.deps({}), readBody: async () => { h.clock.now = new Date(h.clock.now.getTime() + 5000); return Buffer.from("{}"); } };
+    const r = await leagueApi("POST", `${base}/challenges/${cid}/accept`, new URLSearchParams(), coach("Bob"), deps);
+    expect(r?.status).toBe(409);
+    expect((r?.body as { error: string }).error).toContain("expired");
+  });
+
+  it("a move rebases team-page MNG: one already served clears, one still to serve counts from the destination's games", async () => {
+    const h = harness();
+    const s1 = h.store.season(L, "season-1")!;
+    const amy = s1.teams[0]!;
+    amy.players[1]!.missNextGame = true; amy.players[1]!.mngGames = 1; // set after game 1: misses game 2 (not played yet)
+    amy.players[2]!.missNextGame = true; amy.players[2]!.mngGames = 0; // set before game 1: served by it
+    const side = (t: LeagueTeam, s: number) => ({ team: t.name, teamId: t.id, coach: t.coach, coachId: t.coachId, race: t.race, score: s, cas: 0, conceded: false });
+    s1.fixtures.push({ id: "g1", category: "Season", phase: "Regular", phaseId: "season-regular", group: "", round: 1, table: 1, home: side(amy, 1), away: side(s1.teams[1]!, 0), suspended: false, finishedAt: "2026-11-01T00:00:00.000Z" });
+    h.store.putSeason(s1);
+    const id = await h.openLadder("points");
+    const base = `/api/leagues/${L}/ladders/${id}`;
+    await h.call("POST", `${base}/registrations`, coach("Amy"), { move: { id: "season-1", teamId: "t-amy" }, share: [], acknowledged: true });
+    await h.call("POST", `${base}/registrations/${h.ladderOf(id).registrations![0]!.id}/accept`, OLGA, {});
+    const moved = h.ladderOf(id).teams[0]!;
+    expect(moved.players[1]).toMatchObject({ missNextGame: true, mngGames: 0 });
+    expect(moved.players[2]!.missNextGame).toBe(false);
+    expect(moved.players[2]!.mngGames).toBeUndefined();
+  });
+
+  it("a ladder in setup doesn't exist to the Roster Builder's package resolver, nor to Discord (private in a published league)", async () => {
+    const h = harness();
+    h.store.setSecrets(L, { discordWebhookUrl: HOOK });
+    const created = await h.call("POST", `/api/leagues/${L}/ladders`, OLGA, { name: "Hidden" });
+    const id = (created.body as { id: string }).id;
+    expect(resolveLeaguePackage(h.store, leaguePackageName(L, id))).toEqual({ error: expect.any(String) });
+    const target = ladderTarget(h.store, h.store.league(L)!, id);
+    expect(target.draft).toBe(true);
+    expect(seasonTarget(h.store, h.store.league(L)!, id).draft).toBe(true);
+    let posted = 0;
+    expect(await postTo(target, "news", { embeds: [{ title: "x" }] } as never, async () => { posted += 1; return { ok: true, status: 204 }; })).toBe(false);
+    expect(posted).toBe(0);
+    await h.call("POST", `/api/leagues/${L}/ladders/${id}/start`, OLGA, {});
+    expect(ladderTarget(h.store, h.store.league(L)!, id).draft).toBe(false);
+    expect("pkg" in (resolveLeaguePackage(h.store, leaguePackageName(L, id)) as object)).toBe(true);
+  });
+
+  it("the ladder's own Played on decides Super FUMBBL play (generate, lobby mode, the admin switch), not the league's", async () => {
+    const h = harness({ league: { playOnFork: false } });
+    const id = await h.openLadder("points");
+    h.seedMembers(id, ["Amy", "Bob"]);
+    const lad = h.ladderOf(id);
+    lad.ladder!.playOnFork = true;
+    const [a, b] = lad.teams;
+    const side = (t: LeagueTeam) => ({ team: t.name, teamId: t.id, coach: t.coach, coachId: t.coachId, race: t.race, score: null, cas: null, conceded: false });
+    lad.fixtures.push({ id: "lf-p", category: "Ladder", phase: "Challenges", phaseId: "ladder-challenges", group: "", round: 0, table: 0, home: side(a!), away: side(b!), suspended: false } as LeagueFixture);
+    h.store.putSeason(lad);
+    const on = await h.call("PATCH", `/api/leagues/${L}/seasons/${id}/fixtures/lf-p`, ROOT, { forkEnabled: true });
+    expect(on.status, JSON.stringify(on.body)).toBe(200);
+    const saved = h.ladderOf(id);
+    const f = saved.fixtures.find((x) => x.id === "lf-p")!;
+    expect(f.forkEnabled).toBe(true);
+    expect(generateBlocker(h.store.league(L)!, saved, f)).not.toMatch(/off for this league|tabletop/);
+    expect(leagueLobbyFixture(h.store.league(L)!, saved, f, OLGA, h.store, lobbyDeps, h.clock.now).mode).toBe("fork");
+    saved.ladder!.playOnFork = false;
+    h.store.putSeason(saved);
+    const again = h.ladderOf(id);
+    const g = again.fixtures.find((x) => x.id === "lf-p")!;
+    expect(generateBlocker(h.store.league(L)!, again, g)).toContain("tabletop");
+    expect(leagueLobbyFixture(h.store.league(L)!, again, g, OLGA, h.store, lobbyDeps, h.clock.now).mode).toBe("tabletop");
   });
 });

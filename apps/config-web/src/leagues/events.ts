@@ -34,7 +34,7 @@ import type {
   DiscordEventKey, FixtureSide, LeagueEventEntry, LeagueFixture, LeagueNewsPost, LeagueRecord, LeagueTeam, SeasonRecord,
 } from "./types.js";
 import { publicFixture } from "./fixturePublic.js";
-import { fixtureRedraftBlock } from "./redraftWindow.js";
+import { fixturePlayBlock, movedAwayTeam } from "./playBlock.js";
 
 export const EVENTS_MAX_BYTES = 64 * 1024;
 export const LOG_CAP = 200;
@@ -157,7 +157,7 @@ export async function recordLeagueFixtureEvent(
   if (!deps) return { ok: false, posted: false, reason: "League events are not configured." };
   const league = deps.store.league(leagueId);
   if (!league) return { ok: false, posted: false, reason: "League not found." };
-  const seasons = payload.seasonId ? [deps.store.season(leagueId, payload.seasonId)].filter((s): s is SeasonRecord => Boolean(s)) : deps.store.seasons(leagueId);
+  const seasons = payload.seasonId ? [deps.store.season(leagueId, payload.seasonId)].filter((s): s is SeasonRecord => Boolean(s)) : deps.store.competitions(leagueId);
   const season = seasons.find((s) => s.fixtures.some((f) => f.id === fixtureId));
   const fixture = season?.fixtures.find((f) => f.id === fixtureId);
   if (!season || !fixture) return { ok: false, posted: false, reason: "Fixture not found." };
@@ -392,6 +392,11 @@ export function parseNewFixture(season: Pick<SeasonRecord, "teams" | "phases" | 
 
 async function createFixture(league: LeagueRecord, season: SeasonRecord, who: LeagueApiIdentity, input: Record<string, unknown>, deps: LeagueEventDeps): Promise<LeagueApiResult> {
   const p = parseNewFixture(season, input);
+  // A team that moved to another competition of the league (lane 8b) plays there now: no new fixtures here.
+  for (const [field, id] of [["home", p.home], ["away", p.away]] as const) {
+    const moved = movedAwayTeam(deps.store, league.id, season.id, id, season.teams.find((t) => t.id === id)?.name);
+    if (moved) throw new SettingsError(409, moved, field);
+  }
   const phase = season.phases.find((x) => x.id === p.phaseId);
   let id = `fx-${randomBytes(5).toString("hex")}`;
   while (season.fixtures.some((f) => f.id === id)) id = `fx-${randomBytes(5).toString("hex")}`;
@@ -458,7 +463,7 @@ export async function editFixture(
   if (result !== undefined && fixture.forfeit) throw new SettingsError(409, "This fixture holds a forfeit. Undo the forfeit first (Forfeit dialog): that reverses its roster changes.", "result");
   // A team in an open redraft window (or still needing its redraft) cannot play: no result for it (redraftWindow.ts).
   if (result) {
-    const blocked = fixtureRedraftBlock(deps.store.seasons(league.id), fixture, deps.now?.() ?? new Date());
+    const blocked = fixturePlayBlock(deps.store, league.id, seasonId, fixture, deps.now?.() ?? new Date());
     if (blocked) throw new SettingsError(409, blocked, "result");
   }
   if (date !== undefined) { if (date === null) delete fixture.date; else fixture.date = date; }
