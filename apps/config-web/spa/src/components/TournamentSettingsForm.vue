@@ -15,7 +15,7 @@ import {
   fromLocalInput, PAIRING_LABEL, SEEDING_LABEL, toLocalInput, TOURNAMENT_DETAIL_KEY, type TournamentSettingsPatch,
 } from "../tournaments/detail";
 import { SESSION_KEY, writesAllowed } from "../session";
-import { zoneCaption } from "../shared/localTime";
+import { zoneCaption, zoneInputNotes } from "../shared/localTime";
 import TournamentRulesFields from "./TournamentRulesFields.vue";
 import RulesChangeDialog from "./RulesChangeDialog.vue";
 import { rulesChangeDiff } from "../../../src/competition/rulesChange";
@@ -132,6 +132,7 @@ async function addOrganizer() { if (newOrganizer.value.trim()) { await detail.ad
     </div>
     <label class="tn-field sf-field"><span class="tn-fact-k">Starts ({{ zoneText }})</span><input v-model="form.startsAt" type="datetime-local" /></label>
     <label class="tn-field sf-field"><span class="tn-fact-k">Ends ({{ zoneText }})</span><input v-model="form.endsAt" type="datetime-local" /></label>
+    <p v-for="n in zoneInputNotes([form.startsAt, form.endsAt])" :key="n" class="sf-zone-note" role="status" data-zone-note>{{ n }}</p>
     <TournamentRulesFields
       v-model:max-players="form.maxPlayers" v-model:round-count="form.roundCount" v-model:primary-tiebreaker="form.primaryTiebreaker"
       :swiss="t.format === 'swiss'" :tiebreaker-disabled="t.status === 'completed'" hide-tiebreaker

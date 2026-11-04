@@ -108,7 +108,10 @@ describe("finish endpoint", () => {
     const round = store.generateNextRound(tournament.id, now);
     const matchId = round.scheduledMatchIds[0]!;
     store.renewWaiting(matchId, "Alice", 45_000, now);
-    store.standings(tournament.id);
+    // A stored cache (from an earlier build: reads no longer write one) is cleared by finish.
+    const seeded = store.snapshot();
+    seeded.standings[tournament.id] = { tournamentId: tournament.id, matchRevision: "x", rows: store.standings(tournament.id), calculatedAt: now.toISOString() } as never;
+    store.writeSnapshot(seeded);
     expect(store.snapshot().standings[tournament.id]).toBeDefined();
 
     const path = `/api/fork/tournaments/${tournament.id}/finish`;

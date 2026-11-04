@@ -387,18 +387,37 @@ function restoreObject(k: keyof WizardForm, v: unknown): unknown {
 }
 const OBJECT_FIELDS: ReadonlySet<keyof WizardForm> = new Set(["houseRules", "points", "tiebreakerChain", "regions"]);
 
-function readDraft(): { step?: unknown; form?: Partial<WizardForm> } | undefined {
+/** The wizard's time fields (datetime-local values). */
+export const WIZARD_TIME_FIELDS = ["startsAt", "endsAt", "opensAt", "closesAt", "rosterBy", "checkInOpensAt", "checkInClosesAt"] as const;
+/** Drafts written since 11-04 hold their times in the viewer's zone (timesVersion 2). An older draft (no version) typed
+ *  them in UTC: restoring converts each once into the viewer's zone, so the same instant is kept (Sol P2-3). */
+export const DRAFT_TIMES_VERSION = 2;
+
+/** An unversioned draft's UTC wall times as wall times in `zone` (the same instants); "" and bad values are dropped. */
+export function migrateDraftTimes(form: Partial<WizardForm>, zone?: string): Partial<WizardForm> {
+  const out: Partial<WizardForm> = { ...form };
+  for (const k of WIZARD_TIME_FIELDS) {
+    const v = form[k];
+    if (typeof v !== "string" || !v) continue;
+    out[k] = toLocalInput(fromLocalInput(v, "UTC"), zone);
+  }
+  return out;
+}
+
+function readDraft(): { step?: unknown; form?: Partial<WizardForm>; timesVersion?: unknown } | undefined {
   try {
     const raw = typeof sessionStorage === "undefined" ? null : sessionStorage.getItem(DRAFT_KEY);
     if (!raw) return undefined;
     const parsed = JSON.parse(raw) as unknown;
-    return parsed && typeof parsed === "object" ? parsed as { step?: unknown; form?: Partial<WizardForm> } : undefined;
+    if (!parsed || typeof parsed !== "object") return undefined;
+    const draft = parsed as { step?: unknown; form?: Partial<WizardForm>; timesVersion?: unknown };
+    return draft.form && typeof draft.form === "object" && draft.timesVersion !== DRAFT_TIMES_VERSION ? { ...draft, form: migrateDraftTimes(draft.form) } : draft;
   } catch { return undefined; }
 }
 function writeDraft(value: { step: WizardStep; form: WizardForm } | null): void {
   try {
     if (typeof sessionStorage === "undefined") return;
-    if (value) sessionStorage.setItem(DRAFT_KEY, JSON.stringify(value));
+    if (value) sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ ...value, timesVersion: DRAFT_TIMES_VERSION }));
     else sessionStorage.removeItem(DRAFT_KEY);
   } catch { /* no storage */ }
 }

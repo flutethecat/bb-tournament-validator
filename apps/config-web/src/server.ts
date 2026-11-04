@@ -126,7 +126,7 @@ import {
 import { OWN_AVATAR_PATH, coachAvatarId, coachAvatarKey, coachAvatarPath, createCoachAvatarResolver, resolveCoachAvatar, uploadedCoachAvatarUrl, withSideAvatars } from "./coachAvatars.js";
 import { requireSession, type SessionIdentity } from "./auth/requireSession.js";
 import { csrfHeaderMissing } from "./auth/csrf.js";
-import { isSpaPath, spaStaticPath } from "./spaRoutes.js";
+import { isSpaPath, spaPageHeaders, spaStaticPath } from "./spaRoutes.js";
 import { forkGateAdmits, forkRouteDenial, forkRoutesRequireAuth, isLockableForkRoute, serviceKeyMatches, SERVICE_KEY_HEADER, SIGN_IN_REQUIRED, SIGN_IN_REQUIRED_MESSAGE } from "./auth/forkRouteAuth.js";
 import { linkedFumbblNameIn } from "./fumbblLink.js";
 import { coachLogin, sendCoachLogin } from "./auth/coachLogin.js";
@@ -2297,7 +2297,7 @@ async function serveStatic(res: ServerResponse, urlPath: string): Promise<void> 
   }
   try {
     const buf = await readFile(full);
-    res.writeHead(200, { "content-type": MIME[extname(full)] ?? "application/octet-stream" });
+    res.writeHead(200, { "content-type": MIME[extname(full)] ?? "application/octet-stream", ...(spa ? spaPageHeaders(urlPath) : {}) });
     res.end(buf);
   } catch {
     res.writeHead(404).end("not found");

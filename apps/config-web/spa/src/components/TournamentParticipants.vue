@@ -12,7 +12,7 @@ import MessageCoachModal from "./MessageCoachModal.vue";
 import NafEntrantModal from "./NafEntrantModal.vue";
 import { nextFixtureFor, ROSTER_LABEL, ROSTER_TONE, rosterState, TOURNAMENT_DETAIL_KEY } from "../tournaments/detail";
 import { SESSION_KEY, writesAllowed } from "../session";
-import { coachSaysPaidLine, noRosterLate } from "../tournaments/registration";
+import { coachSaysPaidLine, noRosterLate, overrideCheckInPrompt } from "../tournaments/registration";
 import { localWhen } from "../shared/localTime";
 
 const detail = inject(TOURNAMENT_DETAIL_KEY)!;
@@ -75,7 +75,10 @@ const busyRow = (_id: string): boolean => Boolean(state.busy);
 const messaging = ref<TournamentEntrant | null>(null);
 const nafEditing = ref<TournamentEntrant | null>(null);
 
-function toggle(e: TournamentEntrant, key: keyof TournamentEntrantFlags, value: boolean) {
+function toggle(e: TournamentEntrant, key: keyof TournamentEntrantFlags, value: boolean, box?: HTMLInputElement) {
+  // Checking a coach in outside the check-in window is an organiser override: asked first, and logged by the server.
+  const ask = overrideCheckInPrompt(state.checkIn, key, value);
+  if (ask && typeof window !== "undefined" && !window.confirm(ask)) { if (box) box.checked = !value; return; }
   void detail.patchEntrant(e.id, { flags: { [key]: value } });
 }
 function seed(e: TournamentEntrant, raw: string) {
@@ -133,7 +136,7 @@ function seed(e: TournamentEntrant, raw: string) {
             <input
               v-else
               type="checkbox" :checked="r.flags[f.key]" :aria-label="`${f.label}: ${r.e.teamName || r.e.teamId}`" :disabled="busyRow(r.e.id)"
-              @change="toggle(r.e, f.key, ($event.target as HTMLInputElement).checked)"
+              @change="toggle(r.e, f.key, ($event.target as HTMLInputElement).checked, $event.target as HTMLInputElement)"
             />
             <span v-if="f.key === 'paid' && coachSaysPaidLine(r.e)" class="sf-chip" data-tone="soon" data-coach-says-paid="true" :title="coachSaysPaidLine(r.e)">Coach says paid</span>
           </td>

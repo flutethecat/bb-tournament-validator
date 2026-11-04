@@ -176,7 +176,9 @@ describe("scheduled match revision semantics", () => {
       casualtiesAgainst: 1,
       casualtyDifferential: 2,
     });
-    expect(tournamentStore.snapshot().standings["spike-cup"]?.rows).toHaveLength(2);
+    // A read computes the table in memory and never writes the cache (GETs never write).
+    expect(tournamentStore.standings("spike-cup")).toHaveLength(2);
+    expect(tournamentStore.snapshot().standings["spike-cup"]).toBeUndefined();
     const round = tournamentStore.generateNextRound("spike-cup", new Date(now.getTime() + 60_000));
     const next = tournamentStore.match(round.scheduledMatchIds[0]!);
     expect(next).toMatchObject({

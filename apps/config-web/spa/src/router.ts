@@ -130,6 +130,8 @@ export const routes: RouteRecordRaw[] = [
     props: true,
     meta: { title: "Check in" },
   },
+  // The same page once the token was read into memory (its URL is replaced with this one); a refresh asks for a new scan.
+  { path: "/tournaments/:id([\\w-]{1,64})/check-in", name: "tournament-check-in-done", component: () => import("./views/TournamentCheckInView.vue"), props: true, meta: { title: "Check in" } },
   // The venue QR, full screen, for the tournament's organisers (Manage -> Registrations -> Venue QR).
   {
     path: "/tournaments/:id([\\w-]{1,64})/venue-qr",

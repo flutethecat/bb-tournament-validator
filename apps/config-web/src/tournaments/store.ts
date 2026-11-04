@@ -1262,16 +1262,8 @@ export class TournamentStore {
     const matchRevision = matches.map((match) => `${match.id}:${match.revision}:${match.status}`).join("|");
     const cached = snapshot.standings[tournamentId];
     if (cached?.matchRevision === matchRevision) return cached.rows;
-    const rows = calculateStandings(entrants, matches, tournament.points, tournament.tiebreakers);
-    this.mutate((data) => {
-      data.standings[tournamentId] = {
-        tournamentId,
-        matchRevision,
-        rows,
-        calculatedAt: new Date().toISOString(),
-      };
-    });
-    return rows;
+    // Reads never write (laws 14b): a missing or stale cache is computed in memory only. Writes clear the stored cache.
+    return calculateStandings(entrants, matches, tournament.points, tournament.tiebreakers);
   }
 
   generateNextRound(
@@ -1521,6 +1513,8 @@ export class TournamentStore {
     patch: { flags?: Partial<TournamentEntrantFlags>; manualSeed?: number | null },
     now = new Date(),
     by?: string,
+    /** The organiser checked the coach in while check-in was not open: allowed, and audited as an override. */
+    checkInOverride = false,
   ): TournamentEntrantRecord {
     return this.mutate((data) => {
       const tournament = data.tournaments[tournamentId];
@@ -1541,7 +1535,7 @@ export class TournamentStore {
       // Who marked the entry paid (or not), and when: the organiser's record (laws 21-22: never on a public read).
       if (flags.paid !== paidBefore) entrant.paidUpdated = { by: by ?? "", at: now.toISOString() };
       // Who checked the coach in (an organiser's one click here, or the coach's own check-in), with the audit line.
-      if (flags.checkedIn && !checkedInBefore) markCheckedIn(entrant, entrant.flags, by ?? "", now, "organiser");
+      if (flags.checkedIn && !checkedInBefore) markCheckedIn(entrant, entrant.flags, by ?? "", now, checkInOverride ? "organiser-override" : "organiser");
       else if (!flags.checkedIn) {
         delete entrant.checkedInBy;
         // A cleared check-in spends the old personal code: the sweep issues a fresh one.

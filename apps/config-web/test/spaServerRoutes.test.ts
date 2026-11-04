@@ -135,6 +135,13 @@ describe("SPA routes (sidecar off)", () => {
     const js = await fetch(`${origin}${script}`);
     expect(js.status).toBe(200);
     expect(js.headers.get("content-type")).toMatch(/javascript/);
+    // QR check-in (Sol P2-1): the page whose path holds the token says no-referrer from its first byte, and is not cached;
+    // other pages are unchanged.
+    const scan = await fetch(`${origin}/app/tournaments/t1/check-in/p${"A".repeat(44)}`);
+    expect(scan.status).toBe(200);
+    expect(scan.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(scan.headers.get("cache-control")).toBe("no-store");
+    expect((await fetch(`${origin}/app/lobby`)).headers.get("referrer-policy")).toBeNull();
   }, 60_000);
 
   it("the old Tournament Builder / Creator pages 302 to the SPA routes, query carried, no-store", async () => {

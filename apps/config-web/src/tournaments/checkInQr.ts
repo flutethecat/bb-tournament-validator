@@ -17,7 +17,8 @@
  */
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
-export type CheckInVia = "self" | "organiser" | "personal-qr" | "venue-qr";
+/** How an entry was checked in. "organiser-override": an organiser's one click while check-in was not open (allowed, logged). */
+export type CheckInVia = "self" | "organiser" | "organiser-override" | "personal-qr" | "venue-qr";
 
 /** The stored half of a coach's personal code (on the entry). */
 export interface PersonalCheckInQr { nonce: string; hash: string; issuedAt: string; usedAt?: string }

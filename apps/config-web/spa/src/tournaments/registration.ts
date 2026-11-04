@@ -112,6 +112,14 @@ export function checkInDue(ci: TournamentCheckIn | null | undefined, mine: Pick<
   return Boolean(ci?.open && ci.self && accepted && mine && !mine.flags?.checkedIn);
 }
 
+/** The confirm text before an organiser checks a coach in while check-in is not open (an override the server logs); ""
+ *  when no prompt is needed (check-in open, or not a check-in). */
+export function overrideCheckInPrompt(ci: TournamentCheckIn | null | undefined, key: string, value: boolean): string {
+  if (key !== "checkedIn" || !value || ci?.open) return "";
+  const why = !ci ? "This tournament has no check-in window yet." : ci.closed ? "Check-in has closed." : "Check-in is not open yet.";
+  return `${why} Check this coach in anyway? It is logged as an organiser override.`;
+}
+
 /** "Check-in closes 05 Dec 2026, 09:00 UTC" / "Check-in opens ..." / "". */
 export function checkInLine(ci: TournamentCheckIn | null | undefined, zone?: string): string {
   if (!ci) return "";

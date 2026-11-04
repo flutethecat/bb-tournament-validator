@@ -11,9 +11,13 @@ import SignInPrompt from "../components/SignInPrompt.vue";
 import { ApiError, type CheckInScanResult, type TournamentCheckIn } from "../shared/api";
 import { appPath, discordLoginUrl, SESSION_KEY } from "../session";
 import { localWhen } from "../shared/localTime";
+import { scrubCheckInToken } from "../tournaments/checkInScan";
 import "../tournaments/registration.css";
 
-const props = defineProps<{ id: string; token: string }>();
+const props = defineProps<{ id: string; token?: string }>();
+// Read once into memory: the URL is then replaced with the token-free path (scrubCheckInToken), so the token leaves the
+// address bar and the history entry.
+const token = props.token ?? "";
 const fetcher = inject(API_KEY)!;
 const session = inject(SESSION_KEY)!;
 const signedIn = computed(() => session.signedIn());
@@ -27,7 +31,7 @@ const loginHref = computed(() => discordLoginUrl(appPath(`/tournaments/${encodeU
 async function ask(confirm: boolean): Promise<void> {
   busy.value = confirm ? "confirm" : "read";
   try {
-    result.value = await fetcher<CheckInScanResult>(base.value, { method: "POST", body: { token: props.token, ...(confirm ? { confirm: true } : {}) } });
+    result.value = await fetcher<CheckInScanResult>(base.value, { method: "POST", body: { token, ...(confirm ? { confirm: true } : {}) } });
     error.value = null;
   } catch (e) {
     const data = e instanceof ApiError ? (e.data as { code?: string; checkIn?: TournamentCheckIn | null } | undefined) : undefined;
@@ -37,7 +41,7 @@ async function ask(confirm: boolean): Promise<void> {
 }
 
 // Nothing is sent before the session is known; a signed-out viewer gets the sign-in card instead.
-const askOnce = (): Promise<void> | undefined => (ready.value && signedIn.value && !result.value && !error.value && !busy.value ? ask(false) : undefined);
+const askOnce = (): Promise<void> | undefined => (token && ready.value && signedIn.value && !result.value && !error.value && !busy.value ? ask(false) : undefined);
 watch([ready, signedIn], () => { void askOnce(); }, { immediate: typeof window !== "undefined" });
 onServerPrefetch(async () => { await askOnce(); });
 
@@ -48,6 +52,7 @@ onMounted(() => {
   meta.name = "referrer";
   meta.content = "no-referrer";
   document.head.appendChild(meta);
+  if (token) scrubCheckInToken(window.history, props.id);
 });
 onBeforeUnmount(() => { meta?.remove(); });
 
@@ -66,6 +71,13 @@ const STATE_TEXT = { ready: "Check in", "checked-in": "Checked in", already: "Al
   <div class="tr-scan">
     <SignInPrompt v-if="ready && !signedIn" :href="loginHref" :sso-enabled="session.ssoEnabled()" :other-session="session.otherSession()" />
     <p v-if="ready && !signedIn" class="hm-small" data-scan-signin>Sign in as the coach this code is for, or as one of the tournament's organisers, then scan the code again.</p>
+    <section v-else-if="!token" class="hm-panel" aria-labelledby="tr-scan-h" data-state="no-code">
+      <header class="hm-band"><h2 id="tr-scan-h">Check in</h2><span class="hm-cap">QR code</span></header>
+      <div class="tn-panel-body tr-scan" data-scan>
+        <p class="hm-empty" data-scan-again>Scan the check-in code again to check in.</p>
+        <p><RouterLink :to="{ name: 'tournament-detail', params: { id } }">Back to the tournament</RouterLink></p>
+      </div>
+    </section>
     <section v-else-if="signedIn" class="hm-panel" aria-labelledby="tr-scan-h" :data-state="result?.state ?? (error ? 'refused' : 'loading')">
       <header class="hm-band" :data-tone="error ? undefined : 'info'">
         <h2 id="tr-scan-h">{{ result ? STATE_TEXT[result.state] : error ? "Can't check in" : "Check in" }}</h2>

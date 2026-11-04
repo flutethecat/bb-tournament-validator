@@ -4,10 +4,11 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { tournamentApi, type TournamentApiDeps, type TournamentApiIdentity } from "../src/tournaments/api.js";
 import { TournamentStore } from "../src/tournaments/store.js";
-import { gateInstant, parseInstant, registrationGateShut, tournamentTimeZone, utcWhenText, type TournamentGate } from "../src/tournaments/registrationGate.js";
+import { gateInstant, gateWallInstant, parseInstant, registrationGateShut, tournamentTimeZone, utcWhenText, type TournamentGate } from "../src/tournaments/registrationGate.js";
 import { discordTime } from "../src/discord/posts.js";
-import { fromZoneInput, keptOrTyped, localDay, localWhen, localWhenLong, toZoneInput, viewerZone, zoneAbbr, zoneCaption } from "../spa/src/shared/localTime";
+import { fromZoneInput, keptOrTyped, resolveZoneInput, zoneInputNote, zoneInputNotes, localDay, localWhen, localWhenLong, toZoneInput, viewerZone, zoneAbbr, zoneCaption } from "../spa/src/shared/localTime";
 import { gateForm } from "../spa/src/leagues/gates";
+import { createTournamentWizard, DRAFT_KEY, migrateDraftTimes } from "../spa/src/tournaments/wizard";
 import { cardDates } from "../spa/src/tournaments/list";
 import { eventDates } from "../spa/src/tournaments/series";
 import type { TournamentRecord } from "../src/tournaments/types.js";
@@ -49,8 +50,8 @@ describe("the viewer's zone (spa/src/shared/localTime.ts)", () => {
     expect(fromZoneInput("2026-12-05T01:00", "America/Los_Angeles")).toBe(at);
     expect(fromZoneInput("2026-12-05T20:00", "Australia/Sydney")).toBe(at);
     expect(toZoneInput(at, "Europe/Paris")).toBe("2026-12-05T10:00");
-    // 2026-03-08 02:30 does not exist in Los Angeles (clocks jump 02:00 -> 03:00)
-    expect(fromZoneInput("2026-03-08T02:30", "America/Los_Angeles")).toBe("2026-03-08T10:30:00.000Z");
+    // 2026-03-08 02:30 does not exist in Los Angeles (clocks jump 02:00 -> 03:00): forward to 03:00 PDT
+    expect(fromZoneInput("2026-03-08T02:30", "America/Los_Angeles")).toBe("2026-03-08T10:00:00.000Z");
     expect(fromZoneInput("", "UTC")).toBe("");
     expect(fromZoneInput("garbage", "UTC")).toBe("");
   });
@@ -110,6 +111,19 @@ describe("server: instants, UTC-labelled text, Discord timestamps", () => {
     expect(parseInstant("2026-11-12T19:00Z")).toBe(Date.parse("2026-11-12T19:00:00.000Z"));
   });
 
+  it("P2-4: a wall time from a previous-build gate editor is read in the tournament's stored zone, else UTC", async () => {
+    const h = harness();
+    const make = async (name: string) => (((await h.call("POST", "/api/tournaments", OWNER, { name, packageName: "Spike 2026", maxPlayers: 4, format: "swiss", publish: true }))!.body) as { tournament: TournamentRecord }).tournament;
+    const paris = await make("Paris Open");
+    h.store.updateTournamentRecord(paris.id, (t) => { t.timeZone = "Europe/Paris"; });
+    expect((await h.call("PUT", gatePath(paris), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-12T19:00" }))?.status).toBe(201);
+    expect(h.store.tournament(paris.id)!.registrationGate!.opensAt).toBe("2026-11-12T18:00:00.000Z");
+    const plain = await make("Plain Open");
+    await h.call("PUT", gatePath(plain), OWNER, { revision: 0, mode: "time", opensAt: "2026-11-12T19:00" });
+    expect(h.store.tournament(plain.id)!.registrationGate!.opensAt).toBe("2026-11-12T19:00:00.000Z");
+    expect(gateWallInstant("2026-11-12T19:00", tournamentTimeZone({ timeZone: "Europe/Paris" }))).toBe(Date.parse("2026-11-12T18:00:00.000Z"));
+  });
+
   it("stored instants never move on an unrelated save; server text is UTC-labelled; Discord gets <t:epoch>", async () => {
     const h = harness();
     const startsAt = "2026-12-05T09:00:42.500Z";
@@ -124,5 +138,51 @@ describe("server: instants, UTC-labelled text, Discord timestamps", () => {
     expect(discordTime("2026-12-05T09:00:00.000Z")).toBe(`<t:${Date.parse("2026-12-05T09:00:00.000Z") / 1000}:F>`);
     expect(discordTime(Date.parse("2026-12-05T09:00:00.000Z"), "R")).toBe(`<t:${Date.parse("2026-12-05T09:00:00.000Z") / 1000}:R>`);
     expect(discordTime(undefined)).toBeUndefined();
+  });
+});
+
+describe("Sol review 11-04 (times)", () => {
+  it("P2-2: a time in a DST gap resolves forward to the first valid instant (with a note); a doubled time takes the first", () => {
+    // Paris, spring forward 2026-03-29: 02:00 CET jumps to 03:00 CEST (01:00Z). 02:30 does not exist.
+    expect(resolveZoneInput("2026-03-29T02:30", "Europe/Paris")).toEqual({ iso: "2026-03-29T01:00:00.000Z", kind: "gap", wall: "2026-03-29T02:30" });
+    expect(localWhen("2026-03-29T01:00:00.000Z", "Europe/Paris")).toBe("29 Mar 2026, 03:00 GMT+2");
+    expect(zoneInputNote("2026-03-29T02:30", "Europe/Paris")).toBe("2026-03-29 02:30 doesn't exist in your time zone (the clocks go forward), so it is saved as 29 Mar 2026, 03:00 GMT+2.");
+    expect(fromZoneInput("2026-03-29T01:59", "Europe/Paris")).toBe("2026-03-29T00:59:00.000Z");
+    expect(fromZoneInput("2026-03-29T03:00", "Europe/Paris")).toBe("2026-03-29T01:00:00.000Z");
+    // Paris, fall back 2026-10-25: 02:30 happens at 00:30Z (CEST) and again at 01:30Z (CET): always the first
+    expect(resolveZoneInput("2026-10-25T02:30", "Europe/Paris")).toEqual({ iso: "2026-10-25T00:30:00.000Z", kind: "twice", wall: "2026-10-25T02:30" });
+    for (let i = 0; i < 3; i++) expect(fromZoneInput("2026-10-25T02:30", "Europe/Paris")).toBe("2026-10-25T00:30:00.000Z");
+    expect(zoneInputNote("2026-10-25T02:30", "Europe/Paris")).toMatch(/happens twice in your time zone/);
+    // New York both ways; ordinary times carry no note; notes are listed once
+    expect(fromZoneInput("2026-03-08T02:15", "America/New_York")).toBe("2026-03-08T07:00:00.000Z");
+    expect(fromZoneInput("2026-11-01T01:30", "America/New_York")).toBe("2026-11-01T05:30:00.000Z");
+    expect(zoneInputNote("2026-12-05T09:00", "Europe/Paris")).toBe("");
+    expect(zoneInputNotes(["2026-03-29T02:30", "2026-03-29T02:30", "", "2026-12-05T09:00"], "Europe/Paris")).toHaveLength(1);
+    expect(resolveZoneInput("2026-02-30T10:00", "UTC").kind).toBe("bad");
+    // a stored instant in the doubled hour is never moved by an unrelated save (the second 02:30)
+    expect(keptOrTyped("2026-10-25T01:30:00.000Z", toZoneInput("2026-10-25T01:30:00.000Z", "Europe/Paris"), "Europe/Paris")).toBe("2026-10-25T01:30:00.000Z");
+  });
+
+  it("P2-3: a wizard draft from before 11-04 (times typed in UTC) is converted once on restore; a new draft is not", () => {
+    const store = new Map<string, string>();
+    const g = globalThis as { sessionStorage?: unknown };
+    const had = g.sessionStorage;
+    g.sessionStorage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) };
+    try {
+      const old = { startsAt: "2026-12-05T09:00", endsAt: "", opensAt: "2026-11-01T18:30", checkInClosesAt: "garbage" };
+      expect(migrateDraftTimes(old, "America/New_York")).toMatchObject({ startsAt: "2026-12-05T04:00", endsAt: "", opensAt: "2026-11-01T13:30", checkInClosesAt: "" });
+      store.set(DRAFT_KEY, JSON.stringify({ step: "general", form: { name: "Old draft", startsAt: "2026-12-05T09:00" } }));
+      const w = createTournamentWizard({ api: (async () => ({})) as never });
+      w.start();
+      // the same instant as the old UTC value, now shown in the viewer's zone
+      expect(fromZoneInput(w.state.form.startsAt)).toBe("2026-12-05T09:00:00.000Z");
+      expect(w.state.form.name).toBe("Old draft");
+      // a draft written now carries the version and is restored untouched
+      w.remember();
+      expect(JSON.parse(store.get(DRAFT_KEY)!)).toMatchObject({ timesVersion: 2, form: { startsAt: w.state.form.startsAt } });
+      const again = createTournamentWizard({ api: (async () => ({})) as never });
+      again.start();
+      expect(again.state.form.startsAt).toBe(w.state.form.startsAt);
+    } finally { g.sessionStorage = had; }
   });
 });

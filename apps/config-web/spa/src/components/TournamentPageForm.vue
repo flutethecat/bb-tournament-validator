@@ -5,7 +5,7 @@
 // the server validates lengths and links and answers with its own message on a refusal.
 import { computed, inject, reactive, ref, watch } from "vue";
 import { safeBannerUrl, toLocalInput, TOURNAMENT_DETAIL_KEY, type TournamentSettingsPatch } from "../tournaments/detail";
-import { keptOrTyped, zoneCaption } from "../shared/localTime";
+import { keptOrTyped, zoneCaption, zoneInputNotes } from "../shared/localTime";
 import { SESSION_KEY, writesAllowed } from "../session";
 import { normalisePayPal, normaliseVenmo, PAY_NOTE, payPalProblem, venmoProblem } from "../shared/payLinks";
 import { regionFromForm } from "../../../src/competition/region";
@@ -131,6 +131,7 @@ async function upload() {
       </label>
       <label class="tn-field sf-field"><span class="tn-fact-k">Registration closes ({{ zoneText }})</span><input v-model="form.registration" type="datetime-local" /></label>
       <label class="tn-field sf-field"><span class="tn-fact-k">Check-in by ({{ zoneText }})</span><input v-model="form.checkIn" type="datetime-local" /></label>
+      <p v-for="n in zoneInputNotes([form.registration, form.checkIn])" :key="n" class="sf-zone-note" role="status" data-zone-note>{{ n }}</p>
       <label class="tn-field sf-field tn-field-wide">
         <span class="tn-fact-k">Summary <span class="muted">({{ form.summary.length }} / {{ SUMMARY_MAX }})</span></span>
         <textarea v-model="form.summary" rows="6" :maxlength="SUMMARY_MAX" />

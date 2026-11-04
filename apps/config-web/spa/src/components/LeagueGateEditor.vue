@@ -12,7 +12,7 @@ import {
   countdownText, GATE_TEXT, gateForm, gateShort, gateFormError, gatePayload, gatesApiAt, gateWhen, OFFSET_PRESETS, offsetText, useLeagueGates, useTournamentGates, type GateForm, type GateKind,
 } from "../leagues/gates";
 import "../leagues/gates.css";
-import { fromZoneInput, localWhenLong, viewerZone, zoneCaption } from "../shared/localTime";
+import { fromZoneInput, localWhenLong, viewerZone, zoneCaption, zoneInputNotes } from "../shared/localTime";
 
 const props = defineProps<{ leagueId?: string; tournamentId?: string; kind: GateKind; target: string; label?: string; help?: string }>();
 const api = inject(API_KEY, null) ?? defaultApi;
@@ -110,6 +110,7 @@ const MODES: ReadonlyArray<{ id: GateForm["mode"]; label: string }> = tournament
       </div>
       <div v-if="form.mode === 'time'" class="gt-fields">
         <label class="ls-field"><span>Opens at ({{ tournament ? zoneCaption(zone) : zone.replace(/_/g, " ") }})</span><input v-model="form.wall" type="datetime-local" :data-gate-wall="kind" /></label>
+        <template v-if="tournament"><p v-for="n in zoneInputNotes([form.wall], zone)" :key="n" class="sf-zone-note" role="status" data-zone-note>{{ n }}</p></template>
       </div>
       <div v-else-if="form.mode === 'event' && !tournament" class="gt-fields">
         <p v-if="!events.length" class="hm-small hm-empty">No League Events yet: add one on the Schedule page, or pick a time.</p>

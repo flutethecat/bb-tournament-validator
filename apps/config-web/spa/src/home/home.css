@@ -518,3 +518,6 @@ button.sf-tab { margin: 0; border: 0; border-radius: 0; background: transparent;
 .sf-avatar.small { width: 24px; height: 24px; border-width: 1px; box-shadow: none; }
 .sf-solo { max-width: 720px; align-self: start; }
 .sf-solo > .sf-btn-row { margin-top: 12px; }
+
+/* A typed tournament time that moved (a DST gap) or is ambiguous (clocks go back): the note under the time fields. */
+.sf-zone-note { grid-column: 1 / -1; margin: 0; font-size: 13px; color: var(--ui-muted); }

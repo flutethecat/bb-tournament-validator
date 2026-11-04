@@ -241,6 +241,12 @@ describe("QR check-in views (server-rendered against a mocked API)", () => {
     expect(calls.some((c) => c.path.includes(TOKEN))).toBe(false);
   });
 
+  it("the token-free page (after the URL was replaced, or a refresh) asks for a new scan and sends nothing", async () => {
+    const { html, calls } = await render("/tournaments/t1/check-in", { ...AS("Alice") }, { detail: false });
+    expect(html).toContain("data-scan-again");
+    expect(calls.some((c) => c.method !== "GET")).toBe(false);
+  });
+
   it("the scan page signed in: the read is a POST with the token in the body (preview only); Check in is a button", async () => {
     const preview = { state: "ready", kind: "personal", tournament: { id: "t1", name: "Spike Open" }, entry: { coach: "Alice", team: "Alice Orcs" }, checkIn: CI };
     const { html, calls } = await render(`/tournaments/t1/check-in/${TOKEN}`, { ...AS("Veers"), "POST /api/tournaments/t1/check-in/qr": () => preview }, { detail: false });

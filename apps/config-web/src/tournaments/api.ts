@@ -1305,10 +1305,12 @@ export async function tournamentApi(
       if (input.manualSeed !== undefined && input.manualSeed !== null && !Number.isSafeInteger(input.manualSeed))
         return { status: 400, body: { error: "manualSeed must be a whole number or null." } };
       const before = deps.store.entrants(tournament.id).find((candidate) => candidate.id === entrantId);
+      // Checking a coach in outside the check-in window stays an organiser's call, audited as an override.
+      const override = flags.checkedIn === true && !isCheckInOpen(tournamentCompetition(tournament, deps.store.rounds(tournament.id).some((r) => r.number === 1)), now);
       const updated = deps.store.updateEntrant(tournament.id, entrantId, {
         flags: flags as Partial<TournamentEntrantFlags>,
         ...(input.manualSeed === undefined ? {} : { manualSeed: input.manualSeed as number | null }),
-      }, now, identity.coach);
+      }, now, identity.coach, override);
       notifyFlagChanges(deps, tournament, before, updated, identity.coach);
       return { status: 200, body: { entrant: clientEntrant(updated, deps, true, undefined, tournament, tournament.nafSanctioned && updated.droppedAt === undefined ? profileNaf(deps, updated.coach.ffbCoachId) : undefined) } };
     }

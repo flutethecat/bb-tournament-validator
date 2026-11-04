@@ -7,6 +7,9 @@ import { TournamentStore } from "../src/tournaments/store.js";
 import { sweepTournamentRegistrations, tournamentRegistrationService } from "../src/tournaments/registration.js";
 import { checkInPath, hashToken, issuePersonal, parseToken, personalToken, venueToken } from "../src/tournaments/checkInQr.js";
 import { isStateChangingApiRequest } from "../src/auth/csrf.js";
+import { spaPageHeaders } from "../src/spaRoutes.js";
+import { overrideCheckInPrompt } from "../spa/src/tournaments/registration";
+import { scrubCheckInToken, tokenFreeCheckInPath } from "../spa/src/tournaments/checkInScan";
 import type { TournamentRecord, TournamentSubmission } from "../src/tournaments/types.js";
 
 // QR check-in (spec-grill-round2-leftovers 11-03 "Round 2 answers" 5): the personal coach code (signed, single use, tied
@@ -64,8 +67,8 @@ function harness(start = "2026-11-10T12:00:00.000Z") {
   const tokenOf = (path: string | undefined) => path!.split("/").pop()!;
   const scan = (t: TournamentRecord, token: string, who?: TournamentApiIdentity, confirm = false) =>
     call("POST", `/api/tournaments/${t.id}/check-in/qr`, who, { token, ...(confirm ? { confirm: true } : {}) });
-  /** The stored data minus the derived standings cache (the detail read refreshes that cache; it holds no check-in state). */
-  const file = () => { const d = JSON.parse(readFileSync(join(root, "tournaments.json"), "utf8")); delete d.standings; return JSON.stringify(d); };
+  /** The stored data, byte for byte (reads never write, the standings cache included: Sol follow-up 6). */
+  const file = () => readFileSync(join(root, "tournaments.json"), "utf8");
   return { root, store, clock, call, create, register, sweep, entry, myPath, tokenOf, scan, file };
 }
 
@@ -364,5 +367,56 @@ describe("privacy", () => {
     expect(after.entrants.e2.checkedInBy.by).toBe(P);
     expect(after.tournaments.t1.venueCheckIn.by).toBe(P);
     expect(JSON.stringify([after.entrants.e1.checkInLog, after.entrants.e2, after.tournaments.t1.venueCheckIn])).not.toContain("Alice");
+  });
+});
+
+describe("Sol review 11-04", () => {
+  it("P2-1: the check-in page's own response says Referrer-Policy: no-referrer (from the first request), and is not cached", () => {
+    expect(spaPageHeaders(`/app/tournaments/t1/check-in/p${"A".repeat(44)}`)).toEqual({ "referrer-policy": "no-referrer", "cache-control": "no-store" });
+    expect(spaPageHeaders("/app/tournaments/t1/check-in")).toEqual({});
+    expect(spaPageHeaders("/app/tournaments/t1")).toEqual({});
+    expect(readFileSync(new URL("../src/server.ts", import.meta.url), "utf8")).toContain("...(spa ? spaPageHeaders(urlPath) : {})");
+  });
+
+  it("P3: once read, the token leaves the address bar and the history entry (the router's record too)", () => {
+    const calls: Array<{ state: unknown; url: string }> = [];
+    const history = { state: { current: `/tournaments/t1/check-in/p${"A".repeat(44)}`, back: "/home", position: 3 }, replaceState(state: unknown, _u: string, url: string) { calls.push({ state, url }); } };
+    scrubCheckInToken(history, "t1");
+    expect(calls).toEqual([{ state: { current: "/tournaments/t1/check-in", back: "/home", position: 3 }, url: "/app/tournaments/t1/check-in" }]);
+    expect(JSON.stringify(calls)).not.toContain("AAAA");
+    expect(tokenFreeCheckInPath("t 1")).toBe("/tournaments/t%201/check-in");
+    const view = readFileSync(new URL("../spa/src/views/TournamentCheckInView.vue", import.meta.url), "utf8");
+    expect(view).toContain("if (token) scrubCheckInToken(window.history, props.id);");
+    expect(readFileSync(new URL("../spa/src/router.ts", import.meta.url), "utf8")).toContain('name: "tournament-check-in-done"');
+  });
+
+  it("follow-up 6: reading a tournament (detail, standings) never writes, not even the standings cache", async () => {
+    const { h, t } = await ready();
+    const before = h.file();
+    await h.call("GET", `/api/tournaments/${t.id}`, coach("Alice"));
+    await h.call("GET", `/api/tournaments/${t.id}/standings`);
+    await h.call("GET", `/api/tournaments/${t.id}`, OWNER);
+    expect(h.file()).toBe(before);
+    expect(h.store.standings(t.id).map((r) => r.coachId).sort()).toEqual(["Alice", "Bob"]);
+  });
+
+  it("follow-up 7: an organiser's one click outside the window still checks in, audited as an override; the page asks first", async () => {
+    const h = harness();
+    const t = await h.create();
+    for (const c of ["Alice", "Bob"]) await h.register(t, c);
+    const id = (who: string) => encodeURIComponent(h.entry(t, who).id);
+    expect((await h.call("PATCH", `/api/tournaments/${t.id}/entrants/${id("Alice")}`, CO, { flags: { checkedIn: true } }))?.status).toBe(200);
+    expect(h.entry(t, "Alice").checkInLog).toEqual([{ by: "Piett", at: "2026-11-10T12:00:00.000Z", via: "organiser-override" }]);
+    h.clock.now = new Date(IN_WINDOW);
+    expect((await h.call("PATCH", `/api/tournaments/${t.id}/entrants/${id("Bob")}`, CO, { flags: { checkedIn: true } }))?.status).toBe(200);
+    expect(h.entry(t, "Bob").checkedInBy).toMatchObject({ by: "Piett", via: "organiser" });
+    // the Participants toggle confirms first while check-in is not open; never for un-checking or other flags
+    const ci = { opensAt: "x", self: true, open: false, closed: false };
+    expect(overrideCheckInPrompt(ci, "checkedIn", true)).toBe("Check-in is not open yet. Check this coach in anyway? It is logged as an organiser override.");
+    expect(overrideCheckInPrompt({ ...ci, closed: true }, "checkedIn", true)).toMatch(/^Check-in has closed\./);
+    expect(overrideCheckInPrompt(null, "checkedIn", true)).toMatch(/^This tournament has no check-in window yet\./);
+    expect(overrideCheckInPrompt({ ...ci, open: true }, "checkedIn", true)).toBe("");
+    expect(overrideCheckInPrompt(ci, "checkedIn", false)).toBe("");
+    expect(overrideCheckInPrompt(ci, "paid", true)).toBe("");
   });
 });
