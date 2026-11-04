@@ -11,13 +11,15 @@
  * per-coach in-memory rate limit (10/hour, 429) — same idiom as auth/loginAttempts.ts.
  *
  * Reporter updates (owner 11-04): a successful submit also returns a one-time `receipt` (32 random bytes, base64url).
- * Only its SHA-256 (`receiptHash`) is stored, and it never leaves this module: every read strips it. The public
- * POST /api/bug-reports/status answers { status, reply, replyAt, fixedIn, updatedAt } for entries whose receipt
- * matches. `playerUpdate` holds the owner's public reply and fixed-in version, apart from the private triage notes.
+ * Only its SHA-256 (`receiptHash`) is stored, in a small per-report `status.json` beside report.json, and it never
+ * leaves this module. The public POST /api/bug-reports/status reads ONLY status.json (size-capped), never the full
+ * report, and answers { status, reply, replyAt, fixedIn, updatedAt } for entries whose receipt matches. `playerUpdate`
+ * in report.json holds the owner's public reply and fixed-in version, apart from the private triage notes; every PATCH
+ * rewrites status.json from it. Reports filed before receipts have no status.json and are never answered.
  */
 
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { coachSecretDigest } from "@bb/fork-ops";
 import { noteLegacyPasswordAuth } from "./auth/deprecation.js";
@@ -45,6 +47,11 @@ export const STATUS_RATE_WINDOW_MS = 60 * 60 * 1000;
 const REPORT_ID_PATTERN = /^[A-Za-z0-9_-]{1,160}$/;
 const RECEIPT_PATTERN = /^[A-Za-z0-9_-]{43}$/; // 32 bytes, base64url, unpadded
 const RECEIPT_HASH_PATTERN = /^[0-9a-f]{64}$/;
+/** status.json: the only file the public status check reads. */
+const STATUS_FILE = "status.json";
+export const STATUS_RECORD_CAP = 8 * 1024;
+/** Short scalar metadata on a submit (clientVersion, gameId): over-long values are refused with 400. */
+export const METADATA_FIELD_CAP = 64;
 
 export class BodyTooLargeError extends Error {}
 
@@ -234,6 +241,14 @@ export async function submitBugReport(
     return { status: 413, body: { error: `wireLog exceeds the ${WIRE_LOG_CAP / (1024 * 1024)}MB limit.` } };
   if (body.appLog && Buffer.byteLength(body.appLog, "utf8") > APP_LOG_CAP)
     return { status: 413, body: { error: `appLog exceeds the ${APP_LOG_CAP / (1024 * 1024)}MB limit.` } };
+  for (const field of ["clientVersion", "gameId"] as const) {
+    const value = body[field];
+    if (value != null && typeof value !== "string") return { status: 400, body: { error: `${field} must be a string.` } };
+    if (typeof value === "string" && value.trim().length > METADATA_FIELD_CAP)
+      return { status: 400, body: { error: `${field} is limited to ${METADATA_FIELD_CAP} characters.` } };
+  }
+  if (body.gameService != null && typeof body.gameService !== "string")
+    return { status: 400, body: { error: "gameService must be a string." } };
   let contextJson: string | undefined;
   if (body.context !== undefined) {
     if (typeof body.context !== "object" || body.context === null)
@@ -291,9 +306,9 @@ export async function submitBugReport(
       updatedBy: null,
     },
     playerUpdate: emptyPlayerUpdate(),
-    receiptHash,
   };
   writeFileSync(join(reportDir, "report.json"), JSON.stringify(report, null, 2), "utf8");
+  writeStatusRecord(reportDir, statusRecordFor(receiptHash, "new", report.playerUpdate, report.submittedAt));
   if (body.wireLog) writeFileSync(join(reportDir, "wire.log"), body.wireLog, "utf8");
   if (body.appLog) writeFileSync(join(reportDir, "app.log"), body.appLog, "utf8");
   if (screenshot) writeFileSync(join(reportDir, screenshot.fileName), screenshot.bytes);
@@ -498,6 +513,12 @@ export function updateBugReportTriage(
     playerUpdate,
   };
   writeFileSync(join(dir, id, "report.json"), JSON.stringify(report, null, 2), "utf8");
+  // Keep the small public status record in step; a report filed before receipts has none and never gets one.
+  const record = readStatusRecord(dir, id);
+  if (record) {
+    const submittedAt = typeof current.submittedAt === "string" ? current.submittedAt : null;
+    writeStatusRecord(join(dir, id), statusRecordFor(record.receiptHash, status as ReportTriageStatus, playerUpdate, submittedAt));
+  }
   return { status: 200, body: { ok: true, report: withoutReceiptHash(report) } };
 }
 
@@ -543,25 +564,72 @@ export function lookupBugReportStatuses(dir: string, entries: ReadonlyArray<{ id
   const rows: ReportStatusRow[] = [];
   const seen = new Set<string>();
   for (const { id, receipt } of entries) {
-    // Each id is looked at once per request (repeats are dropped before any read), so one request cannot amplify a probe.
-    if (seen.has(id)) continue;
-    seen.add(id);
+    // Each id is looked at once per request, case-insensitively (Windows folders are), before any read: one request
+    // cannot spend its 50 entries on one report.
+    const key = id.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
     if (!REPORT_ID_PATTERN.test(id) || !RECEIPT_PATTERN.test(receipt)) continue;
-    const stored = readStoredReport(dir, id); // id validated above (and again inside) before any path is built
+    const record = readStatusRecord(dir, id); // id validated above (and again inside) before any path is built
     // Unknown ids still run the hash + compare (against a dummy), like a wrong receipt.
-    if (!receiptMatches(stored?.receiptHash, receipt) || !stored) continue;
-    const update = normalizedPlayerUpdate(stored.playerUpdate);
-    rows.push({
-      id,
-      status: PUBLIC_STATUS[normalizedTriage(stored.triage).status],
-      reply: update.reply,
-      replyAt: update.replyAt,
-      fixedIn: update.fixedIn,
-      // Never edited yet: the report's own submit time, so the field is always a timestamp.
-      updatedAt: update.updatedAt ?? (typeof stored.submittedAt === "string" ? stored.submittedAt : null),
-    });
+    if (!receiptMatches(record?.receiptHash, receipt) || !record) continue;
+    rows.push({ id, status: record.status, reply: record.reply, replyAt: record.replyAt, fixedIn: record.fixedIn, updatedAt: record.updatedAt });
   }
   return rows;
+}
+
+interface StatusRecord {
+  receiptHash: string;
+  status: PublicReportStatus;
+  reply: string | null;
+  replyAt: string | null;
+  fixedIn: string | null;
+  updatedAt: string | null;
+}
+
+const PUBLIC_STATUSES = new Set<PublicReportStatus>(Object.values(PUBLIC_STATUS));
+
+function statusRecordFor(receiptHash: string, status: ReportTriageStatus, update: PlayerUpdate, submittedAt: string | null): StatusRecord {
+  return {
+    receiptHash,
+    status: PUBLIC_STATUS[status],
+    reply: update.reply,
+    replyAt: update.replyAt,
+    fixedIn: update.fixedIn,
+    // Never edited yet: the report's own submit time, so the field is always a timestamp.
+    updatedAt: update.updatedAt ?? submittedAt,
+  };
+}
+
+/** Atomic (tmp + rename), so a status check never reads a half-written record. */
+function writeStatusRecord(reportDir: string, record: StatusRecord): void {
+  const file = join(reportDir, STATUS_FILE);
+  writeFileSync(`${file}.tmp`, JSON.stringify(record), "utf8");
+  renameSync(`${file}.tmp`, file);
+}
+
+/** status.json only, never report.json; undefined when missing, over STATUS_RECORD_CAP or malformed. */
+function readStatusRecord(dir: string, id: string): StatusRecord | undefined {
+  if (!REPORT_ID_PATTERN.test(id)) return undefined;
+  const file = join(dir, id, STATUS_FILE);
+  try {
+    const stat = statSync(file);
+    if (!stat.isFile() || stat.size > STATUS_RECORD_CAP) return undefined;
+    const raw = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown> | null;
+    if (!raw || typeof raw !== "object" || typeof raw.receiptHash !== "string" || !RECEIPT_HASH_PATTERN.test(raw.receiptHash)) return undefined;
+    if (!PUBLIC_STATUSES.has(raw.status as PublicReportStatus)) return undefined;
+    const text = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
+    return {
+      receiptHash: raw.receiptHash,
+      status: raw.status as PublicReportStatus,
+      reply: text(raw.reply),
+      replyAt: text(raw.replyAt),
+      fixedIn: text(raw.fixedIn),
+      updatedAt: text(raw.updatedAt),
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 export function getBugReportScreenshot(dir: string, id: string): { mimeType: string; base64: string } | undefined {

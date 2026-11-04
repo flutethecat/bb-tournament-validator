@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createHash } from "node:crypto";
@@ -8,6 +8,8 @@ import {
   BodyTooLargeError,
   CONTEXT_CAP,
   FIXED_IN_CAP,
+  METADATA_FIELD_CAP,
+  STATUS_RECORD_CAP,
   REPLY_CAP,
   STATUS_QUERY_MAX,
   RATE_LIMIT_MAX,
@@ -339,7 +341,12 @@ describe("reporter receipts + status lookup (owner 11-04)", () => {
     expect(Buffer.from(receipt, "base64url")).toHaveLength(32);
     const raw = readFileSync(join(d, id, "report.json"), "utf8");
     expect(raw).not.toContain(receipt);
-    expect((JSON.parse(raw) as { receiptHash: string }).receiptHash).toBe(sha(receipt));
+    expect(raw).not.toContain("receiptHash");
+    // The hash lives only in the small status record the status check reads.
+    const record = JSON.parse(readFileSync(join(d, id, "status.json"), "utf8")) as Record<string, unknown>;
+    expect(record.receiptHash).toBe(sha(receipt));
+    expect(Object.keys(record).sort()).toEqual(["fixedIn", "receiptHash", "reply", "replyAt", "status", "updatedAt"]);
+    expect(JSON.stringify(record)).not.toContain(receipt);
     // Never again: not in the read, the listing, the screenshot read or the PATCH answer.
     const hash = sha(receipt);
     expect(JSON.stringify(getBugReport(d, id))).not.toContain(hash);
@@ -349,7 +356,8 @@ describe("reporter receipts + status lookup (owner 11-04)", () => {
     expect(JSON.stringify(patched.body)).not.toContain(hash);
     expect(JSON.stringify(patched.body)).not.toContain(receipt);
     // The stored hash survives the PATCH (status checks keep working).
-    expect((JSON.parse(readFileSync(join(d, id, "report.json"), "utf8")) as { receiptHash: string }).receiptHash).toBe(hash);
+    expect((JSON.parse(readFileSync(join(d, id, "status.json"), "utf8")) as { receiptHash: string; status: string }))
+      .toMatchObject({ receiptHash: hash, status: "triaged" });
     // Two reports never share a receipt.
     expect((await submit(d)).receipt).not.toBe(receipt);
   });
@@ -382,10 +390,10 @@ describe("reporter receipts + status lookup (owner 11-04)", () => {
     const { id, receipt } = await submit(d);
     const legacy = await submit(d, Date.UTC(2026, 10, 4, 11));
     // A report filed before receipts existed: no hash on disk -> never answered (no backfill).
-    const legacyFile = join(d, legacy.id, "report.json");
-    const stored = JSON.parse(readFileSync(legacyFile, "utf8")) as Record<string, unknown>;
-    delete stored.receiptHash;
-    writeFileSync(legacyFile, JSON.stringify(stored), "utf8");
+    rmSync(join(d, legacy.id, "status.json"));
+    // A PATCH on a pre-receipt report never creates a status record.
+    updateBugReportTriage(d, legacy.id, { status: "resolved", rootCause: "", reason: "", reply: "Fixed" }, "admin");
+    expect(existsSync(join(d, legacy.id, "status.json"))).toBe(false);
     const third = await submit(d, Date.UTC(2026, 10, 4, 12));
     const rows = lookupBugReportStatuses(d, [
       { id: third.id, receipt: newReceipt().receipt }, // wrong receipt
@@ -468,5 +476,54 @@ describe("status check vs the session middleware (Sol P2)", () => {
     // The submit route keeps both.
     expect(isStateChangingApiRequest("POST", "/api/bug-reports")).toBe(true);
     expect(onboardingGateApplies("POST", "/api/bug-reports")).toBe(true);
+  });
+});
+
+describe("status check reads only the small status record (Sol P2, 11-04)", () => {
+  const submit = async (d: string, extra: Record<string, unknown> = {}) =>
+    (await submitBugReport({ ...BASE, ...extra }, undefined, deps(d), Date.UTC(2026, 10, 4, 10))) as { status: number; body: { id: string; receipt: string; error?: string } };
+
+  it("refuses over-long or non-string clientVersion / gameId with 400 at submit", async () => {
+    const d = dir();
+    const long = "x".repeat(METADATA_FIELD_CAP + 1);
+    expect((await submit(d, { clientVersion: long })).status).toBe(400);
+    expect((await submit(d, { gameId: long })).status).toBe(400);
+    expect((await submit(d, { clientVersion: 5 })).status).toBe(400);
+    expect((await submit(d, { gameId: { a: 1 } })).status).toBe(400);
+    expect((await submit(d, { gameService: ["fork"] })).status).toBe(400);
+    expect((await submit(d, { publicEdition: true, coach: "y".repeat(5000), clientVersion: "1.0.307", gameId: "x".repeat(METADATA_FIELD_CAP) })).status).toBe(200);
+    expect(readdirSync(d)).toHaveLength(1);
+  });
+
+  it("answers from status.json even when report.json is unreadable, and skips a status record over the cap", async () => {
+    const d = dir();
+    const { body: { id, receipt } } = await submit(d);
+    writeFileSync(join(d, id, "report.json"), "{ not json", "utf8");
+    expect(lookupBugReportStatuses(d, [{ id, receipt }]).map((r) => r.id)).toEqual([id]);
+    const file = join(d, id, "status.json");
+    const record = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+    writeFileSync(file, JSON.stringify({ ...record, reply: "z".repeat(STATUS_RECORD_CAP) }), "utf8");
+    expect(lookupBugReportStatuses(d, [{ id, receipt }])).toEqual([]);
+    writeFileSync(file, JSON.stringify({ ...record, status: "new" }), "utf8"); // unknown public status: refused
+    expect(lookupBugReportStatuses(d, [{ id, receipt }])).toEqual([]);
+  });
+
+  it("de-duplicates ids case-insensitively before any read", async () => {
+    const d = dir();
+    const { body: { id, receipt } } = await submit(d);
+    const rows = lookupBugReportStatuses(d, [{ id: id.toUpperCase(), receipt: newReceipt().receipt }, { id, receipt }]);
+    expect(rows).toEqual([]); // the first spelling took the slot
+    expect(lookupBugReportStatuses(d, [{ id, receipt }, { id: id.toLowerCase(), receipt }]).map((r) => r.id)).toEqual([id]);
+  });
+
+  it("the CSRF and onboarding exemptions cover only POST /api/bug-reports/status", async () => {
+    const { isStateChangingApiRequest } = await import("../src/auth/csrf.js");
+    const { onboardingGateApplies } = await import("../src/auth/onboarding.js");
+    for (const method of ["PUT", "PATCH", "DELETE"]) {
+      expect(isStateChangingApiRequest(method, "/api/bug-reports/status")).toBe(true);
+      expect(onboardingGateApplies(method, "/api/bug-reports/status")).toBe(true);
+    }
+    expect(isStateChangingApiRequest("post", "/api/bug-reports/status")).toBe(false);
+    expect(onboardingGateApplies("post", "/api/bug-reports/status")).toBe(false);
   });
 });

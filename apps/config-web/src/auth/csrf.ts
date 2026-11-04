@@ -28,10 +28,13 @@ export const CSRF_EXEMPT_PATHS: ReadonlySet<string> = new Set([
   "/api/mail/postmark/webhook", // Postmark server-to-server; checks its own Basic-auth webhook secret
   "/api/mail/unsubscribe", // signed token in the link; RFC 8058 one-click POST comes from mail clients, no custom header
   "/api/mail/verify", // signed token in the link (GET only)
-  "/api/bug-reports/status", // reporter status check: public read-only POST, ignores any session, receipts authorise it
 ]);
 
 const SAFE_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD", "OPTIONS"]);
+
+/** Exact method + path exemptions. The reporter status check (owner 11-04) is a read-only POST that ignores any session;
+ *  its receipts authorise it. Every other method on that path keeps the header rule. */
+const CSRF_EXEMPT_REQUESTS: ReadonlySet<string> = new Set(["POST /api/bug-reports/status"]);
 
 /** Legacy GET routes that change state when a session owns the coach (the desktop client calls them cookie-less). */
 const STATE_CHANGING_GET_PATHS: ReadonlySet<string> = new Set([
@@ -48,6 +51,7 @@ export function isStateChangingApiGet(pathname: string): boolean {
 export function isStateChangingApiRequest(method: string, pathname: string): boolean {
   if (!pathname.startsWith("/api/") || CSRF_EXEMPT_PATHS.has(pathname)) return false;
   const verb = method.toUpperCase();
+  if (CSRF_EXEMPT_REQUESTS.has(`${verb} ${pathname}`)) return false;
   if (!SAFE_METHODS.has(verb)) return true;
   return (verb === "GET" || verb === "HEAD") && isStateChangingApiGet(pathname);
 }

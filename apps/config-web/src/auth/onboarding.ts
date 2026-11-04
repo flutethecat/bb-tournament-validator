@@ -20,8 +20,9 @@ export const ONBOARDING_PATH = "/api/me/onboarding";
 export const CONTACT_PATH = "/api/me/contact";
 export const ONBOARDING_REQUIRED_MESSAGE = "Complete your profile first.";
 /** Writes that stay open while onboarding is needed. */
-// /api/bug-reports/status: the reporter status check is a read-only POST that ignores the session (owner 11-04).
-const GATE_EXEMPT = new Set([ONBOARDING_PATH, "/api/me/delete", "/api/team/checkName", "/api/bug-reports/status"]);
+const GATE_EXEMPT = new Set([ONBOARDING_PATH, "/api/me/delete", "/api/team/checkName"]);
+/** Exact method + path exemptions: the reporter status check is a read-only POST that ignores the session (owner 11-04). */
+const GATE_EXEMPT_REQUESTS = new Set(["POST /api/bug-reports/status"]);
 const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 /**
@@ -38,6 +39,7 @@ export const MUTATING_GET_PATHS: ReadonlySet<string> = new Set(["/api/fork/regis
 export function onboardingGateApplies(method: string, path: string): boolean {
   if (method.toUpperCase() === "GET" && MUTATING_GET_PATHS.has(path)) return true;
   if (READ_METHODS.has(method.toUpperCase()) || !path.startsWith("/api/")) return false;
+  if (GATE_EXEMPT_REQUESTS.has(`${method.toUpperCase()} ${path}`)) return false;
   return !GATE_EXEMPT.has(path) && !path.startsWith("/api/auth/");
 }
 
