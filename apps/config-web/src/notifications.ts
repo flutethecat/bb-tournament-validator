@@ -43,6 +43,9 @@ export const NOTIFICATION_TYPES = [
   "ladder",
   // Competition templates (creation wizards v2 Q10): an organiser shared a season or tournament template with you.
   "template-shared",
+  // Clubs (clubs lane): join requests (to admins), approvals and removals (to the coach), a clubmate's win and new board
+  // posts (members who opted in).
+  "club",
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 

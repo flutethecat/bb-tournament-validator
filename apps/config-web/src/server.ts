@@ -383,6 +383,12 @@ import { DiscordStateStore } from "./discord/store.js";
 import { tournamentTarget } from "./discord/targets.js";
 import { isTemplatesApiPath, seasonTemplateFor, templatesApi, type TemplatesDeps } from "./templates/api.js";
 import { TemplateStore } from "./templates/store.js";
+import { clubsApi, createClubsLimiters, isClubsApiPath, type ClubsApiDeps } from "./clubs/api.js";
+import { ClubObserver, CLUB_OBSERVER_TICK_MS } from "./clubs/observer.js";
+import { setClubDirectory } from "./clubs/pick.js";
+import { clubLedger, type ClubLedger } from "./clubs/stats.js";
+import { ClubStore } from "./clubs/store.js";
+import { BoardStore } from "./boards/board.js";
 import { forkGame, setPublicPlayerNames, tabletopGame, type GameRecord } from "./discord/games.js";
 import { playerLabel, visibleComments } from "./discord/hub.js";
 import { leagueFixtureRef } from "./leagues/tabletopFixtures.js";
@@ -1029,6 +1035,43 @@ const discordObserver = new DiscordObserver({
 const discordTick = (): void => { discordObserver.tick().catch((e) => console.error(`[discord] observer tick failed: ${(e as Error).message}`)); };
 setTimeout(discordTick, 20_000).unref();
 setInterval(discordTick, OBSERVER_TICK_MS).unref();
+// ---- Clubs (src/clubs/; creation wizards v2 rounds 2-3) --------------------------------------------------------------
+// <FORK_STATE_DIR>/clubs (clubs, webhooks, crests) and /boards (club boards). The club pick at join reads memberships
+// through the pick hook; club stats read the competitions (authorised, published, non-test) through one cached ledger.
+const clubStore = new ClubStore(FORK_STATE_DIR);
+const boardStore = new BoardStore(FORK_STATE_DIR);
+setClubDirectory({
+  membershipsOf: (coach) => { try { return clubStore.membershipsOf(coach).map((c) => ({ id: c.id, name: c.name })); } catch { return []; } },
+  nameOf: (id) => { try { return clubStore.get(id)?.name; } catch { return undefined; } },
+});
+let clubLedgerCache: { key: string; at: number; ledger: ClubLedger } | undefined;
+const clubLedgerNow = (): ClubLedger => {
+  let stamp = "";
+  try { const st = statSync(join(TOURNAMENTS_DIR, "tournaments.json")); stamp = `${st.mtimeMs}:${st.size}`; } catch { stamp = "none"; }
+  const key = `${leagueStore.version()}|${stamp}`;
+  const now = Date.now();
+  if (clubLedgerCache && clubLedgerCache.key === key && now - clubLedgerCache.at < 2_000) return clubLedgerCache.ledger;
+  const ledger = clubLedger({ tournaments: tournamentStore, leagues: leagueStore }, (line) => console.error(line));
+  clubLedgerCache = { key, at: now, ledger };
+  return ledger;
+};
+const clubsDeps: Omit<ClubsApiDeps, "readRaw" | "declaredTooLarge"> = {
+  store: clubStore,
+  boards: boardStore,
+  ledger: clubLedgerNow,
+  coach: (name) => {
+    const record = readIdentities().coaches[normalizeFfbCoachId(name)];
+    return record && !record.banned && !isReservedCoachName(record.ffbCoachId) ? record.ffbCoachId : undefined;
+  },
+  notify: leagueNotify,
+  isFenced: (coach) => isCoachFenced(coach),
+  limiters: createClubsLimiters(),
+  avatarFor: (coach) => coachAvatars.avatarFor(coach) ?? undefined,
+};
+const clubObserver = new ClubObserver({ store: clubStore, ledger: clubLedgerNow, state: discordState, notify: leagueNotify, log: (line) => console.error(line) });
+const clubTick = (): void => { clubObserver.tick().catch((e) => console.error(`[clubs] observer tick failed: ${(e as Error).message}`)); };
+setTimeout(clubTick, 25_000).unref();
+setInterval(clubTick, CLUB_OBSERVER_TICK_MS).unref();
 // Discord posts name players only when the game pages do (GAME_PAGES_PUBLIC_PLAYER_LINES), fork digests included.
 setPublicPlayerNames(DISCORD_PUBLIC_NAMES);
 const discordReach = createDiscordReach({
@@ -1950,6 +1993,7 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
   // gated in-handler (src/leagues/api.ts).
   if (leaguePath(pathname) !== undefined) return true;
   if (seriesPath(pathname) !== undefined) return true; // Tournament Series: public reads, writes gated in-handler
+  if (isClubsApiPath(pathname)) return true; // Clubs: public reads (directory, page, stats, crest), writes gated in-handler
   // Dynamic coach-scoped route: bypass legacy Basic auth, then enforce the proven session in-handler.
   if (tournamentInstructionsGameId(pathname)) return true;
   if (tournamentResultGameId(pathname)) return true;
@@ -2789,6 +2833,40 @@ async function handleApi(
         res.end(String(result.body));
         return;
       }
+      return sendJson(res, result.status, result.body);
+    }
+  }
+
+  // Clubs (src/clubs/api.ts): directory, club page, stats and crest are public reads; every write is session-gated
+  // in-handler (an active account, not a test session, the CSRF header and onboarding gate above), the board is members-only.
+  if (isClubsApiPath(path)) {
+    const crest = /^\/api\/clubs\/[^/]+\/crest$/.test(path);
+    const testSession = getSession(sessionTokenFromRequest(req))?.test === true;
+    const body = WRITE_METHODS.has(method) && !crest ? await readBody(req, 16 * 1024) : undefined;
+    // Re-resolve the identity after the body read: a session ended meanwhile (account deleted, signed out) writes nothing.
+    let actor = auth;
+    if (auth && WRITE_METHODS.has(method)) {
+      const current = requestIdentity(req);
+      if (!current || current.coach !== auth.coach) return sendJson(res, 401, { error: "Authentication required." });
+      actor = current;
+    }
+    const result = await clubsApi(method, path, query, actor ? { coach: actor.coach, admin: actor.admin, ...(testSession ? { test: true } : {}) } : undefined, body, {
+      ...clubsDeps,
+      readRaw: (max) => readRawCapped(req, max),
+      declaredTooLarge: (max) => declaredTooLarge(req, max),
+    });
+    if (result) {
+      for (const [name, value] of Object.entries(result.headers ?? {})) res.setHeader(name, value);
+      if (result.close) { res.once("finish", () => req.destroy()); res.setHeader("connection", "close"); }
+      if (result.file) {
+        try {
+          const bytes = await readFile(result.file.path);
+          res.writeHead(200, { "content-type": result.file.contentType, "content-length": String(bytes.length), "cache-control": "public, max-age=3600", "x-content-type-options": "nosniff" });
+          res.end(method === "HEAD" ? undefined : bytes);
+        } catch { sendJson(res, 404, { error: "No image." }); }
+        return;
+      }
+      if (result.status === 204) { res.writeHead(204).end(); return; }
       return sendJson(res, result.status, result.body);
     }
   }
@@ -5528,7 +5606,8 @@ export const server = createServer((req, res) => {
           tournamentResultGameId(url.pathname) !== undefined ||
           isLockableForkRoute(url.pathname) ||
           leaguePath(url.pathname) !== undefined ||
-          seriesPath(url.pathname) !== undefined
+          seriesPath(url.pathname) !== undefined ||
+          isClubsApiPath(url.pathname)
         );
         if (!authorized(req, url.pathname) && !accountSession) {
           if (isLockableForkRoute(url.pathname)) return sendJson(res, 401, { error: SIGN_IN_REQUIRED_MESSAGE, code: SIGN_IN_REQUIRED });

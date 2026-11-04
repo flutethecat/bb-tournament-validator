@@ -119,7 +119,12 @@ function isPublicRequest(method: string, pathname: string): boolean {
       pathname.startsWith("/api/leagues/") ||
       // Tournament Series: list and series pages are public reads; writes stay session-gated in-handler.
       pathname === "/api/series" ||
-      /^\/api\/series\/[^/]+$/.test(pathname))
+      /^\/api\/series\/[^/]+$/.test(pathname) ||
+      // Clubs (src/clubs/api.ts isPublicClubRead): the directory, a club page, its stats and its crest are public reads;
+      // the board, the admin view and every write stay session-gated.
+      pathname === "/api/clubs" ||
+      /^\/api\/clubs\/[^/]+$/.test(pathname) ||
+      /^\/api\/clubs\/[^/]+\/(?:stats|crest)$/.test(pathname))
   )
     return true;
   return PUBLIC_API_METHODS.get(pathname)?.has(method) === true;
