@@ -281,6 +281,78 @@ describe("moderation", () => {
   });
 });
 
+describe("review fixes (Sol, e7a65589)", () => {
+  it("P1: a write answers board content only to a caller who can read it now; a former member can't delete; organisers can", async () => {
+    const h = harness();
+    const t = await h.thread(h.T, "Ted", "Mine", "secret plan");
+    const other = await h.thread(h.T, "Nora", "Venue", "organiser only text");
+    // Ted withdraws: no longer a reader, and no longer a writer
+    h.entrants[0]!.droppedAt = "2026-11-04T13:00:00.000Z";
+    h.entrants[0]!.entryState = "withdrawn";
+    const del = await h.call("DELETE", `${h.T}/${t}`, h.as("Ted"));
+    expect(del.status).toBe(403);
+    expect(JSON.stringify(del.body)).not.toContain("organiser only text");
+    expect(h.boards.read("tournament:t1").threads.find((x) => x.id === t)!.removed).toBeUndefined();
+    const again = await h.call("DELETE", `${h.T}/${t}`, h.as("Ted"));
+    expect(JSON.stringify(again.body)).not.toContain("organiser only text");
+    // the organiser deletes it; their answer carries the board
+    const mod = await h.call("DELETE", `${h.T}/${t}`, h.as("Nora"));
+    expect(mod.status).toBe(200);
+    expect(JSON.stringify(mod.body)).toContain("organiser only text");
+    // a board switched off: a coach's write is refused and never answers content
+    const rev = await h.settingsRev(h.L);
+    const mia = await h.thread(h.L, "Mia", "Mine too", "x");
+    await h.call("PATCH", `${h.L}/settings`, h.as("Olga"), { revision: rev, enabled: false });
+    for (const [m, p, b] of [["DELETE", `${h.L}/${mia}`, undefined], ["PATCH", `${h.L}/${mia}`, { text: "y" }], ["POST", `${h.L}/${mia}/report`, { reason: "z" }]] as const) {
+      const r = await h.call(m, p, h.as("Lad"), b);
+      expect(r.status, `${m} ${p}`).toBe(403);
+      expect((r.body as { board?: unknown }).board).toBeUndefined();
+    }
+    expect((await h.call("DELETE", `${h.L}/${mia}`, h.as("Mia"))).body).toMatchObject({ code: "board-off" });
+    void other;
+  });
+
+  it("P1: a muted coach can't delete their own post", async () => {
+    const h = harness();
+    const t = await h.thread(h.L, "Lad");
+    await h.call("POST", `${h.L}/mutes`, h.as("Olga"), { coach: "Lad", duration: "1h" });
+    expect((await h.call("DELETE", `${h.L}/${t}`, h.as("Lad"))).body).toMatchObject({ code: "muted" });
+  });
+
+  it("P2: deleting a hidden thread keeps its replies hidden from coaches", async () => {
+    const h = harness();
+    const t = await h.thread(h.L, "Mia", "Bad", "bad text");
+    await h.call("POST", `${h.L}/${t}/replies`, h.as("Lad"), { text: "reply under a hidden thread" });
+    await h.call("POST", `${h.L}/${t}/hide`, h.as("Olga"), { hidden: true });
+    await h.call("DELETE", `${h.L}/${t}`, h.as("Olga"));
+    const coach = await h.call("GET", h.L, h.as("Lad"));
+    expect(JSON.stringify(coach.body)).not.toContain("reply under a hidden thread");
+    expect(viewOf(coach).threads[0]).toMatchObject({ removed: { by: "moderator" }, replies: [] });
+    expect(JSON.stringify((await h.call("GET", h.L, h.as("Olga"))).body)).toContain("reply under a hidden thread");
+  });
+
+  it("P2: a muted coach can't report (the store refuses)", async () => {
+    const h = harness();
+    const t = await h.thread(h.L, "Mia");
+    await h.call("POST", `${h.L}/mutes`, h.as("Olga"), { coach: "Lad", duration: "1h" });
+    expect((await h.call("POST", `${h.L}/${t}/report`, h.as("Lad"), { reason: "x" })).body).toMatchObject({ code: "muted" });
+    expect(() => h.boards.report("league:lg1", t, "Lad", "x")).toThrow(/muted/);
+    expect(h.boards.read("league:lg1").reports ?? []).toEqual([]);
+  });
+
+  it("P2: a reply can't be edited while its thread is hidden or removed", async () => {
+    const h = harness();
+    const t = await h.thread(h.L, "Mia");
+    const r = ((await h.call("POST", `${h.L}/${t}/replies`, h.as("Lad"), { text: "mine" })).body as { reply: { id: string } }).reply.id;
+    await h.call("POST", `${h.L}/${t}/hide`, h.as("Olga"), { hidden: true });
+    expect((await h.call("PATCH", `${h.L}/${r}`, h.as("Lad"), { text: "edited" })).body).toMatchObject({ code: "hidden" });
+    await h.call("POST", `${h.L}/${t}/hide`, h.as("Olga"), { hidden: false });
+    await h.call("DELETE", `${h.L}/${t}`, h.as("Mia"));
+    expect((await h.call("PATCH", `${h.L}/${r}`, h.as("Lad"), { text: "edited" })).body).toMatchObject({ code: "removed" });
+    expect(h.boards.read("league:lg1").threads[0]!.replies[0]!.text).toBe("mine");
+  });
+});
+
 describe("reports", () => {
   it("a coach reports a post with a reason; organisers get an inbox note and a Reports queue; duplicates are not queued again", async () => {
     const h = harness();

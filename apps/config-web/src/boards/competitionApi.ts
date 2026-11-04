@@ -205,7 +205,12 @@ function route(method: string, kind: CompetitionKind, id: string, rest: string[]
       ...(mod ? { openReports: (f.reports ?? []).filter((r) => !r.resolved).length } : {}),
     };
   };
-  const after = (who: string, extra: Obj = {}, status = 200) => ok({ ...extra, board: fullView(deps.boards.read(c.scope), who) }, status);
+  // A write answers with board content only when the caller passes the same read check a GET would, against their
+  // access NOW (a former member, a coach on a board that is off: a bare { ok }).
+  const after = (who: string, extra: Obj = {}, status = 200) => {
+    const f = deps.boards.read(c.scope);
+    return policyFor(c, f, isAdmin).canRead(who) ? ok({ ...extra, board: fullView(f, who) }, status) : ok({ ok: true }, status);
+  };
 
   // ---- reading ----
   if (read && rest.length === 0) {
@@ -362,6 +367,9 @@ function route(method: string, kind: CompetitionKind, id: string, rest: string[]
     return after(who);
   }
   if (method === "DELETE") {
+    // Current write access first: a former member can't delete their old posts (organisers can delete any); the store
+    // refuses a muted author and a switched-off board.
+    const no = needInsider(); if (no) return no;
     deps.boards.remove(c.scope, postId, who, mod, { reason: parseBoardReason(input.reason) });
     return after(who);
   }

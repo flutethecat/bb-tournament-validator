@@ -365,6 +365,11 @@ export class BoardStore {
     if (found.post.removed) throw new BoardError(409, "This post was removed.", "removed");
     this.assertMayPost(file, author, opts);
     if (found.post.hidden && !opts.moderator) throw new BoardError(409, "This post is hidden.", "hidden");
+    // A reply in a hidden or removed thread is frozen for its author too.
+    if (found.post !== found.thread && !opts.moderator) {
+      if (found.thread.hidden) throw new BoardError(409, "This thread is hidden.", "hidden");
+      if (found.thread.removed) throw new BoardError(409, "This thread was removed.", "removed");
+    }
     if (found.thread.locked && !opts.moderator) throw new BoardError(409, "This thread is locked.", "locked");
     found.post.text = text;
     found.post.editedAt = this.now();
@@ -382,10 +387,12 @@ export class BoardStore {
     const found = this.find(file, postId);
     const own = key(found.post.author) === key(actor);
     if (!own && !moderator) throw new BoardError(403, "You can only remove your own posts.");
+    // An author removing their own post is a write like any other: refused on a switched-off board or while muted.
+    if (!moderator) this.assertMayPost(file, actor, {});
     if (found.post.removed) return structuredClone(found.post);
     found.post.removed = { by: own ? "author" : "moderator", at: this.now() };
     found.post.text = "";
-    delete found.post.hidden;
+    // A removed post keeps its hidden mark: a hidden thread's replies stay hidden from coaches after the thread goes.
     if (found.post === found.thread) found.thread.title = "";
     if (log && !own) {
       this.log(file, { by: actor, action: "delete", postId, coach: found.post.author, ...(log.reason ? { reason: log.reason } : {}) });
@@ -456,6 +463,8 @@ export class BoardStore {
     const found = this.find(file, postId);
     if (found.post.removed) throw new BoardError(409, "This post was removed.", "removed");
     if (key(found.post.author) === key(reporter)) throw new BoardError(400, "You can't report your own post.", "own");
+    // Reporting is a write: refused on a switched-off board and while the reporter is muted.
+    this.assertMayPost(file, reporter, {});
     const reports = file.reports ?? [];
     const open = reports.find((r) => !r.resolved && r.postId === postId && key(r.reporter) === key(reporter));
     if (open) return { report: { ...open }, duplicate: true };
