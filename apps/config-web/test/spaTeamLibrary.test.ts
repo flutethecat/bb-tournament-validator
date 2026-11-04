@@ -33,6 +33,8 @@ describe("library helpers", () => {
     expect(libraryTv(1_050)).toBe("1,050k");
     expect(libraryTv(null)).toBe("");
     expect(librarySub(items[0]!)).toBe("Human · 1,200k · A Season 1");
+    // a private team (never shared by the coach) carries no details at all
+    expect(librarySub({ race: "", tv: null, private: true })).toBe("Not shared: the coach approves the swap");
   });
 });
 

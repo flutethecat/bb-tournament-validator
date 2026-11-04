@@ -124,6 +124,8 @@ export interface TakeoverAdapterOptions {
   now?: () => Date;
   /** Fault injection (tests): runs inside commit after every check, just before the season is written. */
   beforeWrite?: (season: SeasonRecord) => void;
+  /** Fixture ids with an unpublished tabletop recorder match (the route reads them before the approval). */
+  openRecorder?: ReadonlySet<string>;
   /** Called after an approval's season write. */
   onApproved?: (info: TakeoverApproval) => void;
 }
@@ -219,7 +221,7 @@ export class TakeoverAdapter implements RegistrationAdapter {
         // Approval and the entry change are one write (the putSeason below), re-checked against the stored season.
         const team = listedTeam(season, listingId);
         if (!team) throw new RegistrationError(409, "closed", "This team is no longer available for takeover.");
-        const block = entryChangeBlock(season, team.id);
+        const block = entryChangeBlock(season, team.id, this.opts.openRecorder);
         if (block) throw new RegistrationError(409, "invalid-transition", block);
         const by = change.transition.by;
         let entry: EntryChange;

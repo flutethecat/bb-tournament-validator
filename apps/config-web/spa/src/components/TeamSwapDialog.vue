@@ -11,7 +11,7 @@ import "../tournaments/registration.css";
 import "../leagues/takeover.css";
 
 const props = defineProps<{ leagueId: string; seasonId: string; teamId: string; teamName: string; revision: number }>();
-const emit = defineEmits<{ close: []; swapped: [] }>();
+const emit = defineEmits<{ close: []; swapped: []; requested: [] }>();
 const fetcher = inject(API_KEY)!;
 const lib = createTeamLibrary({ api: fetcher });
 const { state } = lib;
@@ -23,7 +23,9 @@ onMounted(() => { void lib.load(props.leagueId, props.seasonId, props.teamId); }
 
 async function swap(): Promise<void> {
   if (!choice.value || state.busy) return;
-  if (await lib.swap(props.leagueId, props.seasonId, props.teamId, choice.value.ref, props.revision)) emit("swapped");
+  const out = await lib.swap(props.leagueId, props.seasonId, props.teamId, choice.value.ref, props.revision);
+  if (out === "requested") emit("requested");
+  else if (out) emit("swapped");
 }
 </script>
 
@@ -36,6 +38,7 @@ async function swap(): Promise<void> {
     <p v-else-if="state.status === 'error'" class="sf-error" role="alert">{{ state.error }}</p>
     <template v-else-if="state.view">
       <p v-if="state.view.block" class="sf-notice" role="status" data-swap-block>{{ state.view.block }}</p>
+      <p v-if="state.view.request" class="sf-notice" role="status" data-swap-request-waiting>A swap request from {{ state.view.request.by }} is waiting for the coach. A new pick replaces it.</p>
       <p v-if="state.view.reason" class="hm-empty">{{ state.view.reason }}</p>
       <p v-else-if="!state.view.items.length" class="hm-empty">This coach has no other teams yet.</p>
       <div v-for="g in groups" :key="g.kind" class="tk-group">
@@ -57,7 +60,7 @@ async function swap(): Promise<void> {
     <template #foot>
       <button type="button" class="sf-btn" :disabled="state.busy" @click="emit('close')">Cancel</button>
       <span class="tr-foot-gap" />
-      <button type="submit" class="sf-btn primary" :disabled="state.busy || !choice || Boolean(state.view?.block)" data-swap-go>{{ state.busy ? "Swapping..." : choice ? `Swap in ${choice.name}` : "Swap" }}</button>
+      <button type="submit" class="sf-btn primary" :disabled="state.busy || !choice || Boolean(state.view?.block)" data-swap-go>{{ state.busy ? "Sending..." : choice?.private ? "Ask the coach to approve" : choice ? `Swap in ${choice.name}` : "Swap" }}</button>
     </template>
   </LeagueDialog>
 </template>

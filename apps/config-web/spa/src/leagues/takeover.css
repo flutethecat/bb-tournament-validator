@@ -47,6 +47,10 @@
 .tk-entry .tb-k { margin-right: 6px; }
 .tk-entry small { display: block; color: var(--ui-muted); font-size: 13px; }
 
+/* the coach's swap request notice */
+.tk-request { display: grid; gap: 6px; margin: 0 0 10px; }
+.tk-request .tk-actions { justify-content: flex-start; }
+
 /* the team cog menu */
 .tk-cog { position: relative; display: inline-flex; }
 .tk-menu {

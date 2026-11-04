@@ -34,7 +34,12 @@ const mint = (prefix: string): string => `${prefix}-${randomBytes(6).toString("h
 // ---- the library ------------------------------------------------------------------------------------------------------
 
 /** A save or fork library team of the coach (server.ts coachTeams). */
-export interface CoachTeamRow { ref: string; kind: "save" | "library"; name: string; race: string; tv: number | null }
+export interface CoachTeamRow {
+  ref: string; kind: "save" | "library"; name: string; race: string; tv: number | null;
+  /** The coach shared it (a save with a share link): organisers may see and swap it in directly. Anything else is private:
+   *  organisers see only "Private save" and a swap needs the coach's approval. */
+  shared?: boolean;
+}
 
 /** One library row as the swap dialog / the application dialog shows it. */
 export interface LibraryItem {
@@ -49,6 +54,8 @@ export interface LibraryItem {
   ok: boolean;
   /** Why the team doesn't fit (greyed), when !ok. */
   reason?: string;
+  /** A team the coach never shared (organiser view): no details; a swap asks the coach. */
+  private?: true;
 }
 
 /** The coach's teams in league seasons (owned: a seat not cleared by an organiser), one per lineage, newest season. Only
@@ -118,23 +125,36 @@ function outgoingCopy(team: LeagueTeam): LeagueTeam {
 
 // ---- guards -----------------------------------------------------------------------------------------------------------
 
-/** A Super FUMBBL game exists for one of the team's fixtures (scheduled, running, or not yet applied). */
+/**
+ * A Super FUMBBL game is held for one of the team's fixtures and has no applied result: scheduled or running, and ANY
+ * status that still names a game id (a cancelled game that was started or could not be withdrawn keeps syncing its
+ * result, and an unclear launch may have made one). Its result would otherwise be credited to the new team or coach.
+ */
 function holdsForkGame(f: LeagueFixture, teamId: string): boolean {
   const fork = f.fork;
   if (!fork || fork.result) return false;
   const mine = fork.teams.home?.teamId === teamId || fork.teams.away?.teamId === teamId || f.home.teamId === teamId || f.away.teamId === teamId;
   if (!mine) return false;
-  if (fork.status === "scheduled" || fork.status === "in_progress") return true;
-  return Boolean(fork.gameId) && fork.status !== "cancelled" && fork.status !== "launch_failed" && fork.status !== "finished";
+  return fork.status === "scheduled" || fork.status === "in_progress" || Boolean(fork.gameId) || fork.uncertain === true;
 }
 
-/** Why the team behind this entry can't change right now ("" = it can). */
-export function entryChangeBlock(season: SeasonRecord, teamId: string): string {
+/** The fixtures of a team (any side). */
+export const teamFixtures = (season: Pick<SeasonRecord, "fixtures">, teamId: string): LeagueFixture[] =>
+  season.fixtures.filter((f) => f.home.teamId === teamId || f.away.teamId === teamId);
+
+/**
+ * Why the team behind this entry can't change right now ("" = it can): a finished season, a Super FUMBBL game held for
+ * any of its fixtures (see holdsForkGame), or a tabletop recorder match on one of its fixtures that is not published yet
+ * (`openRecorder`: the fixture ids with such a match; its result would be credited to the new coach).
+ */
+export function entryChangeBlock(season: SeasonRecord, teamId: string, openRecorder: ReadonlySet<string> = new Set()): string {
   if (season.status === "completed") return "This season is finished: its teams are final.";
   const lock = forkPlayLock(season, teamId);
   if (lock) return lock;
   const game = season.fixtures.find((f) => holdsForkGame(f, teamId));
-  if (game) return `A Super FUMBBL game exists for ${game.home.team} vs ${game.away.team}. Reset or finish it first.`;
+  if (game) return `A Super FUMBBL game exists for ${game.home.team} vs ${game.away.team}. Finish it, or cancel and reset it on the fork, first.`;
+  const recorded = teamFixtures(season, teamId).find((f) => openRecorder.has(f.id));
+  if (recorded) return `A tabletop match for ${recorded.home.team} vs ${recorded.away.team} is still being recorded. Publish or delete it first.`;
   return "";
 }
 
@@ -227,11 +247,19 @@ export function applyEntrySwap(season: SeasonRecord, teamId: string, incoming: L
     ...(before.registrationId ? { registrationId: before.registrationId } : {}),
   };
   delete after.takeover;
+  delete after.swapRequest;
   delete after.captainVacant;
   if (!after.teamUid) after.teamUid = mint("tm");
   refreshTeamValue(after, season.ruleset);
   season.teams[i] = after;
   reseatEntry(season, before, after, at);
+  // The entry's accepted registration row counts toward max teams and max per race: it follows the team now behind it.
+  for (const r of season.registrations ?? []) {
+    if (r.state !== "accepted" || r.teamId !== teamId) continue;
+    r.race = canonicalRace(after.race);
+    r.teamName = after.name;
+    r.teamId = after.id;
+  }
   const changes = [{ what: "Team", from: `${before.name} (${before.race})`, to: `${after.name} (${after.race})` }];
   if (ckey(before.coachId ?? before.coach) !== ckey(after.coachId ?? after.coach)) changes.push({ what: "Coach", from: before.coach, to: after.coach });
   addHistory(after, { at, by: actor, kind: via === "apply" ? "takeover" : "swap", changes });
@@ -285,6 +313,7 @@ export function applyTakeover(season: SeasonRecord, teamId: string, coach: strin
   team.coachAssigned = { by: actor, at };
   delete team.nafUser;
   delete team.takeover;
+  delete team.swapRequest;
   reseatEntry(season, before, team, at);
   addHistory(team, { at, by: actor, kind: "takeover", changes: [{ what: "Coach", from: before.coach, to: coach }] });
   addLog(season, { at, by: actor, kind: "team-coach", teamId, text: `${coach} took over ${team.name} from ${before.coach} (approved by ${actor}).` });

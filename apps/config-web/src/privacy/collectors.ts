@@ -929,6 +929,7 @@ function anonymiseSeason(an: Anonymiser, tx: TextReplacer, displays: ReadonlySet
     // Team library lane: who listed the team for takeover; the entry history's holders (by their own coach / account
     // only: a span never links through the team), who made each change, and the replaced rosters kept with it.
     if (isObj(t.takeover)) { mark(an.fields(t.takeover, ["by"], [])); mark(tx.texts(t.takeover, ["note"])); }
+    if (isObj(t.swapRequest)) mark(an.fields(t.swapRequest, ["by"], []));
     for (const span of objs(t.entryHistory)) {
       if (linked({ coach: span.coach, coachId: span.coachId })) mark(LINKED_ROW(an, span));
       mark(an.fields(span, ["by"], []));

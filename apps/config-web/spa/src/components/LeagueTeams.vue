@@ -178,6 +178,17 @@ async function toggleListing(): Promise<void> {
   if (await lib.setListing(props.leagueId, props.season.id, picked.value.id, on, v.revision)) await refreshTeam();
 }
 async function onSwapped(): Promise<void> { swapping.value = false; await refreshTeam(); }
+const requestNotice = ref("");
+async function onRequested(): Promise<void> { swapping.value = false; requestNotice.value = "Swap request sent. The coach sees which team you picked and approves or declines it."; await refreshTeam(); }
+// The coach's side: an organiser asked to swap in one of their private teams.
+watch(() => `${ctx.value?.team.id ?? ""}|${ctx.value?.team.swapRequest?.id ?? ""}|${ctx.value?.role.coach ?? false}`, () => {
+  if (lib && ctx.value?.role.coach && ctx.value.team.swapRequest && picked.value) void lib.loadRequest(props.leagueId, props.season.id, picked.value.id);
+  else if (lib) lib.request.view = null;
+}, { immediate: true });
+async function answerRequest(verb: "approve" | "decline"): Promise<void> {
+  if (!lib || !picked.value) return;
+  if (await lib.answerRequest(props.leagueId, props.season.id, picked.value.id, verb)) { lib.request.view = null; await refreshTeam(); }
+}
 // "Approve and edit" (the takeover panel) opens the roster summary straight into edit mode: ?edit=1, once the edit context is in.
 const wantEdit = ref(route.query.edit === "1");
 watch(() => route.query.edit, (v) => { wantEdit.value = v === "1"; });
@@ -225,6 +236,15 @@ watch(() => [wantEdit.value, ctx.value?.role.organiser, mayWrite.value] as const
             </span>
           </template>
           <template #top>
+            <div v-if="lib?.request.view && ctx?.role.coach" class="sf-notice tk-request" role="status" data-swap-request>
+              <span>{{ lib.request.view.by }} asks to swap this team for your private team <strong>{{ lib.request.view.name ?? "(no longer in your library)" }}</strong><template v-if="lib.request.view.race"> ({{ lib.request.view.race }})</template>. The entry keeps its standings and fixtures.</span>
+              <small v-if="lib.request.view.ok === false" class="tk-why">{{ lib.request.view.reason }}</small>
+              <span class="tk-actions">
+                <button type="button" class="sf-btn small" :disabled="lib.state.busy" @click="answerRequest('decline')">Decline</button>
+                <button type="button" class="sf-btn small primary" :disabled="lib.state.busy || lib.request.view.ok === false" data-request-approve @click="answerRequest('approve')">Approve swap</button>
+              </span>
+            </div>
+            <p v-if="requestNotice && ctx?.role.organiser" class="hm-notice" role="status">{{ requestNotice }}</p>
             <p v-if="entryLine" class="tk-entry" data-entry-history><span class="tb-k">Entry</span>{{ entryLine }}<small v-if="coachLine">Coaches: {{ coachLine }}</small></p>
             <CaptainVacantDialog v-if="captainOpen && vacant && mayAppoint" :team-name="picked.name" :players="captainRows" :appoint="appointCaptain" @close="captainOpen = false" />
             <p v-if="ctx && ctx.role.organiser && ctx.needDecision" class="sf-notice ts-decide" role="status" data-need-decision>
@@ -279,7 +299,7 @@ watch(() => [wantEdit.value, ctx.value?.role.organiser, mayWrite.value] as const
           @add-skill="(s) => send([{ op: 'addSkill', playerId: menu!.id, skill: s }], `${s} added.`)"
           @injury="onInjury" :fresh="freshRoll" :taken="takenRoll" @roll="onRoll" @resolve="onResolve"
         />
-        <TeamSwapDialog v-if="swapping && ctx?.role.organiser" :league-id="leagueId" :season-id="season.id" :team-id="picked.id" :team-name="picked.name" :revision="ctx.revision" @close="swapping = false" @swapped="onSwapped" />
+        <TeamSwapDialog v-if="swapping && ctx?.role.organiser" :league-id="leagueId" :season-id="season.id" :team-id="picked.id" :team-name="picked.name" :revision="ctx.revision" @close="swapping = false" @swapped="onSwapped" @requested="onRequested" />
         <p v-if="lib?.state.error" class="sf-error" role="alert">{{ lib.state.error }}</p>
         <TeamStatusDialog v-if="status && ctx?.role.organiser" :view="ctx" :start="status" :busy="busy" :error="page?.state.error" @close="status = null" @status="onStatus" @decide="onDecide" />
       </template>

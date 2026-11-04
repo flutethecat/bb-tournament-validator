@@ -177,24 +177,57 @@ function coachFacetsOf(s: FixtureSide): PlayedCoach {
 export function gameCoach(s: FixtureSide): FixtureSide | (PlayedCoach & Omit<FixtureSide, keyof PlayedCoach>) {
   if (!s.playedBy) return s;
   const { coach: _c, coachId: _i, nafUser: _n, coachAssigned: _a, ...rest } = s;
-  return { ...rest, ...s.playedBy };
+  const { span: _s, ...played } = s.playedBy;
+  return { ...rest, ...played };
+}
+
+/** The entry's holder index for a side's team: how many times it changed hands (LeagueTeam.entryHistory). */
+const holderOf = (team: SeatTeam | undefined): number => Math.max(0, (team?.entryHistory?.length ?? 1) - 1);
+
+/** What a season team gives its fixture sides (the seat, the name, the holder index). */
+export interface SeatTeam {
+  id: string; name: string; race: string; coach: string; coachId?: string; nafUser?: string;
+  coachAssigned?: { cleared?: true }; entryHistory?: unknown[];
 }
 
 /**
- * Freezes the coach of every side that has a result and no stamp yet (in place), and drops the stamp from a side whose
- * result was cleared (a replay after a takeover then counts for the new coach). The stamp is the side's own facets at
- * that moment: unplayed sides follow their team (Assign coach account, a swap, an approved takeover re-seat them), so
- * they name the coach who played. LeagueStore.putSeason runs it on every season write, so every result path (the fork,
- * the recorder, the fixtures editor, forfeits, deadlines, imports) gets it. Returns how many sides changed.
+ * Records follow the coach of each game (team library lane). In place, on every season write (LeagueStore.putSeason), so
+ * every result path (the fork, the recorder, the fixtures editor, forfeits, deadlines, imports) gets it:
+ *  - a side that has a result and no stamp is stamped with the coach who played it: the side's own facets (unplayed sides
+ *    follow their team: Assign coach account, a swap and an approved takeover re-seat them), with the entry's holder index;
+ *    a cleared result re-entered while the entry still has the same holder takes back its earlier stamp (a correction of
+ *    the same game); after a change of hands it is stamped from the current seat (the replay is the new holder's);
+ *  - a side whose result was cleared drops its stamp (kept as clearedPlayedBy) and is re-seated to its team as it is now,
+ *    so a replay after a takeover or swap is played and credited by the team's current coach.
+ * Returns how many sides changed.
  */
-export function stampPlayedCoaches(season: { fixtures?: LeagueFixture[] }): number {
+export function stampPlayedCoaches(season: { fixtures?: LeagueFixture[]; teams?: SeatTeam[] }): number {
   let n = 0;
+  const teams = new Map((season.teams ?? []).map((t) => [t.id, t] as const));
   for (const f of season.fixtures ?? []) {
     const played = fixtureOutcome(f) !== undefined;
     for (const side of [f.home, f.away]) {
       if (!side) continue;
-      if (played && !side.playedBy && (side.coach || side.coachId)) { side.playedBy = coachFacetsOf(side); n += 1; }
-      else if (!played && side.playedBy) { delete side.playedBy; n += 1; }
+      const team = side.teamId ? teams.get(side.teamId) : undefined;
+      if (played && !side.playedBy && (side.coach || side.coachId)) {
+        const kept = side.clearedPlayedBy;
+        side.playedBy = kept && (kept.span ?? 0) === holderOf(team) ? kept : { ...coachFacetsOf(side), ...(team ? { span: holderOf(team) } : {}) };
+        delete side.clearedPlayedBy;
+        n += 1;
+      } else if (!played && side.playedBy) {
+        side.clearedPlayedBy = side.playedBy;
+        delete side.playedBy;
+        if (team) {
+          side.team = team.name;
+          side.race = team.race;
+          side.coach = team.coach;
+          delete side.coachId;
+          delete side.coachAssigned;
+          delete side.nafUser;
+          Object.assign(side, teamSeat(team));
+        }
+        n += 1;
+      }
     }
   }
   return n;

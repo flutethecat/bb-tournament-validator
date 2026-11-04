@@ -31,7 +31,12 @@ export interface LibraryItem {
   source?: string;
   ok: boolean;
   reason?: string;
+  /** A team the coach never shared: no details; a swap only asks the coach to approve. */
+  private?: true;
 }
+
+/** The coach's view of an organiser's swap request (GET .../teams/:teamId/swap-request). */
+export interface SwapRequestView { id: string; by: string; at: string; name?: string; race?: string; ok?: boolean; reason?: string }
 
 export interface TeamLibraryView {
   team: { id: string; name: string; race: string; games: number };
@@ -41,6 +46,8 @@ export interface TeamLibraryView {
   reason?: string;
   /** Why the entry can't change right now (a Super FUMBBL game, a finished season). */
   block?: string;
+  /** A swap request already waits for the coach. */
+  request?: { by: string; at: string };
 }
 
 export const LIBRARY_GROUPS: ReadonlyArray<{ kind: LibraryItem["kind"]; label: string }> = [
@@ -62,7 +69,8 @@ export function libraryTv(tv: number | null | undefined): string {
 }
 
 /** The second line of a library row: race, value, where a league team last played. */
-export function librarySub(i: Pick<LibraryItem, "race" | "tv" | "source">): string {
+export function librarySub(i: Pick<LibraryItem, "race" | "tv" | "source" | "private">): string {
+  if (i.private) return "Not shared: the coach approves the swap";
   return [i.race, libraryTv(i.tv), i.source].filter(Boolean).join(" · ");
 }
 
@@ -257,12 +265,12 @@ export function createTeamLibrary(deps: { api: Fetcher }) {
       state.error = errorText(err, "Can't load the coach's teams.");
     }
   }
-  async function post(path: string, body: Record<string, unknown>): Promise<boolean> {
+  async function post(path: string, body: Record<string, unknown>): Promise<boolean | "requested"> {
     state.busy = true;
     state.error = "";
     try {
-      await deps.api(path, { method: "POST", body });
-      return true;
+      const out = await deps.api<{ requested?: boolean }>(path, { method: "POST", body });
+      return out?.requested ? "requested" : true;
     } catch (err) {
       state.error = errorText(err, "That didn't work. Try again.");
       return false;
@@ -270,9 +278,16 @@ export function createTeamLibrary(deps: { api: Fetcher }) {
       state.busy = false;
     }
   }
-  const swap = (leagueId: string, seasonId: string, teamId: string, ref: string, revision: number): Promise<boolean> =>
+  const swap = (leagueId: string, seasonId: string, teamId: string, ref: string, revision: number): Promise<boolean | "requested"> =>
     post(`${seasonPath(leagueId, seasonId)}/teams/${encodeURIComponent(teamId)}/swap`, { revision, ref });
-  const setListing = (leagueId: string, seasonId: string, teamId: string, available: boolean, revision: number): Promise<boolean> =>
+  const setListing = (leagueId: string, seasonId: string, teamId: string, available: boolean, revision: number): Promise<boolean | "requested"> =>
     post(`${seasonPath(leagueId, seasonId)}/teams/${encodeURIComponent(teamId)}/takeover`, { revision, available });
-  return { state, load, swap, setListing };
+  // The coach's side of a swap request: which of their private teams was asked for, approve or decline.
+  const request = reactive({ view: null as SwapRequestView | null });
+  async function loadRequest(leagueId: string, seasonId: string, teamId: string): Promise<void> {
+    try { request.view = (await deps.api<{ request: SwapRequestView | null }>(`${seasonPath(leagueId, seasonId)}/teams/${encodeURIComponent(teamId)}/swap-request`)).request; } catch { request.view = null; }
+  }
+  const answerRequest = (leagueId: string, seasonId: string, teamId: string, verb: "approve" | "decline"): Promise<boolean | "requested"> =>
+    post(`${seasonPath(leagueId, seasonId)}/teams/${encodeURIComponent(teamId)}/swap-request/${verb}`, {});
+  return { state, load, swap, setListing, request, loadRequest, answerRequest };
 }

@@ -100,7 +100,9 @@ function stubFork() {
 function harness() {
   const root = mkdtempSync(join(tmpdir(), "bbtv-tlib-"));
   roots.push(root);
-  const store = new LeagueStore(root);
+  const exits: string[] = [];
+  const store = new LeagueStore(root, { onRosterExit: (_l, coaches) => exits.push(...coaches) });
+  const matches: Array<{ fixtureRef?: string; state: string }> = [];
   const sent: Sent[] = [];
   const acked = new Set<string>(); // "<league>:<coach>"
   const identities: Record<string, CoachIdentityRecord> = {};
@@ -138,10 +140,10 @@ function harness() {
   acked.add(`${L}:bob`);
   acked.add("other:ann");
 
-  const coachTeams: Record<string, Array<{ ref: string; kind: "save" | "library"; name: string; race: string; tv: number | null }>> = {
+  const coachTeams: Record<string, Array<{ ref: string; kind: "save" | "library"; name: string; race: string; tv: number | null; shared?: boolean }>> = {
     ann: [
-      { ref: "save:s1-human", kind: "save", name: "Ann Hammers", race: "Human", tv: 650_000 },
-      { ref: "save:bad", kind: "save", name: "Broken", race: "Orc", tv: null },
+      { ref: "save:s1-human", kind: "save", name: "Ann Hammers", race: "Human", tv: 650_000, shared: true },
+      { ref: "save:bad", kind: "save", name: "Broken", race: "Orc", tv: null, shared: true },
       { ref: "library:lib1-human", kind: "library", name: "Ann Library", race: "Human", tv: 1_000 },
     ],
     eve: [{ ref: "save:e1-orc", kind: "save", name: "Eve Tuskers", race: "Orc", tv: 650_000 }, { ref: "save:bad", kind: "save", name: "Broken", race: "Orc", tv: null }],
@@ -172,6 +174,7 @@ function harness() {
       },
       contacts: (viewer, entries, managers) => entries.map((e) => registrationContactFor(viewer, identities[e.coach.toLowerCase()], parseShareScope(`league:${e.competitionId}`)!, e, managers)),
     },
+    tabletop: { listMatches: async () => matches as never, readEvents: async () => [] },
     teamLibraryBeforeWrite: () => { if (faults.failNextWrite) { faults.failNextWrite = false; throw new Error("disk full"); } },
   });
   const call = async (method: string, path: string, auth?: LeagueApiIdentity, b?: unknown): Promise<LeagueApiResult> => {
@@ -186,7 +189,7 @@ function harness() {
   const listingId = (teamId = "grudge") => season().teams.find((t) => t.id === teamId)!.takeover!.id;
   const apply = (who: string, b: Record<string, unknown>, listing = listingId()) => call("POST", `${base}/takeovers/${listing}/applications`, coach(who), b);
   const panel = async (auth: LeagueApiIdentity) => (await call("GET", `${base}/takeovers`, auth)).body as Record<string, any>;
-  return { store, sent, acked, fork, faults, call, season, rev, list, listingId, apply, panel };
+  return { store, sent, acked, fork, faults, exits, matches, coachTeams, call, season, rev, list, listingId, apply, panel };
 }
 
 const standingOf = async (h: ReturnType<typeof harness>, teamId: string) => {
@@ -206,7 +209,8 @@ describe("coach libraries for organisers", () => {
     const by = (ref: string) => items.find((i) => i.ref === ref)!;
     expect(by("save:s1-human")).toMatchObject({ kind: "save", ok: true, race: "Human" });
     expect(by("save:bad")).toMatchObject({ ok: false, reason: "Too many big guys." });
-    expect(by("library:lib1-human")).toMatchObject({ kind: "library", ok: true });
+    // a team the coach never shared shows as private: no name, race, value or check result
+    expect(by("library:lib1-human")).toEqual({ ref: "library:lib1-human", kind: "library", name: "Private library team", race: "", tv: null, ok: true, private: true });
     expect(by(`league:${L}/season-6/oldham`)).toMatchObject({ kind: "league", ok: true, source: "TABBL Season 6" });
     expect(by("league:other/season-0/vintage")).toMatchObject({ ok: false, reason: "Built for BB2020; this season plays BB2025." });
     expect(by("league:other/season-1/busy")).toMatchObject({ ok: false, reason: "Still playing in Other BBL Season 1." });
@@ -574,8 +578,8 @@ describe("the coach of each game", () => {
     const applied = backfillPlayedCoaches(h.store, true);
     expect(applied.sides).toBe(4);
     const s = h.season();
-    expect(s.fixtures[0]!.home.playedBy).toEqual({ coach: "Ann", coachId: "Ann" });
-    expect(s.fixtures[1]!.away.playedBy).toEqual({ coach: "Ann", coachId: "Ann" });
+    expect(s.fixtures[0]!.home.playedBy).toEqual({ coach: "Ann", coachId: "Ann", span: 0 });
+    expect(s.fixtures[1]!.away.playedBy).toEqual({ coach: "Ann", coachId: "Ann", span: 0 });
     expect(s.fixtures[2]!.home.playedBy).toBeUndefined(); // unplayed
     expect(backfillPlayedCoaches(h.store, false).sides).toBe(0);
     // the league statistics count those games for Ann, not the team's current coach
@@ -629,5 +633,177 @@ describe("privacy: deletion and export cover the new records", () => {
     expect(a.takeoverApplications[0].registrationLog[0].by).toBe(P);
     expect(JSON.stringify(a.teams[0].entryHistory)).not.toMatch(/Alice/);
     expect(JSON.stringify(a.takeoverApplications)).not.toMatch(/Alice/);
+  });
+});
+
+// ---- review round (Sol, 11-03): guards, locks, consent, replays, registration row, listings -----------------------------
+
+describe("review: the team behind an entry changes only when nothing can credit the wrong coach", () => {
+  it("P1: a cancelled fork game that still holds a game id blocks a swap and a takeover approval", async () => {
+    const h = harness();
+    await h.list(true);
+    await h.apply("Dan", { mode: "takeover", share: [], acknowledged: true });
+    const s = h.season();
+    s.fixtures.find((f) => f.id === "f3")!.fork = { status: "cancelled", statusBeforeCancel: "scheduled", gameId: "g77", teams: {}, log: [] };
+    h.store.putSeason(s);
+    const swap = await h.call("POST", `${base}/teams/grudge/swap`, JAY, { revision: h.rev(), ref: "save:s1-human" });
+    expect(swap.status).toBe(409);
+    expect((swap.body as { error: string }).error).toContain("Super FUMBBL game exists");
+    const id = h.season().takeoverApplications![0]!.id;
+    const ok = await h.call("POST", `${base}/takeovers/${h.listingId()}/applications/${id}/approve`, JAY, {});
+    expect(ok.status).toBe(409);
+    expect(h.season().teams.find((t) => t.id === "grudge")!.coachId).toBe("Ann");
+    // an applied result frees it
+    const s2 = h.season();
+    s2.fixtures.find((f) => f.id === "f3")!.fork!.result = { gameId: "g77", source: "basic", appliedAt: "x", home: { score: 1, cas: 0, conceded: false, winnings: 0, lines: [] }, away: { score: 0, cas: 0, conceded: false, winnings: 0, lines: [] } };
+    h.store.putSeason(s2);
+    expect((await h.call("POST", `${base}/takeovers/${h.listingId()}/applications/${id}/approve`, JAY, {})).status).toBe(200);
+  });
+
+  it("P2-5: an unpublished recorder match on the team's fixtures blocks a swap and an approval", async () => {
+    const h = harness();
+    await h.list(true);
+    await h.apply("Dan", { mode: "takeover", share: [], acknowledged: true });
+    h.matches.push({ fixtureRef: `league:${L}:${S}:f3`, state: "submitted" });
+    const swap = await h.call("POST", `${base}/teams/grudge/swap`, JAY, { revision: h.rev(), ref: "save:s1-human" });
+    expect(swap.status).toBe(409);
+    expect((swap.body as { error: string }).error).toContain("tabletop match");
+    const id = h.season().takeoverApplications![0]!.id;
+    expect((await h.call("POST", `${base}/takeovers/${h.listingId()}/applications/${id}/approve`, JAY, {})).status).toBe(409);
+    // another season's match, or a published one, does not block
+    h.matches[0]!.state = "published";
+    h.matches.push({ fixtureRef: `league:${L}:season-6:f3`, state: "recording" });
+    expect((await h.call("POST", `${base}/takeovers/${h.listingId()}/applications/${id}/approve`, JAY, {})).status).toBe(200);
+  });
+
+  it("P2-2: a swap waits for a fork generate holding the team's locks, then is judged against what it recorded", async () => {
+    const h = harness();
+    const { withForkLocks, fixtureLockKey } = await import("../src/leagues/forkPlay.js");
+    const { forkTeamIdFor } = await import("../src/leagues/forkTeam.js");
+    let release!: () => void;
+    const held = new Promise<void>((r) => { release = r; });
+    let entered!: () => void;
+    const inside = new Promise<void>((r) => { entered = r; });
+    const generate = withForkLocks([fixtureLockKey(L, S, "f3")], [forkTeamIdFor(L, S, "grudge")], async () => {
+      entered();
+      await held;
+      // what the generate recorded while holding the locks: a scheduled game for the team
+      const s = h.season();
+      s.fixtures.find((f) => f.id === "f3")!.fork = { status: "scheduled", gameId: "g5", teams: {}, log: [] };
+      h.store.putSeason(s);
+    });
+    await inside;
+    const swap = h.call("POST", `${base}/teams/grudge/swap`, JAY, { revision: h.rev(), ref: "save:s1-human" });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(h.season().teams.find((t) => t.id === "grudge")!.name).toBe("Grudge Rollers"); // still waiting
+    release();
+    await generate;
+    const r = await swap;
+    expect(r.status).toBe(409); // judged under the lock: the season moved on and the game now exists
+    expect(h.season().teams.find((t) => t.id === "grudge")!.name).toBe("Grudge Rollers");
+  });
+});
+
+describe("review: an organiser never sees or uses a private team without the coach's consent", () => {
+  it("P2-3: unshared saves show as private; picking one asks the coach, who sees which team and approves", async () => {
+    const h = harness();
+    h.coachTeams.ann!.push({ ref: "save:secret-human", kind: "save", name: "Secret Squirrels", race: "Human", tv: 900_000 });
+    const lib = await h.call("GET", `${base}/teams/grudge/library`, JAY);
+    const item = (lib.body as { items: Array<Record<string, unknown>> }).items.find((i) => i.ref === "save:secret-human")!;
+    expect(item).toEqual({ ref: "save:secret-human", kind: "save", name: "Private save", race: "", tv: null, ok: true, private: true });
+    expect(JSON.stringify(lib.body)).not.toContain("Secret Squirrels");
+    const r = await h.call("POST", `${base}/teams/grudge/swap`, JAY, { revision: h.rev(), ref: "save:secret-human" });
+    expect(r.status, JSON.stringify(r.body)).toBe(202);
+    expect(r.body).toMatchObject({ requested: true });
+    const t = h.season().teams.find((x) => x.id === "grudge")!;
+    expect(t.name).toBe("Grudge Rollers");
+    expect(t.swapRequest).toMatchObject({ ref: "save:secret-human", by: "Jay" });
+    expect(h.sent.find((x) => x.coach === "Ann")!.input).toMatchObject({ title: "Swap request: Grudge Rollers", action: true });
+    // the organiser sees that a request waits, never the team; the coach sees it; the public read has nothing
+    const asOrg = await h.call("GET", `${base}/teams/grudge/swap-request`, JAY);
+    expect(JSON.stringify(asOrg.body)).not.toContain("Secret");
+    const asCoach = await h.call("GET", `${base}/teams/grudge/swap-request`, coach("Ann"));
+    expect(asCoach.body).toMatchObject({ request: { by: "Jay", name: "Ann Hammers", race: "Human", ok: true } }); // the composed sheet's name (the fake check names it)
+    expect((await h.call("GET", `${base}/teams/grudge/swap-request`, coach("Bob"))).status).toBe(403);
+    const pub = ((await h.call("GET", base)).body as { season: SeasonRecord }).season;
+    expect(pub.teams.find((x) => x.id === "grudge")).not.toHaveProperty("swapRequest");
+    // only the coach approves
+    expect((await h.call("POST", `${base}/teams/grudge/swap-request/approve`, JAY, {})).status).toBe(403);
+    const ok = await h.call("POST", `${base}/teams/grudge/swap-request/approve`, coach("Ann"), {});
+    expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+    const after = h.season().teams.find((x) => x.id === "grudge")!;
+    expect(after.name).toBe("Ann Hammers");
+    expect(after.swapRequest).toBeUndefined();
+    expect(h.sent.some((x) => x.coach === "Jay" && x.input.title === "Swap approved: Ann Hammers")).toBe(true);
+  });
+
+  it("P2-3: the coach can decline; an organiser can withdraw; nothing else changes", async () => {
+    const h = harness();
+    h.coachTeams.ann!.push({ ref: "save:secret-human", kind: "save", name: "Secret Squirrels", race: "Human", tv: 900_000 });
+    await h.call("POST", `${base}/teams/grudge/swap`, JAY, { revision: h.rev(), ref: "save:secret-human" });
+    const d = await h.call("POST", `${base}/teams/grudge/swap-request/decline`, coach("Ann"), {});
+    expect(d.status).toBe(200);
+    expect(h.season().teams.find((x) => x.id === "grudge")!.name).toBe("Grudge Rollers");
+    expect(h.season().teams.find((x) => x.id === "grudge")!.swapRequest).toBeUndefined();
+    expect(h.sent.some((x) => x.coach === "Jay" && x.input.title === "Swap declined: Grudge Rollers")).toBe(true);
+    expect((await h.call("POST", `${base}/teams/grudge/swap-request/approve`, coach("Ann"), {})).status).toBe(409);
+    expect((await h.call("POST", `${base}/teams/grudge/swap`, JAY, { revision: h.rev(), ref: "library:lib1-human" })).status).toBe(202);
+    expect((await h.call("POST", `${base}/teams/grudge/swap-request/decline`, KIM, {})).status).toBe(200);
+    expect(h.season().teams.find((x) => x.id === "grudge")!.swapRequest).toBeUndefined();
+  });
+});
+
+describe("review: replays, registration rows and listings", () => {
+  it("P2-4: a result cleared after a takeover re-seats the side to the new coach and the replay counts for them; a correction by the same holder keeps its coach", async () => {
+    const h = harness();
+    const fx = (id: string) => h.season().fixtures.find((f) => f.id === id)!;
+    const edit = (id: string, fn: (f: LeagueFixture) => void) => { const s = h.season(); fn(s.fixtures.find((f) => f.id === id)!); h.store.putSeason(s); };
+    // a correction with no change of hands keeps the original stamp (with a NAF name only that stamp had)
+    edit("f2", (f) => { f.away.playedBy = { coach: "Ann", coachId: "Ann", nafUser: "AnnNaf", span: 0 }; });
+    edit("f2", (f) => { f.home.score = null; f.away.score = null; });
+    expect(fx("f2").away.playedBy).toBeUndefined();
+    edit("f2", (f) => { f.home.score = 1; f.away.score = 1; });
+    expect(fx("f2").away.playedBy).toEqual({ coach: "Ann", coachId: "Ann", nafUser: "AnnNaf", span: 0 });
+    // Dan takes over; unplayed fixtures move to him at once
+    await h.list(true);
+    await h.apply("Dan", { mode: "takeover", share: [], acknowledged: true });
+    await h.call("POST", `${base}/takeovers/${h.listingId()}/applications/${h.season().takeoverApplications![0]!.id}/approve`, JAY, {});
+    expect(fx("f3").home).toMatchObject({ coach: "Dan", coachId: "Dan" });
+    // f1 (played by Ann) is cleared: the side is seated for Dan, and the replay counts for him
+    expect(fx("f1").home.playedBy).toMatchObject({ coach: "Ann" });
+    edit("f1", (f) => { f.home.score = null; f.away.score = null; });
+    expect(fx("f1").home).toMatchObject({ coach: "Dan", coachId: "Dan" });
+    edit("f1", (f) => { f.home.score = 0; f.away.score = 2; });
+    expect(fx("f1").home.playedBy).toEqual({ coach: "Dan", coachId: "Dan", coachAssigned: true, span: 1 });
+  });
+
+  it("P2-6: a race-changing swap updates the entry's accepted registration row in the same write", async () => {
+    const h = harness();
+    const s = h.season();
+    s.registrations = [{ id: "lr-aaaaaaaaaaaa", leagueId: L, seasonId: S, coach: "Ann", state: "accepted", submittedAt: "", enteredAt: "", registrationLog: [], race: "Human", teamName: "Grudge Rollers", teamRef: "save:x", kind: "new", teamSnapshot: { teamName: "Grudge Rollers", race: "Human", rerolls: 2, apothecary: false, assistantCoaches: 0, cheerleaders: 0, dedicatedFans: 1, cost: 0, players: [] }, validation: { ok: true, problems: [], checkedAt: "" }, teamId: "grudge" }];
+    h.store.putSeason(s);
+    h.coachTeams.ann!.push({ ref: "save:s9-orc", kind: "save", name: "Ann Tuskers", race: "Orc", tv: 650_000, shared: true });
+    const rev = h.rev();
+    const r = await h.call("POST", `${base}/teams/grudge/swap`, JAY, { revision: rev, ref: "save:s9-orc" });
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(h.rev()).toBe(rev + 1);
+    expect(h.season().registrations![0]).toMatchObject({ race: "Orc", teamName: "Ann Tuskers", teamId: "grudge", state: "accepted" });
+  });
+
+  it("P2-7: swapping a listed entry closes the listing, declines its pending applications, tells them and releases their acknowledgements", async () => {
+    const h = harness();
+    await h.list(true);
+    await h.apply("Eve", { mode: "takeover", share: [], acknowledged: true });
+    await h.apply("Bob", { mode: "takeover" });
+    const rev = h.rev();
+    const r = await h.call("POST", `${base}/teams/grudge/swap`, JAY, { revision: rev, ref: "save:s1-human" });
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(h.rev()).toBe(rev + 1); // one write
+    const s = h.season();
+    expect(s.teams.find((t) => t.id === "grudge")!.takeover).toBeUndefined();
+    for (const who of ["Eve", "Bob"]) expect(s.takeoverApplications!.find((a) => a.coach === who)).toMatchObject({ state: "declined", decided: { reason: "The team is no longer available for takeover." } });
+    expect(h.sent.filter((x) => x.input.title === "Application closed: Grudge Rollers" && x.input.body === "This team is no longer available for takeover.").map((x) => x.coach).sort()).toEqual(["Bob", "Eve"]);
+    expect(h.exits).toContain("Eve"); // the non-member's acknowledgement goes
+    expect(h.exits).not.toContain("Bob"); // a member keeps theirs
   });
 });

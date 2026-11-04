@@ -2568,7 +2568,7 @@ async function handleApi(
       coachTeams: (coach) => {
         try {
           return [
-            ...readSaves(BUILDER_SAVES_DIR, coach).map((x) => ({ ref: `save:${x.id}`, kind: "save" as const, name: x.name, race: x.raceName ?? "", tv: typeof x.lastPreview?.teamValue === "number" ? (x.lastPreview.teamValue as number) : null })),
+            ...readSaves(BUILDER_SAVES_DIR, coach).map((x) => ({ ref: `save:${x.id}`, kind: "save" as const, name: x.name, race: x.raceName ?? "", tv: typeof x.lastPreview?.teamValue === "number" ? (x.lastPreview.teamValue as number) : null, shared: Boolean(x.shareToken) })),
             ...readLibrary(LIBRARY_DIR, coach).filter((t) => t.retired !== true).map((t) => ({ ref: `library:${t.teamId}`, kind: "library" as const, name: t.teamName, race: t.race ?? "", tv: typeof t.teamValue === "number" ? t.teamValue * 1000 : null })),
           ];
         } catch { return []; }

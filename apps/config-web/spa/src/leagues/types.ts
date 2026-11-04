@@ -344,6 +344,8 @@ export interface LeagueTeam {
   takeover?: { id: string; since: string; note?: string };
   /** The entry's holders, oldest first (server teamLibrary.ts): absent = the team held it all season. */
   entryHistory?: EntrySpan[];
+  /** An organiser's request to swap in one of the coach's private teams (coach and organisers only). */
+  swapRequest?: { id: string; by: string; at: string };
 }
 
 /** One holder of a league entry ("Team A (games 1-5)"). */

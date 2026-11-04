@@ -279,6 +279,9 @@ export interface FixtureSide {
    * attribute the game by it (identity.ts gameCoach), never by the team's current coach. Cleared again when the result is.
    */
   playedBy?: PlayedCoach;
+  /** The stamp of a result that was cleared, kept so a correction re-entered by the same holder counts for the same
+   *  coach (identity.ts stampPlayedCoaches); dropped when the entry changes hands meanwhile. */
+  clearedPlayedBy?: PlayedCoach;
 }
 
 /** The coach facets of one side at the time it was played (FixtureSide.playedBy). */
@@ -287,6 +290,9 @@ export interface PlayedCoach {
   coachId?: string;
   nafUser?: string;
   coachAssigned?: true;
+  /** How many times the team behind the entry had changed hands (LeagueTeam.entryHistory spans - 1) when this side was
+   *  played: a cleared result re-entered while it is still the same holder keeps this stamp (identity.ts). */
+  span?: number;
 }
 
 export interface LeagueFixture {
@@ -869,6 +875,10 @@ export interface LeagueTeam {
    * nothing is lost) stays with the coach and organisers.
    */
   entryHistory?: EntrySpan[];
+  /** An organiser asked to swap in one of the coach's PRIVATE teams (a save or library team the coach never shared): the
+   *  coach approves or declines it (teamLibraryApi.ts). The ref names the coach's own team; organisers never see its
+   *  contents. Coach and organisers only: never in a public read. */
+  swapRequest?: { id: string; ref: string; by: string; at: string };
 }
 
 /** One holder of a league entry (LeagueTeam.entryHistory). */

@@ -1381,6 +1381,12 @@ function fixtureForPublish(match: MatchRecord, at: string, deps: TabletopApiDeps
     if (!f || !f.open) return { error: err(409, "The fixture is no longer open; resolve it in the tournament first.") };
     const cas = (s: PostMatchSummary) => s.players.reduce((n, p) => n + p.casualtiesCaused, 0);
     const swapped = match.fixtureSwap === true;
+    // The fixture's seats must still be the coaches who played (a league swap or takeover re-seats a fixture): a result is
+    // never credited to a coach who did not play it.
+    const seat = (c: string | undefined) => (c ?? "").normalize("NFC").trim().toLowerCase();
+    const [mh, ma] = swapped ? [match.away, match.home] : [match.home, match.away];
+    if (match.fixtureRef.startsWith("league:") && f.home.coach && f.away.coach && (seat(mh.coach) !== seat(f.home.coach) || seat(ma.coach) !== seat(f.away.coach)))
+      return { error: err(409, "The coaches of this fixture changed since the match started (a team swap or takeover), so this result can't be published to it. An organiser can enter the result in the fixtures editor.") };
     const [h, a] = swapped ? [preview.away, preview.home] : [preview.home, preview.away];
     fixture = {
       op: "record", id: match.fixtureRef, opId: op, expectedRevision: f.revision, at,
