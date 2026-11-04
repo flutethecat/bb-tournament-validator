@@ -105,7 +105,7 @@ function startOver(): void {
 }
 
 // Competition templates: "Start from template" (step 1) and "Save as template" (Review).
-const templates = tournamentTemplates(fetcher);
+const templates = tournamentTemplates(fetcher, session);
 const picking = ref(false);
 const savingTemplate = ref(false);
 function useTemplate(t: TemplateView, usePayLinks: boolean): void {

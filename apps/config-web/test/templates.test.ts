@@ -177,6 +177,24 @@ describe("season templates", () => {
     expect(leagues.league("pond")!.rulesetPackage).toBeUndefined();
   });
 
+  it("unticking Use its rules keeps the league's base ruleset too (BB2020 template into a BB2025 league)", async () => {
+    leagues.updateLeague("river", (l) => { delete l.rulesetPackage; l.ruleset = "BB2020"; });
+    leagues.putSeason({ ...season("river", 1, { status: "completed", stage: undefined }), ruleset: "BB2020" });
+    const id = tpl(await saveSeason()).id;
+    expect((templates.get(id)!.content as { ruleset: string }).ruleset).toBe("BB2020");
+    leagues.updateLeague("pond", (l) => { l.ruleset = "BB2025"; });
+    const kept = await leagueCall({ coach: "Jay", admin: false }, "POST", "/api/leagues/pond/seasons", { from: "template", templateId: id, applyRules: false });
+    expect(kept.status).toBe(201);
+    expect(leagues.season("pond", "season-1")!.ruleset).toBe("BB2025");
+    expect(leagues.league("pond")!.ruleset).toBe("BB2025");
+    expect((kept.body as any).template.rulesApplied).toBe(false);
+    // ticked (the default): the template's ruleset comes with its rules
+    const taken = await leagueCall({ coach: "Jay", admin: false }, "POST", "/api/leagues/pond/seasons", { from: "template", templateId: id });
+    expect(taken.status).toBe(201);
+    expect(leagues.season("pond", "season-2")!.ruleset).toBe("BB2020");
+    expect(leagues.league("pond")!.ruleset).toBe("BB2020");
+  });
+
   it("a ladder can't be saved as a season template", async () => {
     leagues.putSeason({ ...season("river", 9), id: "ladder-1", competition: "ladder" } as SeasonRecord);
     const r = api(JAY, "POST", "/api/templates", { kind: "season", name: "x", from: { leagueId: "river", seasonId: "ladder-1" } });
@@ -201,6 +219,14 @@ describe("tournament templates", () => {
     expect(c.discordEvents).toEqual({ published: true, roundPosted: true, matchStarted: false });
     const raw = readFileSync(join(dir, "competition-templates.json"), "utf8");
     for (const bad of ["webhooks", "Example Hall", "1 Example Road", "A summary"]) expect(raw).not.toContain(bad);
+  });
+
+  it("a legacy tournament (no registration settings) is captured with its effective settings: no waitlist, roster with the entry, no self check-in", () => {
+    const { registration: _r, ...legacy } = tournament();
+    tournaments.set("old-cup", { ...legacy, id: "old-cup" } as TournamentRecord);
+    const c = tpl(api(JAY, "POST", "/api/templates", { kind: "tournament", name: "Old cup", from: { tournamentId: "old-cup" } })).content;
+    expect(c).toMatchObject({ approval: "auto", waitlist: false, rosterLater: false, selfCheckIn: false });
+    expect(c.relative).toMatchObject({ registrationOpens: null, rosterBy: null, checkInOpens: null, checkInCloses: null, registrationCloses: 4 * 1440 });
   });
 
   it("relative check-in times resolve against a new start date", () => {

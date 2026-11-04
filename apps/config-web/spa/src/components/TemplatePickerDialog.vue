@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // "Start from template": pick one of your templates or one shared with you. When the template is yours and keeps
 // payment links, using them is asked here (off by default).
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import LeagueDialog from "./LeagueDialog.vue";
 import { ownerLine, type TemplatesController, type TemplateView } from "../shared/templates";
 import "../leagues/leagues.css";
@@ -11,6 +11,8 @@ const props = withDefaults(defineProps<{ templates: TemplatesController; title?:
 const emit = defineEmits<{ close: []; pick: [t: TemplateView, usePayLinks: boolean] }>();
 const { state } = props.templates;
 onMounted(() => { if (!state.loaded) void props.templates.load(); });
+// Another account signed in (the controller was reset): load that account's templates.
+watch(() => state.account, () => { if (!state.loaded) void props.templates.load(); });
 const usable = computed(() => state.list.filter((t) => t.content));
 const picked = ref("");
 const chosen = computed(() => usable.value.find((t) => t.id === picked.value));

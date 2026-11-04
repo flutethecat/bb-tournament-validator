@@ -2,7 +2,7 @@
 // The Templates list (competition templates): your own templates and those other organisers shared with you, for one
 // kind. Yours: Share, Rename, Make a copy, Delete. Shared: Make a copy (your own editable copy). League settings shows the
 // season kind, tournament Manage the tournament kind. The default slot holds the page's own "Save as template".
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import LeagueDialog from "./LeagueDialog.vue";
 import TemplateShareDialog from "./TemplateShareDialog.vue";
 import { ownerLine, TEMPLATE_DESCRIPTION_MAX, TEMPLATE_NAME_MAX, type TemplatesController, type TemplateView } from "../shared/templates";
@@ -12,6 +12,8 @@ import "../shared/templates.css";
 const props = withDefaults(defineProps<{ templates: TemplatesController; title?: string; headingId?: string }>(), { title: "Templates", headingId: "tp-list-h" });
 const { state } = props.templates;
 onMounted(() => { if (!state.loaded) void props.templates.load(); });
+// Another account signed in (the controller was reset): load that account's templates.
+watch(() => state.account, () => { if (!state.loaded) void props.templates.load(); });
 const own = computed(() => state.list.filter((t) => t.mine));
 const shared = computed(() => state.list.filter((t) => !t.mine));
 const sharing = ref<TemplateView | null>(null);

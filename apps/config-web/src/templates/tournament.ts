@@ -14,13 +14,16 @@ import { houseRulesOf } from "../competition/houseRules.js";
 import { minutesBefore, parseTournamentTemplateContent, type TournamentContentOptions, type TournamentTemplateContent } from "../competition/templates.js";
 import { eventKeysFor } from "../discord/catalogue.js";
 import { parsePayField } from "../payments/links.js";
+import { LEGACY_REGISTRATION } from "../tournaments/publication.js";
 import type { TournamentRecord } from "../tournaments/types.js";
 
 export const tournamentContentOptions = (): TournamentContentOptions => ({ eventKeys: eventKeysFor("tournament"), payField: parsePayField });
 
 /** Check-in opens 24 h before the start when the tournament leaves it blank (the registration core's default). */
 export function captureTournament(t: TournamentRecord, discordEvents: Record<string, boolean> | undefined, includePayLinks: boolean): TournamentTemplateContent {
-  const reg = t.registration;
+  // The EFFECTIVE settings: a tournament written before registration settings existed runs on LEGACY_REGISTRATION
+  // (no waitlist, roster with the entry, no self check-in), exactly as tournamentRegistrationWindow reads it.
+  const reg = t.registration ?? LEGACY_REGISTRATION;
   const start = t.startsAt;
   const pay = includePayLinks && (t.payPal || t.venmo) ? { ...(t.payPal ? { payPal: t.payPal } : {}), ...(t.venmo ? { venmo: t.venmo } : {}) } : undefined;
   const raw = {
@@ -37,18 +40,18 @@ export function captureTournament(t: TournamentRecord, discordEvents: Record<str
     regions: [...(t.regions ?? [])],
     playOnFork: t.playOnFork === true,
     maxPlayers: t.maxPlayers >= 2 ? Math.min(t.maxPlayers, 512) : 16,
-    approval: reg?.approval ?? "auto",
-    waitlist: reg?.waitlist ?? true,
-    rosterLater: reg?.rosterLater ?? true,
-    selfCheckIn: reg?.checkIn.self ?? true,
+    approval: reg.approval,
+    waitlist: reg.waitlist,
+    rosterLater: reg.rosterLater,
+    selfCheckIn: reg.checkIn.self,
     nafSanctioned: t.nafSanctioned === true,
     entryFee: (t.entryFee ?? "").slice(0, 40),
     relative: {
-      registrationOpens: minutesBefore(start, reg?.opensAt),
+      registrationOpens: minutesBefore(start, reg.opensAt),
       registrationCloses: minutesBefore(start, t.deadlines?.registration),
-      rosterBy: reg?.rosterLater ? minutesBefore(start, reg.rosterBy) : null,
-      checkInOpens: reg?.checkIn.self ? minutesBefore(start, reg.checkIn.opensAt) : null,
-      checkInCloses: reg?.checkIn.self ? minutesBefore(start, t.deadlines?.checkIn) : null,
+      rosterBy: reg.rosterLater ? minutesBefore(start, reg.rosterBy) : null,
+      checkInOpens: reg.checkIn.self ? minutesBefore(start, reg.checkIn.opensAt) : null,
+      checkInCloses: reg.checkIn.self ? minutesBefore(start, t.deadlines?.checkIn) : null,
     },
     discordEvents: { ...(discordEvents ?? {}) },
     ...(pay ? { payLinks: pay } : {}),

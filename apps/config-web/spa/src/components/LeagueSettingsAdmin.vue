@@ -10,6 +10,7 @@ import type { PodiumProposal, PodiumSlot } from "../leagues/types";
 import LeagueDialog from "./LeagueDialog.vue";
 import "../shared/templates.css";
 import { API_KEY } from "../app";
+import { SESSION_KEY } from "../session";
 import { leagueTemplates, newSeasonBody } from "../leagues/templates";
 
 const settings = inject(LEAGUE_SETTINGS_KEY)!;
@@ -39,7 +40,7 @@ async function setOwner(): Promise<void> {
 const dialog = ref(false);
 const form = ref({ name: "", ruleset: "BB2025", source: "last" as "last" | "template", templateId: "", applyRules: true, usePayLinks: false });
 // "From template" (competition templates): your season templates and those shared with you.
-const templates = leagueTemplates(inject(API_KEY)!);
+const templates = leagueTemplates(inject(API_KEY)!, inject(SESSION_KEY)!);
 const usable = computed(() => templates.state.list.filter((t) => t.content));
 const chosen = computed(() => usable.value.find((t) => t.id === form.value.templateId));
 const defaults = computed(() => nextSeasonDefaults(state.seasons, view.value.information.ruleset));

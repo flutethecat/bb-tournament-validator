@@ -6,6 +6,7 @@
 // opens only after Publish and Open registration in League settings.
 import { computed, inject, ref } from "vue";
 import { API_KEY } from "../app";
+import { SESSION_KEY } from "../session";
 import { leagueTemplates } from "../leagues/templates";
 import TemplateSaveDialog from "./TemplateSaveDialog.vue";
 import { ENTRY_FEE_MAX, LEAGUE_WIZARD_KEY } from "../leagues/wizard";
@@ -22,7 +23,7 @@ const APPROVAL = [
 const addDivision = (): void => { if (s.value.divisions.length < 16) s.value.divisions.push(""); };
 const dropDivision = (i: number): void => { s.value.divisions.splice(i, 1); };
 // "Save as template" (competition templates): the step is saved first, then captured from the draft's season.
-const templates = leagueTemplates(inject(API_KEY)!);
+const templates = leagueTemplates(inject(API_KEY)!, inject(SESSION_KEY)!);
 const saving = ref(false);
 const source = ref<{ leagueId: string; seasonId: string } | null>(null);
 async function openSave(): Promise<void> {

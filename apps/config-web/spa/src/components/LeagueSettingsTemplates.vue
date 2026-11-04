@@ -4,6 +4,7 @@
 // usable in every league you run, and those other organisers shared with you).
 import { computed, inject, ref } from "vue";
 import { API_KEY } from "../app";
+import { SESSION_KEY } from "../session";
 import TemplateSaveDialog from "./TemplateSaveDialog.vue";
 import TemplatesPanel from "./TemplatesPanel.vue";
 import { LEAGUE_SETTINGS_KEY } from "../leagues/settings";
@@ -11,7 +12,7 @@ import { leagueTemplates } from "../leagues/templates";
 
 const settings = inject(LEAGUE_SETTINGS_KEY)!;
 const { state } = settings;
-const templates = leagueTemplates(inject(API_KEY)!);
+const templates = leagueTemplates(inject(API_KEY)!, inject(SESSION_KEY)!);
 // League seasons only (a ladder is a later template kind).
 const seasons = computed(() => state.seasons.filter((s) => (s as { competition?: string }).competition !== "ladder"));
 const seasonId = ref("");

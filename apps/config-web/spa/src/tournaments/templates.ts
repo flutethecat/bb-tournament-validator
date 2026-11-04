@@ -1,12 +1,8 @@
-// Tournament templates for the tournament pages: one Templates controller per signed-in app (the wizard's "Start from
-// template" and "Save as template", Manage → Templates), so a template saved in one shows in the others.
+// Tournament templates for the tournament pages (the wizard's "Start from template" and "Save as template", Manage →
+// Templates): the signed-in account's controller (shared/templateCache.ts).
 
 import type { Fetcher } from "../session";
-import { createTemplates, type TemplatesController } from "../shared/templates";
+import { templatesFor, type AccountSource } from "../shared/templateCache";
+import type { TemplatesController } from "../shared/templates";
 
-const cache = new WeakMap<Fetcher, TemplatesController>();
-export function tournamentTemplates(api: Fetcher): TemplatesController {
-  let c = cache.get(api);
-  if (!c) { c = createTemplates(api, "tournament"); cache.set(api, c); }
-  return c;
-}
+export const tournamentTemplates = (api: Fetcher, session: AccountSource): TemplatesController => templatesFor(api, session, "tournament");

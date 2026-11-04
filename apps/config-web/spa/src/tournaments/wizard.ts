@@ -313,7 +313,7 @@ export function templateContent(form: WizardForm, events: Record<string, boolean
   const venmo = normaliseVenmo(form.venmo);
   const pay = { ...(payPal.ok && payPal.value ? { payPal: payPal.value } : {}), ...(venmo.ok && venmo.value ? { venmo: venmo.value } : {}) };
   return {
-    packageName: form.packageName, houseRules: structuredClone(toRaw(form.houseRules)), format: form.format,
+    packageName: form.packageName, houseRules: JSON.parse(JSON.stringify(toRaw(form.houseRules))) as HouseRules, format: form.format,
     roundCount: form.format === "swiss" && form.roundCount !== "" ? Number(form.roundCount) : null,
     pairingSystem: form.format === "swiss" && form.pairingSystem ? form.pairingSystem : null,
     seedingMode: form.seedingMode, turnTimer: form.turnTimer, tiebreakers: [...form.tiebreakerChain],
@@ -478,10 +478,13 @@ export function createTournamentWizard(deps: { api: Fetcher; onSignedOut?: () =>
     resolveTemplateTimes,
     /** "Start from template": the template's settings over the form (name, dates, venue and summary stay); its times
      *  relative to the start fill in once Starts is set; payment links only when the organiser said so. */
-    applyTemplate(name: string, c: TournamentTemplateContent, usePayLinks: boolean): void {
+    applyTemplate(name: string, content: TournamentTemplateContent, usePayLinks: boolean): void {
+      // The template comes from a reactive Templates controller: a plain deep copy first (structuredClone of a Vue proxy
+      // throws DataCloneError), so nothing in the form shares objects with the list.
+      const c = JSON.parse(JSON.stringify(toRaw(content))) as TournamentTemplateContent;
       const f = state.form;
       f.packageName = c.packageName;
-      f.houseRules = structuredClone(c.houseRules);
+      f.houseRules = c.houseRules;
       f.format = c.format;
       f.roundCount = c.roundCount ?? "";
       f.pairingSystem = c.pairingSystem ?? "";

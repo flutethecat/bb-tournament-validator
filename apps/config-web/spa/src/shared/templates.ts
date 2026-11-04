@@ -43,39 +43,63 @@ export interface SaveTemplateInput {
 
 export const errorText = (err: unknown, fallback: string): string => (err instanceof ApiError || err instanceof Error ? err.message || fallback : fallback);
 
-/** The Templates controller for one kind: the list, and every action on it. */
-export function createTemplates(api: Fetcher, kind: TemplateKind) {
-  const state = reactive({ list: [] as TemplateView[], loaded: false, busy: "", error: "", notice: "" });
+/**
+ * The Templates controller for one kind: the list, and every action on it. `account` is the signed-in coach: a reply that
+ * arrives after the account changed is dropped, and reset() (called on an account change, shared/templateCache.ts)
+ * empties the list so no other account's templates stay in client state.
+ */
+export function createTemplates(api: Fetcher, kind: TemplateKind, account: () => string = () => "") {
+  const state = reactive({ list: [] as TemplateView[], loaded: false, busy: "", error: "", notice: "", account: account() });
+  /** Still the account the request started for? */
+  const current = (who: string): boolean => who === account() && who === state.account;
   const replace = (t: TemplateView): void => {
+    if (state.account !== account()) return;
     const i = state.list.findIndex((x) => x.id === t.id);
     if (i >= 0) state.list.splice(i, 1, t); else state.list.push(t);
   };
   async function run<T>(key: string, task: () => Promise<T>, notice: string): Promise<T | undefined> {
+    const who = state.account;
     state.busy = key;
     state.error = "";
     state.notice = "";
     try {
       const out = await task();
-      state.notice = notice;
+      if (who === state.account) state.notice = notice;
       return out;
     } catch (err) {
-      state.error = errorText(err, "That did not work.");
+      if (who === state.account) state.error = errorText(err, "That did not work.");
       return undefined;
     } finally {
-      state.busy = "";
+      if (who === state.account) state.busy = "";
     }
+  }
+  let loads = 0;
+  function reset(): void {
+    loads++;
+    state.account = account();
+    state.list = [];
+    state.loaded = false;
+    state.busy = "";
+    state.error = "";
+    state.notice = "";
   }
   return {
     state,
+    reset,
     async load(): Promise<void> {
+      if (state.account !== account()) reset();
+      const who = state.account;
+      const seq = ++loads;
       try {
         const res = await api<{ templates: TemplateView[] }>(`/api/templates?kind=${kind}`);
+        if (seq !== loads || !current(who)) return;
         state.list = res.templates ?? [];
         state.error = "";
       } catch (err) {
+        if (seq !== loads || !current(who)) return;
         state.error = errorText(err, "Can't load the templates.");
       } finally {
-        state.loaded = true;
+        if (seq === loads && current(who)) state.loaded = true;
       }
     },
     save: (input: SaveTemplateInput) => run("save", async () => {
@@ -95,7 +119,7 @@ export function createTemplates(api: Fetcher, kind: TemplateKind) {
     }, "Copy made. It is yours to change."),
     remove: (t: TemplateView) => run(`remove:${t.id}`, async () => {
       await api(`/api/templates/${t.id}`, { method: "DELETE" });
-      state.list = state.list.filter((x) => x.id !== t.id);
+      if (state.account === account()) state.list = state.list.filter((x) => x.id !== t.id);
       return true;
     }, "Template deleted. Competitions made from it keep their settings."),
     share: (t: TemplateView, coach: string) => run(`share:${t.id}`, async () => {

@@ -968,7 +968,8 @@ async function createSeason(league: LeagueRecord, who: LeagueApiIdentity, input:
     if (input.usePayLinks !== undefined && typeof input.usePayLinks !== "boolean") throw new SettingsError(400, "usePayLinks must be true or false.", "usePayLinks");
     if (input.applyRules !== undefined && typeof input.applyRules !== "boolean") throw new SettingsError(400, "applyRules must be true or false.", "applyRules");
     carried = seasonFromTemplate(league, template.content, input.usePayLinks === true && template.mine);
-    if (input.ruleset === undefined && carried.ruleset) ruleset = template.content.rulesetPackage ? "BB2025" : carried.ruleset;
+    // The template's base ruleset is part of its rules: taken only with "Use its rules" (applyRules, default on).
+    if (input.ruleset === undefined && carried.ruleset && input.applyRules !== false) ruleset = template.content.rulesetPackage ? "BB2025" : carried.ruleset;
     if (input.applyRules !== false) {
       const c = template.content;
       const differs = (league.rulesetPackage ?? null) !== c.rulesetPackage || JSON.stringify(houseRulesOf(league, "league")) !== JSON.stringify(c.houseRules)

@@ -2,6 +2,9 @@
 // links only when kept), Start from template (relative check-in times fill in once Starts is set, without overwriting an
 // organiser's own edit), and the Start a new season body for Copy last season / From template.
 import { describe, expect, it } from "vitest";
+import { nextTick, reactive, ref } from "vue";
+import { createTemplates, type TemplateView } from "../spa/src/shared/templates";
+import { templatesFor } from "../spa/src/shared/templateCache";
 import { createTournamentWizard, templateContent } from "../spa/src/tournaments/wizard";
 import { newSeasonBody } from "../spa/src/leagues/templates";
 import { parseTournamentTemplateContent } from "../src/competition/templates";
@@ -57,5 +60,59 @@ describe("tournament wizard and templates", () => {
     expect(newSeasonBody({ name: "Season 3", ruleset: "BB2025", source: "last", templateId: "", applyRules: true, usePayLinks: false })).toEqual({ name: "Season 3", ruleset: "BB2025", from: "last" });
     expect(newSeasonBody({ name: "Season 3", ruleset: "BB2025", source: "template", templateId: "tp0123456789ab", applyRules: false, usePayLinks: true }))
       .toEqual({ name: "Season 3", from: "template", templateId: "tp0123456789ab", applyRules: false, usePayLinks: true });
+  });
+});
+
+const view = (id: string, owner: string, content: Record<string, unknown>): TemplateView => ({
+  id, kind: "tournament", name: `T ${id}`, description: "", mine: true, owner, sharedWith: [], hasPayLinks: false, content, summary: [], createdAt: "", updatedAt: "", revision: 0,
+});
+
+describe("templates through the reactive controller", () => {
+  it("Use template with a template from the reactive list (Vue proxies): no DataCloneError, nothing shared with the list", async () => {
+    const content = parseTournamentTemplateContent({ packageName: "Small Gods", houseRules: { prayers: { mode: "banned" }, progression: { enabled: true } }, relative: { checkInOpens: 60 } }, tournamentContentOptions());
+    const api = (async () => ({ templates: [view("tp000000000001", "Jay", content as never)] })) as never;
+    const templates = createTemplates(api, "tournament", () => "Jay");
+    await templates.load();
+    const fromList = templates.state.list[0]!;
+    const w = createTournamentWizard({ api: noApi });
+    w.start({ restore: false });
+    expect(() => w.applyTemplate(fromList.name, fromList.content as never, false)).not.toThrow();
+    expect(w.state.form.houseRules.prayers.mode).toBe("banned");
+    w.state.form.houseRules.prayers.mode = "ruleset";
+    expect((templates.state.list[0]!.content as any).houseRules.prayers.mode).toBe("banned");
+    // and saving it back: the wizard body from a reactive form clones cleanly
+    w.state.form.startsAt = "2027-01-01T10:00";
+    expect(() => templateContent(w.state.form, reactive({ published: true }), false)).not.toThrow();
+  });
+
+  it("the cache follows the signed-in account: switching empties the list and drops the old account's late reply", async () => {
+    const who = ref("Jay");
+    const replies: Array<(v: unknown) => void> = [];
+    const api = ((path: string) => new Promise((resolve) => { replies.push(resolve); void path; })) as never;
+    const session = { coach: () => who.value };
+    const t = templatesFor(api, session, "tournament");
+    expect(templatesFor(api, session, "tournament")).toBe(t);
+    const first = t.load();
+    replies.shift()!({ templates: [view("tp00000000000a", "Jay", {})] });
+    await first;
+    expect(t.state.list.map((x) => x.id)).toEqual(["tp00000000000a"]);
+    // a reload starts for Jay, then Kim signs in before the reply comes back
+    const slow = t.load();
+    who.value = "Kim";
+    await nextTick();
+    expect(t.state.list).toEqual([]);
+    expect(t.state.loaded).toBe(false);
+    replies.shift()!({ templates: [view("tp00000000000a", "Jay", {})] });
+    await slow;
+    expect(t.state.list).toEqual([]);
+    // Kim's own list loads
+    const kims = t.load();
+    replies.shift()!({ templates: [view("tp00000000000b", "Kim", {})] });
+    await kims;
+    expect(t.state.list.map((x) => x.id)).toEqual(["tp00000000000b"]);
+    // sign-out empties it too
+    who.value = "";
+    await nextTick();
+    expect(t.state.list).toEqual([]);
   });
 });

@@ -37,7 +37,7 @@ const ruleset = computed(() => t.value.rulesetPackName || t.value.packageName ||
 const entrants = computed(() => (t.value.maxPlayers > 0 ? `${field.value} of ${t.value.maxPlayers}` : String(field.value)));
 
 // Competition templates: "Save as template" captures this tournament's settings on the server (never its webhook).
-const templates = tournamentTemplates(inject(API_KEY)!);
+const templates = tournamentTemplates(inject(API_KEY)!, session);
 const savingTemplate = ref(false);
 const hasPay = computed(() => Boolean(t.value.payPal || t.value.venmo));
 async function saveTemplate(input: { name: string; description: string; includePayLinks: boolean }): Promise<void> {

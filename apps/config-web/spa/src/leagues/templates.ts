@@ -1,15 +1,11 @@
-// Season templates for the league pages: one Templates controller per signed-in app (League settings → Templates, the
-// Start a new season dialog's "From template", the wizard's Season step), so a template saved in one shows in the others.
+// Season templates for the league pages (League settings → Templates, Start a new season "From template", the wizard's
+// Season step): the signed-in account's controller (shared/templateCache.ts).
 
 import type { Fetcher } from "../session";
-import { createTemplates, type TemplatesController } from "../shared/templates";
+import { templatesFor, type AccountSource } from "../shared/templateCache";
+import type { TemplatesController } from "../shared/templates";
 
-const cache = new WeakMap<Fetcher, TemplatesController>();
-export function leagueTemplates(api: Fetcher): TemplatesController {
-  let c = cache.get(api);
-  if (!c) { c = createTemplates(api, "season"); cache.set(api, c); }
-  return c;
-}
+export const leagueTemplates = (api: Fetcher, session: AccountSource): TemplatesController => templatesFor(api, session, "season");
 
 /** The Start a new season body for each choice ("Copy last season" is the default). */
 export function newSeasonBody(input: { name: string; ruleset: string; source: "last" | "template"; templateId: string; applyRules: boolean; usePayLinks: boolean }): Record<string, unknown> {
