@@ -314,7 +314,7 @@ function clientEntrant(entrant: TournamentEntrantRecord, deps: Pick<TournamentAp
   } = entrant;
   const team = deps.teamBuild(entrant.teamId);
   const submission = submissionView(entrant, private_);
-  return {
+  return entryForViewer({
     ...rest,
     entrantId: entrant.id,
     coachId: coach.ffbCoachId,
@@ -335,11 +335,11 @@ function clientEntrant(entrant: TournamentEntrantRecord, deps: Pick<TournamentAp
       ...((tournament ? nafOwed(tournament, entrant, profile) : nafPending) ? { nafPending: true as const } : {}),
       ...(refCode ?? storedCode ? { refCode: refCode ?? storedCode } : {}),
       ...(coachSaysPaid ? { coachSaysPaid: { ...coachSaysPaid } } : {}),
-      ...(checkedInBy ? { checkedInBy: manager ? { ...checkedInBy } : { by: checkedInBy.by, at: checkedInBy.at } } : {}),
+      ...(checkedInBy ? { checkedInBy: { ...checkedInBy } } : {}),
       ...(region ? { region } : {}),
     } : {}),
     ...(shared ? { shared } : {}),
-  };
+  }, manager);
 }
 
 export const NO_ROSTER_PROBLEM = "No roster submitted yet.";
@@ -833,6 +833,31 @@ export function entryNaf(tournament: Pick<TournamentRecord, "nafSanctioned">, en
 }
 
 /** An entry as a response shows it: the frozen NAF details are for the NAF report only. */
+/**
+ * The one entry filter every entry-returning route applies last (Sol 11-04 P2 3). Never on any response: the NAF
+ * snapshot and the personal check-in code (nonce + hash). For anyone but the tournament's managers (and admins), also
+ * none of the managers' bookkeeping: the check-in audit trail (checkInLog), how the entry was checked in
+ * (checkedInBy.via, e.g. "organiser-override"; who and when stay), the registration log, and who decided an entry (the
+ * reason stays, as the coach was told it).
+ */
+function entryForViewer<T extends object>(entry: T, manager: boolean): T {
+  const out = { ...entry } as Record<string, unknown>;
+  delete out.nafSnapshot;
+  delete out.checkInQr;
+  if (manager) return out as T;
+  delete out.checkInLog;
+  delete out.registrationLog;
+  const by = out.checkedInBy as { by: string; at: string; via?: string } | undefined;
+  if (by && typeof by === "object") out.checkedInBy = { by: by.by, at: by.at };
+  const decided = out.decided as { reason?: string } | undefined;
+  if (decided && typeof decided === "object") {
+    if (decided.reason) out.decided = { reason: decided.reason };
+    else delete out.decided;
+  }
+  return out as T;
+}
+
+/** The organisers' JSON export (managers only): the stored entry without the NAF snapshot or the check-in code. */
 function withoutNafSnapshot(entrant: TournamentEntrantRecord): Omit<TournamentEntrantRecord, "nafSnapshot" | "checkInQr"> {
   // The personal check-in code (nonce + hash) is never exported: it is the capability behind the coach's QR.
   const { nafSnapshot: _nafSnapshot, checkInQr: _qr, ...shown } = entrant;
@@ -1204,7 +1229,7 @@ export async function tournamentApi(
       const updated = deps.store.submitTeam(tournament.id, entrant.id, check, now);
       return {
         status: 201,
-        body: { entrant: clientEntrant(updated, deps, true, undefined, tournament, tournament.nafSanctioned ? profileNaf(deps, updated.coach.ffbCoachId) : undefined), submission: submissionView(updated, true) },
+        body: { entrant: clientEntrant(updated, deps, true, undefined, tournament, tournament.nafSanctioned ? profileNaf(deps, updated.coach.ffbCoachId) : undefined, undefined, canManage(tournament, identity)), submission: submissionView(updated, true) },
       };
     }
 
@@ -1671,7 +1696,7 @@ export async function tournamentApi(
       const round1 = deps.store.rounds(tournament.id).some((round) => round.number === 1);
       const everyEntry = auth ? deps.store.registrationEntries(tournament.id) : [];
       const codes = auth ? referenceCodes(everyEntry) : new Map<string, string>();
-      const myRegistration = auth ? myRegistrationView(deps, tournament, everyEntry, auth.coach) : undefined;
+      const myRegistration = auth ? myRegistrationView(deps, tournament, everyEntry, auth.coach, manager) : undefined;
       const checkIn = checkInView(tournament, round1, now);
       return {
         status: 200,
@@ -1725,7 +1750,7 @@ export async function tournamentApi(
       if ("error" in answer) return { status: 400, body: { error: answer.error } };
       const updated = deps.store.answerNaf(tournament.id, entrant.id, answer, now);
       if (updated.notNafMember && !entrant.notNafMember) notifyNotNafMember(deps, tournament, updated.coach.ffbCoachId, identity.coach);
-      return { status: 200, body: { entrant: clientEntrant(updated, deps, true, undefined, tournament, profile) } };
+      return { status: 200, body: { entrant: clientEntrant(updated, deps, true, undefined, tournament, profile, undefined, canManage(tournament, identity)) } };
     }
 
     // Organiser view of an entrant's shared contact (owner 10-31): the coach name plus only the fields the coach granted
@@ -2078,7 +2103,7 @@ function notifyWithdrawnByOrganiser(deps: TournamentApiDeps, tournament: Tournam
 }
 
 /** The viewer's own entry in any state (latest submission first), as the coach sees it: their entry card. */
-function myRegistrationView(deps: TournamentApiDeps, tournament: TournamentRecord, all: readonly TournamentEntrantRecord[], coach: string) {
+function myRegistrationView(deps: TournamentApiDeps, tournament: TournamentRecord, all: readonly TournamentEntrantRecord[], coach: string, manager = false) {
   const mine = all.filter((r) => coachKey(r.coach.ffbCoachId) === coachKey(coach))
     .sort((a, b) => b.registeredAt.localeCompare(a.registeredAt))[0];
   if (!mine) return undefined;
@@ -2087,7 +2112,7 @@ function myRegistrationView(deps: TournamentApiDeps, tournament: TournamentRecor
   const position = waitlistPosition(entries, mine.id);
   const live = LIVE_STATES.has(state);
   const profile = live && tournament.nafSanctioned ? profileNaf(deps, mine.coach.ffbCoachId) : undefined;
-  const view = clientEntrant(mine, deps, live, undefined, tournament, profile, live ? referenceCodes(all).get(mine.id) : undefined);
+  const view = clientEntrant(mine, deps, live, undefined, tournament, profile, live ? referenceCodes(all).get(mine.id) : undefined, manager);
   // The coach's personal check-in QR (issued by a write: the minute sweep or "New code"; this read only shows it).
   const code = state === "accepted" ? myCheckInCode(deps.checkInKey, tournament, mine) : undefined;
   return {
@@ -2269,7 +2294,7 @@ async function registrationRoutes(
     return {
       status: 201,
       body: {
-        entrant: withoutNafSnapshot(stored),
+        entrant: entryForViewer(stored, canManage(tournament, identity)),
         registration: { state: result.entry.state, ...(position ? { position } : {}) },
         ...(sharingSaved ? {} : { sharingSaved: false }),
       },
@@ -2300,7 +2325,7 @@ async function registrationRoutes(
       if (result.changed && !selfDrop) notifyWithdrawnByOrganiser(deps, tournament, record.coach.ffbCoachId, identity.coach);
     }
     const after = deps.store.registrationEntries(tournamentId).find((candidate) => candidate.id === entrantId) ?? record;
-    return { status: 200, body: { entrant: withoutNafSnapshot(after) } };
+    return { status: 200, body: { entrant: entryForViewer(after, canManage(tournament, identity)) } };
   }
 
   // POST /api/tournaments/:id/entrants/:eid/paid-claim { paid }: the coach's "I've paid" (organisers still tick Paid).
@@ -2329,7 +2354,7 @@ async function registrationRoutes(
         from: identity.coach,
       }, identity.coach));
     }
-    return { status: 200, body: { entrant: clientEntrant(updated, deps, true, undefined, tournament, undefined, code) } };
+    return { status: 200, body: { entrant: clientEntrant(updated, deps, true, undefined, tournament, undefined, code, canManage(tournament, identity)) } };
   }
 
   // POST /api/tournaments/:id/check-in: the coach checks themselves in during the check-in window (self check-in on).
@@ -2346,7 +2371,7 @@ async function registrationRoutes(
     if (competition.window.checkIn?.self === false) return { status: 409, body: { error: "The organisers check coaches in for this tournament.", code: "organiser-check-in" } };
     if (!isCheckInOpen(competition, now)) return { status: 409, body: { error: "Check-in is not open.", code: "check-in-closed" } };
     const updated = deps.store.checkInEntrant(tournament.id, entrant.id, identity.coach, now);
-    return { status: 200, body: { entrant: clientEntrant(updated, deps, true, undefined, tournament, undefined, referenceCodes(deps.store.registrationEntries(tournament.id)).get(entrant.id)) } };
+    return { status: 200, body: { entrant: clientEntrant(updated, deps, true, undefined, tournament, undefined, referenceCodes(deps.store.registrationEntries(tournament.id)).get(entrant.id), canManage(tournament, identity)) } };
   }
 
   // GET /api/tournaments/:id/registrations (this tournament's managers and admins): the Registrations panel.

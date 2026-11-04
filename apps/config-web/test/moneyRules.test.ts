@@ -11,9 +11,9 @@ import {
   BB2025_RULEBOOK_WINNINGS, DEFAULT_MONEY_RULES, LEGACY_MONEY, LEGACY_MONEY_RULES, LEGACY_WINNINGS, MoneyRulesError, applyTreasuryCap, computeWinnings, effectiveMoneyRules, forfeitWinnings, isHundredths,
   lobbyBudget, matchMoney, moneyRulesDiff, moneyRulesRows, moneyRulesView, moneySnapshot, overridePayload, parseMoneyRules, winningsPreset, type MoneyRules,
 } from "../src/leagues/moneyRules";
-import { applyForfeit, forfeitModel } from "../src/leagues/forfeit";
+import { applyForfeit, forfeitModel, linkedMatchMoney } from "../src/leagues/forfeit";
 import { LeagueStore } from "../src/leagues/store";
-import { leagueFixtureView, recordLeagueFixture } from "../src/leagues/tabletopFixtures";
+import { leagueFixtureRef, leagueFixtureView, recordLeagueFixture } from "../src/leagues/tabletopFixtures";
 import { EMPTY_PLAYER_STATS, type LeagueFixture, type LeagueTeam, type SeasonRecord } from "../src/leagues/types";
 import { tabletopApi, type FixtureGateway, type FixtureView, type TabletopApiDeps, type TabletopResult } from "../src/tabletop/api";
 import type { TabletopEvent } from "../src/tabletop/events";
@@ -142,6 +142,20 @@ describe("money rules: the maths", () => {
     const copy = { version: 5, rules: rules({ inducementBudget: "treasury" }) };
     expect(matchMoney({ money: copy })).toBe(copy);
     expect(lobbyRulesFor(matchMoney({}).rules)).toEqual({ treasuryTopUp: true, highlander: false, starClash: "refund" });
+  });
+
+  it("a league that saved ANY money setting fills the rest from the legacy rules; a league with none plays the rulebook defaults (Sol 11-04 P2 1)", () => {
+    const partial = effectiveMoneyRules({ moneyRules: { perTouchdown: 20_000 } });
+    expect(partial).toEqual({ ...LEGACY_MONEY_RULES, perTouchdown: 20_000 });
+    const w = (r: MoneyRules) => computeWinnings(r, { score: { for: 2, against: 1 }, attendance: 7, stalled: false, conceded: { self: false, other: false } }).winnings;
+    expect(w(partial)).toBe(40_000); // 2 x 20k, as before the defaults changed (not 90k)
+    expect(effectiveMoneyRules({ moneyRules: {} })).toEqual(DEFAULT_MONEY_RULES);
+    expect(effectiveMoneyRules({})).toEqual(DEFAULT_MONEY_RULES);
+    expect(w(effectiveMoneyRules({}))).toBe(65_000);
+    // a competition override on a league with no saved settings layers on the rulebook defaults
+    expect(effectiveMoneyRules({}, { rules: { money: { winBonus: 10_000 } } })).toEqual({ ...DEFAULT_MONEY_RULES, winBonus: 10_000 });
+    // and on a league with saved settings, on the legacy fill
+    expect(effectiveMoneyRules({ moneyRules: { pettyCash: false } }, { rules: { money: { winBonus: 10_000 } } })).toEqual({ ...LEGACY_MONEY_RULES, pettyCash: false, winBonus: 10_000 });
   });
 
   it("a competition override falls back to the league, the league to the defaults", () => {
@@ -334,8 +348,11 @@ describe("League settings -> Money", () => {
   let body: unknown;
   let clock = "2026-11-04T12:00:00.000Z";
   const notes: Array<{ coach: string; title: string; body: string }> = [];
+  /** The recorder's matches (LeagueApiDeps.tabletop); unset = no recorder. */
+  let recorder: { matches: any[]; unreadable: string[] } | undefined;
   const deps = (): LeagueApiDeps => ({
     store, readBody: async () => Buffer.from(body === undefined ? "" : JSON.stringify(body)), now: () => new Date(clock),
+    ...(recorder ? { tabletop: { listMatches: async () => recorder!.matches, listMatchesChecked: async () => ({ ...recorder! }), readEvents: async () => [] } } : {}),
     identities: () => [{ coach: "Jay", level: "organizer" }, { coach: "Kim", level: "player" }],
     notify: (coach, input) => { notes.push({ coach, title: input.title, body: input.body }); },
     postWebhook: async () => ({ ok: true, status: 204 }),
@@ -359,6 +376,7 @@ describe("League settings -> Money", () => {
     store.putSeason(lseason(2, []));
     notes.length = 0;
     clock = "2026-11-04T12:00:00.000Z";
+    recorder = undefined;
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -387,11 +405,25 @@ describe("League settings -> Money", () => {
     expect(notes).toEqual([]);
   });
 
+  it("a partial first save from the defaults changes only what it names; a later partial save keeps the rest (Sol 11-04 P2 1)", async () => {
+    await call("PATCH", S, JAY, { revision: rev(), money: { perTouchdown: 20_000 } });
+    const r = effectiveMoneyRules(store.league("tabbl")!);
+    expect(r).toEqual({ ...DEFAULT_MONEY_RULES, perTouchdown: 20_000 });
+    expect(money(await call("GET", S, JAY)).log[0].changes).toEqual(["Per touchdown: 10k to 20k"]);
+    await call("PATCH", S, JAY, { revision: rev(), money: { winBonus: 5_000 } });
+    expect(effectiveMoneyRules(store.league("tabbl")!)).toEqual({ ...DEFAULT_MONEY_RULES, perTouchdown: 20_000, winBonus: 5_000 });
+    // a league stored before the defaults changed with only some keys keeps its old numbers (legacy fill)
+    const l = store.league("tabbl")!;
+    store.upsertLeague({ ...l, moneyRules: { perTouchdown: 20_000 } });
+    expect(effectiveMoneyRules(store.league("tabbl")!)).toEqual({ ...LEGACY_MONEY_RULES, perTouchdown: 20_000 });
+  });
+
   it("revisions: no revision 428, a stale one 409, and nothing is written", async () => {
     expect((await call("PATCH", S, JAY, { money: { perTouchdown: 20_000 } })).status).toBe(428);
     await call("PATCH", S, JAY, { revision: rev(), money: { winBonus: 10_000 } });
     expect((await call("PATCH", S, JAY, { revision: 0, money: { perTouchdown: 20_000 } })).status).toBe(409);
-    expect(store.league("tabbl")!.moneyRules).toEqual({ winBonus: 10_000 });
+    // the first save stores the defaults it started from plus the change (a partial save moves nothing else)
+    expect(store.league("tabbl")!.moneyRules).toEqual({ ...DEFAULT_MONEY_RULES, winBonus: 10_000 });
     expect((await call("PATCH", S, JAY, { revision: rev(), money: { perTouchdown: -5 } })).status).toBe(400);
     expect((await call("PATCH", S, { coach: "Ann" }, { revision: rev(), money: { perTouchdown: 0 } })).status).toBe(403);
     expect(store.league("tabbl")!.moneyRulesVersion).toBe(1);
@@ -474,6 +506,48 @@ describe("League settings -> Money", () => {
     expect(store.season("tabbl", "season-2")!.rules?.money).toEqual({ drawBonus: 10_000 });
     expect(money(r).competitions.find((c: any) => c.seasonId === "season-2").rules).toMatchObject({ winBonus: 0, drawBonus: 10_000, perTouchdown: 20_000 });
     expect(money(r).log[0].changes).toEqual(["Win bonus: 30k to 0k"]);
+  });
+
+  it("a forfeit from the fixtures editor follows a linked recorder match's copy (or the legacy rules), the same amounts as the recorder path (Sol 11-04 P2 2)", async () => {
+    const F = "/api/leagues/tabbl/seasons/season-1/fixtures/f1/forfeit";
+    const ids = { leagueId: "tabbl", seasonId: "season-1", fixtureId: "f1" };
+    const ref = leagueFixtureRef("tabbl", "season-1", "f1");
+    const editor = async () => (await call("GET", F, JAY)).body as any;
+    const viaRecorder = (match: any) => forfeitModel({ store }, ids, { coach: "Jay", admin: false }, { money: matchMoney(match) }).body as any;
+    // no linked match: the league's rules now (the rulebook defaults)
+    recorder = { matches: [], unreadable: [] };
+    expect((await editor()).suggestions.home.away.winnings).toBe(70_000);
+    // a linked match from before money rules existed: the legacy rules on both paths (no concession winnings)
+    const old = { id: "tm_old", state: "recording", fixtureRef: ref, createdAt: "2026-10-01T10:00:00.000Z" };
+    recorder = { matches: [old, { id: "tm_test", state: "recording", fixtureRef: ref, test: true, createdAt: "2026-11-03T10:00:00.000Z", money: { version: 99, rules: rules({ winBonus: 400_000 }) } }], unreadable: [] };
+    expect(await linkedMatchMoney(deps().tabletop, ids)).toEqual(LEGACY_MONEY);
+    const legacy = await editor();
+    expect(legacy.money).toMatchObject({ version: 0, concession: "none" });
+    expect(legacy.suggestions).toEqual(viaRecorder(old).suggestions);
+    expect(legacy.suggestions.home.away.winnings).toBe(0);
+    // a newer linked match with its own copy wins: the same suggestions as the recorder's dialog, and the POST settles
+    // by that copy (cap and version), not the league's rules now
+    const copy = { version: 7, rules: rules({ ...BB2025_RULEBOOK_WINNINGS, treasuryCapEnabled: true, treasuryCap: 60_000 }) };
+    const current = { id: "tm_new", state: "recording", fixtureRef: ref, createdAt: "2026-11-04T10:00:00.000Z", money: copy };
+    recorder = { matches: [old, current], unreadable: [] };
+    const m = await editor();
+    expect(m.money).toMatchObject({ version: 7, concession: "rulebook", treasuryCap: 60_000 });
+    expect(m.suggestions).toEqual(viaRecorder(current).suggestions);
+    expect(m.legalSuggestions).toEqual(viaRecorder(current).legalSuggestions);
+    const s = m.suggestions.home;
+    expect((await call("POST", F, JAY, { home: s.home, away: s.away, noStandings: false, legalConcession: true })).status).toBe(200);
+    const after = store.season("tabbl", "season-1")!;
+    expect(after.fixtures.find((f) => f.id === "f1")!.moneyRulesVersion).toBe(7);
+    expect(after.teams.find((t) => t.id === "elves")!.treasury).toBe(60_000);
+  });
+
+  it("the fixtures editor's forfeit fails closed when the recorder's store cannot be read in full", async () => {
+    const F = "/api/leagues/tabbl/seasons/season-1/fixtures/f1/forfeit";
+    recorder = { matches: [], unreadable: ["tm_broken.json"] };
+    const before = JSON.stringify(store.season("tabbl", "season-1"));
+    expect((await call("GET", F, JAY)).status).toBe(503);
+    expect((await call("POST", F, JAY, { home: { winnings: 0, fans: 0, mvp: [], missNextGame: [] }, away: { winnings: 0, fans: 0, mvp: [], missNextGame: [] }, noStandings: false })).status).toBe(503);
+    expect(JSON.stringify(store.season("tabbl", "season-1"))).toBe(before);
   });
 
   it("a recorder forfeit uses the match's copy (rules, cap and version), not the league's current rules (Sol P2 1)", async () => {

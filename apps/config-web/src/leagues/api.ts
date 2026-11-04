@@ -94,7 +94,7 @@ import { teamPageRoutes } from "./teamPage.js";
 import { teamLibraryRoutes, type TeamLibraryApiDeps } from "./teamLibraryApi.js";
 import { myRedraftTasks, redraftRoutes, teamRedraftBudgetRoute } from "./redraftApi.js";
 import { RedraftRulesError, parseRedraftRules } from "./redraftRules.js";
-import { MONEY_LOG_KEEP, MoneyRulesError, effectiveMoneyRules, moneyRulesDiff, parseMoneyRules, publicMoneyRules, type MoneyRules, type MoneyRulesLogEntry } from "./moneyRules.js";
+import { MONEY_LOG_KEEP, MoneyRulesError, effectiveMoneyRules, leagueMoneyLayer, moneyRulesDiff, parseMoneyRules, publicMoneyRules, type MoneyRules, type MoneyRulesLogEntry } from "./moneyRules.js";
 import { notifyRecordChange } from "./recordChange.js";
 import { leagueParticipantRoutes, myPaymentStatus, participantsForPublic } from "./participants.js";
 import { leagueRegistrationRoutes, type LeagueRegistrationApiDeps } from "./registrationApi.js";
@@ -883,7 +883,9 @@ function patchSettings(league: LeagueRecord, who: LeagueApiIdentity, input: Reco
   let moneyLeague: Partial<MoneyRules> | undefined;
   let moneyOverride: { season: SeasonRecord; rules: Partial<MoneyRules> | undefined } | undefined;
   try {
-    if (input.money !== undefined) moneyLeague = parseMoneyRules(input.money, league.moneyRules, "money");
+    // A league's first save starts from the defaults it was playing (every key stored), so a partial save changes only
+    // what it names; later the unsaved keys would fill from the legacy rules (effectiveMoneyRules).
+    if (input.money !== undefined) moneyLeague = parseMoneyRules(input.money, leagueMoneyLayer(league), "money");
     if (input.moneyOverride !== undefined) {
       const o = input.moneyOverride;
       if (!o || typeof o !== "object" || Array.isArray(o)) throw new SettingsError(400, "moneyOverride must be { seasonId, rules }.", "moneyOverride");

@@ -15,7 +15,8 @@
  *
  * DEFAULTS (owner 11-04) are the BB2025 rulebook formula: (half the fan attendance + touchdowns + 1 if no player was
  * recorded Stalling) x 10,000, with the rulebook concession rule; petty cash with treasury top-up, no cap. They apply to
- * every league that never saved money settings (a league that saved them keeps them: the card saves every key).
+ * every league that never saved money settings. A league that saved any money setting keeps it, and fills the keys it
+ * did not save from the legacy rules (effectiveMoneyRules), so its numbers never change under it.
  * LEGACY_MONEY_RULES are the site's numbers before the card existed (10,000 per touchdown and nothing else, no
  * concession rule): the rules of a recorder match started before money rules existed (no snapshot), and the card's
  * "Legacy: 10k per touchdown" preset. Nothing already played is recalculated.
@@ -142,9 +143,25 @@ const clean = (layer: Partial<MoneyRules> | undefined): Partial<MoneyRules> => {
   return out;
 };
 
-/** The league's effective money rules, with a competition's override as the last layer. */
+/**
+ * The league's effective money rules, with a competition's override as the last layer. A league with no saved money
+ * settings plays on the defaults (the BB2025 rulebook formula); a league that saved ANY money setting fills the keys it
+ * did not save from the legacy rules, the defaults it saved them against (Sol 11-04 P2: a saved { perTouchdown: 20k }
+ * must not pick up the rulebook's fan attendance and stalling terms).
+ */
 export function effectiveMoneyRules(league: Pick<LeagueMoney, "moneyRules">, season?: SeasonMoney | null): MoneyRules {
-  return { ...DEFAULT_MONEY_RULES, ...clean(league.moneyRules), ...clean(season?.rules?.money) };
+  const own = clean(league.moneyRules);
+  const base = Object.keys(own).length ? LEGACY_MONEY_RULES : DEFAULT_MONEY_RULES;
+  return { ...base, ...own, ...clean(season?.rules?.money) };
+}
+
+/**
+ * The stored layer a league-scope save starts from: the league's own keys, or, when it has saved none yet, the defaults
+ * it is playing on (every key), so a partial first save never moves its other keys onto the legacy fill.
+ */
+export function leagueMoneyLayer(league: Pick<LeagueMoney, "moneyRules">): Partial<MoneyRules> {
+  const own = clean(league.moneyRules);
+  return Object.keys(own).length ? own : { ...DEFAULT_MONEY_RULES };
 }
 
 export const moneyRulesVersion = (league: Pick<LeagueMoney, "moneyRulesVersion">): number => league.moneyRulesVersion ?? 0;

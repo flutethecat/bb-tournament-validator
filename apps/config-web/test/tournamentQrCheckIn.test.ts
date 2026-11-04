@@ -431,3 +431,64 @@ describe("Sol review 11-04", () => {
     expect(overrideCheckInPrompt(ci, "paid", true)).toBe("");
   });
 });
+
+describe("manager-only entry fields on every entry-returning route (Sol 11-04 P2 3)", () => {
+  /** Nothing of the managers' bookkeeping in a coach's response. */
+  const hidden = (label: string, body: unknown) => {
+    const j = JSON.stringify(body);
+    for (const k of ["checkInLog", "registrationLog", '"via"', "organiser-override", "nafSnapshot", "checkInQr", '"decided":{"by"'])
+      expect(j, `${label}: ${k}`).not.toContain(k);
+  };
+  it("register, roster, NAF, paid claim, self check-in, QR scan, the detail read and withdraw show a coach no audit fields; managers see them", async () => {
+    const h = harness();
+    const t = await h.create();
+    const reg = await h.register(t, "Alice");
+    expect(reg?.status).toBe(201);
+    hidden("register", reg!.body);
+    expect((await h.register(t, "Bob"))?.status).toBe(201);
+    await h.sweep();
+    const id = (who: string) => encodeURIComponent(h.entry(t, who).id);
+    // an organiser checks Alice in before the window: an override, audited
+    const patched = await h.call("PATCH", `/api/tournaments/${t.id}/entrants/${id("Alice")}`, CO, { flags: { checkedIn: true } });
+    expect((patched!.body as any).entrant.checkedInBy).toMatchObject({ by: "Piett", via: "organiser-override" });
+    expect(h.entry(t, "Alice").registrationLog?.length).toBeGreaterThan(0);
+    // the detail read: the field and the coach's own registration
+    const detail = (await h.call("GET", `/api/tournaments/${t.id}`, coach("Alice")))!.body as any;
+    hidden("detail entrants", detail.entrants);
+    hidden("detail myRegistration", detail.myRegistration);
+    expect(detail.myRegistration.checkedInBy).toEqual({ by: "Piett", at: "2026-11-10T12:00:00.000Z" });
+    const asManager = (await h.call("GET", `/api/tournaments/${t.id}`, CO))!.body as any;
+    expect(asManager.entrants.find((e: any) => e.coachId === "Alice").checkedInBy.via).toBe("organiser-override");
+    // the coach's own writes
+    const roster = await h.call("POST", `/api/tournaments/${t.id}/submissions`, coach("Alice"), { saveId: "save:good" });
+    expect(roster?.status).toBeLessThan(300);
+    hidden("roster", roster!.body);
+    h.store.updateTournamentRecord(t.id, (r) => { r.nafSanctioned = true; }); // the NAF answer route needs a sanctioned tournament
+    const naf = await h.call("POST", `/api/tournaments/${t.id}/entrants/${id("Alice")}/naf`, coach("Alice"), { notNafMember: true });
+    expect(naf?.status).toBe(200);
+    hidden("naf", naf!.body);
+    const paid = await h.call("POST", `/api/tournaments/${t.id}/entrants/${id("Alice")}/paid-claim`, coach("Alice"), { paid: true });
+    expect(paid?.status).toBe(200);
+    hidden("paid claim", paid!.body);
+    h.clock.now = new Date(IN_WINDOW);
+    const self = await h.call("POST", `/api/tournaments/${t.id}/check-in`, coach("Bob"));
+    expect(self?.status).toBe(200);
+    hidden("self check-in", self!.body);
+    expect((self!.body as any).entrant.checkedInBy).toEqual({ by: "Bob", at: IN_WINDOW });
+    const scan = await h.scan(t, h.tokenOf(await h.myPath(t, "Alice") ?? "x/x"), coach("Alice"), true);
+    hidden("qr scan", scan?.body);
+    // the registrations panel (managers) keeps the method
+    const panel = (await h.call("GET", `/api/tournaments/${t.id}/registrations`, CO))!.body as any;
+    expect(panel.entries.find((e: any) => e.coachId === "Alice").checkedInBy.via).toBe("organiser-override");
+    // withdraw: the coach's own response carries no audit fields; an organiser's removal response does
+    const out = await h.call("DELETE", `/api/tournaments/${t.id}/entrants/${id("Alice")}`, coach("Alice"));
+    expect(out?.status).toBe(200);
+    hidden("withdraw", out!.body);
+    expect((out!.body as any).entrant.checkedInBy).toEqual({ by: "Piett", at: "2026-11-10T12:00:00.000Z" });
+    const removed = await h.call("DELETE", `/api/tournaments/${t.id}/entrants/${id("Bob")}`, CO);
+    expect(removed?.status).toBe(200);
+    expect((removed!.body as any).entrant.checkInLog).toEqual([{ by: "Bob", at: IN_WINDOW, via: "self" }]);
+    expect(JSON.stringify(removed!.body)).not.toContain("checkInQr");
+  });
+});
+

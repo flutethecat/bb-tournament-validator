@@ -39,7 +39,8 @@ import { fixturePlayed } from "./tourplay.js";
 import type { ForfeitDefectionRoll, LeagueFixture, LeagueRecord, LeagueTeam, SeasonRecord } from "./types.js";
 import type { LeagueApiDeps, LeagueApiIdentity, LeagueApiResult } from "./api.js";
 import { applyTournamentResets } from "./ladder.js";
-import { FAN_ATTENDANCE_UNIT, applyTreasuryCap, effectiveMoneyRules, forfeitWinnings, moneyRulesVersion, winningsFormulaText, type MoneyRules, type MoneySnapshot } from "./moneyRules.js";
+import { FAN_ATTENDANCE_UNIT, applyTreasuryCap, effectiveMoneyRules, forfeitWinnings, matchMoney, moneyRulesVersion, winningsFormulaText, type MoneyRules, type MoneySnapshot } from "./moneyRules.js";
+import type { InducementUsageSource } from "./inducementUsage.js";
 import { MAX_GOLD } from "../forfeit/rules.js";
 import { FANS_MAX } from "../tabletop/postMatch.js";
 
@@ -494,6 +495,22 @@ export async function applyForfeit(deps: ForfeitDeps, ids: ForfeitIds, who: Forf
 
 const pickSide = (input: ForfeitInput, s: ForfeitSide) => ({ winnings: input[s].winnings, fans: input[s].fans, mvp: [...input[s].mvp], missNextGame: [...input[s].missNextGame] });
 
+/**
+ * The money rules a forfeit on this fixture follows (Sol 11-04 P2): a fixture with a linked recorder match uses that
+ * match's own copy (LEGACY_MONEY when it started before money rules existed), exactly as the recorder's forfeit dialog
+ * does, so the fixtures editor and the recorder suggest and settle the same amounts. Test matches never count; with
+ * several linked matches the newest wins. undefined = no linked match (the league's rules now). Throws when the
+ * recorder's store cannot be read in full (fail closed: a linked match might be among the unreadable files).
+ */
+export async function linkedMatchMoney(source: InducementUsageSource | undefined, ids: ForfeitIds): Promise<MoneySnapshot | undefined> {
+  if (!source) return undefined;
+  const { matches, unreadable } = source.listMatchesChecked ? await source.listMatchesChecked() : { matches: await source.listMatches(), unreadable: [] };
+  if (unreadable.length) throw new Error("The match recorder's store could not be read.");
+  const ref = leagueFixtureRef(ids.leagueId, ids.seasonId, ids.fixtureId);
+  const linked = matches.filter((m) => m.fixtureRef === ref && !m.test).sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0));
+  return linked[0] ? matchMoney(linked[0]) : undefined;
+}
+
 /** The routes (league api.ts tries this before the fixtures editor). undefined = not a forfeit route. */
 export async function leagueForfeitRoutes(
   method: string, rest: string[], league: LeagueRecord | undefined, auth: LeagueApiIdentity | undefined, deps: LeagueApiDeps & Partial<ForfeitDeps>,
@@ -506,12 +523,21 @@ export async function leagueForfeitRoutes(
   const ids = { leagueId: league.id, seasonId, fixtureId };
   const who = { coach: auth.coach, admin: auth.admin };
   const fdeps: ForfeitDeps = { store: deps.store, roller: deps.roller, diceLog: deps.diceLog, postWebhook: deps.postWebhook, now: deps.now, publicNames: deps.publicNames };
-  if (sub === undefined && (method === "GET" || method === "HEAD")) return forfeitModel(fdeps, ids, who);
+  // a fixture with a linked recorder match follows that match's money rules (as the recorder path does)
+  const money = async (): Promise<MoneySnapshot | undefined | LeagueApiResult> => {
+    try { return await linkedMatchMoney(deps.tabletop, ids); } catch { return fail(503, "The match recorder's games could not be read, so the money rules for this forfeit are unknown. Try again later."); }
+  };
+  const isFail = (v: MoneySnapshot | undefined | LeagueApiResult): v is LeagueApiResult => Boolean(v && "status" in v);
+  if (sub === undefined && (method === "GET" || method === "HEAD")) {
+    const m = await money();
+    return isFail(m) ? m : forfeitModel(fdeps, ids, who, m ? { money: m } : {});
+  }
   if (method !== "POST") return fail(405, sub === undefined ? "Use GET or POST." : "Use POST.");
   const body = await readJsonObject(deps, 64 * 1024);
   if (!body.ok) return { ...fail(body.status, body.error), ...(body.close ? { close: true } : {}) };
   if (sub === "defections") return rollDefections(fdeps, ids, who, body.value);
   if (sub === "settings") return setDefectionRolls(fdeps, ids, who, body.value.defectionRolls);
   if (sub === "undo") return undoForfeit(fdeps, ids, who);
-  return applyForfeit(fdeps, ids, who, body.value);
+  const m = await money();
+  return isFail(m) ? m : applyForfeit(fdeps, ids, who, body.value, m ? { money: m } : {});
 }
