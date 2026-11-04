@@ -23,7 +23,8 @@ export interface PreviewSeason {
 }
 
 /** A re-import difference kept local by default (tourplayMerge.ts); the organiser may pick the export per row. */
-export interface MergeConflict { id: string; kind: "fixture" | "roster" | "team"; label: string; reason: string; local: string; export: string }
+/** Pairings ("possible correction" / "possible rename") carry keepBothId: `id` = the same row, keepBothId = keep both. */
+export interface MergeConflict { id: string; kind: "fixture" | "result" | "roster" | "team" | "pairing" | "rename" | "ambiguous"; label: string; reason: string; local: string; export: string; keepBothId?: string }
 
 export interface PreviewCoach {
   id: string; name: string; nafUser?: string; hasNafNumber: boolean; teams: string[]; seasons: number[];
@@ -144,6 +145,12 @@ export function createTourplayImport(opts: { api: Fetcher }) {
     state.choices = useExport ? [...new Set([...state.choices, conflictId])] : state.choices.filter((x) => x !== conflictId);
     await preview();
   }
+  /** A pairing: "match" (same game / team), "both" (different) or "" (undecided: nothing is added). */
+  async function pair(c: { id: string; keepBothId?: string }, pick: "match" | "both" | ""): Promise<void> {
+    const drop = new Set([c.id, c.keepBothId ?? ""]);
+    state.choices = [...state.choices.filter((x) => !drop.has(x)), ...(pick === "match" ? [c.id] : pick === "both" && c.keepBothId ? [c.keepBothId] : [])];
+    await preview();
+  }
   async function apply(): Promise<boolean> {
     if (!state.body) return false;
     state.busy = "apply";
@@ -177,7 +184,7 @@ export function createTourplayImport(opts: { api: Fetcher }) {
       await loadReview(state.leagueId);
     } catch (e) { state.error = message(e); } finally { if (state.busy === "claim") state.busy = ""; }
   }
-  return { state, loadReview, pick, preview, decide, confirmAll, choose, apply, reset, assign, decideClaim };
+  return { state, loadReview, pick, preview, decide, confirmAll, choose, pair, apply, reset, assign, decideClaim };
 }
 export type TourplayImportController = ReturnType<typeof createTourplayImport>;
 

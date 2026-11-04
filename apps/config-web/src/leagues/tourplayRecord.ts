@@ -16,6 +16,8 @@ export function noteTeamAssignment(store: Pick<LeagueStore, "tourplayImport" | "
       if (r.obsolete || !hit.length) continue;
       // Per season (review P2): a seat in one season never overwrites the row's identity elsewhere. Every coach ever
       // linked is kept, so the privacy export and delete cover each of them.
+      // seed from what the row already names (rows from before `linked` existed), then add
+      r.linked = [...new Set([...(r.linked ?? []), ...[r.coachId, r.decision?.coachId, ...Object.values(r.seasonLinks ?? {}).map((x) => x.coachId)].filter((x): x is string => Boolean(x))])];
       r.seasonLinks = { ...(r.seasonLinks ?? {}) };
       for (const s of hit) r.seasonLinks[s.seasonId] = { coachId, by, at };
       if (coachId) r.linked = [...new Set([...(r.linked ?? []), coachId])];

@@ -341,6 +341,14 @@ export class LeagueStore {
     if (!raw || typeof raw !== "object" || !raw.coaches || typeof raw.coaches !== "object" || !Array.isArray(raw.claims)) {
       throw new LeagueStoreError(500, "The league's TourPlay import record could not be read.");
     }
+    // Rows written before `linked` existed (review P2): every coach the row names is a linked coach.
+    for (const r of Object.values(raw.coaches)) {
+      if (!r || typeof r !== "object") continue;
+      const all = [...(r.linked ?? []), r.coachId, r.decision?.coachId, ...Object.values(r.seasonLinks ?? {}).map((x) => x?.coachId)]
+        .filter((x): x is string => typeof x === "string" && x.trim().length > 0);
+      const linked = [...new Map(all.map((x) => [x.trim().toLowerCase(), x])).values()];
+      if (linked.length) r.linked = linked;
+    }
     return {
       version: 1, coaches: raw.coaches, claims: raw.claims, imports: Array.isArray(raw.imports) ? raw.imports : [],
       ...(raw.snapshots && typeof raw.snapshots === "object" ? { snapshots: raw.snapshots } : {}),

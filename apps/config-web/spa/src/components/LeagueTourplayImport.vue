@@ -113,11 +113,20 @@ const when = (iso: string): string => iso.slice(0, 16).replace("T", " ");
           <p v-if="s.derivedTeams?.length" class="tpi-muted">No roster file for {{ s.derivedTeams.join(", ") }}: added without players.</p>
           <p v-if="s.merge" class="tpi-muted">Merge: {{ s.merge.fixturesAdded }} fixtures added, {{ s.merge.fixturesUpdated }} updated, {{ s.merge.teamsAdded }} teams added, {{ s.merge.teamsUpdated }} updated; changes made here are kept.</p>
           <div v-if="s.conflicts?.length" class="tpi-conflicts" data-merge-conflicts>
-            <span class="sf-k">Kept here ({{ s.conflicts.length }}): tick to use the export instead</span>
-            <label v-for="cf in s.conflicts" :key="cf.id" class="sf-check tpi-conflict">
-              <input type="checkbox" :checked="state.choices.includes(cf.id)" :disabled="busy" @change="onChoose(cf.id, $event)" />
-              <span><strong>{{ cf.label }}</strong> <span class="tpi-muted">{{ cf.reason }} · here: {{ cf.local }} · export: {{ cf.export }}</span></span>
-            </label>
+            <span class="sf-k">Needs your decision ({{ s.conflicts.length }}): local is kept until you pick</span>
+            <template v-for="cf in s.conflicts" :key="cf.id">
+              <div v-if="cf.keepBothId" class="tpi-conflict" data-pairing>
+                <span><strong>{{ cf.label }}</strong> <span class="tpi-muted">{{ cf.reason }} · here: {{ cf.local }} · export: {{ cf.export }}</span></span>
+                <span class="sf-btn-row">
+                  <button class="sf-btn small" type="button" :aria-pressed="state.choices.includes(cf.id)" :disabled="busy" @click="ctl.pair(cf, state.choices.includes(cf.id) ? '' : 'match')">{{ cf.kind === "rename" ? "Same team" : "Same game" }}</button>
+                  <button class="sf-btn small" type="button" :aria-pressed="state.choices.includes(cf.keepBothId)" :disabled="busy" @click="ctl.pair(cf, state.choices.includes(cf.keepBothId) ? '' : 'both')">Keep both</button>
+                </span>
+              </div>
+              <label v-else class="sf-check tpi-conflict">
+                <input type="checkbox" :checked="state.choices.includes(cf.id)" :disabled="busy" @change="onChoose(cf.id, $event)" />
+                <span><strong>{{ cf.label }}</strong> <span class="tpi-muted">{{ cf.kind === "result" ? "Result" : cf.kind === "fixture" ? "Fixture details" : cf.kind === "ambiguous" ? "Repeated rows" : cf.kind === "roster" ? "Roster" : "Team" }} · {{ cf.reason }} · here: {{ cf.local }} · export: {{ cf.export }}</span> <span class="tpi-muted">(tick to use the export)</span></span>
+              </label>
+            </template>
           </div>
           <p v-if="!s.problem && s.phases?.length" class="tpi-muted">{{ s.phases.join(" · ") }}{{ s.mismatches ? ` · ${s.mismatches} standings rows differ from the fixtures` : "" }}</p>
         </li>

@@ -1,23 +1,31 @@
 /**
- * TourPlay re-import as a MERGE (lane L8 review P1): an export updates a season that was imported before without
- * destroying what happened here since.
+ * TourPlay re-import as a MERGE (lane L8 review): an export updates a season that was imported before without
+ * destroying what happened here since. Simple rules; when an identity can't be trusted, the preview asks.
  *
- * The last applied export of each season is kept as a snapshot in the private import record (fixture values by a stable
- * key, team header values and a hash of each roster). For every export row:
+ * The last applied export of each season is kept as a snapshot in the private import record (fixture values, team header
+ * values and a hash of each roster, deleted fixtures as tombstones, the highest fixture id ever used). For every row:
  * - a field the export did not change since the last import keeps the local value, silently;
- * - a field the export changed and that is unchanged here since the last import (local value = snapshot value), or
- *   blank here, takes the export's value;
- * - a fixture with a local result, Super FUMBBL state, a recorder link, an organiser override, a forfeit or a deadline
- *   decision is never overwritten: every difference is a CONFLICT, local kept unless the organiser picks the export;
- * - a field changed here (local differs from the snapshot) is a conflict too, local kept by default;
- * - a roster edited here (its hash differs from the snapshot) is kept; the export's roster is a choice;
- * - export fixtures and teams that are new are added; rows only this site has are kept.
- * Without a snapshot (a season imported before snapshots existed) nothing local is assumed unchanged: every difference
- * that is not filling a blank is a conflict.
- * Standings tables, honours, awards and participant rows are the export's own tables and are refreshed (participant
- * flags and seats are carried by the caller).
+ * - a field the export changed that is unchanged here (local = snapshot), or blank here, takes the export's value;
+ * - a field changed here is a CONFLICT, local kept unless the organiser picks the export. Fixture results and other
+ *   fixture fields are separate conflicts: picking the export's table never touches the local result; picking the
+ *   export's result takes its whole result and drops the local forfeit, decisions, overrides and links;
+ * - a fixture with a local result, Super FUMBBL state, a recorder link, an override, a forfeit or a deadline decision
+ *   is never overwritten without a pick; a live Super FUMBBL game refuses the pick; a team in a live game keeps its
+ *   roster and details (forkPlayLock);
+ * - a roster edited here (any player field) is kept; the export's roster is a choice;
+ * - an absent roster file is no roster information (local team untouched);
+ * - a fixture deleted here stays deleted (tombstone, kept even while the export leaves the fixture out);
+ * - identity: round + teams, or phase + round + teams when that is needed to tell rows apart; rows the export can't tell
+ *   apart are a conflict, never paired by order;
+ * - a new export fixture that may be a correction of an imported fixture holding a local result (same round or a
+ *   shared team), and a new export team that may be a rename of a vanished team (same race and coach), are PAIRINGS
+ *   in the preview: "match" or "keep both"; nothing is added until the organiser picks;
+ * - other new fixtures and teams are added (fixture ids are never reused); rows only this site has are kept.
+ * Without a snapshot (a season imported before snapshots existed) nothing local is assumed unchanged.
+ * Standings tables, honours, awards and participant rows are the export's own tables and are refreshed.
  */
 import { createHash } from "node:crypto";
+import { forkPlayLock } from "./forkTeam.js";
 import { nameKey } from "./tourplay.js";
 import type { LeagueFixture, LeagueTeam, SeasonRecord } from "./types.js";
 
@@ -30,16 +38,24 @@ const TEAM_FIELDS = ["name", "race", "coach", "nafUser", "importedTeamValue", "t
 type TeamField = (typeof TEAM_FIELDS)[number];
 export type TeamValues = Record<TeamField, unknown> & { roster: string };
 
+type SnapFixture = { id: string; values: FixtureValues; deleted?: true };
 /** The last applied export of one season (private record). */
-export interface ExportSnapshot { fixtures: Record<string, { id: string; values: FixtureValues; deleted?: true }>; teams: Record<string, TeamValues> }
+export interface ExportSnapshot {
+  fixtures: Record<string, SnapFixture>;
+  teams: Record<string, TeamValues>;
+  /** The highest numeric fixture id ever used in the season (ids are never reused). */
+  maxId?: number;
+}
 
 export interface MergeConflict {
   id: string;
-  kind: "fixture" | "roster" | "team";
+  kind: "fixture" | "result" | "roster" | "team" | "pairing" | "rename" | "ambiguous";
   label: string;
   reason: string;
   local: string;
   export: string;
+  /** Pairings: the id that keeps both rows ("match" is `id`). */
+  keepBothId?: string;
 }
 
 export interface MergeResult {
@@ -55,50 +71,58 @@ export const fixtureValues = (f: LeagueFixture): FixtureValues => ({
   category: f.category, phase: f.phase, phaseId: f.phaseId, group: f.group, round: f.round, table: f.table, suspended: f.suspended,
   startedAt: f.startedAt ?? "", finishedAt: f.finishedAt ?? "", home: side(f.home), away: side(f.away),
 });
+type KeySource = { phaseId: string; round: number; home: { team: string }; away: { team: string } };
+const k1 = (f: KeySource): string => `${f.round}|${nameKey(f.home.team)}|${nameKey(f.away.team)}`;
+const k2 = (f: KeySource): string => `${f.phaseId}|${k1(f)}`;
+/** The short identity (round + teams), exported for callers that compare one fixture. */
+export const fixtureKey = k1;
+
 /**
- * Fixture identity across exports: the round and the two teams (the export has no match id). Table, group, phase and
- * dates are fields of the fixture that a correction may change, merged like any other field (review P2).
+ * Identities for a list of fixtures: round + teams; phase + round + teams where the short key repeats; none (ambiguous)
+ * where even that repeats. Never by order.
  */
-export const fixtureKey = (f: { round: number; home: { team: string }; away: { team: string } }): string =>
-  `${f.round}|${nameKey(f.home.team)}|${nameKey(f.away.team)}`;
-/** Career links and seasons played are recomputed on every import (linkPlayerCareers); everything else of a player (stats, SPP, advances, local metadata) counts. */
+function keysOf<T>(items: readonly T[], src: (x: T) => KeySource): { keyed: Map<string, T>; ambiguous: T[] } {
+  const c1 = new Map<string, number>();
+  const c2 = new Map<string, number>();
+  for (const x of items) { const f = src(x); c1.set(k1(f), (c1.get(k1(f)) ?? 0) + 1); c2.set(k2(f), (c2.get(k2(f)) ?? 0) + 1); }
+  const keyed = new Map<string, T>();
+  const ambiguous: T[] = [];
+  for (const x of items) {
+    const f = src(x);
+    if (c1.get(k1(f)) === 1) keyed.set(k1(f), x);
+    else if (c2.get(k2(f)) === 1) keyed.set(k2(f), x);
+    else ambiguous.push(x);
+  }
+  return { keyed, ambiguous };
+}
+/** Finds `f` in a keyed map: its own key form, else the other form when that names the same phase. */
+function lookup<T>(map: Map<string, T>, f: KeySource, phaseOf: (x: T) => string): { key: string; hit: T } | undefined {
+  for (const k of [k1(f), k2(f)]) {
+    const hit = map.get(k);
+    if (hit !== undefined && (k === k2(f) || phaseOf(hit) === f.phaseId)) return { key: k, hit };
+  }
+  return undefined;
+}
+
+/** Career links and seasons played are recomputed on every import (linkPlayerCareers); everything else counts. */
 const VOLATILE = new Set(["careerKey", "previousIds", "seasonsPlayed"]);
 const stable = (v: unknown): unknown => JSON.parse(JSON.stringify(v, (k, x) => (VOLATILE.has(k) ? undefined : x)));
-/**
- * The whole roster (players and former players, every field but the career links): an export roster replaces a local
- * one only when the local roster is exactly what the last import wrote; any local edit makes the change a conflict
- * (review P2: local edits are never dropped silently, and stats-only export changes are seen).
- */
 const rosterHash = (t: LeagueTeam): string => sha(JSON.stringify(stable([t.players, t.formerPlayers ?? []])));
 export const teamValues = (t: LeagueTeam): TeamValues => {
   const out = { roster: rosterHash(t) } as TeamValues;
   for (const f of TEAM_FIELDS) out[f] = (t as unknown as Record<string, unknown>)[f] ?? null;
   return out;
 };
+const numId = (id: string): number => Number(/^f(\d+)$/.exec(id)?.[1] ?? 0);
 
-/** Keys made unique within one export (two rows with the same key get #2, #3...). */
-function keyed(fixtures: readonly LeagueFixture[]): Array<{ key: string; f: LeagueFixture }> {
-  const seen = new Map<string, number>();
-  return fixtures.map((f) => {
-    const k = fixtureKey(f);
-    const n = (seen.get(k) ?? 0) + 1;
-    seen.set(k, n);
-    return { key: n > 1 ? `${k}#${n}` : k, f };
-  });
-}
-
-/** A snapshot's fixtures re-keyed from their values (older snapshots used a key with table and group). */
-function rekeyed(base: ExportSnapshot | undefined): Map<string, { id: string; values: FixtureValues; deleted?: true }> {
-  const out = new Map<string, { id: string; values: FixtureValues; deleted?: true }>();
-  if (!base) return out;
-  const seen = new Map<string, number>();
-  for (const e of Object.values(base.fixtures)) {
-    const k = fixtureKey(e.values);
-    const n = (seen.get(k) ?? 0) + 1;
-    seen.set(k, n);
-    out.set(n > 1 ? `${k}#${n}` : k, e);
-  }
-  return out;
+/** The snapshot of a freshly built (first-import) season. */
+export function snapshotOf(season: SeasonRecord): ExportSnapshot {
+  const fixtures: ExportSnapshot["fixtures"] = {};
+  const { keyed } = keysOf(season.fixtures, (f) => f);
+  for (const [key, f] of keyed) fixtures[key] = { id: f.id, values: fixtureValues(f) };
+  const teams: ExportSnapshot["teams"] = {};
+  for (const t of season.teams) teams[t.id] = teamValues(t);
+  return { fixtures, teams, maxId: season.fixtures.reduce((n, f) => Math.max(n, numId(f.id)), 0) };
 }
 
 /** A Super FUMBBL game of this fixture has started and has no result yet. */
@@ -107,21 +131,11 @@ export const forkLive = (f: LeagueFixture): boolean => {
   return Boolean(fork && (fork.status === "in_progress" || (fork.status === "scheduled" && fork.launched && Object.keys(fork.launched).length)));
 };
 
-/** Taking the export's result for a fixture: everything that made the local result (forfeit, overrides, deadline and
- *  inactive-team decisions, the recorder and Super FUMBBL links) no longer fits and is dropped (review P2). */
+/** Taking the export's RESULT: everything that made the local result no longer fits and is dropped. */
 function detachLocalResult(f: LeagueFixture): void {
   const o = f as unknown as Record<string, unknown>;
   for (const k of ["forfeit", "forfeitDetail", "forfeitDraft", "resultEdit", "deadlineOutcome", "deadlineReopenedFor", "inactiveDecision", "tabletop", "fork", "announced"]) delete o[k];
   for (const sd of [f.home, f.away]) { delete (sd as unknown as Record<string, unknown>).playedBy; delete (sd as unknown as Record<string, unknown>).clearedPlayedBy; }
-}
-
-/** The snapshot of a freshly built (first-import) season. */
-export function snapshotOf(season: SeasonRecord): ExportSnapshot {
-  const fixtures: ExportSnapshot["fixtures"] = {};
-  for (const { key, f } of keyed(season.fixtures)) fixtures[key] = { id: f.id, values: fixtureValues(f) };
-  const teams: ExportSnapshot["teams"] = {};
-  for (const t of season.teams) teams[t.id] = teamValues(t);
-  return { fixtures, teams };
 }
 
 /** A held (kept local) value in the snapshot: the previous base, or a marker no value equals, so the conflict persists. */
@@ -134,15 +148,16 @@ function setPath(o: Record<string, unknown>, path: string, v: unknown): void {
 }
 const blank = (v: unknown): boolean => v === null || v === undefined || v === "" || v === false;
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
-const label = (f: LeagueFixture): string => `${f.home.team} v ${f.away.team} (${f.phase}${f.group ? ` ${f.group}` : ""}, round ${f.round})`;
+const label = (f: { home: { team: string }; away: { team: string }; phase: string; group: string; round: number }): string => `${f.home.team} v ${f.away.team} (${f.phase}${f.group ? ` ${f.group}` : ""}, round ${f.round})`;
 const resultText = (v: FixtureValues): string => (v.home.score === null && v.away.score === null ? (v.suspended ? "not played" : "no result") : `${v.home.score ?? "-"}-${v.away.score ?? "-"}${v.home.conceded ? " (home conceded)" : v.away.conceded ? " (away conceded)" : ""}`);
 /** Something happened to this fixture here that an export must never overwrite on its own. */
 export const localLife = (f: LeagueFixture): string | undefined =>
   f.fork ? "played or set up on Super FUMBBL" : f.tabletop ? "recorded with the match recorder" : f.resultEdit ? "result set by an organiser" : f.forfeit ? "forfeited here"
     : f.deadlineOutcome ? "decided at its deadline" : f.inactiveDecision ? "decided for an inactive team" : undefined;
+const hasLocalState = (f: LeagueFixture): boolean => Boolean(localLife(f)) || f.home.score !== null || f.away.score !== null;
 
-/** Flat field paths of fixture values ("home.score"). */
-const PATHS: Array<[string, (v: FixtureValues) => unknown, (f: LeagueFixture, x: unknown) => void]> = [
+type Path = [string, (v: FixtureValues) => unknown, (f: LeagueFixture, x: unknown) => void];
+const PATHS: Path[] = [
   ["category", (v) => v.category, (f, x) => { f.category = x as string; }],
   ["phase", (v) => v.phase, (f, x) => { f.phase = x as string; }],
   ["phaseId", (v) => v.phaseId, (f, x) => { f.phaseId = x as string; }],
@@ -157,129 +172,222 @@ const PATHS: Array<[string, (v: FixtureValues) => unknown, (f: LeagueFixture, x:
     [`${s}.score`, (v: FixtureValues) => v[s].score, (f: LeagueFixture, x: unknown) => { f[s].score = x as number | null; }],
     [`${s}.cas`, (v: FixtureValues) => v[s].cas, (f: LeagueFixture, x: unknown) => { f[s].cas = x as number | null; }],
     [`${s}.conceded`, (v: FixtureValues) => v[s].conceded, (f: LeagueFixture, x: unknown) => { f[s].conceded = x as boolean; }],
-  ] as Array<[string, (v: FixtureValues) => unknown, (f: LeagueFixture, x: unknown) => void]>),
+  ] as Path[]),
 ];
 const RESULT_PATHS = new Set(["suspended", "home.score", "away.score", "home.cas", "away.cas", "home.conceded", "away.conceded", "startedAt", "finishedAt"]);
+const RESULT = PATHS.filter(([n]) => RESULT_PATHS.has(n));
+const FIELDS = PATHS.filter(([n]) => !RESULT_PATHS.has(n));
 
 /**
  * Merges the freshly built export season `built` into `prior` (a copy is returned; `prior` is untouched). `choices`:
- * conflict ids the organiser resolved to the export. `slug` keys the conflict ids.
+ * conflict ids the organiser resolved to the export. `derived`: team ids the export had no roster file for.
  */
-export function mergeSeason(prior: SeasonRecord, built: SeasonRecord, base: ExportSnapshot | undefined, choices: ReadonlySet<string>, slug: string, derived: ReadonlySet<string> = new Set()): MergeResult {
+export function mergeSeason(prior: SeasonRecord, builtIn: SeasonRecord, base: ExportSnapshot | undefined, choices: ReadonlySet<string>, slug: string, derived: ReadonlySet<string> = new Set()): MergeResult {
   const season = structuredClone(prior);
+  const built = structuredClone(builtIn);
   const conflicts: MergeConflict[] = [];
   const counts = { fixturesAdded: 0, fixturesUpdated: 0, teamsAdded: 0, teamsUpdated: 0, kept: 0 };
   const snapshot: ExportSnapshot = { fixtures: {}, teams: {} };
   const cid = (kind: string, key: string): string => `cf${sha(`${slug}\0${kind}\0${key}`).slice(0, 12)}`;
+  const tv = (t: LeagueTeam) => teamValues(t);
 
-  // Teams first (fixtures refer to team ids).
+  // ---- team renames: a new export team and a vanished one with the same race and coach are a pairing --------------
+  const heldTeams = new Set<string>();
+  const exportIds = new Set(built.teams.map((t) => t.id));
+  const gone = season.teams.filter((t) => base?.teams[t.id] && !exportIds.has(t.id));
+  const pairedGone = new Set<string>();
   for (const et of built.teams) {
+    if (season.teams.some((t) => t.id === et.id) || derived.has(et.id)) continue;
+    const g = gone.find((t) => !pairedGone.has(t.id) && nameKey(t.race) === nameKey(et.race) && (nameKey(t.coach) === nameKey(et.coach) || (Boolean(t.nafUser) && nameKey(t.nafUser ?? "") === nameKey(et.nafUser ?? ""))));
+    if (!g) continue;
+    pairedGone.add(g.id);
+    const match = cid("rename", `${g.id}>${et.id}`);
+    const both = cid("rename-both", `${g.id}>${et.id}`);
+    if (choices.has(match)) {
+      // the export's team IS the local one: its references take the local id, the local fixtures the new name
+      const from = et.id;
+      et.id = g.id;
+      for (const f of built.fixtures) for (const sd of [f.home, f.away]) if (sd.teamId === from) sd.teamId = g.id;
+      for (const p of built.phases) for (const r of p.standings) if (r.teamId === from) r.teamId = g.id;
+      for (const f of season.fixtures) for (const sd of [f.home, f.away]) if (sd.teamId === g.id) sd.team = et.name;
+      if (base?.teams[g.id]) base = { ...base, teams: { ...base.teams, [g.id]: { ...base.teams[g.id]!, name: et.name } } };
+      g.name = et.name;
+    } else if (!choices.has(both)) {
+      heldTeams.add(et.id);
+      conflicts.push({ id: match, keepBothId: both, kind: "rename", label: et.name, reason: `Possible rename of ${g.name}`, local: g.name, export: et.name });
+      counts.kept += 1;
+    }
+  }
+
+  // ---- teams ----------------------------------------------------------------------------------------------------
+  for (const et of built.teams) {
+    if (heldTeams.has(et.id)) continue;
     const local = season.teams.find((t) => t.id === et.id);
     const b = base?.teams[et.id];
-    // No roster file for this team in the export: no roster information at all (review P1). A local team is left exactly
-    // as it is and the last real snapshot stays the baseline; a team new to the season is added without players.
-    if (derived.has(et.id)) {
+    if (derived.has(et.id)) { // no roster file: no roster information; the last real snapshot stays the baseline
       if (b) snapshot.teams[et.id] = b;
       if (!local) { season.teams.push(structuredClone(et)); counts.teamsAdded += 1; }
       continue;
     }
-    snapshot.teams[et.id] = teamValues(et);
+    snapshot.teams[et.id] = tv(et);
     if (!local) { season.teams.push(structuredClone(et)); counts.teamsAdded += 1; continue; }
-    const ev = teamValues(et);
-    const lv = teamValues(local);
+    const ev = tv(et);
+    const lv = tv(local);
+    const live = forkPlayLock(season, et.id);
     let changed = false;
     const keptFields: TeamField[] = [];
     for (const f of TEAM_FIELDS) {
-      if (same(ev[f], lv[f]) || (b && same(ev[f], b[f]))) continue; // equal, or the export did not change it: local stands
-      if (blank(lv[f]) || (b && same(lv[f], b[f]))) { (local as unknown as Record<string, unknown>)[f] = ev[f] ?? undefined; changed = true; } else keptFields.push(f);
+      if (same(ev[f], lv[f]) || (b && same(ev[f], b[f]))) continue;
+      if (!live && (blank(lv[f]) || (b && same(lv[f], b[f])))) { (local as unknown as Record<string, unknown>)[f] = ev[f] ?? undefined; changed = true; } else keptFields.push(f);
     }
     if (keptFields.length) {
       const id = cid("team", et.id);
-      if (choices.has(id)) { for (const f of keptFields) (local as unknown as Record<string, unknown>)[f] = ev[f] ?? undefined; changed = true; }
-      else { for (const f of keptFields) (snapshot.teams[et.id] as Record<string, unknown>)[f] = b ? b[f] : HELD; conflicts.push({ id, kind: "team", label: et.name, reason: "Changed here since the last import", local: keptFields.map((f) => `${f} ${String(lv[f])}`).join(", "), export: keptFields.map((f) => `${f} ${String(ev[f])}`).join(", ") }); counts.kept += 1; }
+      if (choices.has(id) && !live) { for (const f of keptFields) (local as unknown as Record<string, unknown>)[f] = ev[f] ?? undefined; changed = true; }
+      else {
+        for (const f of keptFields) (snapshot.teams[et.id] as Record<string, unknown>)[f] = b ? b[f] : HELD;
+        conflicts.push({ id, kind: "team", label: et.name, reason: live ? "Kept: live game on Super FUMBBL" : "Changed here since the last import", local: keptFields.map((f) => `${f} ${String(lv[f])}`).join(", "), export: keptFields.map((f) => `${f} ${String(ev[f])}`).join(", ") });
+        counts.kept += 1;
+      }
     }
     if (ev.roster !== lv.roster && !(b && b.roster === ev.roster)) {
       const unchangedHere = b ? b.roster === lv.roster : !local.players.length;
       const id = cid("roster", et.id);
-      if (unchangedHere || choices.has(id)) {
+      if (!live && (unchangedHere || choices.has(id))) {
         local.players = structuredClone(et.players);
         local.formerPlayers = structuredClone(et.formerPlayers);
         changed = true;
       } else {
         snapshot.teams[et.id]!.roster = b ? b.roster : HELD;
-        conflicts.push({ id, kind: "roster", label: `${et.name} roster`, reason: b ? "Roster edited here since the last import (players, stats or SPP)" : "Roster differs and the last import is unknown", local: `${local.players.length} players`, export: `${et.players.length} players` });
+        conflicts.push({ id, kind: "roster", label: `${et.name} roster`, reason: live ? "Kept: live game on Super FUMBBL" : b ? "Roster edited here since the last import (players, stats or SPP)" : "Roster differs and the last import is unknown", local: `${local.players.length} players`, export: `${et.players.length} players` });
         counts.kept += 1;
       }
     }
     if (changed) counts.teamsUpdated += 1;
   }
 
+  // ---- fixtures -------------------------------------------------------------------------------------------------
   const ids = new Set(season.fixtures.map((f) => f.id));
-  let next = season.fixtures.reduce((n, f) => Math.max(n, Number(/^f(\d+)$/.exec(f.id)?.[1] ?? 0)), 0);
-  const priorKeyed = keyed(season.fixtures);
-  const baseFixtures = rekeyed(base);
-  for (const { key, f: ef } of keyed(built.fixtures)) {
+  let next = Math.max(base?.maxId ?? 0, ...season.fixtures.map((f) => numId(f.id)), ...Object.values(base?.fixtures ?? {}).map((e) => numId(e.id)));
+  const allocate = (): string => { let id: string; do { next += 1; id = `f${next}`; } while (ids.has(id)); ids.add(id); return id; };
+  const baseKeys = keysOf(Object.values(base?.fixtures ?? {}), (e) => e.values).keyed;
+  const localKeys = keysOf(season.fixtures, (f) => f).keyed;
+  const exportSet = keysOf(built.fixtures, (f) => f);
+  const usedBase = new Set<SnapFixture>();
+  const matchedLocal = new Set<string>();
+  const fresh: Array<{ key: string; ef: LeagueFixture }> = [];
+  const heldTeamOf = (f: LeagueFixture): string | undefined => [f.home.teamId, f.away.teamId].find((t) => t && heldTeams.has(t));
+
+  const mergeInto = (key: string, ef: LeagueFixture, local: LeagueFixture, entry: SnapFixture | undefined): void => {
+    matchedLocal.add(local.id);
     const ev = fixtureValues(ef);
-    const entry = baseFixtures.get(key);
-    const local = entry ? season.fixtures.find((f) => f.id === entry.id) : priorKeyed.find((x) => x.key === key)?.f;
-    if (!local) {
-      // deleted here: stays deleted, and the snapshot keeps it as a tombstone so the next import does not bring it back
-      if (entry) { snapshot.fixtures[key] = { ...entry, deleted: true }; continue; }
-      next += 1;
-      let id = `f${next}`;
-      while (ids.has(id)) { next += 1; id = `f${next}`; }
-      ids.add(id);
-      season.fixtures.push({ ...structuredClone(ef), id });
-      snapshot.fixtures[key] = { id, values: ev };
-      counts.fixturesAdded += 1;
-      continue;
-    }
     snapshot.fixtures[key] = { id: local.id, values: ev };
     const lv = fixtureValues(local);
     const bv = entry?.values;
     const life = localLife(local);
-    // Fields that differ AND that the export changed since the last import (an unchanged export field never overrides).
-    const differing = PATHS.filter(([, get]) => !same(get(ev), get(lv)) && !(entry && same(get(ev), get(entry.values))));
-    if (!differing.length) continue;
-    const take: typeof PATHS = [];
-    const hold: typeof PATHS = [];
+    const differing = PATHS.filter(([, get]) => !same(get(ev), get(lv)) && !(bv && same(get(ev), get(bv))));
+    if (!differing.length) return;
+    const take: Path[] = [];
+    const hold: Path[] = [];
     for (const p of differing) {
       const [name, get] = p;
-      const lval = get(lv);
       const lockedByLife = life && RESULT_PATHS.has(name);
-      if (!lockedByLife && (blank(lval) || (bv && same(lval, get(bv))))) take.push(p); else hold.push(p);
+      if (!lockedByLife && (blank(get(lv)) || (bv && same(get(lv), get(bv))))) take.push(p); else hold.push(p);
     }
-    const id = cid("fixture", key);
-    let blocked = "";
-    if (hold.length && choices.has(id)) {
-      if (forkLive(local)) blocked = "a Super FUMBBL game of this fixture is in progress";
-      else {
-        // "Use the export": the export's whole value set, not only the fields that moved since the baseline (review P2),
-        // and the local result's metadata goes with the local result.
-        for (const [, get, set] of PATHS) set(local, get(ev));
-        if (hold.some(([n]) => RESULT_PATHS.has(n))) detachLocalResult(local);
-        take.length = 0;
-        hold.length = 0;
-        counts.fixturesUpdated += 1;
+    const snap = structuredClone(ev) as unknown as Record<string, unknown>;
+    let updated = false;
+    for (const [group, kind, all] of [[hold.filter(([n]) => RESULT_PATHS.has(n)), "result", RESULT], [hold.filter(([n]) => !RESULT_PATHS.has(n)), "fixture", FIELDS]] as const) {
+      if (!group.length) continue;
+      const id = cid(kind, key);
+      const isResult = kind === "result";
+      const blocked = isResult && forkLive(local) ? "a Super FUMBBL game of this fixture is in progress" : "";
+      if (choices.has(id) && !blocked) {
+        // the export's whole value set for this kind: the result never moves with a table choice, and vice versa
+        for (const [, get, set] of all) set(local, get(ev));
+        if (isResult) detachLocalResult(local);
+        for (const p of group) hold.splice(hold.indexOf(p), 1);
+        for (const p of [...take]) if (all.includes(p)) take.splice(take.indexOf(p), 1);
+        updated = true;
+        continue;
       }
-    }
-    for (const [, get, set] of take) set(local, get(ev));
-    if (take.length) counts.fixturesUpdated += 1;
-    if (hold.length) {
-      const snap = structuredClone(ev) as unknown as Record<string, unknown>;
-      for (const [name, get] of hold) setPath(snap, name, bv ? get(bv) : HELD);
-      snapshot.fixtures[key] = { id: local.id, values: snap as unknown as FixtureValues };
+      for (const [name, get] of group) setPath(snap, name, bv ? get(bv) : HELD);
       counts.kept += 1;
       conflicts.push({
-        id, kind: "fixture", label: label(local),
-        reason: blocked ? `Kept: ${blocked}` : life ? `Kept: ${life}` : bv ? "Changed here since the last import" : "Differs and the last import is unknown",
-        local: hold.some(([n]) => RESULT_PATHS.has(n)) ? resultText(lv) : hold.map(([n, get]) => `${n} ${String(get(lv))}`).join(", "),
-        export: hold.some(([n]) => RESULT_PATHS.has(n)) ? resultText(ev) : hold.map(([n, get]) => `${n} ${String(get(ev))}`).join(", "),
+        id, kind, label: label(local),
+        reason: blocked ? `Kept: ${blocked}` : isResult && life ? `Kept: ${life}` : bv ? "Changed here since the last import" : "Differs and the last import is unknown",
+        local: isResult ? resultText(lv) : group.map(([n, get]) => `${n} ${String(get(lv))}`).join(", "),
+        export: isResult ? resultText(ev) : group.map(([n, get]) => `${n} ${String(get(ev))}`).join(", "),
       });
+    }
+    for (const [, get, set] of take) set(local, get(ev));
+    if (take.length || updated) counts.fixturesUpdated += 1;
+    snapshot.fixtures[key] = { id: local.id, values: snap as unknown as FixtureValues };
+  };
+
+  for (const [ekey, ef] of exportSet.keyed) {
+    if (heldTeamOf(ef)) continue; // waits for the rename pairing
+    const b = lookup(baseKeys, ef, (e) => e.values.phaseId);
+    const key = b?.key ?? ekey;
+    if (b) {
+      usedBase.add(b.hit);
+      const local = season.fixtures.find((f) => f.id === b.hit.id);
+      if (!local) { snapshot.fixtures[key] = { ...b.hit, deleted: true }; continue; } // deleted here: stays deleted
+      mergeInto(key, ef, local, b.hit);
+      continue;
+    }
+    const l = lookup(localKeys, ef, (f) => f.phaseId);
+    if (l && !matchedLocal.has(l.hit.id)) { mergeInto(key, ef, l.hit, undefined); continue; }
+    fresh.push({ key, ef });
+  }
+
+  // Imported fixtures the export no longer names that hold a local result or state: a new export fixture with the same
+  // round or a shared team may be their correction (pairing).
+  const orphans = Object.values(base?.fixtures ?? {})
+    .filter((e) => !usedBase.has(e) && !e.deleted)
+    .map((e) => ({ e, local: season.fixtures.find((f) => f.id === e.id) }))
+    .filter((x): x is { e: SnapFixture; local: LeagueFixture } => Boolean(x.local && !matchedLocal.has(x.local.id) && hasLocalState(x.local)));
+  const pairedOrphans = new Set<string>();
+  for (const { key, ef } of fresh) {
+    const teams = new Set([ef.home.teamId, ef.away.teamId].filter(Boolean));
+    const score = (f: LeagueFixture): number => [f.home.teamId, f.away.teamId].filter((t) => t && teams.has(t)).length * 2 + (f.round === ef.round ? 1 : 0);
+    const cand = orphans.filter((o) => !pairedOrphans.has(o.local.id) && score(o.local) > 0).sort((a, b) => score(b.local) - score(a.local))[0];
+    if (cand) {
+      pairedOrphans.add(cand.local.id);
+      const match = cid("pairing", `${cand.e.id}>${key}`);
+      const both = cid("pairing-both", `${cand.e.id}>${key}`);
+      if (choices.has(match)) { usedBase.add(cand.e); mergeInto(key, ef, cand.local, cand.e); continue; }
+      if (!choices.has(both)) {
+        counts.kept += 1;
+        conflicts.push({ id: match, keepBothId: both, kind: "pairing", label: label(ef), reason: `Possible correction of ${label(cand.local)}`, local: resultText(fixtureValues(cand.local)), export: resultText(fixtureValues(ef)) });
+        continue;
+      }
+    }
+    const id = allocate();
+    season.fixtures.push({ ...structuredClone(ef), id });
+    snapshot.fixtures[key] = { id, values: fixtureValues(ef) };
+    counts.fixturesAdded += 1;
+  }
+
+  // Rows the export can't tell apart (same phase, round and teams): never paired by order. Kept as they are; the
+  // organiser may add the export's rows that have no identical twin here.
+  if (exportSet.ambiguous.length) {
+    const id = cid("ambiguous", exportSet.ambiguous.map((f) => k2(f)).sort().join(","));
+    const twin = (ef: LeagueFixture): boolean => season.fixtures.some((f) => same(fixtureValues(f), fixtureValues(ef)));
+    if (choices.has(id)) {
+      for (const ef of exportSet.ambiguous) if (!twin(ef)) { season.fixtures.push({ ...structuredClone(ef), id: allocate() }); counts.fixturesAdded += 1; }
+    } else if (exportSet.ambiguous.some((ef) => !twin(ef))) {
+      counts.kept += 1;
+      conflicts.push({ id, kind: "ambiguous", label: [...new Set(exportSet.ambiguous.map(label))].join("; "), reason: "The export lists these games more than once with the same phase, round and teams: they can't be matched safely", local: "kept as they are", export: `${exportSet.ambiguous.length} rows (tick to add the ones not here)` });
     }
   }
 
-  // The export's own tables: standings (phase formats and local phases kept), honours, awards, participants, dates.
+  // Snapshot entries the export left out stay (tombstones especially): a later export that names them again finds them.
+  const kept = new Set(Object.values(snapshot.fixtures).map((x) => x.id));
+  for (const e of Object.values(base?.fixtures ?? {})) if (!usedBase.has(e) && !kept.has(e.id)) { snapshot.fixtures[`id:${e.id}`] = e; kept.add(e.id); }
+  // ... and so do baselines of teams the export left out (a held rename keeps the vanished team's baseline)
+  for (const [id, t] of Object.entries(base?.teams ?? {})) if (!snapshot.teams[id]) snapshot.teams[id] = t;
+  snapshot.maxId = Math.max(next, ...season.fixtures.map((f) => numId(f.id)));
+
+  // ---- the export's own tables ------------------------------------------------------------------------------------
   for (const p of built.phases) {
     const local = season.phases.find((x) => x.id === p.id);
     if (!local) { season.phases.push(structuredClone(p)); continue; }

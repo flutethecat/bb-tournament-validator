@@ -962,10 +962,15 @@ function tourplayImportExport(keys: ReadonlySet<string>, file: Obj | undefined):
     seasons: objs(r.seasons).map((x) => ({ number: x.number, teams: x.teams })), status: r.status, ...(r.basis ? { basis: r.basis } : {}),
     ...(isObj(r.decision) ? { decision: { via: (r.decision as Obj).via, at: (r.decision as Obj).at } } : {}),
   }));
+  // Assignments the coach made as an organiser (a decision or a Teams-tab seat): the row and when.
+  const assignmentsMade = rows.flatMap((r) => [
+    ...(isObj(r.decision) && isMine(keys, (r.decision as Obj).by) ? [{ name: r.name, at: (r.decision as Obj).at, via: (r.decision as Obj).via }] : []),
+    ...Object.entries(isObj(r.seasonLinks) ? (r.seasonLinks as Obj) : {}).filter(([, x]) => isObj(x) && isMine(keys, (x as Obj).by)).map(([season, x]) => ({ name: r.name, season, at: (x as Obj).at })),
+  ]);
   const claims = objs(file.claims).filter((c) => isMine(keys, c.coach)).map((c) => ({
     name: rows.find((r) => r.id === c.row)?.name ?? "", state: c.state, at: c.at, ...(c.decidedAt ? { decidedAt: c.decidedAt } : {}),
   }));
-  return coaches.length || claims.length ? { coaches, claims } : undefined;
+  return coaches.length || claims.length || assignmentsMade.length ? { coaches, claims, ...(assignmentsMade.length ? { assignmentsMade } : {}) } : undefined;
 }
 
 /**
@@ -992,6 +997,8 @@ function anonymiseTourplayImport(an: Anonymiser, f: Obj): boolean {
       if (Array.isArray(list) && list.some((x) => an.matches(x))) { (r.candidates as Obj)[k] = list.filter((x) => !an.matches(x)); changed = true; }
     }
     if (decision && an.fields(decision, ["by"], [])) changed = true;
+    // who made a Teams-tab seat (the seated coach of a row kept here is someone else: rows linked to the coach are gone)
+    for (const x of vals(r.seasonLinks)) if (an.fields(x, ["by"], [])) changed = true;
   }
   if (Array.isArray(f.claims)) {
     const before = (f.claims as unknown[]).length;

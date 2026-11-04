@@ -902,7 +902,15 @@ export async function tourplayImportRoutes(
         return fail(422, e instanceof Error ? `The import stopped: ${e.message}` : "The import stopped.");
       }
     };
-    return second === "apply" ? withImportLock(league.id, run) : run();
+    if (second === "preview") return run();
+    // Apply: under the same fixture and fork-team locks the Teams tab, the review list and a fork launch take, for every
+    // season of the league; the plan is made inside them, so a launch can't slip between the check and the write.
+    return withImportLock(league.id, () => {
+      const seasons = deps.store.seasons(league.id);
+      const fixtureKeys = seasons.flatMap((s) => s.fixtures.map((f) => fixtureLockKey(league.id, s.id, f.id)));
+      const forkTeams = seasons.flatMap((s) => s.teams.map((t) => forkTeamIdFor(league.id, s.id, t.id)));
+      return withForkLocks(fixtureKeys, forkTeams, run);
+    });
   }
 
   // POST .../tourplay/coaches/:row/assign { coachId: string | null, allSeasons? }

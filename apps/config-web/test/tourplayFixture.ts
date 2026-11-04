@@ -15,18 +15,20 @@ export const NAF_NUMBERS = { morgan: "70001", quinn: "70002", riley: "70003" } a
 
 export const SLUG = "valley-bowl-season-1-0001";
 
-export function seasonFiles(slug = SLUG, opts: { quinnTeam?: string; extraRound?: boolean; round3?: "unplayed" | "1-0"; round1Score?: string; noRosters?: boolean; extraParticipant?: boolean; round1Table?: number; rosterRename?: boolean; tds?: number } = {}): Record<string, string> {
+export function seasonFiles(slug = SLUG, opts: { quinnTeam?: string; extraRound?: boolean; round3?: "unplayed" | "1-0"; round1Score?: string; noRosters?: boolean; extraParticipant?: boolean; round1Table?: number; rosterRename?: boolean; tds?: number; round1Round?: number; twinPhases?: boolean; twinSame?: boolean; reverse?: boolean; dropRound2Table2?: boolean } = {}): Record<string, string> {
   const quinnTeam = opts.quinnTeam ?? "Quarry Quakers";
-  const fixtures = crlf([
-    FIX_HEAD,
-    `Season;Regular;;1;${opts.round1Table ?? 1};Moss Marauders;${quinnTeam};Morgan Example;Quinn Sample;Orc;Dwarf;morganx;quinns;${opts.round1Score ?? "2;1"};1;0;;;;2026-09-01T18:00:00Z;2026-09-01T20:00:00Z`,
+  const rows = [
+    `Season;Regular;;${opts.round1Round ?? 1};${opts.round1Table ?? 1};Moss Marauders;${quinnTeam};Morgan Example;Quinn Sample;Orc;Dwarf;morganx;quinns;${opts.round1Score ?? "2;1"};1;0;;;;2026-09-01T18:00:00Z;2026-09-01T20:00:00Z`,
     "Season;Regular;;1;2;Rapid Rascals;Cobble Crushers;Riley Test;Casey Demo;Skaven;Human;rileyt;caseyd;1;1;0;2;;;;2026-09-01T18:00:00Z;2026-09-01T20:00:00Z",
     `Season;Regular;;2;1;Moss Marauders;Rapid Rascals;Morgan Example;Riley Test;Orc;Skaven;morganx;rileyt;0;0;0;0;True;;;2026-09-08T18:00:00Z;2026-09-08T18:00:00Z`,
-    `Season;Regular;;2;2;Cobble Crushers;Ashen Avengers;Casey Demo;Avery Placeholder;Human;Undead;caseyd;;3;0;0;1;;;;2026-09-08T18:00:00Z;2026-09-08T20:00:00Z`,
+    ...(opts.dropRound2Table2 ? [] : [`Season;Regular;;2;2;Cobble Crushers;Ashen Avengers;Casey Demo;Avery Placeholder;Human;Undead;caseyd;;3;0;0;1;;;;2026-09-08T18:00:00Z;2026-09-08T20:00:00Z`]),
+    ...(opts.twinPhases ? [`Season;Regular;;4;1;Moss Marauders;${quinnTeam};Morgan Example;Quinn Sample;Orc;Dwarf;morganx;quinns;1;0;0;0;;;;2026-09-22T18:00:00Z;2026-09-22T20:00:00Z`, `Cup;Final;;4;1;Moss Marauders;${quinnTeam};Morgan Example;Quinn Sample;Orc;Dwarf;morganx;quinns;0;3;0;0;;;;2026-09-23T18:00:00Z;2026-09-23T20:00:00Z`] : []),
+    ...(opts.twinSame ? [`Season;Regular;;6;1;Moss Marauders;${quinnTeam};Morgan Example;Quinn Sample;Orc;Dwarf;morganx;quinns;1;1;0;0;;;;2026-10-01T18:00:00Z;2026-10-01T20:00:00Z`, `Season;Regular;;6;2;Moss Marauders;${quinnTeam};Morgan Example;Quinn Sample;Orc;Dwarf;morganx;quinns;2;2;0;0;;;;2026-10-01T18:00:00Z;2026-10-01T20:00:00Z`] : []),
     ...(opts.round3 === "unplayed" ? [`Season;Regular;;3;1;${quinnTeam};Ashen Avengers;Quinn Sample;Avery Placeholder;Dwarf;Undead;quinns;;;;;;;;;;;`] : []),
     ...(opts.round3 === "1-0" ? [`Season;Regular;;3;1;${quinnTeam};Ashen Avengers;Quinn Sample;Avery Placeholder;Dwarf;Undead;quinns;;1;0;0;0;;;;2026-09-15T18:00:00Z;2026-09-15T20:00:00Z`] : []),
     ...(opts.extraRound ? [`Season;Regular;;3;1;${quinnTeam};Ashen Avengers;Quinn Sample;Avery Placeholder;Dwarf;Undead;quinns;;1;0;0;0;;;;2026-09-15T18:00:00Z;2026-09-15T20:00:00Z`] : []),
-  ]);
+  ];
+  const fixtures = crlf([FIX_HEAD, ...(opts.reverse ? rows.reverse() : rows)]);
   const participants = crlf([
     PART_HEAD,
     `Morgan Example;US;Orc;Moss Marauders;2026-08-20T10:00:00Z;True;True;True;${NAF_NUMBERS.morgan};morganx;;;BB2025;paid in cash`,

@@ -33,6 +33,7 @@ const record = () => ({
     "naf:bobtp": { id: "tp000000000002", key: "naf:bobtp", name: "Bob TP", nafUser: "bobtp", nafNumber: "82002", seasons: [], status: "conflict", candidates: { byName: ["Alice"], byNumber: ["Bob"] }, decision: { coachId: "Bob", by: "Alice", at: "2026-11-01T00:00:00Z", via: "organiser" } },
     "naf:allyold": { id: "tp000000000004", key: "naf:allyold", name: "Ally Old", nafUser: "allyold", nafNumber: "81004", seasons: [], status: "unmatched", decision: { coachId: "Alice", by: "Bob", at: "2026-11-01T00:00:00Z", via: "organiser" } },
     "naf:allys2": { id: "tp000000000005", key: "naf:allys2", name: "Ally Season Two", nafUser: "allys2", nafNumber: "81005", seasons: [], status: "unmatched", linked: ["Bob", "Alice"], seasonLinks: { s1: { coachId: "Alice", by: "Bob", at: "2026-11-01T00:00:00Z" }, s2: { coachId: "Bob", by: "Bob", at: "2026-11-01T00:00:00Z" } } },
+    "naf:carolseat": { id: "tp000000000006", key: "naf:carolseat", name: "Carol Seat", nafUser: "carolseat", seasons: [], status: "unmatched", linked: ["Carol"], seasonLinks: { s1: { coachId: "Carol", by: "Alice", at: "2026-11-02T00:00:00Z" } } },
     "name:nobody": { id: "tp000000000003", key: "name:nobody", name: "No Body", nafNumber: "83003", seasons: [], status: "unmatched" },
   },
   claims: [
@@ -60,6 +61,8 @@ describe("TourPlay import record and privacy", () => {
       expect.objectContaining({ name: "Ally Season Two", nafNumber: "81005" }), // a season-specific Teams-tab seat
     ]);
     expect(tp.claims.map((c: { state: string }) => c.state)).toEqual(["pending", "declined"]);
+    // seats she made as an organiser
+    expect(tp.assignmentsMade).toEqual(expect.arrayContaining([expect.objectContaining({ name: "Carol Seat", season: "s1" })]));
     expect(files.get("league-teams.json")).not.toContain("82002");
     expect(files.get("league-teams.json")).not.toContain("83003");
   });
@@ -81,7 +84,7 @@ describe("TourPlay import record and privacy", () => {
     expect(text).not.toContain("Ally TP"); // the snapshots went with her rows
     expect(text).not.toMatch(/"Alice"/);
     const f = JSON.parse(text);
-    expect(Object.keys(f.coaches)).toEqual(["naf:bobtp", "name:nobody"]);
+    expect(Object.keys(f.coaches)).toEqual(["naf:bobtp", "naf:carolseat", "name:nobody"]);
     expect(f.coaches["naf:bobtp"].candidates).toEqual({ byName: [], byNumber: ["Bob"] });
     expect(f.coaches["naf:bobtp"].decision.by).toBe(P);
     expect(f.claims.map((c: { id: string; coach: string; decidedBy?: string }) => [c.id, c.coach, c.decidedBy])).toEqual([
@@ -89,5 +92,6 @@ describe("TourPlay import record and privacy", () => {
     ]);
     expect(f.imports[0].by).toBe(P);
     expect(f.coaches["name:nobody"].nafNumber).toBe("83003"); // another coach's row is untouched
+    expect(f.coaches["naf:carolseat"].seasonLinks.s1).toMatchObject({ coachId: "Carol", by: P }); // who seated Carol
   });
 });
