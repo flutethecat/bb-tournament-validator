@@ -6,7 +6,11 @@
 // The season panel ends with the "Pay entry fee" block (server-built: links, fee, and only the viewer's own teams' paid
 // status) while the season is not finished. The HOUSE RULES panel (owner 11-02) follows the season panel: the changed rows,
 // then "Everything else as <ruleset>", with an Edit link for organisers (League settings, Information).
-import { computed, inject } from "vue";
+import { computed, inject, onMounted, ref, watch } from "vue";
+import { API_KEY } from "../app";
+import BeltIcon from "./BeltIcon.vue";
+import { championsVisible, type ChampionsView } from "../leagues/ladder";
+import "../leagues/ladder.css";
 import { RouterLink, useRoute } from "vue-router";
 import LeagueInducements from "./LeagueInducements.vue";
 import HouseRulesPanel from "./HouseRulesPanel.vue";
@@ -35,6 +39,19 @@ const myEntry = computed(() => {
 });
 const entryFee = computed(() => payment.value?.entryFee ?? (myEntry.value ? join?.state.status?.entryFee : undefined) ?? "");
 const showPay = computed(() => props.season.status !== "completed" && (Boolean(payment.value) || Boolean(myEntry.value && entryFee.value.trim())));
+// Current Champions (ladder titles lane): season cups and ladder belts from GET /api/leagues/:id/champions; an empty part
+// is hidden, and the whole panel when both are.
+const fetcher = inject(API_KEY, null);
+const champions = ref<ChampionsView | null>(null);
+const shown = computed(() => championsVisible(champions.value));
+async function loadChampions(): Promise<void> {
+  if (!fetcher) return;
+  try { champions.value = await fetcher<ChampionsView>(`/api/leagues/${encodeURIComponent(props.league.id)}/champions`); } catch { champions.value = null; }
+}
+onMounted(loadChampions);
+watch(() => props.league.id, () => { void loadChampions(); });
+const plural = (n: number, w: string): string => `${n} ${w}${n === 1 ? "" : "s"}`;
+const CUP_ICON = "/icons/coach-badges/legend-retro.png";
 const phases = computed(() => props.season.phases.filter((p) => props.season.fixtures.some((f) => f.phaseId === p.id)).length);
 </script>
 
@@ -49,6 +66,31 @@ const phases = computed(() => props.season.phases.filter((p) => props.season.fix
     </div>
   </section>
   <div class="lg-ov-side">
+      <section v-if="shown.any" class="hm-panel lg-champions" aria-labelledby="lg-champs-h">
+        <header class="hm-band"><h2 id="lg-champs-h">Current Champions</h2></header>
+        <div class="lg-champs">
+          <template v-if="shown.cups">
+            <p class="sf-k">Cups</p>
+            <ul class="lg-champ-list" aria-label="Season champions">
+              <li v-for="c in champions!.cups" :key="c.seasonId + c.label" class="lg-champ" data-kind="cup">
+                <span class="lg-champ-icon"><img :src="CUP_ICON" alt="" width="26" height="26" /></span>
+                <strong>{{ c.team }}</strong>
+                <small>{{ c.seasonName }} {{ c.label.toLowerCase() }} · {{ c.coach }}<template v-if="c.race"> · {{ c.race }}</template></small>
+              </li>
+            </ul>
+          </template>
+          <template v-if="shown.belts">
+            <p class="sf-k">Belts</p>
+            <ul class="lg-champ-list" aria-label="Ladder belt holders">
+              <li v-for="b in champions!.belts" :key="b.ladderId" class="lg-champ" data-kind="belt">
+                <span class="lg-champ-icon"><BeltIcon :size="30" /></span>
+                <strong>{{ b.team }}</strong>
+                <small>{{ b.ladderName }} · {{ plural(b.days, "day") }} · {{ plural(b.defences, "defence") }}<template v-if="b.inactive"> · inactive</template><template v-if="b.interim"> · interim {{ b.interim.team }}</template></small>
+              </li>
+            </ul>
+          </template>
+        </div>
+      </section>
       <section class="hm-panel" aria-labelledby="lg-summary-h">
         <header class="hm-band"><h2 id="lg-summary-h">{{ season.name }}</h2><span class="hm-cap">{{ SEASON_STATUS_LABEL[season.status] }}</span></header>
         <dl class="tl-facts lg-facts">

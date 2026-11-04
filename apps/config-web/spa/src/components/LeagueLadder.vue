@@ -11,6 +11,9 @@ import { SESSION_KEY, writesAllowed } from "../session";
 import LadderChallengeDialog from "./LadderChallengeDialog.vue";
 import LadderJoinDialog from "./LadderJoinDialog.vue";
 import ProposeDialog from "./ProposeDialog.vue";
+import BeltIcon from "./BeltIcon.vue";
+import LadderTitlePanel from "./LadderTitlePanel.vue";
+import LadderRumblePanel from "./LadderRumblePanel.vue";
 import {
   CHALLENGE_LABEL, CHALLENGE_TONE, createLadders, LADDERS_KEY, pickLadder, rankingColumns, settingsLines, STATE_TONE, timeLeft,
   type LadderChallengeView, type LadderRankRow,
@@ -38,6 +41,15 @@ const myRow = computed(() => view.value?.ranking.find((r) => r.teamId === myTeam
 const canWrite = computed(() => writesAllowed(session) && Boolean(session.coach()));
 const reasonFor = (row: LadderRankRow): string | undefined => (myTeam.value && row.teamId !== myTeam.value ? view.value?.me.targets[myTeam.value]?.[row.teamId] : undefined);
 const pickId = (id: string): void => { void router.replace({ query: { ...route.query, ladder: id } }); };
+// Titles (ladder titles lane): the belt holder at the top, the champion's belt and contract badges in the ranking.
+const titles = computed(() => view.value?.titles ?? null);
+const beltOn = computed(() => Boolean(titles.value?.enabled));
+const contractTeams = computed(() => new Set((titles.value?.contracts ?? []).filter((c) => c.state === "held" || c.state === "cashing-in").map((c) => c.teamId)));
+const vacantBout = computed(() => titles.value?.bouts.find((b) => b.kind === "vacant"));
+const plural = (n: number, w: string): string => `${n} ${w}${n === 1 ? "" : "s"}`;
+async function titleCall(key: string, path: string, body: Record<string, unknown>, done?: () => void): Promise<void> {
+  if (await ladders.titleCall(key, path, body)) done?.();
+}
 
 onMounted(async () => {
   if (!state.loaded || state.leagueId !== props.leagueId) await ladders.loadList(props.leagueId);
@@ -138,6 +150,29 @@ const ord = (n: number): string => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" 
       <p v-if="ladder?.paused && ladder.state === 'active'" class="sf-notice ld-paused" data-paused>{{ ladder.paused }}</p>
       <p v-if="state.loading && !view" class="hm-empty" role="status">Loading {{ current?.name }}...</p>
 
+      <section v-if="view && titles && beltOn" class="ld-belt" :data-vacant="titles.champion ? undefined : 'true'" aria-label="Belt holder">
+        <span class="ld-belt-icon" :data-inactive="titles.champion?.inactiveSince ? 'true' : undefined"><BeltIcon :size="54" :label="titles.champion ? `${ladder?.name} belt` : 'Vacant belt'" /></span>
+        <div class="ld-belt-main">
+          <p class="ld-belt-k">{{ titles.champion ? "Champion" : "Belt vacant" }}</p>
+          <template v-if="titles.champion">
+            <p class="ld-belt-team">{{ titles.champion.team }}</p>
+            <p class="ld-belt-sub muted">{{ titles.champion.coach }} · {{ titles.champion.race }} · since {{ titles.champion.since.slice(0, 10) }}</p>
+          </template>
+          <p v-else class="ld-belt-sub muted">{{ vacantBout ? `${vacantBout.home.team} v ${vacantBout.away.team} play for the title by ${vacantBout.deadline.slice(0, 10)}` : "The top two play for it once they have played a game." }}</p>
+        </div>
+        <dl v-if="titles.champion" class="ld-belt-facts">
+          <div><dt>Held</dt><dd>{{ plural(titles.champion.days, "day") }}</dd></div>
+          <div><dt>Defences</dt><dd>{{ titles.champion.defences }}</dd></div>
+          <div v-if="titles.champion.defendBy" class="ld-hide-sm"><dt>Defend by</dt><dd>{{ titles.champion.defendBy.slice(0, 10) }}</dd></div>
+        </dl>
+        <span class="ld-belt-chips">
+          <span v-if="titles.champion?.inactiveSince" class="sf-chip" data-tone="muted">Inactive</span>
+          <span v-if="titles.interim" class="sf-chip" data-tone="soon">Interim: {{ titles.interim.team }}</span>
+          <span v-if="titles.mandatory.stage === 'mandatory'" class="sf-chip" data-tone="urgent">Mandatory: {{ titles.mandatory.bout.away.team }}</span>
+          <span v-else-if="titles.mandatory.stage === 'eliminator'" class="sf-chip" data-tone="soon">Eliminator: {{ titles.mandatory.bout.home.team }} v {{ titles.mandatory.bout.away.team }}</span>
+        </span>
+      </section>
+
       <div v-if="view && ladder" class="ld-grid">
         <section class="hm-panel ld-rank" aria-labelledby="ld-rank-h">
           <header class="hm-band"><h2 id="ld-rank-h">Ranking</h2><span class="hm-cap">{{ ladder.rankingLabel }} · {{ view.ranking.length }} team{{ view.ranking.length === 1 ? "" : "s" }}</span></header>
@@ -166,7 +201,12 @@ const ord = (n: number): string => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" 
                     <small v-if="r.change" class="ld-change" :data-dir="r.change > 0 ? 'up' : 'down'" :aria-label="`${r.change > 0 ? 'up' : 'down'} ${Math.abs(r.change)} this week`">{{ r.change > 0 ? "▲" : "▼" }}{{ Math.abs(r.change) }}</small>
                   </td>
                   <td class="ld-teamcell">
-                    <strong class="ld-team">{{ r.team }}</strong>
+                    <strong class="ld-team">
+                      <span v-if="beltOn && titles?.champion?.teamId === r.teamId" class="ld-row-belt" title="Champion"><BeltIcon :size="22" label="Champion" /></span>
+                      <span v-else-if="beltOn && titles?.interim?.teamId === r.teamId" class="ld-row-belt" data-interim="true" title="Interim champion"><BeltIcon :size="22" label="Interim champion" /></span>
+                      {{ r.team }}
+                      <span v-if="contractTeams.has(r.teamId)" class="ld-mitb" title="Holds a Money in the Bank title-shot contract">MITB</span>
+                    </strong>
                     <small class="muted">{{ r.coach }} · {{ r.race }}</small>
                   </td>
                   <template v-for="c in cols" :key="c">
@@ -174,7 +214,7 @@ const ord = (n: number): string => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" 
                       <template v-if="r.ranked || ladder.ranking !== 'rating'">{{ r.rating }}</template>
                       <small v-else class="muted">{{ r.played }}/{{ ladder.settings.minGames }} games</small>
                     </td>
-                    <td v-else-if="c === 'points'" class="ld-num ld-strong">{{ r.points }}</td>
+                    <td v-else-if="c === 'points'" class="ld-num ld-strong">{{ r.points }}<small v-if="r.bonus" class="ld-bonus" :title="`${r.bonus} from champion bonuses`">+{{ r.bonus }}</small></td>
                     <td v-else-if="c === 'record'" class="ld-num">{{ r.wins }}-{{ r.draws }}-{{ r.losses }}<small v-if="r.declineLosses" class="muted" :title="`${r.declineLosses} by the decline rule`"> ({{ r.declineLosses }}d)</small></td>
                     <td v-else-if="c === 'td'" class="ld-num ld-hide-sm ld-hide-md">{{ r.tdDiff > 0 ? `+${r.tdDiff}` : r.tdDiff }}</td>
                     <td v-else class="ld-hide-sm ld-hide-md"><span class="ld-form"><span v-for="(x, i) in r.latest.slice(-5)" :key="i" class="ld-form-pip" :data-r="x">{{ x }}</span></span></td>
@@ -196,6 +236,14 @@ const ord = (n: number): string => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" 
         </section>
 
         <div class="ld-side">
+          <LadderTitlePanel
+            v-if="titles && beltOn" :titles="titles" :ranking="view.ranking" :league-id="leagueId" :ladder-id="ladder.id" :manage="view.manage" :can-write="canWrite"
+            :busy="state.busy" :now="now" @call="titleCall" @propose="openPropose"
+          />
+          <LadderRumblePanel
+            v-if="titles && (beltOn || titles.rumbles.length)" :rumbles="titles.rumbles" :manage="view.manage && ladder.state === 'active'" :can-write="canWrite" :my-team="myTeam"
+            :busy="state.busy" :error="state.actionError" :now="now" :points="titles.settings.bonuses.rumble" :belt-on="beltOn" @call="titleCall" @propose="openPropose"
+          />
           <section class="hm-panel ld-challenges" aria-labelledby="ld-ch-h">
             <header class="hm-band"><h2 id="ld-ch-h">Challenges</h2><span class="hm-cap">{{ view.challenges.live.length }} open</span></header>
             <p v-if="!view.challenges.live.length" class="hm-empty ld-pad">No open challenges.</p>

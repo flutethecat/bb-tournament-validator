@@ -64,6 +64,14 @@ function pickMethod(m: LadderRanking): void {
   // The method's own defaults (spec round 3): position ladders take the range of 3 and the decline rule.
   if (m === "position") { s.challengeRange = s.challengeRange ?? 3; s.declineRule.enabled = true; }
   else { s.declineRule.enabled = false; }
+  // A belt ladder ranks by points: another method switches the belt off.
+  if (m !== "points" && s.titles) s.titles.belt = false;
+}
+
+// Titles (ladder titles lane): a belt ladder ranks by points (the server enforces it; the form follows).
+const t = computed(() => state.form?.settings.titles);
+function beltChanged(): void {
+  if (state.form?.settings.titles?.belt && state.form.settings.ranking !== "points") pickMethod("points");
 }
 
 async function save(step: LadderStep, extra: Record<string, unknown> = {}): Promise<boolean> {
@@ -200,6 +208,46 @@ const reviewLines = computed(() => (state.form ? settingsLines({ ...state.form.s
               <label v-if="f.settings.redraft.trigger === 'games'" class="sf-field lw-field"><span class="sf-k">Games before a redraft</span><input v-model.number="f.settings.redraft.everyGames" type="number" min="1" max="100" /></label>
               <label class="sf-field lw-field"><span class="sf-k">TV cap (k, optional)</span><input v-model="f.tvCapK" type="number" min="500" max="5000" placeholder="Off" /></label>
             </div>
+            <fieldset v-if="t" class="lw-group lwl-titles-set">
+              <legend class="sf-k">Titles</legend>
+              <label class="sf-check lw-check"><input v-model="t.belt" type="checkbox" data-field="belt" @change="beltChanged" /> Title belt: a champion to beat ("cups go to seasons, belts go to ladders")</label>
+              <small class="lw-help">A belt ladder ranks by points, with bonuses for the champion. The top two contenders play an eliminator for the mandatory title shot.</small>
+              <div v-if="t.belt" class="lwl-titles">
+                <div class="lw-group">
+                  <p class="sf-k">Champion bonuses (points)</p>
+                  <div class="lw-two">
+                    <label class="sf-field lw-field"><span class="sf-k">Per defence</span><input v-model.number="t.bonuses.defence" type="number" min="0" max="20" /></label>
+                    <label class="sf-field lw-field"><span class="sf-k">Per week held</span><input v-model.number="t.bonuses.weekHeld" type="number" min="0" max="20" /></label>
+                    <label class="sf-field lw-field"><span class="sf-k">Winning it</span><input v-model.number="t.bonuses.winBelt" type="number" min="0" max="20" /></label>
+                  </div>
+                </div>
+                <div class="lw-group">
+                  <p class="sf-k">Mandatory challenger</p>
+                  <div class="lw-two">
+                    <label class="sf-field lw-field"><span class="sf-k">Eliminator (days)</span><input v-model.number="t.eliminatorDays" type="number" min="1" max="60" /></label>
+                    <label class="sf-field lw-field"><span class="sf-k">Mandatory (days)</span><input v-model.number="t.mandatoryDays" type="number" min="3" max="90" /></label>
+                    <label class="sf-field lw-field"><span class="sf-k">Top N challenge</span><input v-model.number="t.defenceRange" type="number" min="1" max="50" /></label>
+                  </div>
+                </div>
+                <div class="lw-group">
+                  <p class="sf-k">Inactive champion</p>
+                  <div class="lw-two">
+                    <label class="sf-field lw-field"><span class="sf-k">Reminder after (days)</span><input v-model.number="t.inactivityDays" type="number" min="7" max="180" /></label>
+                    <label class="sf-field lw-field"><span class="sf-k">Vacate after (more days)</span><input v-model.number="t.graceDays" type="number" min="1" max="60" /></label>
+                    <label class="sf-field lw-field"><span class="sf-k">Rumble win (points)</span><input v-model.number="t.bonuses.rumble" type="number" min="0" max="20" /></label>
+                  </div>
+                </div>
+                <div class="lw-group">
+                  <label class="sf-check lw-check"><input v-model="t.mitb.enabled" type="checkbox" data-field="mitb" /> Money in the Bank: title-shot contracts</label>
+                  <div v-if="t.mitb.enabled" class="lw-two">
+                    <label class="sf-field lw-field"><span class="sf-k">Wins in a row</span><input v-model.number="t.mitb.streak" type="number" min="2" max="20" /></label>
+                    <label class="sf-field lw-field"><span class="sf-k">Cash in within (days)</span><input v-model.number="t.mitb.cashInDays" type="number" min="7" max="365" /></label>
+                    <label class="sf-field lw-field"><span class="sf-k">Cash-in win (points)</span><input v-model.number="t.bonuses.moneyInTheBank" type="number" min="0" max="20" /></label>
+                  </div>
+                  <small class="lw-help">The champion can't decline a cash-in; it's played within {{ t.mitb.playHours }} hours. Gold, SPP and progression count as in any game.</small>
+                </div>
+              </div>
+            </fieldset>
           </template>
           <!-- 4. Review -->
           <template v-else>

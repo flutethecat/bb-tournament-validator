@@ -31,7 +31,25 @@ export interface LadderSettings {
   periodDays: number | null;
   endsAt?: string;
   redraft: { trigger: "period-end" | "schedule" | "games"; schedule: string[]; everyGames: number; tvCap: number | null };
+  /** Titles (the server's ladderTitles.ts); absent on an old read = the defaults (belt off). */
+  titles?: TitleSettings;
 }
+
+export interface TitleSettings {
+  belt: boolean;
+  bonuses: { defence: number; weekHeld: number; winBelt: number; moneyInTheBank: number; rumble: number };
+  mandatoryDays: number;
+  eliminatorDays: number;
+  defenceRange: number;
+  inactivityDays: number;
+  graceDays: number;
+  mitb: { enabled: boolean; streak: number; cashInDays: number; playHours: number };
+}
+
+export const DEFAULT_TITLES: TitleSettings = {
+  belt: false, bonuses: { defence: 2, weekHeld: 1, winBelt: 3, moneyInTheBank: 3, rumble: 5 }, mandatoryDays: 21, eliminatorDays: 7, defenceRange: 5, inactivityDays: 30, graceDays: 7,
+  mitb: { enabled: false, streak: 5, cashInDays: 90, playHours: 72 },
+};
 
 export interface LadderSummary {
   id: string;
@@ -62,6 +80,8 @@ export interface LadderRankRow {
   losses: number;
   declineLosses: number;
   points: number;
+  /** Points from outside results (champion bonuses; also in points). */
+  bonus?: number;
   tdDiff: number;
   rating: number;
   ranked: boolean;
@@ -108,7 +128,45 @@ export interface LadderDetail extends LadderSummary {
   wizard?: { step: number; completedAt?: string };
 }
 
+export type BoutKind = "eliminator" | "mandatory" | "vacant" | "cashin" | "shot" | "interim" | "unification";
+export interface BoutView {
+  id: string;
+  kind: BoutKind;
+  label: string;
+  state: "scheduled" | "played" | "lapsed" | "cancelled";
+  home: ChallengeSide;
+  away: ChallengeSide;
+  deadline: string;
+  createdAt: string;
+  fixtureId: string;
+  winnerTeamId?: string;
+  how?: "result" | "fallback";
+  note?: string;
+  scheduleRef?: string;
+  mine?: boolean;
+}
+export interface ReignView extends ChallengeSide { id: string; interim: boolean; since: string; until?: string; days: number; defences: number; how: string; ended?: string }
+export interface ContractView extends ChallengeSide { id: string; source: "streak" | "organiser" | "rumble"; earnedAt: string; expiresAt: string; state: "held" | "cashing-in" | "used" | "expired"; note?: string; mine?: boolean }
+export interface RumbleMatchView { slot: number; home: ChallengeSide; away?: ChallengeSide; fixtureId?: string; score?: [number, number]; winnerTeamId?: string; how?: "result" | "bye" | "fallback"; scheduleRef?: string }
+export interface RumbleView {
+  id: string; name: string; date: string; field: "top8" | "open"; roundDays: number; points: number; state: "entry" | "running" | "finished" | "cancelled";
+  entries: ChallengeSide[]; seeds: Array<ChallengeSide & { seed: number }>; rounds: Array<{ number: number; deadline: string; matches: RumbleMatchView[] }>; winner?: ChallengeSide; note?: string;
+}
+export interface TitlesView {
+  enabled: boolean;
+  settings: TitleSettings;
+  champion: (ChallengeSide & { since: string; days: number; defences: number; how: string; lastDefenceAt?: string; inactiveSince?: string; defendBy?: string; vacateAt?: string }) | null;
+  interim: (ChallengeSide & { since: string; days: number }) | null;
+  history: ReignView[];
+  mandatory: { stage: "none" } | { stage: "eliminator" | "mandatory"; bout: BoutView };
+  bouts: BoutView[];
+  recentBouts: BoutView[];
+  contracts: ContractView[];
+  rumbles: RumbleView[];
+}
+
 export interface LadderView {
+  titles?: TitlesView | null;
   ladder: LadderDetail;
   ranking: LadderRankRow[];
   challenges: { live: LadderChallengeView[]; closed: LadderChallengeView[] };
@@ -190,8 +248,33 @@ export function settingsLines(s: LadderSettings): string[] {
   const r = s.redraft;
   out.push(r.trigger === "games" ? `Teams redraft after ${r.everyGames} games (applied once ladder redrafts open).` : r.trigger === "schedule" ? `Redraft on fixed dates${r.schedule.length ? ` (${r.schedule.map((d) => d.slice(0, 10)).join(", ")})` : ""}.` : s.periodDays ? "Redraft at each period end." : "No redraft (no periods).");
   if (r.tvCap) out.push(`TV cap ${Math.round(r.tvCap / 1000)}k.`);
+  out.push(...titleLines(s.titles));
   return out;
 }
+
+/** The titles' plain-words lines (empty when the belt is off). */
+export function titleLines(t: TitleSettings | undefined): string[] {
+  if (!t?.belt) return [];
+  const b = t.bonuses;
+  const out = [
+    `Title belt: champion bonuses +${b.defence} per defence, +${b.weekHeld} per full week held, +${b.winBelt} for winning the belt.`,
+    `King of the hill: #2 v #3 play an eliminator (${t.eliminatorDays} days); the champion then has ${t.mandatoryDays} days to play the mandatory challenger, or the title passes to them.`,
+    `The top ${t.defenceRange} may challenge the champion. No defence for ${t.inactivityDays} days brings a reminder; ${t.graceDays} days later the title is vacated.`,
+  ];
+  if (t.mitb.enabled) out.push(`Money in the Bank: ${t.mitb.streak} wins in a row earn a title-shot contract; cash in within ${t.mitb.cashInDays} days, play within ${t.mitb.playHours} hours, +${b.moneyInTheBank} for winning it.`);
+  return out;
+}
+
+export const BOUT_TONE: Record<BoutKind, string> = { eliminator: "soon", mandatory: "urgent", vacant: "soon", cashin: "urgent", shot: "urgent", interim: "soon", unification: "urgent" };
+export const CONTRACT_SOURCE: Record<ContractView["source"], string> = { streak: "Win streak", organiser: "Organiser event", rumble: "Rumble prize" };
+
+/** The Rumble's round names: Final, Semi-finals, Quarter-finals, else Round n. */
+export function rumbleRoundName(roundIndex: number, rounds: number): string {
+  const left = rounds - roundIndex;
+  return left === 1 ? "Final" : left === 2 ? "Semi-finals" : left === 3 ? "Quarter-finals" : `Round ${roundIndex + 1}`;
+}
+/** How many rounds a knockout of `n` teams has. */
+export const rumbleRounds = (n: number): number => Math.max(1, Math.ceil(Math.log2(Math.max(2, n))));
 
 /** "2 days left", "5 hours left", "expired". */
 export function timeLeft(iso: string | undefined, now: number): string {
@@ -305,13 +388,21 @@ export function createLadders(deps: { api: Fetcher }) {
     await Promise.all([open(state.viewId), loadJoin()]);
     return true;
   }
+  /** A title write (organiser actions, a cash-in, Rumble entry): the server answers the new titles part; the tab reloads. */
+  async function titleCall(key: string, path: string, body: Record<string, unknown> = {}): Promise<boolean> {
+    const out = await run(key, () => deps.api<{ notice?: string }>(`${base()}/${path}`, { method: "POST", body }));
+    if (out === undefined) return false;
+    state.notice = out.notice ?? "Saved.";
+    await open(state.viewId);
+    return true;
+  }
   async function withdrawEntry(): Promise<void> {
     const id = state.join?.mine?.id;
     if (!id) return;
     const out = await run("withdraw-entry", () => deps.api(`${base()}/registrations/${encodeURIComponent(id)}/withdraw`, { method: "POST", body: {} }), "Your request was withdrawn.");
     if (out !== undefined) await loadJoin();
   }
-  return { state, loadList, open, loadJoin, loadOptions, challenge, answer, join, withdrawEntry };
+  return { state, loadList, open, loadJoin, loadOptions, challenge, answer, join, withdrawEntry, titleCall };
 }
 export type Ladders = ReturnType<typeof createLadders>;
 export const LADDERS_KEY: InjectionKey<Ladders> = Symbol("league-ladders");
@@ -381,7 +472,7 @@ export function formOf(l: LadderDetail): LadderForm {
   return {
     name: l.name, description: l.description, playOnFork: l.playOnFork, ruleset: l.ruleset === "BB2020" ? "BB2020" : "BB2025", rulesetPackage: l.rulesetPackage,
     houseRules: JSON.parse(JSON.stringify(l.houseRules ?? {})) as HouseRules,
-    settings: JSON.parse(JSON.stringify(l.settings)) as LadderSettings,
+    settings: { ...(JSON.parse(JSON.stringify(l.settings)) as LadderSettings), titles: JSON.parse(JSON.stringify(l.settings.titles ?? DEFAULT_TITLES)) as TitleSettings },
     endsAt: l.settings.endsAt ? l.settings.endsAt.slice(0, 10) : "",
     periodWeeks: l.settings.periodDays ? String(Math.round(l.settings.periodDays / 7)) : "",
     tvCapK: l.settings.redraft.tvCap ? String(Math.round(l.settings.redraft.tvCap / 1000)) : "",
@@ -406,10 +497,33 @@ export function stepBody(step: LadderStep, f: LadderForm): Record<string, unknow
         periodDays: f.periodWeeks.trim() && Number.isFinite(weeks) && weeks > 0 ? Math.round(weeks * 7) : null,
         endsAt: f.endsAt ? `${f.endsAt}T23:59:00.000Z` : null,
         redraft: { trigger: s.redraft.trigger, everyGames: Number(s.redraft.everyGames), tvCap: f.tvCapK.trim() && Number.isFinite(cap) && cap > 0 ? Math.round(cap * 1000) : null },
+        titles: titlesBody(s.titles ?? DEFAULT_TITLES),
       },
     };
   }
   return { complete: true };
 }
+
+/** The titles part of the settings PATCH (numbers coerced; the server validates every value). */
+export function titlesBody(t: TitleSettings): TitleSettings {
+  const n = (v: unknown) => Number(v);
+  return {
+    belt: Boolean(t.belt),
+    bonuses: { defence: n(t.bonuses.defence), weekHeld: n(t.bonuses.weekHeld), winBelt: n(t.bonuses.winBelt), moneyInTheBank: n(t.bonuses.moneyInTheBank), rumble: n(t.bonuses.rumble) },
+    mandatoryDays: n(t.mandatoryDays), eliminatorDays: n(t.eliminatorDays), defenceRange: n(t.defenceRange), inactivityDays: n(t.inactivityDays), graceDays: n(t.graceDays),
+    mitb: { enabled: Boolean(t.mitb.enabled), streak: n(t.mitb.streak), cashInDays: n(t.mitb.cashInDays), playHours: n(t.mitb.playHours) },
+  };
+}
+
+export interface ChampionsView {
+  cups: Array<{ seasonId: string; seasonName: string; label: string; division?: string; team: string; coach: string; race: string; teamId?: string }>;
+  belts: Array<{ ladderId: string; ladderName: string; teamId: string; team: string; coach: string; race: string; since: string; days: number; defences: number; inactive?: boolean; interim?: { team: string } }>;
+}
+/** The Current Champions panel shows a part only when it has rows, and itself only when a part does. */
+export const championsVisible = (v: ChampionsView | null | undefined): { cups: boolean; belts: boolean; any: boolean } => {
+  const cups = Boolean(v?.cups.length);
+  const belts = Boolean(v?.belts.length);
+  return { cups, belts, any: cups || belts };
+};
 
 export type JoinShare = ShareField[];
