@@ -30,10 +30,7 @@ import { anonymiseLeagueRegistration, anonymiseRegistrationTrail, ownLeagueRegis
 import { createAnonymiser, createTextReplacer, nameKey, textAliases, type Anonymiser, type TextReplacer } from "./anonymise.js";
 import { coachKeyHash, isReservedCoachName } from "./fence.js";
 import { addToBlocklist, mapHash, markRecentDeletion, recordDeletedCoach, type StepStatus } from "./state.js";
-import { LeagueStore } from "../leagues/store.js";
-import { TournamentStore } from "../tournaments/store.js";
-import { TournamentResultStore } from "../tournamentResults.js";
-import { SiteRatingsService } from "../ratings/service.js";
+import { createSiteRatings } from "../ratings/service.js";
 
 // ---- deps / contexts --------------------------------------------------------------------------------------------
 
@@ -572,15 +569,8 @@ export const STORE_COLLECTORS: StoreCollector[] = [
     location: "derived from results, leagues and tournaments (FORK_STATE_DIR/site-ratings.json: the reset time only)",
     export: (ctx) => {
       try {
-        const service = new SiteRatingsService({
-          stateDir: ctx.deps.stateDir,
-          leagues: new LeagueStore(ctx.deps.stateDir),
-          tournaments: () => new TournamentStore(ctx.deps.tournamentsDir).snapshot(),
-          tournamentsStamp: () => "export",
-          results: () => new TournamentResultStore(ctx.deps.stateDir).list(),
-          resultsRevision: () => "export",
-          ttlMs: 0,
-        });
+        // the production factory (fork races from the team library included), so the export matches what the site shows
+        const service = createSiteRatings({ stateDir: ctx.deps.stateDir, tournamentsDir: ctx.deps.tournamentsDir, libraryDir: ctx.deps.libraryDir }, { ttlMs: 0 });
         const mine = service.exportFor(ctx.coach);
         const round = (r: { rating: number; rd: number; volatility: number }) => ({ ...r, rating: Math.round(r.rating * 100) / 100, rd: Math.round(r.rd * 100) / 100 });
         return [{ name: "ratings.json", content: json({

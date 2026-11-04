@@ -1309,7 +1309,7 @@ export function seasonForViewer(league: LeagueRecord, full: SeasonRecord, auth: 
   // Redraft state (budgets, R&R, draft rosters) is served only by the authorised redraft routes, never in a season read.
   // League registration rows (lane L6) are organiser and coach data, served only by the registration routes.
   // Takeover applications (team library lane) are the applicant's and the organisers', served only by takeover routes; a ladder's own record (challenges, members, rounds) by the ladder routes (ladderApi.ts).
-  const { redraft: _r, registrations: _reg, takeoverApplications: _ta, ladder: _lad, ...derived } = withCaptainCandidates(withStandings(full));
+  const { redraft: _r, registrations: _reg, takeoverApplications: _ta, ladder: _lad, forkClaims: _fc, ...derived } = withCaptainCandidates(withStandings(full));
   // Team page v2: a team-page MNG the team has served reads as cleared (computed on a copy; the next write stores it), and
   // team histories and injury authors stay with the team's coach and the organisers (GET .../teams/:teamId/manage).
   const teamsCopy = derived.teams.some((t) => t.players.some((p) => p.mngGames !== undefined)) ? structuredClone(derived.teams) : derived.teams;

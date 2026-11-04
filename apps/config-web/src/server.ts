@@ -267,7 +267,7 @@ import { setResultCoachFilter,
 } from "./tournamentResults.js";
 import { computeElo } from "./coachElo.js";
 import { computeGlicko, unratedGlicko } from "./coachGlicko.js";
-import { SiteRatingsService } from "./ratings/service.js";
+import { createSiteRatings } from "./ratings/service.js";
 import { isRatingsPath, ratingsRoute } from "./ratings/api.js";
 import { CoachTitleStore } from "./coachRank.js";
 import { NafRecordStore, nafResultRows, nafRevision, nafSummaryFor, refreshNafForCoaches } from "./nafRecords.js";
@@ -540,22 +540,12 @@ const tournamentStore = new TournamentStore(TOURNAMENTS_DIR);
 // Leagues (TABBL and later): <FORK_STATE_DIR>/leagues/<id>/; public reads, organiser/admin artwork writes (src/leagues/api.ts).
 const leagueStore = new LeagueStore(FORK_STATE_DIR);
 // Site ratings (owner round 2, 11-04; src/ratings): Glicko-2 overall and per race, derived from league, ladder, tournament
-// and Super FUMBBL results on every read (cached by the stores' revisions). Replaces the Elo "Rating".
-const tournamentsFileStamp = (): string => { try { const st = statSync(join(TOURNAMENTS_DIR, "tournaments.json")); return `${st.size}:${st.mtimeMs}`; } catch { return "none"; } };
-const siteRatings = new SiteRatingsService({
-  stateDir: FORK_STATE_DIR,
-  leagues: leagueStore,
-  tournaments: () => tournamentStore.snapshot(),
-  tournamentsStamp: tournamentsFileStamp,
-  results: () => tournamentResults.list(),
-  resultsRevision: () => tournamentResults.revision(),
-  // a Super FUMBBL game's races: its teams in the team library (read once per replay)
-  forkRaces: () => {
-    const races = new Map<string, string>();
-    try { for (const c of libraryCoaches(LIBRARY_DIR)) for (const t of readLibrary(LIBRARY_DIR, c)) if (t?.teamId && t.race) races.set(t.teamId, t.race); } catch { /* races unknown: overall only */ }
-    return (teamId) => races.get(teamId);
-  },
-});
+// and Super FUMBBL results (cached; src/ratings/service.ts). Replaces the Elo "Rating". The same factory serves the privacy
+// export and the reset script, so all three rate the same games (fork races from the team library included).
+const siteRatings = createSiteRatings(
+  { stateDir: FORK_STATE_DIR, tournamentsDir: TOURNAMENTS_DIR, libraryDir: LIBRARY_DIR },
+  { leagueStore, tournamentStore, resultStore: tournamentResults },
+);
 /** Roster Builder league mode (lane L7): resolveBuilderPackage's hook for "league:<leagueId>:<seasonId>". */
 const leagueBuilderPackage = (name: string) => resolveLeaguePackage(leagueStore, name);
 // Fixture lobby (src/fixtureLobby): one file per fixture; presence in memory; chat 20 messages a minute per coach and lobby.
@@ -1425,7 +1415,7 @@ function fixtureLobbyDeps(): LeagueLobbyDeps {
     resultsRevision: () => tournamentResults.revision(),
     // fixture summary (league UX pass 11-02): the coach cards' Rating (the site Glicko-2, src/ratings), the
     // coaches' messages copied into their Messages inboxes, and the inbox notes (actionable rows queue the Discord DM)
-    ratings: () => siteRatings.overall(),
+    ratings: () => siteRatings.publicOverall(),
     notify: leagueNotify,
     mirror: (from, to, text, context) => appendFixtureMessage(socialDeps, from, to, text, context),
     messageAllowed: (coach) => fixtureMessageAllowed(socialDeps, coach),
@@ -2945,7 +2935,7 @@ async function handleApi(
       coachRating: (coach) => {
         // Seeding uses the site Glicko-2 overall rating (owner round 2, 11-04: it replaces the Elo); an unrated coach
         // seeds as unrated, and all-unrated fields fall to the stable tie-flip fairly.
-        try { return siteRatings.overall().get(normalizeFfbCoachId(coach))?.rating; } catch { return undefined; }
+        try { return siteRatings.publicOverall().get(normalizeFfbCoachId(coach))?.rating; } catch { return undefined; }
       },
     });
     if (result) {

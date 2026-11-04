@@ -1,20 +1,28 @@
 // Site ratings service: gathers the rated games from the stores (sources.ts), replays Glicko-2 (glicko.ts) from the go-live
-// reset (state.ts), and answers the leaderboard and per-coach reads. Derived on every read, cached:
-// - the cache key is every input's revision (league store writes, the tournaments file, the results store, the reset file)
-//   plus the UTC day (RDs grow per idle day); a write from another process (an import script) shows within `ttlMs`;
+// reset (state.ts), and answers the leaderboard and per-coach reads. Derived from the stores, cached in two steps:
+// - a cheap key (league store writes in this process, the results store revision, the reset file, the UTC day) decides
+//   whether to look again before `ttlMs` runs out. The tournaments file is NOT in it (fixture presence leases rewrite it
+//   all the time), so a tournament result, or a write from another process, shows within `ttlMs`;
+// - looking again re-reads the stores and fingerprints the rated games; the Glicko replay runs only when that fingerprint
+//   (or the reset, or the day) changed. Presence traffic therefore never causes a replay, and causes at most one store
+//   read per `ttlMs`.
 // - deletion of a coach rewrites the stores (results, leagues and tournaments are anonymised) and drops the cache
 //   (clear(), the server's onCoachDeleted), so nothing of a deleted coach stays under their name.
 // Fails closed: an unreadable reset file or identities file throws; routes answer 503.
 //
-// Privacy (leaderboards and the coach read): only coaches with an account that is not banned and not a deleted coach
-// ("Deleted coach #n") are listed. Draft, test and demo leagues and unpublished tournaments never reach the ratings at all.
+// Privacy: every PUBLIC read (leaderboards, the coach read, the fixture coach cards, seeding) goes through listed(): only
+// coaches with an account that is not banned and not a deleted coach ("Deleted coach #n"). Draft, test and demo leagues and
+// unpublished tournaments never reach the ratings at all.
 
+import { createHash } from "node:crypto";
+import { libraryCoaches, readLibrary } from "@bb/fork-ops";
 import { normalizeFfbCoachId, readIdentitiesStrict, type IdentityStore } from "../auth/identitiesStore.js";
-import type { LeagueStore } from "../leagues/store.js";
+import { LeagueStore } from "../leagues/store.js";
 import { isReservedCoachName } from "../privacy/reservedNames.js";
-import type { StoredTournamentResult } from "../tournamentResults.js";
+import { TournamentResultStore, type StoredTournamentResult } from "../tournamentResults.js";
+import { TournamentStore } from "../tournaments/store.js";
 import type { TournamentDataFileV4 } from "../tournaments/types.js";
-import { computeSiteRatings, periodOf, PROVISIONAL_GAMES, raceKey, ratingView, type RatingView, type SiteRating, type SiteRatings } from "./glicko.js";
+import { computeSiteRatings, periodOf, PROVISIONAL_GAMES, raceKey, ratingView, type RatedGame, type RatingView, type SiteRating, type SiteRatings } from "./glicko.js";
 import { collectRatedGames, type LeagueSource } from "./sources.js";
 import { ratingsStateStamp, readRatingsState } from "./state.js";
 
@@ -22,15 +30,51 @@ export interface SiteRatingsDeps {
   stateDir: string;
   leagues: Pick<LeagueStore, "list" | "competitions" | "version">;
   tournaments: () => TournamentDataFileV4;
-  /** Changes whenever the tournaments file does. */
-  tournamentsStamp: () => string;
   results: () => StoredTournamentResult[];
   resultsRevision: () => string;
-  /** A fork team's race (the team library), for the per-race ratings of Super FUMBBL games. Built once per replay. */
+  /** A fork team's race (the team library), for the per-race ratings of Super FUMBBL games. Built once per store read. */
   forkRaces?: () => (teamId: string) => string | undefined;
   identities?: () => IdentityStore;
   now?: () => number;
   ttlMs?: number;
+}
+
+/** Each fork team's race from the team library (read once per call); unreadable = races unknown (overall only). */
+export function libraryRaces(libraryDir: string): (teamId: string) => string | undefined {
+  const races = new Map<string, string>();
+  try { for (const c of libraryCoaches(libraryDir)) for (const t of readLibrary(libraryDir, c)) if (t?.teamId && t.race) races.set(t.teamId, t.race); } catch { /* overall only */ }
+  return (teamId) => races.get(teamId);
+}
+
+/**
+ * The one way to build the service over the real stores: the server, the privacy export and the reset script share it, so
+ * they all rate the same games (fork races included). The server passes its own store instances; the others open them.
+ */
+export function createSiteRatings(paths: { stateDir: string; tournamentsDir: string; libraryDir?: string }, over: Partial<SiteRatingsDeps> & {
+  leagueStore?: LeagueStore; tournamentStore?: TournamentStore; resultStore?: TournamentResultStore;
+} = {}): SiteRatingsService {
+  const { leagueStore, tournamentStore, resultStore, ...rest } = over;
+  const leagues = leagueStore ?? new LeagueStore(paths.stateDir);
+  const tournaments = tournamentStore ?? new TournamentStore(paths.tournamentsDir);
+  const results = resultStore ?? new TournamentResultStore(paths.stateDir);
+  const libraryDir = paths.libraryDir;
+  return new SiteRatingsService({
+    stateDir: paths.stateDir,
+    leagues,
+    tournaments: () => tournaments.snapshot(),
+    results: () => results.list(),
+    resultsRevision: () => results.revision(),
+    ...(libraryDir ? { forkRaces: () => libraryRaces(libraryDir) } : {}),
+    ...rest,
+  });
+}
+
+/** A fingerprint of the rated games (what the replay depends on). */
+function gamesKey(games: readonly RatedGame[]): string {
+  const h = createHash("sha256");
+  for (const g of [...games].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)))
+    h.update([g.key, g.at, g.home.coach, g.home.race ?? "", g.away.coach, g.away.race ?? "", g.homeScore].join("\u0000") + "\n");
+  return h.digest("hex");
 }
 
 export interface LeaderboardQuery { race?: string; minGames?: number; provisional?: boolean; limit?: number }
@@ -54,8 +98,12 @@ export interface CoachRatings {
 export const LEADERBOARD_MAX_ROWS = 500;
 export const MIN_GAMES_MAX = 1000;
 
+interface Memo { fastKey: string; checkedAt: number; slowKey: string; ratings: SiteRatings; resetAt: string | null }
+
 export class SiteRatingsService {
-  private memo: { key: string; at: number; ratings: SiteRatings; resetAt: string | null } | undefined;
+  private memo: Memo | undefined;
+  /** Glicko replays run so far (tests: presence traffic must never cause one). */
+  rebuilds = 0;
   constructor(private readonly deps: SiteRatingsDeps) {}
 
   private now(): number { return this.deps.now?.() ?? Date.now(); }
@@ -66,9 +114,9 @@ export class SiteRatingsService {
   /** Every coach's ratings, as of today. Throws when the reset file cannot be read. */
   current(): { ratings: SiteRatings; resetAt: string | null } {
     const now = this.now();
-    const key = [this.deps.leagues.version(), this.deps.tournamentsStamp(), this.deps.resultsRevision(), ratingsStateStamp(this.deps.stateDir), periodOf(now)].join("|");
+    const fastKey = [this.deps.leagues.version(), this.deps.resultsRevision(), ratingsStateStamp(this.deps.stateDir), periodOf(now)].join("|");
     const ttl = this.deps.ttlMs ?? 30_000;
-    if (this.memo && this.memo.key === key && now - this.memo.at < ttl) return this.memo;
+    if (this.memo && this.memo.fastKey === fastKey && now - this.memo.checkedAt < ttl) return this.memo;
     const state = readRatingsState(this.deps.stateDir);
     const leagues: LeagueSource[] = this.deps.leagues.list().map((league) => ({ league, competitions: this.deps.leagues.competitions(league.id) }));
     const games = collectRatedGames({
@@ -76,13 +124,27 @@ export class SiteRatingsService {
       ...(this.deps.forkRaces ? { forkRace: this.deps.forkRaces() } : {}),
     });
     const resetAt = state.resetAt ?? null;
+    const slowKey = `${gamesKey(games)}|${resetAt ?? ""}|${periodOf(now)}`;
+    if (this.memo && this.memo.slowKey === slowKey) {
+      this.memo = { ...this.memo, fastKey, checkedAt: now };
+      return this.memo;
+    }
     const ratings = computeSiteRatings(games, { ...(resetAt ? { resetAt: Date.parse(resetAt) } : {}), asOf: now });
-    this.memo = { key, at: now, ratings, resetAt };
+    this.rebuilds += 1;
+    this.memo = { fastKey, checkedAt: now, slowKey, ratings, resetAt };
     return this.memo;
   }
 
-  /** The overall ratings by coach key (the fixture lobby's coach cards and tournament seeding). */
-  overall(): ReadonlyMap<string, SiteRating> { return this.current().ratings.overall; }
+  /**
+   * The overall ratings of LISTED coaches only (the fixture lobby's coach cards and their rank, tournament seeding): a
+   * deleted or banned coach has no rating anywhere public. Throws when the identities cannot be read (callers show none).
+   */
+  publicOverall(): ReadonlyMap<string, SiteRating> {
+    const all = this.current().ratings.overall;
+    const out = new Map<string, SiteRating>();
+    for (const k of this.listed().keys()) { const r = all.get(k); if (r) out.set(k, r); }
+    return out;
+  }
 
   /** Coaches the public reads may list: an account, not banned, not a deleted coach. key -> display name. */
   private listed(): Map<string, string> {

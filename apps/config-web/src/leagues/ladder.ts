@@ -360,6 +360,8 @@ export interface LadderTeamStats {
   tdFor: number;
   tdAgainst: number;
   glicko: GlickoState;
+  /** Games that moved the rating (the site ratings' rules: no forfeits, deadline decisions or overrides). */
+  rated: number;
   /** Results (W/D/L), oldest first, at most six. */
   latest: Array<"W" | "D" | "L">;
   lastGameAt?: string;
@@ -384,7 +386,9 @@ export interface LadderRankRow {
   rating: number;
   /** Its rating deviation, rounded. */
   rd: number;
-  /** Rating ladders: ranked once it has played minGames. Always true for points and position ladders. */
+  /** Rated games (forfeits, deadline decisions and overrides left out): what a rating ladder's minimum counts. */
+  ratedGames: number;
+  /** Rating ladders: ranked once it has minGames RATED games. Always true for points and position ladders. */
   ranked: boolean;
   latest: Array<"W" | "D" | "L">;
   /** Places gained (+) or lost (-) over the last 7 days (absent = no change or new). */
@@ -398,7 +402,7 @@ export interface LadderSnapshot { order: string[]; stats: Map<string, LadderTeam
 
 const fresh = (teamId: string): LadderTeamStats => ({
   teamId, played: 0, wins: 0, draws: 0, losses: 0, declineLosses: 0, points: 0, bonus: 0, tdFor: 0, tdAgainst: 0,
-  glicko: { r: SITE_GLICKO.rating, rd: SITE_GLICKO.rd, sigma: SITE_GLICKO.sigma }, latest: [],
+  glicko: { r: SITE_GLICKO.rating, rd: SITE_GLICKO.rd, sigma: SITE_GLICKO.sigma }, rated: 0, latest: [],
 });
 
 /** When a ladder fixture's result happened (finished, else started, else its scheduled time, else the challenge answer). */
@@ -475,6 +479,7 @@ export function replayLadder(
     // deadline decision, an override or an unbacked concession counts in the table but never moves the rating.
     const verdict = leagueFixtureVerdict(f);
     if (verdict.counts) {
+      hs.rated += 1; as.rated += 1;
       const score = verdict.homeScore;
       const hBefore = { ...hs.glicko }; const aBefore = { ...as.glicko };
       hs.glicko = glickoUpdate(hBefore, [{ r: aBefore.r, rd: aBefore.rd, score }], SITE_GLICKO);
@@ -509,7 +514,7 @@ export function rankRows(ladder: SeasonRecord, snap: LadderSnapshot, members: Re
     return {
       teamId: team.id, team: team.name, race: team.race, coach: team.coach, played: s.played, wins: s.wins, draws: s.draws, losses: s.losses,
       declineLosses: s.declineLosses, points: s.points, bonus: s.bonus, tdDiff: s.tdFor - s.tdAgainst, rating: Math.round(s.glicko.r), rd: Math.round(s.glicko.rd),
-      ranked: settings.ranking !== "rating" || s.played >= settings.minGames, latest: s.latest, teamValue: team.teamValue ?? null,
+      ratedGames: s.rated, ranked: settings.ranking !== "rating" || s.rated >= settings.minGames, latest: s.latest, teamValue: team.teamValue ?? null,
     };
   });
   const name = (a: { team: string }, b: { team: string }) => a.team.localeCompare(b.team);
@@ -517,7 +522,7 @@ export function rankRows(ladder: SeasonRecord, snap: LadderSnapshot, members: Re
     const pos = new Map(snap.order.map((id, i) => [id, i] as const));
     rows.sort((a, b) => (pos.get(a.teamId) ?? 1e9) - (pos.get(b.teamId) ?? 1e9) || name(a, b));
   } else if (settings.ranking === "rating") {
-    rows.sort((a, b) => Number(b.ranked) - Number(a.ranked) || (a.ranked ? b.rating - a.rating : b.played - a.played) || b.played - a.played || name(a, b));
+    rows.sort((a, b) => Number(b.ranked) - Number(a.ranked) || (a.ranked ? b.rating - a.rating : b.ratedGames - a.ratedGames) || b.played - a.played || name(a, b));
   } else {
     rows.sort((a, b) => b.points - a.points || b.wins - a.wins || b.tdDiff - a.tdDiff || a.played - b.played || name(a, b));
   }

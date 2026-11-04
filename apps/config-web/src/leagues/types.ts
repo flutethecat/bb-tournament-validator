@@ -1144,6 +1144,10 @@ export interface SeasonRecord {
   /** Gates (lane 8c, gates.ts): the projection of this competition's shut "Registration" gate, kept by syncGateTargets so every
    *  registration check (seasonWindowStatus) refuses joins until it opens. opensAt absent = shut with no time yet. */
   gates?: { registration?: { opensAt?: string } };
+  /** Every Super FUMBBL game id a fixture of this season was ever linked to (scheduled, played, held, reset or detached by
+   *  a TourPlay correction), kept by LeagueStore.putSeason and never shrinking: the site ratings count such a game only
+   *  through its fixture, never again as a stand-alone fork game (src/ratings/sources.ts). Never in a season read. */
+  forkClaims?: string[];
 }
 
 /** What the league page's "Pay entry fee" block shows (api.ts seasonForViewer). */

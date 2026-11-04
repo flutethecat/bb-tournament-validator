@@ -17,7 +17,7 @@ import { gameCoach, playedTime } from "../leagues/identity.js";
 import { resultTime } from "../leagues/ladder.js";
 import type { LeagueRecord, SeasonRecord } from "../leagues/types.js";
 import { deriveTeamResult, type StoredTournamentResult } from "../tournamentResults.js";
-import type { TournamentDataFileV4 } from "../tournaments/types.js";
+import type { ScheduledMatchRecord, TournamentDataFileV4 } from "../tournaments/types.js";
 import type { RatedGame } from "./glicko.js";
 import { leagueFixtureVerdict, tournamentMatchVerdict } from "./rules.js";
 
@@ -33,10 +33,15 @@ const firstTime = (...values: Array<string | undefined>): number => {
 /** A league whose games may count: published, not a test, not demo data. */
 export const leagueRated = (l: LeagueRecord): boolean => l.visibility !== "draft" && !l.test && !l.seededBy;
 
-/** Fork game ids a league fixture claims (scheduled, played or held), whatever the league. */
+/** Fork game ids a league fixture claims (scheduled, played or held), whatever the league, plus every id the season ever
+ *  claimed (SeasonRecord.forkClaims: a TourPlay correction detaching the fork state, a reset or a deleted fixture never
+ *  frees a game to count a second time). */
 export function leagueClaims(sources: readonly LeagueSource[], into = new Set<string>()): Set<string> {
-  for (const { competitions } of sources) for (const s of competitions) for (const f of s.fixtures ?? []) {
-    for (const id of [f.fork?.result?.gameId, f.fork?.gameId, f.fork?.redraftHold?.gameId]) if (id) into.add(id);
+  for (const { competitions } of sources) for (const s of competitions) {
+    for (const id of s.forkClaims ?? []) into.add(id);
+    for (const f of s.fixtures ?? []) {
+      for (const id of [f.fork?.result?.gameId, f.fork?.gameId, f.fork?.redraftHold?.gameId]) if (id) into.add(id);
+    }
   }
   return into;
 }
@@ -72,6 +77,11 @@ export function tournamentClaims(data: TournamentDataFileV4, into = new Set<stri
   return into;
 }
 
+/** When a tournament fixture was played, for the ratings: its agreed time, else when it was drawn (both survive a clear and a
+ *  re-report), else its first report. */
+export const tournamentGameTime = (m: Pick<ScheduledMatchRecord, "scheduledTime" | "createdAt" | "result">): number =>
+  firstTime(m.scheduledTime?.start, m.createdAt, m.result?.reportedAt);
+
 export function tournamentGames(data: TournamentDataFileV4): RatedGame[] {
   const out: RatedGame[] = [];
   const entrants = { ...(data.heldEntrants ?? {}), ...data.entrants };
@@ -85,7 +95,9 @@ export function tournamentGames(data: TournamentDataFileV4): RatedGame[] {
     const homeRace = raceOf(m.home);
     const awayRace = raceOf(m.away);
     out.push({
-      key: `tournament:${m.tournamentId}:${m.id}`, source: "tournament", at: firstTime(m.result!.reportedAt, m.updatedAt),
+      // A stable game time that a clear and re-report never moves (reportedAt does): the agreed time, else when the fixture
+      // was drawn. The reset cutoff and the rating period stay put however often a manager corrects the result.
+      key: `tournament:${m.tournamentId}:${m.id}`, source: "tournament", at: tournamentGameTime(m),
       home: { coach: coachOf(m.home), ...(homeRace ? { race: homeRace } : {}) },
       away: { coach: coachOf(m.away), ...(awayRace ? { race: awayRace } : {}) },
       homeScore: v.homeScore,

@@ -7,8 +7,10 @@ import {
   computeSiteRatings, DAY_MS, defaultRating, inflateRd, PROVISIONAL_GAMES, SITE_GLICKO, type RatedGame,
 } from "../src/ratings/glicko.js";
 import { leagueFixtureVerdict, tournamentMatchVerdict } from "../src/ratings/rules.js";
-import { collectRatedGames, forkGames, leagueGames, tournamentGames, type LeagueSource } from "../src/ratings/sources.js";
-import { SiteRatingsService } from "../src/ratings/service.js";
+import { collectRatedGames, forkGames, leagueGames, tournamentGameTime, tournamentGames, type LeagueSource } from "../src/ratings/sources.js";
+import { createSiteRatings, SiteRatingsService } from "../src/ratings/service.js";
+import { LeagueStore } from "../src/leagues/store.js";
+import { ratingsOf } from "../src/fixtureLobby/league.js";
 import { ratingsRoute } from "../src/ratings/api.js";
 import { ratingsStateFile, readRatingsState } from "../src/ratings/state.js";
 import { resetRatings } from "../scripts/reset-ratings.js";
@@ -302,7 +304,7 @@ function service(stateDir: string, sources: LeagueSource[], results: StoredTourn
   return new SiteRatingsService({
     stateDir,
     leagues: { list: () => sources.map((s) => s.league), competitions: (id: string) => [...(sources.find((s) => s.league.id === id)?.competitions ?? [])], version: () => 0 },
-    tournaments: () => t, tournamentsStamp: () => "t", results: () => results, resultsRevision: () => "r",
+    tournaments: () => t, results: () => results, resultsRevision: () => "r",
     identities: () => ids, now: () => T0 + 30 * DAY_MS, ttlMs: 0,
   });
 }
@@ -462,6 +464,142 @@ describe("ladders ranked by rating use the site Glicko-2", () => {
     expect(forfeit.find((r) => r.teamId === "ann-team")).toMatchObject({ wins: 1, rating: 1500, rd: 350 });
     const played = rows(base([fixture("f1", "Ann", "Bob", 2, 0, 0)]));
     expect(played.find((r) => r.teamId === "ann-team")!.rating).toBeGreaterThan(1500);
+  });
+});
+
+// ---- review round (Sol, 6 x P2) -------------------------------------------------------------------------------------
+
+describe("review: fork claims survive a TourPlay correction, a reset and a deleted fixture", () => {
+  let dir = "";
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "site-ratings-claims-")); roots.push(dir); });
+
+  it("a fork game a fixture once claimed never counts again as a stand-alone fork game", () => {
+    const store = new LeagueStore(dir);
+    store.upsertLeague({ id: "harbour", name: "Harbour", fullName: "Harbour", slug: "harbour", organisers: ["Org"] } as never);
+    const played = fixture("f1", "Ann", "Bob", 2, 0, 0, { fork: { status: "finished", teams: {}, log: [], gameId: "77", result: { gameId: "77" } } as never });
+    store.putSeason(season("s1", [played, fixture("f2", "Bob", "Ann", 1, 0, 1, { fork: { status: "scheduled", teams: {}, log: [], gameId: "78" } as never })], { sourceSlug: "s1" } as never));
+    // a TourPlay correction picked the export's result: detachLocalResult drops the fork state; another fixture was deleted
+    const s = store.season("harbour", "s1")!;
+    const f1 = s.fixtures.find((f) => f.id === "f1")!;
+    delete (f1 as { fork?: unknown }).fork;
+    f1.home.score = 1; f1.away.score = 1;
+    s.fixtures = s.fixtures.filter((f) => f.id !== "f2");
+    store.putSeason(s);
+    const stored = store.season("harbour", "s1")!;
+    expect(stored.forkClaims).toEqual(["77", "78"]);
+    const results = [forkRow("77", "Ann", "Bob", 2, 0, 0), forkRow("78", "Bob", "Ann", 1, 0, 1)];
+    const games = collectRatedGames({ leagues: [src(store.league("harbour")!, ...store.competitions("harbour"))], tournaments: emptyTournaments(), results });
+    expect(games.map((g) => g.key)).toEqual(["league:harbour:s1:f1"]);
+    expect(games[0]!.homeScore).toBe(0.5);
+  });
+});
+
+describe("review: deleted and banned coaches have no public rating anywhere", () => {
+  let dir = "";
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "site-ratings-public-")); roots.push(dir); });
+
+  it("the fixture coach cards (and seeding) read only listed coaches", () => {
+    const anonLeague = busyLeague(6);
+    const anon = { ...anonLeague, competitions: anonLeague.competitions.map((s) => ({ ...s, fixtures: s.fixtures.map((f) => ({ ...f, away: f.away.coach === "Bob" ? { ...f.away, coach: "Deleted coach #1", coachId: "Deleted coach #1" } : f.away })) })) };
+    const svc = service(dir, [anon], [], identities(["Ann", "Cat", "Dee", "Deleted coach #1"], { Cat: { banned: true } }));
+    const pub = svc.publicOverall();
+    expect([...pub.keys()].sort()).toEqual(["ann", "dee"]);
+    const rate = ratingsOf({ ratings: () => svc.publicOverall() })!;
+    expect(rate("Deleted coach #1")).toBeNull();
+    expect(rate("Cat")).toBeNull();
+    expect(rate("Ann")).toMatchObject({ games: 6, rank: 1, of: 2 });
+    // unreadable identities: no ratings at all (fail closed), never everyone's
+    const broken = new SiteRatingsService({ ...(svc as unknown as { deps: object }).deps, identities: () => { throw new Error("unreadable"); } } as never);
+    expect(ratingsOf({ ratings: () => broken.publicOverall() })).toBeUndefined();
+  });
+});
+
+describe("review: a tournament game keeps its time across a clear and re-report", () => {
+  it("the rating time is the agreed time, else when the fixture was drawn, never the latest report", () => {
+    const drawn = tMatch("m1", "ann", "bob", 2, 1, 0, { createdAt: iso(0) });
+    const reReported = { ...drawn, result: { homeScore: 0, awayScore: 1, reportedAt: iso(20) }, edited: { byCoachId: "org", at: iso(19), kind: "result" as const, previous: null, original: null, reportedAgainAt: iso(20) } };
+    expect(tournamentGameTime(reReported)).toBe(T0);
+    expect(tournamentGames(tournaments([reReported]))[0]!.at).toBe(T0);
+    expect(tournamentGameTime({ ...drawn, scheduledTime: { start: iso(2), end: iso(2, 2), agreedAt: iso(1) } })).toBe(T0 + 2 * DAY_MS);
+    // the go-live reset at day 10 keeps it out, however late it is reported again
+    const r = computeSiteRatings(tournamentGames(tournaments([reReported])), { resetAt: T0 + 10 * DAY_MS });
+    expect(r.games).toBe(0);
+  });
+});
+
+describe("review: rating ladders qualify on rated games only", () => {
+  it("a forfeit win does not count toward the minimum games", () => {
+    const now = new Date(T0 + 10 * DAY_MS);
+    const teams = [{ id: "ann-team", name: "Ann team", race: "Orc", coach: "Ann" }, { id: "bob-team", name: "Bob team", race: "Elf", coach: "Bob" }];
+    const lad = (fixtures: LeagueFixture[]) => season("ladder-1", fixtures, {
+      competition: "ladder", teams: teams as never,
+      ladder: { settings: { ranking: "rating", minGames: 1 }, members: teams.map((t) => ({ teamId: t.id, joinedAt: iso(-1) })), challenges: [] } as never,
+    });
+    const rows = (s: SeasonRecord) => rankRows(s, replayLadder(s, now), teams.map((t) => ({ team: t as never })));
+    const forfeit = rows(lad([fixture("f1", "Ann", "Bob", 2, 0, 0, { forfeit: { home: false, away: true, at: iso(0) } })]));
+    expect(forfeit.find((r) => r.teamId === "ann-team")).toMatchObject({ played: 1, ratedGames: 0, ranked: false });
+    const played = rows(lad([fixture("f1", "Ann", "Bob", 2, 0, 0)]));
+    expect(played.find((r) => r.teamId === "ann-team")).toMatchObject({ ratedGames: 1, ranked: true });
+  });
+});
+
+describe("review: presence writes never rebuild the ratings", () => {
+  let dir = "";
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "site-ratings-cache-")); roots.push(dir); });
+
+  it("a tournament file rewritten by presence leases neither replays nor (within the TTL) re-reads; a new result does", () => {
+    const data = tournaments([tMatch("m1", "ann", "bob", 2, 1)]);
+    let reads = 0;
+    let clock = T0;
+    const svc = new SiteRatingsService({
+      stateDir: dir, leagues: { list: () => [], competitions: () => [], version: () => 0 },
+      tournaments: () => { reads += 1; return data; }, results: () => [], resultsRevision: () => "r",
+      identities: () => identities(["Ann", "Bob"]), now: () => clock, ttlMs: 30_000,
+    });
+    svc.current();
+    expect(svc.rebuilds).toBe(1);
+    for (let i = 0; i < 50; i++) {
+      data.waitingPresence[`lease-${i}`] = { scheduledMatchId: "m1", coachId: "ann", renewedAt: iso(0), expiresAt: iso(1) } as never;
+      clock += 100;
+      svc.leaderboard({ provisional: true });
+    }
+    expect(reads).toBe(1); // inside the TTL nothing is re-read
+    clock += 31_000;
+    data.waitingPresence.more = { scheduledMatchId: "m1", coachId: "bob", renewedAt: iso(0), expiresAt: iso(1) } as never;
+    svc.current();
+    expect(reads).toBe(2);
+    expect(svc.rebuilds).toBe(1); // re-read once after the TTL, the games are the same: no replay
+    data.scheduledMatches.m2 = tMatch("m2", "bob", "ann", 3, 0);
+    clock += 31_000;
+    expect(svc.coach("Ann")!.overall.games).toBe(2);
+    expect(svc.rebuilds).toBe(2);
+  });
+});
+
+describe("review: the privacy export uses the production factory (fork races)", () => {
+  const prev = process.env.IDENTITIES_FILE;
+  let dir = "";
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "site-ratings-export-")); roots.push(dir);
+    process.env.IDENTITIES_FILE = join(dir, "identities.json");
+    writeFileSync(process.env.IDENTITIES_FILE, JSON.stringify(identities(["Ann", "Bob"])), "utf8");
+  });
+  afterEach(() => { if (prev === undefined) delete process.env.IDENTITIES_FILE; else process.env.IDENTITIES_FILE = prev; });
+
+  it("a Super FUMBBL game's race comes from the team library in the export too", async () => {
+    writeFileSync(join(dir, "tournament-results.json"), JSON.stringify({ version: 1, results: { "1": forkRow("1", "Ann", "Bob", 2, 0, 0) } }), "utf8");
+    for (const d of ["library", "saves", "avatars", "coach-avatars", "bugs", "tabletop"]) mkdirSync(join(dir, d), { recursive: true });
+    writeFileSync(join(dir, "library", "ann.json"), JSON.stringify([{ teamId: "Ann-ft", teamName: "Green Tide", race: "Orc" }]), "utf8");
+    const deps = {
+      stateDir: dir, tournamentsDir: dir, libraryDir: join(dir, "library"), builderSavesDir: join(dir, "saves"), teamAvatarsDir: join(dir, "avatars"),
+      coachAvatarsDir: join(dir, "coach-avatars"), bugReportsDir: join(dir, "bugs"), tabletopDir: join(dir, "tabletop"),
+    };
+    const files = await collectExport(deps, "Ann");
+    const ratings = JSON.parse(String(files.find((f) => f.name === "ratings.json")!.content));
+    expect(ratings.races).toEqual([expect.objectContaining({ race: "orc", label: "Orc", games: 1 })]);
+    // the same numbers the production service (same factory, same stores) gives
+    const prod = createSiteRatings({ stateDir: dir, tournamentsDir: dir, libraryDir: join(dir, "library") }, { identities: () => identities(["Ann", "Bob"]) });
+    expect(prod.coach("Ann")!.races).toEqual([expect.objectContaining({ race: "orc", games: 1 })]);
   });
 });
 

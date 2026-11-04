@@ -218,7 +218,7 @@ const ord = (n: number): string => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" 
                   <template v-for="c in cols" :key="c">
                     <td v-if="c === 'rating'" class="ld-num ld-strong">
                       <span v-if="r.ranked || ladder.ranking !== 'rating'" :title="typeof r.rd === 'number' ? `Rating deviation ±${r.rd}` : undefined">{{ r.rating }}</span>
-                      <small v-else class="muted">{{ r.played }}/{{ ladder.settings.minGames }} games</small>
+                      <small v-else class="muted">{{ r.ratedGames ?? r.played }}/{{ ladder.settings.minGames }} games</small>
                     </td>
                     <td v-else-if="c === 'points'" class="ld-num ld-strong">{{ r.points }}<small v-if="r.bonus" class="ld-bonus" :title="`${r.bonus} from champion bonuses`">+{{ r.bonus }}</small></td>
                     <td v-else-if="c === 'record'" class="ld-num">{{ r.wins }}-{{ r.draws }}-{{ r.losses }}<small v-if="r.declineLosses" class="muted" :title="`${r.declineLosses} by the decline rule`"> ({{ r.declineLosses }}d)</small></td>

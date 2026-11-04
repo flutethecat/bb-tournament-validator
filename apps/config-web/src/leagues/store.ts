@@ -94,6 +94,15 @@ export const SEASON_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
 export const LEAGUE_ART_DIR = "league-art";
 export const LEAGUE_ART_PATH = /^league-art\/[a-f0-9]{64}\.(png|jpg|webp)$/;
 
+/** Every fork game id a season's fixtures were ever linked to: the prior copy's claims and fixtures, then this write's. */
+export function keepForkClaims(prior: SeasonRecord | undefined, season: SeasonRecord): void {
+  const ids = new Set<string>([...(prior?.forkClaims ?? []), ...(season.forkClaims ?? [])]);
+  for (const s of [prior, season]) for (const f of s?.fixtures ?? []) {
+    for (const id of [f.fork?.result?.gameId, f.fork?.gameId, f.fork?.redraftHold?.gameId]) if (id) ids.add(id);
+  }
+  if (ids.size) season.forkClaims = [...ids].sort();
+}
+
 export class LeagueStoreError extends Error {
   constructor(readonly status: number, message: string) {
     super(message);
@@ -436,6 +445,8 @@ export class LeagueStore {
     stampPlayedCoaches(season);
     // Tournament-style ladders (lane 8b): a team's roster resets in the same write that records its result, whoever wrote it.
     applyTournamentResets(season);
+    // Site ratings (src/ratings/sources.ts): the fork games this season ever claimed survive a detach, reset or deletion.
+    keepForkClaims(prior, season);
     this.write(join(dir, `${season.id}.json`), season);
     this.seasonWrites += 1;
     this.unindexSeason(season.leagueId, season.id);

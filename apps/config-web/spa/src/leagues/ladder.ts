@@ -86,6 +86,8 @@ export interface LadderRankRow {
   /** The team's Glicko-2 rating and its RD (the site ratings' settings; forfeits and overrides never move it). */
   rating: number;
   rd?: number;
+  /** Rated games (no forfeits or overrides): what the rating ladder's minimum counts. */
+  ratedGames?: number;
   ranked: boolean;
   latest: Array<"W" | "D" | "L">;
   change?: number;

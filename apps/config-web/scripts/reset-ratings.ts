@@ -7,32 +7,21 @@
  *   pnpm --filter config-web exec tsx scripts/reset-ratings.ts          # dry run (the default): what would reset
  *   pnpm --filter config-web exec tsx scripts/reset-ratings.ts --yes    # write the reset (now)
  *
- * --state-dir overrides FORK_STATE_DIR, --tournaments-dir overrides TOURNAMENTS_DIR (default: the state dir).
+ * --state-dir overrides FORK_STATE_DIR, --tournaments-dir overrides TOURNAMENTS_DIR (default: the state dir), --library-dir
+ * overrides FORK_LIBRARY_DIR.
  */
 import "dotenv/config";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { LeagueStore } from "../src/leagues/store.js";
-import { SiteRatingsService } from "../src/ratings/service.js";
+import { createSiteRatings } from "../src/ratings/service.js";
 import { ratingsStateFile, readRatingsState, writeRatingsReset } from "../src/ratings/state.js";
-import { TournamentResultStore } from "../src/tournamentResults.js";
-import { TournamentStore } from "../src/tournaments/store.js";
 
 export interface ResetReport { dryRun: boolean; file: string; previousResetAt: string | null; resetAt: string | null; coaches: number; games: number }
 
 /** The reset as a function (tests): counts what is rated now; writes only with `yes`. */
-export function resetRatings(opts: { stateDir: string; tournamentsDir?: string; yes: boolean; now?: Date }): ResetReport {
+export function resetRatings(opts: { stateDir: string; tournamentsDir?: string; libraryDir?: string; yes: boolean; now?: Date }): ResetReport {
   const stateDir = opts.stateDir;
-  const tournaments = new TournamentStore(opts.tournamentsDir ?? stateDir);
-  const service = new SiteRatingsService({
-    stateDir,
-    leagues: new LeagueStore(stateDir),
-    tournaments: () => tournaments.snapshot(),
-    tournamentsStamp: () => "script",
-    results: () => new TournamentResultStore(stateDir).list(),
-    resultsRevision: () => "script",
-    ttlMs: 0,
-  });
+  const service = createSiteRatings({ stateDir, tournamentsDir: opts.tournamentsDir ?? stateDir, ...(opts.libraryDir ? { libraryDir: opts.libraryDir } : {}) }, { ttlMs: 0 });
   const previous = readRatingsState(stateDir); // an unreadable file stops the script (fail closed)
   const { ratings } = service.current();
   const report: ResetReport = {
@@ -47,16 +36,17 @@ const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(imp
 if (isMain) {
   const HERE = dirname(fileURLToPath(import.meta.url));
   const argv = process.argv.slice(2);
-  const known = new Set(["--yes", "--dry-run", "--state-dir", "--tournaments-dir"]);
+  const known = new Set(["--yes", "--dry-run", "--state-dir", "--tournaments-dir", "--library-dir"]);
   for (let i = 0; i < argv.length; i++) {
     if (!known.has(argv[i]!)) { console.error(`Unknown argument: ${argv[i]}`); process.exit(2); }
-    if (argv[i] === "--state-dir" || argv[i] === "--tournaments-dir") i++;
+    if (argv[i] === "--state-dir" || argv[i] === "--tournaments-dir" || argv[i] === "--library-dir") i++;
   }
   const arg = (name: string): string | undefined => { const at = argv.indexOf(name); return at >= 0 ? argv[at + 1] : undefined; };
   const stateDir = resolve(arg("--state-dir") ?? process.env.FORK_STATE_DIR ?? join(HERE, "../data-store"));
   const tournamentsDir = resolve(arg("--tournaments-dir") ?? process.env.TOURNAMENTS_DIR ?? stateDir);
+  const libraryDir = resolve(arg("--library-dir") ?? process.env.FORK_LIBRARY_DIR ?? join(HERE, "../data-store/library"));
   const yes = argv.includes("--yes") && !argv.includes("--dry-run");
-  const r = resetRatings({ stateDir, tournamentsDir, yes });
+  const r = resetRatings({ stateDir, tournamentsDir, libraryDir, yes });
   const before = r.previousResetAt ? `games counted from ${r.previousResetAt}` : "every game counted (never reset)";
   console.log(`${r.dryRun ? "DRY RUN" : "APPLIED"}: ${r.coaches} rated coaches over ${r.games} games (${before}).`);
   console.log(r.dryRun
