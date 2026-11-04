@@ -220,6 +220,8 @@ type TournamentFile = {
 const tournamentsFile = (deps: PrivacyDeps): string => join(deps.tournamentsDir, "tournaments.json");
 const organiserRequestsFile = (deps: PrivacyDeps): string => join(deps.stateDir, "organiser-requests.json");
 const leagueDirs = (deps: PrivacyDeps, strict = true): string[] => (strict ? listDirs(join(deps.stateDir, "leagues")) : (() => { try { return listDirs(join(deps.stateDir, "leagues")); } catch { return []; } })());
+/** Every league season / ladder record (export only: lenient, an unreadable file is skipped). */
+const leagueSeasonFiles = (deps: PrivacyDeps): Obj[] => leagueDirs(deps, false).flatMap((dir) => { try { return listFiles(join(dir, "seasons"), ".json"); } catch { return []; } }).map((p) => readJsonLoose<Obj>(p)).filter((x): x is Obj => isObj(x));
 
 /** A league row is linked to the coach by its account link (coachId); a row without one only by an exact coach id. */
 const leagueRowLinked = (keys: ReadonlySet<string>, o: unknown): boolean => {
@@ -666,6 +668,49 @@ export const STORE_COLLECTORS: StoreCollector[] = [
     erase: ["competition-templates", "final-sweep"],
   },
   {
+    // Coach clubs (src/clubs/store.ts): the clubs the coach created or belongs to, their requests, former-member rows and
+    // notification choices; plus the club picks on their league / tournament entries (those records are exported with
+    // the tournament and league files too). Never the clubs' webhooks.
+    id: "clubs",
+    location: "FORK_STATE_DIR/clubs/clubs.json (secrets.json: club webhooks, no coach data; crests/)",
+    export: (ctx) => {
+      const file = readJsonLoose<Obj>(join(ctx.deps.stateDir, "clubs", "clubs.json"));
+      const clubs = vals(file?.clubs);
+      const memberships = clubs.flatMap((c) => objs(c.members).filter((m) => isMine(ctx.keys, m.coach)).map((m) => ({ club: c.id, name: c.name, role: m.role, joinedAt: m.joinedAt, notify: m.notify ?? {} })));
+      const requests = clubs.flatMap((c) => objs(c.requests).filter((r) => isMine(ctx.keys, r.coach)).map((r) => ({ club: c.id, name: c.name, at: r.at, ...(r.message ? { message: r.message } : {}) })));
+      const former = clubs.flatMap((c) => objs(c.former).filter((f) => isMine(ctx.keys, f.coach)).map((f) => ({ club: c.id, name: c.name, joinedAt: f.joinedAt, leftAt: f.leftAt, reason: f.reason })));
+      const created = clubs.filter((c) => isMine(ctx.keys, c.createdBy)).map((c) => ({ club: c.id, name: c.name, createdAt: c.createdAt }));
+      const picks: Obj[] = [];
+      const t = readJsonLoose<Obj>(join(ctx.deps.tournamentsDir, "tournaments.json"));
+      for (const e of [...vals(t?.entrants), ...vals(t?.heldEntrants)]) {
+        if (typeof e.clubId === "string" && isObj(e.coach) && isMine(ctx.keys, (e.coach as Obj).ffbCoachId)) picks.push({ kind: "tournament", competition: e.tournamentId, entry: e.id, club: e.clubId });
+      }
+      for (const season of leagueSeasonFiles(ctx.deps)) {
+        for (const r of objs(season.registrations)) if (typeof r.clubId === "string" && isMine(ctx.keys, r.coach)) picks.push({ kind: season.competition === "ladder" ? "ladder" : "league", competition: `${String(season.leagueId ?? "")}/${String(season.id ?? "")}`, entry: r.id, club: r.clubId });
+      }
+      if (!memberships.length && !requests.length && !former.length && !created.length && !picks.length) return [];
+      return [{ name: "clubs.json", content: json({ memberships, requests, former, created, picks }) }];
+    },
+    erase: ["clubs"],
+  },
+  {
+    // Club boards (src/boards/board.ts): every post and reply the coach wrote, with its thread.
+    id: "club-boards",
+    location: "FORK_STATE_DIR/boards/<sha256>.json",
+    export: (ctx) => {
+      const posts: Obj[] = [];
+      for (const p of listFiles(join(ctx.deps.stateDir, "boards"), ".json")) {
+        const b = readJsonLoose<Obj>(p);
+        for (const t of objs(b?.threads)) {
+          if (isMine(ctx.keys, t.author)) posts.push({ board: b?.scope, thread: t.id, title: t.title, id: t.id, text: t.text, at: t.at, ...(t.editedAt ? { editedAt: t.editedAt } : {}) });
+          for (const r of objs(t.replies)) if (isMine(ctx.keys, r.author)) posts.push({ board: b?.scope, thread: t.id, id: r.id, text: r.text, at: r.at, ...(r.editedAt ? { editedAt: r.editedAt } : {}) });
+        }
+      }
+      return posts.length ? [{ name: "club-board-posts.json", content: json(posts) }] : [];
+    },
+    erase: ["club-boards"],
+  },
+  {
     id: "mail",
     location: "FORK_STATE_DIR/mail/ (outbox/journal.jsonl, prefs.json, suppression.json, audit.jsonl)",
     export: (ctx) => (ctx.deps.mail ? [{ name: "mail.json", content: json(ctx.deps.mail.exportFor(ctx.coach)) }] : []),
@@ -702,7 +747,7 @@ export const KNOWN_STORES = [
   "team-library", "fork-db", "tournaments", "leagues", "tabletop", "tabletop-teams", "tournament-results", "tournament-matches", "naf-games",
   "coach-titles", "replay-moments", "notifications", "bug-reports", "test-games", "logs", "fork-teams-xml", "bot-registry",
   "privacy-blocklist", "lobby-chat", "desktop-claims", "translation-cache", "mail", "friends", "blocks", "messages",
-  "fixture-lobbies", "schedule-proposals", "organiser-requests", "competition-templates",
+  "fixture-lobbies", "schedule-proposals", "organiser-requests", "competition-templates", "clubs", "club-boards",
 ] as const;
 
 /**
@@ -720,6 +765,7 @@ export const INVENTORY_ROWS: Record<(typeof KNOWN_STORES)[number], string[]> = {
   "translation-cache": ["translation-cache"], mail: ["mail"], friends: ["friends"], blocks: ["blocks"], messages: ["messages"],
   "fixture-lobbies": ["fixture-lobbies"], "schedule-proposals": ["schedule-proposals"], "organiser-requests": ["organiser-requests"],
   "competition-templates": ["competition-templates"],
+  clubs: ["clubs"], "club-boards": ["club-boards"],
 };
 
 /** Team keys whose logos belong to the coach: their builder saves and library teams. */
@@ -1176,6 +1222,58 @@ export const DELETE_STEPS: DeleteStep[] = [
   { id: "library", run: ({ deps, names }) => { removeLibraryRows(deps, names); return "done"; } },
   { id: "notifications", run: ({ deps, plan }) => { removeNotifications(deps, plan); return "done"; } },
   { id: "social", run: ({ deps, plan, names }) => { removeSocial(deps, plan, names); return "done"; } },
+  {
+    // Clubs: the coach's memberships and requests go; a club that loses its last admin gets its longest-standing member
+    // as admin, and one left without members is archived. Former-member rows and "created by" stay under the pseudonym
+    // (the club's history); the club picks on entries are anonymised with those records (tournaments / leagues steps).
+    id: "clubs",
+    run: ({ deps, an }) => {
+      rewriteJson(join(deps.stateDir, "clubs", "clubs.json"), (file) => vals(file.clubs).map((c) => {
+        let changed = false;
+        const members = objs(c.members);
+        const kept = members.filter((m) => !an.matches(m.coach));
+        if (kept.length !== members.length) {
+          changed = true;
+          if (kept.length && !kept.some((m) => m.role === "admin")) {
+            const next = [...kept].sort((a, b) => String(a.joinedAt ?? "").localeCompare(String(b.joinedAt ?? "")))[0]!;
+            next.role = "admin";
+          }
+          if (!kept.length && typeof c.archivedAt !== "string") c.archivedAt = new Date().toISOString();
+          c.members = kept;
+        }
+        const requests = objs(c.requests);
+        const keptRequests = requests.filter((r) => !an.matches(r.coach));
+        if (keptRequests.length !== requests.length) { c.requests = keptRequests; changed = true; }
+        for (const f of objs(c.former)) if (an.fields(f, ["coach"], [])) changed = true;
+        if (an.fields(c, ["createdBy"], [])) changed = true;
+        if (changed && typeof c.revision === "number") c.revision += 1;
+        return changed;
+      }).some(Boolean));
+      return "done";
+    },
+  },
+  {
+    // Club boards: the coach's posts stay (the thread keeps its shape) under their pseudonym, every post gets the
+    // free-text pass, and their "last opened" / "told" marks go.
+    id: "club-boards",
+    run: ({ deps, an, text }) => {
+      const tx = text();
+      for (const path of listFiles(join(deps.stateDir, "boards"), ".json")) {
+        rewriteJson(path, (b) => {
+          const posts = objs(b.threads).flatMap((t) => [t, ...objs(t.replies)]);
+          const changed = posts.map((p) => [an.fields(p, ["author"], []), tx.texts(p, ["text", "title"])].some(Boolean)).some(Boolean);
+          let marks = false;
+          for (const field of ["seen", "notified"] as const) {
+            const map = b[field];
+            if (!isObj(map)) continue;
+            for (const k of Object.keys(map)) if (an.matches(k)) { delete map[k]; marks = true; }
+          }
+          return changed || marks;
+        });
+      }
+      return "done";
+    },
+  },
   // Game-time proposals: every proposal naming the coach goes (both directions; the other coach loses the pending offer).
   { id: "schedule-proposals", run: ({ deps, names }) => { new ProposalStore(deps.stateDir).removeCoach(names); return "done"; } },
   {
