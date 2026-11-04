@@ -347,6 +347,7 @@ import { adoptLobbyMatch, dropAllSnapshots, clockView, createMatch, isTabletopAp
 import { FixtureLobbyStore } from "./fixtureLobby/store.js";
 import { LobbyPresence } from "./fixtureLobby/presence.js";
 import { leagueLobbyFixture, lobbyRulesFor, type LeagueLobbyDeps } from "./fixtureLobby/league.js";
+import { matchMoney } from "./leagues/moneyRules.js";
 import { lobbyConfirmRules } from "./fixtureLobby/core.js";
 import { LOBBY_BODY_MAX as TOURNAMENT_LOBBY_BODY_MAX, tournamentLobbyFixture, tournamentLobbyKey, tournamentLobbyPath, tournamentLobbyRoute, type TournamentLobbyDeps } from "./fixtureLobby/tournament.js";
 import { LEAGUE_FIXTURE_REF, leagueFixtureView, recordLeagueFixture, retractLeagueFixture } from "./leagues/tabletopFixtures.js";
@@ -1225,14 +1226,15 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
     // The forfeit dialog in the recorder: a league fixture's forfeit routes (src/leagues/forfeit.ts) for its managers.
     forfeit: {
       isAdmin: (coach) => isAdmin(coach),
-      model: (match, who) => { const ids = leagueFixtureIds(match); return ids ? forfeitModel({ store: leagueStore, diceLog }, ids, who) : NOT_LEAGUE_FIXTURE; },
+      // the match's own copy of the money rules (legacy rules when it started before they existed), never the league's now
+      model: (match, who) => { const ids = leagueFixtureIds(match); return ids ? forfeitModel({ store: leagueStore, diceLog }, ids, who, { money: matchMoney(match) }) : NOT_LEAGUE_FIXTURE; },
       roll: (match, who, body) => { const ids = leagueFixtureIds(match); return ids ? rollDefections({ store: leagueStore, diceLog }, ids, who, body, { matchId: match.id }) : NOT_LEAGUE_FIXTURE; },
       settings: (match, who, on) => { const ids = leagueFixtureIds(match); return ids ? setDefectionRolls({ store: leagueStore, diceLog }, ids, who, on) : NOT_LEAGUE_FIXTURE; },
       apply: async (match, who, body) => {
         const ids = leagueFixtureIds(match);
         if (!ids) return NOT_LEAGUE_FIXTURE;
         if (draftLeagueMatch(leagueStore, match)) return { status: 409, body: { error: "This league is a draft: publish it before entering results." } };
-        return applyForfeit({ store: leagueStore, diceLog }, ids, who, body, { matchId: match.id, announce: false });
+        return applyForfeit({ store: leagueStore, diceLog }, ids, who, body, { matchId: match.id, announce: false, money: matchMoney(match) });
       },
       announce: async (match) => { const ids = leagueFixtureIds(match); if (ids) await announceForfeit({ store: leagueStore, diceLog }, ids); },
       undo: (match, who) => { const ids = leagueFixtureIds(match); return ids ? undoForfeit({ store: leagueStore, diceLog }, ids, who, { matchId: match.id }) : NOT_LEAGUE_FIXTURE; },
@@ -1354,8 +1356,9 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
         const f = season?.fixtures.find((x) => x.id === lg[3]);
         if (!league || !season || !f) return undefined;
         const lfx = leagueLobbyFixture(league, season, f, undefined, leagueStore, fixtureLobbyDeps());
-        // a started match keeps the money rules it started with (its snapshot), whatever the league changed since
-        return lobbyConfirmRules(match.money ? { ...lfx, rules: lobbyRulesFor(match.money.rules) } : lfx);
+        // a started match keeps the money rules it started with (its copy; the legacy rules when it has none), whatever
+        // the league changed since
+        return lobbyConfirmRules({ ...lfx, rules: lobbyRulesFor(matchMoney(match).rules) });
       }
       const m = tournamentStore.match(ref);
       const t = m ? tournamentStore.tournament(m.tournamentId) : undefined;

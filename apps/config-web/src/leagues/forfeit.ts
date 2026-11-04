@@ -39,14 +39,18 @@ import { fixturePlayed } from "./tourplay.js";
 import type { ForfeitDefectionRoll, LeagueFixture, LeagueRecord, LeagueTeam, SeasonRecord } from "./types.js";
 import type { LeagueApiDeps, LeagueApiIdentity, LeagueApiResult } from "./api.js";
 import { applyTournamentResets } from "./ladder.js";
-import { FAN_ATTENDANCE_UNIT, applyTreasuryCap, effectiveMoneyRules, forfeitWinnings, moneyRulesVersion, winningsFormulaText, type MoneyRules } from "./moneyRules.js";
+import { FAN_ATTENDANCE_UNIT, applyTreasuryCap, effectiveMoneyRules, forfeitWinnings, moneyRulesVersion, winningsFormulaText, type MoneyRules, type MoneySnapshot } from "./moneyRules.js";
+import { MAX_GOLD } from "../forfeit/rules.js";
 import { FANS_MAX } from "../tabletop/postMatch.js";
 
 /** The forfeit suggestions with the league's money rules: the winnings of the team that did not forfeit (moneyRules.ts). */
 function withMoney(sug: ReturnType<typeof suggestForfeit>, rules: MoneyRules, attendance: number): ReturnType<typeof suggestForfeit> {
   for (const s of FORFEIT_SIDES) {
     const me = sug[s], them = sug[other(s)];
-    me.winnings = forfeitWinnings(rules, { forfeit: me.forfeit, otherForfeit: them.forfeit, score: me.score, otherScore: them.score, attendance });
+    const w = forfeitWinnings(rules, { forfeit: me.forfeit, otherForfeit: them.forfeit, score: me.score, otherScore: them.score, attendance });
+    // the dialog accepts at most MAX_GOLD: a larger suggestion is clamped, and the dialog says so
+    me.winnings = Math.min(w, MAX_GOLD);
+    if (w > MAX_GOLD) sug.notes = [...sug.notes, `The money rules give ${w.toLocaleString("en-US")} gold; a forfeit can enter at most ${MAX_GOLD.toLocaleString("en-US")}, so the suggestion is capped there.`];
   }
   if (rules.concession === "rulebook" && sug.home.forfeit !== sug.away.forfeit)
     sug.notes = [...sug.notes, `The league's money rules: the other team gets the whole fan attendance (both teams' Dedicated Fans, ${attendance}) x ${rules.fanMultiplier * 2} x ${FAN_ATTENDANCE_UNIT / 1000}k plus its touchdowns.`];
@@ -103,11 +107,13 @@ function blockedReason(f: LeagueFixture): string {
 }
 
 /** GET: the dialog's model. */
-export function forfeitModel(deps: ForfeitDeps, ids: ForfeitIds, who: ForfeitWho): LeagueApiResult {
+/** `money`: the recorder match's own copy of the money rules (the recorder's forfeit dialog); absent = the league's now. */
+export function forfeitModel(deps: ForfeitDeps, ids: ForfeitIds, who: ForfeitWho, opts: { money?: MoneySnapshot } = {}): LeagueApiResult {
   const at = locate(deps.store, ids, who);
   if (isResult(at)) return at;
   const { league, season, fixture: f } = at;
-  const rules = effectiveMoneyRules(league, season);
+  const rules = opts.money?.rules ?? effectiveMoneyRules(league, season);
+  const version = opts.money?.version ?? moneyRulesVersion(league);
   const attendance = FORFEIT_SIDES.reduce((n, s) => n + Math.max(0, teamOf(season, f, s)?.fans ?? 0), 0);
   const sug = (forfeiting: { home: boolean; away: boolean }, legal = false) => withMoney(suggestForfeit(forfeiting, legal), rules, attendance);
   const players = Object.fromEntries(FORFEIT_SIDES.map((s) => {
@@ -135,7 +141,7 @@ export function forfeitModel(deps: ForfeitDeps, ids: ForfeitIds, who: ForfeitWho
       both: sug({ home: true, away: true }),
     },
     /** The money rules the suggestions follow (League settings -> Money). */
-    money: { version: moneyRulesVersion(league), winnings: winningsFormulaText(rules), concession: rules.concession, treasuryCap: rules.treasuryCapEnabled ? rules.treasuryCap : null },
+    money: { version, winnings: winningsFormulaText(rules), concession: rules.concession, treasuryCap: rules.treasuryCapEnabled ? rules.treasuryCap : null },
     /** The same for a legal concession: no fan loss, no MVP limits, no notes. */
     legalSuggestions: {
       home: sug({ home: true, away: false }, true),
@@ -270,6 +276,8 @@ export interface ApplyForfeitOptions {
   matchId?: string;
   /** false = do not post the Discord report here (the caller posts it with announceForfeit after its own writes). */
   announce?: boolean;
+  /** The recorder match's own copy of the money rules (cap and version); absent = the league's rules now. */
+  money?: MoneySnapshot;
 }
 
 /** A stable fingerprint of the two rosters (the undo refuses when either changed since the forfeit applied). */
@@ -339,7 +347,7 @@ export async function applyForfeit(deps: ForfeitDeps, ids: ForfeitIds, who: Forf
   const at = locate(deps.store, ids, who);
   if (isResult(at)) return at;
   const { league, season, fixture: f } = at;
-  const money = { version: moneyRulesVersion(league), rules: effectiveMoneyRules(league, season) };
+  const money: MoneySnapshot = opts.money ?? { version: moneyRulesVersion(league), rules: effectiveMoneyRules(league, season) };
   // A retry from the same recorder match (its close did not finish) answers the forfeit it already applied.
   if (opts.matchId && f.forfeit && f.forfeitDetail?.matchId === opts.matchId)
     return ok(200, { ok: true, already: true, forfeit: f.forfeit, score: { home: f.home.score ?? 0, away: f.away.score ?? 0 }, revision: season.revision });
@@ -416,15 +424,13 @@ export async function applyForfeit(deps: ForfeitDeps, ids: ForfeitIds, who: Forf
     const x = input[s];
     if (x.winnings) team.treasury = Math.max(0, (team.treasury ?? 0) + x.winnings);
     if (x.fans) team.fans = Math.max(1, (team.fans ?? 1) + x.fans);
-    // the league's treasury cap (moneyRules.ts) on what the winnings brought in: over it is lost or buys Dedicated Fans
+    // the treasury cap (moneyRules.ts) at every settlement, whatever the winnings: over it is lost or buys Dedicated Fans
     let capNote = "";
-    if (x.winnings > 0) {
-      const cap = applyTreasuryCap(money.rules, team.treasury ?? 0, team.fans ?? 1, FANS_MAX);
-      if (cap.lost || cap.fansGained) {
-        team.treasury = cap.treasury;
-        team.fans = Math.max(team.fans ?? 1, cap.fans);
-        capNote = `treasury cap: ${cap.lost ? `${cap.lost} lost` : ""}${cap.lost && cap.fansGained ? ", " : ""}${cap.fansGained ? `+${cap.fansGained} Dedicated Fans` : ""}`;
-      }
+    const cap = applyTreasuryCap(money.rules, team.treasury ?? 0, team.fans ?? 1, FANS_MAX);
+    if (cap.lost || cap.fansGained) {
+      team.treasury = cap.treasury;
+      team.fans = Math.max(team.fans ?? 1, cap.fans);
+      capNote = `treasury cap: ${cap.lost ? `${cap.lost} lost` : ""}${cap.lost && cap.fansGained ? ", " : ""}${cap.fansGained ? `+${cap.fansGained} Dedicated Fans` : ""}`;
     }
     for (const id of x.mvp) {
       const p = team.players.find((q) => q.playerId === id);
@@ -461,7 +467,7 @@ export async function applyForfeit(deps: ForfeitDeps, ids: ForfeitIds, who: Forf
     // The team's own history (team page): what the forfeit changed, one line each.
     addHistory(team, { at: iso, by: who.coach, kind: "forfeit", changes: [
       { what: `${x.forfeit ? "Forfeited" : "Won by forfeit"} v ${f[other(s)].team}` },
-      ...(x.winnings ? [{ what: "Treasury", from: String(before.treasury ?? 0), to: String(team.treasury ?? 0) }] : []),
+      ...(x.winnings || (team.treasury ?? 0) !== (before.treasury ?? 0) ? [{ what: "Treasury", from: String(before.treasury ?? 0), to: String(team.treasury ?? 0) }] : []),
       ...(x.fans || (team.fans ?? 1) !== (before.fans ?? 1) ? [{ what: "Dedicated Fans", from: String(before.fans ?? 1), to: String(team.fans ?? 1) }] : []),
       ...x.mvp.map((id) => ({ what: `MVP: ${team.players.find((p) => p.playerId === id)?.name ?? id}`, to: `+${MVP_SPP} SPP` })),
       ...x.missNextGame.map((id) => ({ what: `Miss next game: ${team.players.find((p) => p.playerId === id)?.name ?? id}` })),

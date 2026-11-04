@@ -8,9 +8,10 @@ import type { LobbyFixture, LobbyRecord, LobbyRules, LobbyTeam } from "../src/fi
 import { leagueApi, type LeagueApiDeps, type LeagueApiResult } from "../src/leagues/api";
 import { effectiveInducements, seasonInducementOffers } from "../src/leagues/inducements";
 import {
-  BB2025_RULEBOOK_WINNINGS, DEFAULT_MONEY_RULES, MoneyRulesError, applyTreasuryCap, computeWinnings, effectiveMoneyRules, forfeitWinnings, lobbyBudget,
-  moneyRulesDiff, moneySnapshot, parseMoneyRules, type MoneyRules,
+  BB2025_RULEBOOK_WINNINGS, DEFAULT_MONEY_RULES, LEGACY_MONEY, MoneyRulesError, applyTreasuryCap, computeWinnings, effectiveMoneyRules, forfeitWinnings, isHundredths,
+  lobbyBudget, matchMoney, moneyRulesDiff, moneySnapshot, overridePayload, parseMoneyRules, type MoneyRules,
 } from "../src/leagues/moneyRules";
+import { applyForfeit, forfeitModel } from "../src/leagues/forfeit";
 import { LeagueStore } from "../src/leagues/store";
 import { leagueFixtureView, recordLeagueFixture } from "../src/leagues/tabletopFixtures";
 import { EMPTY_PLAYER_STATS, type LeagueFixture, type LeagueTeam, type SeasonRecord } from "../src/leagues/types";
@@ -91,6 +92,32 @@ describe("money rules: the maths", () => {
     expect(() => parseMoneyRules([], undefined)).toThrow(MoneyRulesError);
   });
 
+  it("the fan multiplier is checked in whole hundredths, float-safe: 0.55 and 1.1 are accepted (Sol P3)", () => {
+    expect(parseMoneyRules({ fanMultiplier: 0.55 }, undefined)).toEqual({ fanMultiplier: 0.55 });
+    expect(parseMoneyRules({ fanMultiplier: 1.1 }, undefined)).toEqual({ fanMultiplier: 1.1 });
+    expect(parseMoneyRules({ fanMultiplier: 0.29 }, undefined)).toEqual({ fanMultiplier: 0.29 });
+    expect(isHundredths(0.55) && isHundredths(1.1) && isHundredths(4.35)).toBe(true);
+    expect(isHundredths(0.555)).toBe(false);
+  });
+
+  it("an override form sends null for a key reset to the league's value and keeps the others (Sol P2 2)", () => {
+    const league = rules({ perTouchdown: 20_000 });
+    const prior = { winBonus: 30_000, drawBonus: 10_000 };
+    expect(overridePayload({ ...league, drawBonus: 10_000 }, league, prior)).toEqual({ winBonus: null, drawBonus: 10_000 });
+    expect(overridePayload(league, league, prior)).toEqual({ winBonus: null, drawBonus: null });
+    expect(overridePayload(league, league, {})).toBeNull();
+    // the server deletes null keys and keeps the rest
+    expect(parseMoneyRules({ winBonus: null, drawBonus: 10_000 }, prior)).toEqual({ drawBonus: 10_000 });
+  });
+
+  it("a match without its own copy uses the legacy rules, never the league's current ones (Sol P2 3)", () => {
+    expect(matchMoney({})).toEqual({ version: 0, rules: DEFAULT_MONEY_RULES });
+    expect(LEGACY_MONEY.rules).toEqual(DEFAULT_MONEY_RULES);
+    const copy = { version: 5, rules: rules({ inducementBudget: "treasury" }) };
+    expect(matchMoney({ money: copy })).toBe(copy);
+    expect(lobbyRulesFor(matchMoney({}).rules)).toEqual({ treasuryTopUp: true, highlander: false, starClash: "refund" });
+  });
+
   it("a competition override falls back to the league, the league to the defaults", () => {
     const league = { moneyRules: { perTouchdown: 20_000, treasuryCapEnabled: true } };
     expect(effectiveMoneyRules({})).toEqual(DEFAULT_MONEY_RULES);
@@ -144,6 +171,14 @@ describe("money rules in applyPostMatch", () => {
     // spp-only: no money moves, whatever the rules
     const sppOnly = applyPostMatch(file(100_000, 3), events(), { ...opt, postMatch: "spp-only", team: "home", money: rb });
     expect(sppOnly.teamFile.treasury).toBe(100_000);
+  });
+
+  it("the cap applies at every settlement, also with no winnings (Sol P2 4)", () => {
+    const r = { version: 2, rules: rules({ treasuryCapEnabled: true, treasuryCap: 100_000 }) };
+    const away = applyPostMatch(file(300_000, 2), [ev("touchdown", "home", {}, "h1")], { ...opt, team: "away", money: r });
+    expect(away.summary.winnings).toBe(0);
+    expect(away.teamFile.treasury).toBe(100_000);
+    expect(away.summary.money).toMatchObject({ capLost: 200_000 });
   });
 
   it("over the cap can buy Dedicated Fans", () => {
@@ -385,6 +420,60 @@ describe("League settings -> Money", () => {
     expect(f1.moneyRulesVersion).toBe(1);
     expect(f1.forfeitDetail?.moneyRulesVersion).toBe(1);
     expect(after.teams.find((t) => t.id === "elves")!.treasury).toBe(40_000); // 70k capped at 40k
+  });
+
+  it("resetting one override field to the league's value deletes it and keeps the other (Sol P2 2)", async () => {
+    await call("PATCH", S, JAY, { revision: rev(), money: { perTouchdown: 20_000 } });
+    await call("PATCH", S, JAY, { revision: rev(), moneyOverride: { seasonId: "season-2", rules: { winBonus: 30_000, drawBonus: 10_000 } } });
+    const leagueRules = effectiveMoneyRules(store.league("tabbl")!);
+    const next = { ...leagueRules, drawBonus: 10_000 }; // the form: win bonus put back to the league's 0
+    const r = await call("PATCH", S, JAY, { revision: rev(), moneyOverride: { seasonId: "season-2", rules: overridePayload(next, leagueRules, { winBonus: 30_000, drawBonus: 10_000 }) } });
+    expect(r.status).toBe(200);
+    expect(store.season("tabbl", "season-2")!.rules?.money).toEqual({ drawBonus: 10_000 });
+    expect(money(r).competitions.find((c: any) => c.seasonId === "season-2").rules).toMatchObject({ winBonus: 0, drawBonus: 10_000, perTouchdown: 20_000 });
+    expect(money(r).log[0].changes).toEqual(["Win bonus: 30k to 0k"]);
+  });
+
+  it("a recorder forfeit uses the match's copy (rules, cap and version), not the league's current rules (Sol P2 1)", async () => {
+    await call("PATCH", S, JAY, { revision: rev(), money: { treasuryCapEnabled: true, treasuryCap: 10_000 } }); // the league now: a 10k cap
+    const ids = { leagueId: "tabbl", seasonId: "season-1", fixtureId: "f1" };
+    const copy = { version: 7, rules: rules({ ...BB2025_RULEBOOK_WINNINGS, treasuryCapEnabled: true, treasuryCap: 60_000 }) };
+    const model = forfeitModel({ store }, ids, { coach: "Jay", admin: false }, { money: copy }).body as any;
+    expect(model.money).toMatchObject({ version: 7, concession: "rulebook", treasuryCap: 60_000 });
+    expect(model.suggestions.home.away.winnings).toBe(70_000);
+    const s = model.suggestions.home;
+    const out = await applyForfeit({ store }, ids, { coach: "Jay", admin: false }, { home: s.home, away: s.away, noStandings: false, legalConcession: true }, { matchId: "tm_x", announce: false, money: copy });
+    expect(out.status).toBe(200);
+    const after = store.season("tabbl", "season-1")!;
+    expect(after.fixtures.find((f) => f.id === "f1")!.moneyRulesVersion).toBe(7);
+    expect(after.teams.find((t) => t.id === "elves")!.treasury).toBe(60_000); // the copy's cap, not the league's 10k
+    expect(after.teams.find((t) => t.id === "orcs")!.treasury).toBe(50_000); // under the copy's cap: untouched
+  });
+
+  it("the cap applies to a forfeit settlement with no or negative winnings (Sol P2 4)", async () => {
+    await call("PATCH", S, JAY, { revision: rev(), money: { treasuryCapEnabled: true, treasuryCap: 30_000 } });
+    const F = "/api/leagues/tabbl/seasons/season-1/fixtures/f1/forfeit";
+    const s = ((await call("GET", F, JAY)).body as any).legalSuggestions.home;
+    expect(s.home.winnings).toBe(0);
+    const r = await call("POST", F, JAY, { home: { ...s.home, winnings: -5_000 }, away: s.away, noStandings: false, legalConcession: true });
+    expect(r.status).toBe(200);
+    const teams = store.season("tabbl", "season-1")!.teams;
+    expect(teams.find((t) => t.id === "orcs")!.treasury).toBe(30_000); // 50k - 5k = 45k, capped at 30k
+    expect(teams.find((t) => t.id === "elves")!.treasury).toBe(0);
+  });
+
+  it("a suggestion above the 2,000,000 a forfeit accepts is clamped to it, with a note, and submits (Sol P2 5)", async () => {
+    const s1 = store.season("tabbl", "season-1")!;
+    for (const t of s1.teams) t.fans = 6;
+    store.putSeason(s1);
+    await call("PATCH", S, JAY, { revision: rev(), money: { ...BB2025_RULEBOOK_WINNINGS, fanMultiplier: 5, perTouchdown: 500_000, winBonus: 500_000 } });
+    const F = "/api/leagues/tabbl/seasons/season-1/fixtures/f1/forfeit";
+    const m = (await call("GET", F, JAY)).body as any;
+    // 12 x 10 x 10k + 2 x 500k + 500k = 2,700,000
+    expect(m.suggestions.home.away.winnings).toBe(2_000_000);
+    expect(m.suggestions.home.notes.join(" ")).toContain("so the suggestion is capped there");
+    const s = m.legalSuggestions.home;
+    expect((await call("POST", F, JAY, { home: s.home, away: s.away, noStandings: false, legalConcession: true })).status).toBe(200);
   });
 });
 

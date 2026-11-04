@@ -7,7 +7,7 @@
 // logs every change (who, when, before, after) and tells the other organisers.
 import { computed, inject, reactive, ref, watch } from "vue";
 import { LEAGUE_SETTINGS_KEY } from "../leagues/settings";
-import { BUDGET_LABEL, winningsFormulaText, type InducementBudgetRule, type MoneyRules } from "../../../src/leagues/moneyRules";
+import { BUDGET_LABEL, isHundredths, overridePayload, toHundredths, winningsFormulaText, type InducementBudgetRule, type MoneyRules } from "../../../src/leagues/moneyRules";
 import "../leagues/money.css";
 
 const settings = inject(LEAGUE_SETTINGS_KEY)!;
@@ -30,7 +30,7 @@ const toForm = (r: MoneyRules): Form => ({
   treasuryCapEnabled: r.treasuryCapEnabled, treasuryCapK: k(r.treasuryCap), capOverflow: r.capOverflow, capFansStepK: k(r.capFansStep),
 });
 const toRules = (f: Form): MoneyRules => ({
-  perTouchdown: f.perTouchdownK * 1000, fanMultiplier: f.fanMultiplier, winBonus: f.winBonusK * 1000, drawBonus: f.drawBonusK * 1000,
+  perTouchdown: f.perTouchdownK * 1000, fanMultiplier: toHundredths(f.fanMultiplier), winBonus: f.winBonusK * 1000, drawBonus: f.drawBonusK * 1000,
   noStallingBonus: f.noStallingBonusK * 1000, concession: f.rulebookConcession ? "rulebook" : "none", pettyCash: f.pettyCash,
   inducementBudget: f.inducementBudget, fixedBudget: f.fixedBudgetK * 1000, treasuryCapEnabled: f.treasuryCapEnabled,
   treasuryCap: f.treasuryCapK * 1000, capOverflow: f.capOverflow, capFansStep: f.capFansStepK * 1000,
@@ -46,7 +46,7 @@ const whole = (v: unknown, max: number): boolean => typeof v === "number" && Num
 const error = computed(() => {
   for (const [label, v] of [["Per touchdown", form.perTouchdownK], ["Win bonus", form.winBonusK], ["Draw bonus", form.drawBonusK], ["No stalling bonus", form.noStallingBonusK]] as const)
     if (!whole(v, 500)) return `${label}: 0 to 500k.`;
-  if (!(typeof form.fanMultiplier === "number" && form.fanMultiplier >= 0 && form.fanMultiplier <= 5 && Math.round(form.fanMultiplier * 100) === form.fanMultiplier * 100)) return "Fan attendance multiplier: 0 to 5, in steps of 0.01.";
+  if (!(typeof form.fanMultiplier === "number" && form.fanMultiplier >= 0 && form.fanMultiplier <= 5 && isHundredths(form.fanMultiplier))) return "Fan attendance multiplier: 0 to 5, in steps of 0.01.";
   if (!whole(form.fixedBudgetK, 5000)) return "Fixed budget: 0 to 5,000k.";
   if (!whole(form.treasuryCapK, 5000)) return "Treasury cap: 0 to 5,000k.";
   if (!whole(form.capFansStepK, 500) || form.capFansStepK === 0) return "Gold per Dedicated Fan: 1 to 500k.";
@@ -56,20 +56,15 @@ const rules = computed(() => toRules(form));
 const dirty = computed(() => Boolean(current.value) && JSON.stringify(rules.value) !== JSON.stringify(current.value));
 const formula = computed(() => winningsFormulaText(rules.value));
 const busy = computed(() => state.busy === "money");
-/** A competition override stores only what differs from the league. */
-const overrideOf = (r: MoneyRules): Partial<MoneyRules> => {
-  const league = view.value!.rules;
-  const out: Partial<MoneyRules> = {};
-  for (const key of Object.keys(r) as Array<keyof MoneyRules>) if (r[key] !== league[key]) (out as Record<string, unknown>)[key] = r[key];
-  return out;
-};
+
 const NOTICE = "Money rules saved. They apply from the next fixture; games already played keep their numbers.";
 async function save(): Promise<void> {
   if (!view.value || error.value) return;
   if (!scope.value) await settings.save("money", rules.value, "money", NOTICE);
   else {
-    const o = overrideOf(rules.value);
-    await settings.save("moneyOverride", { seasonId: scope.value, rules: Object.keys(o).length ? o : null }, "money", NOTICE);
+    // what differs from the league, and null for each old override key now back at the league's value
+    const o = overridePayload(rules.value, view.value.rules, competition.value?.override ?? {});
+    await settings.save("moneyOverride", { seasonId: scope.value, rules: o }, "money", NOTICE);
   }
 }
 async function followLeague(): Promise<void> {

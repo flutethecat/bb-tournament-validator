@@ -98,6 +98,32 @@ export interface MoneyRulesLogEntry {
 /** What a fixture result used: the rules version and the effective rules at the time. */
 export interface MoneySnapshot { version: number; rules: MoneyRules }
 
+/**
+ * The rules of a recorder match started before the money rules existed (no copy on the match): the site's fixed rule,
+ * version 0. Such a match never picks up a league's current rules.
+ */
+export const LEGACY_MONEY: Readonly<MoneySnapshot> = Object.freeze({ version: 0, rules: { ...DEFAULT_MONEY_RULES } });
+export const matchMoney = (match: { money?: MoneySnapshot }): MoneySnapshot => match.money ?? { version: LEGACY_MONEY.version, rules: { ...LEGACY_MONEY.rules } };
+
+/** Is `v` a whole number of hundredths (0.55 and 1.1 are; 0.333 is not)? Float-safe. */
+export const isHundredths = (v: number): boolean => Number.isFinite(v) && Math.abs(v * 100 - Math.round(v * 100)) < 1e-6;
+/** `v` rounded to hundredths (0.55000000001 -> 0.55). */
+export const toHundredths = (v: number): number => Math.round(v * 100) / 100;
+
+/**
+ * The moneyOverride rules a competition form sends: every key that differs from the league, and null for every key the
+ * old override set that now matches the league (the server deletes null keys, so a field reset to the league's value
+ * really goes back to following the league).
+ */
+export function overridePayload(next: MoneyRules, league: MoneyRules, prior: Partial<MoneyRules>): Partial<Record<keyof MoneyRules, unknown>> | null {
+  const out: Partial<Record<keyof MoneyRules, unknown>> = {};
+  for (const key of Object.keys(next) as Array<keyof MoneyRules>) {
+    if (next[key] !== league[key]) out[key] = next[key];
+    else if (prior[key] !== undefined) out[key] = null;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 const clean = (layer: Partial<MoneyRules> | undefined): Partial<MoneyRules> => {
   const out: Partial<MoneyRules> = {};
   if (!layer) return out;
@@ -153,9 +179,9 @@ export function parseMoneyRules(raw: unknown, prior: Partial<MoneyRules> | undef
         break;
       case "fixedBudget": case "treasuryCap": set(k, gold(v, f, LABEL[k], MONEY_GOLD_MAX)); break;
       case "fanMultiplier":
-        if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > FAN_MULTIPLIER_MAX || Math.round(v * 100) !== v * 100)
+        if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > FAN_MULTIPLIER_MAX || !isHundredths(v))
           throw new MoneyRulesError(`The fan attendance multiplier must be from 0 to ${FAN_MULTIPLIER_MAX}, in steps of 0.01.`, f);
-        set(k, v);
+        set(k, toHundredths(v));
         break;
       case "concession":
         if (v !== "none" && v !== "rulebook") throw new MoneyRulesError("The concession rule must be none or rulebook.", f);
