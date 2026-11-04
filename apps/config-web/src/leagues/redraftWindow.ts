@@ -20,6 +20,7 @@ import {
 import { leagueOwner, type LeagueStore } from "./store.js";
 import { assignSeasonsPlayed } from "./playerIds.js";
 import { leagueTimeZone } from "./timeZone.js";
+import { gateRefusal } from "./gates.js";
 import type { LeagueRecord, RedraftState, RedraftTeamTask, RedraftWindow, SeasonRecord } from "./types.js";
 
 /**
@@ -215,6 +216,9 @@ export function runRedraftWindowJob(deps: RedraftWindowDeps): RedraftWindowOutco
     const state = source.redraft!;
     const w = state.window!;
     const zone = leagueTimeZone(league);
+    // Gates (gates.ts), read directly: the window opens only once its gate is open, and the close (with its automatic rest rolls
+    // and rebuilds) waits while the rest-roll or submission gate is still shut. Unreadable gates count as shut (fail closed).
+    const shut = (k: "redraft-window" | "redraft-rest" | "redraft-submit"): boolean => Boolean(gateRefusal(deps.store, league, k, "league", now));
     const notices: Array<{ coach: string; input: NotificationInput }> = [];
     const pending = state.teams.filter((x) => x.selected && x.status === "pending");
     const coachNote = (coach: string | undefined, teamId: string, title: string, body: string): void => {
@@ -224,7 +228,7 @@ export function runRedraftWindowJob(deps: RedraftWindowDeps): RedraftWindowOutco
     try {
       let changed = false;
       const live = !state.closedAt;
-      if (live && !w.openNotifiedAt && ms >= t(w.opensAt)) {
+      if (live && !w.openNotifiedAt && ms >= t(w.opensAt) && !shut("redraft-window")) {
         w.openNotifiedAt = iso;
         changed = true;
         for (const x of pending) coachNote(x.coachId, x.teamId, "Redraft open", `the redraft for ${x.name} is open until ${whenText(w.closesAt, zone)}. Roll Rest & Relaxation, then build next season's roster in the Roster Builder.`);
@@ -236,7 +240,8 @@ export function runRedraftWindowJob(deps: RedraftWindowDeps): RedraftWindowOutco
         for (const x of pending) coachNote(x.coachId, x.teamId, "Redraft closes in 24 hours", `${x.name}'s redraft closes at ${whenText(w.closesAt, zone)}. Submit your draft list, or the team is rebuilt from its current roster if it fits the budget.`);
         out.reminded.push(`${league.id}/${source.id}`);
       }
-      if (!w.processedAt && ms >= t(w.closesAt)) {
+      const closeWaits = !w.closing && (shut("redraft-rest") || shut("redraft-submit"));
+      if (!w.processedAt && ms >= t(w.closesAt) && !closeWaits) {
         // 1. journal (once): rebuild in memory without touching the receiving season, then write the source.
         if (!w.closing && live) {
           w.closing = iso;

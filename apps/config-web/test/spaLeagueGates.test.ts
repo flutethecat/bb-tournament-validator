@@ -80,6 +80,16 @@ describe("gate helpers", () => {
     expect(f.calls[2]!.body).toEqual({ revision: 1 });
   });
 
+  it("a re-created gate continues from the revision of the one switched off (never 0 again)", async () => {
+    const f = mockFetcher({ "/api/leagues/rl/gates": { timeZone: "UTC", now: "", manage: true, gates: [], retired: { "registration:season-7": 3 } } });
+    const { resetGateStores, useLeagueGates } = await import("../spa/src/leagues/gates");
+    resetGateStores();
+    const store = useLeagueGates(f, "rl");
+    await store.reload();
+    expect(store.baseRevision("registration", "season-7")).toBe(3);
+    expect(store.baseRevision("registration", "season-8")).toBe(0);
+  });
+
   it("styles use tokens only", () => {
     const css = readFileSync(fileURLToPath(new URL("../spa/src/leagues/gates.css", import.meta.url)), "utf8");
     expect(css).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/i);

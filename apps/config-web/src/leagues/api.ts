@@ -211,6 +211,8 @@ export interface LeagueApiDeps extends LeagueRegistrationApiDeps, TeamLibraryApi
   publicNames?: () => boolean;
   /** Discord webhook poster (tests stub it; default POSTs with fetch). */
   postWebhook?: WebhookPoster;
+  /** The Discord observer's ledger (gates.ts: a registration gate's post marks the observer's own marker, so it posts once). */
+  discordLedger?: { mark(key: string, markers: readonly string[], at: string): string[] };
   /** Play on Super FUMBBL: the fork (forkClient.ts on the server, a stub in tests); unset = not connected (503 on fork actions). */
   fork?: LeagueForkClient;
   /** The request's If-Match header (settings PATCH revision, as an alternative to body.revision). */

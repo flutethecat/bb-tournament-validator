@@ -781,7 +781,7 @@ let leagueGatesRunning = false;
 const leagueGateTick = (): void => {
   if (leagueGatesRunning) return;
   leagueGatesRunning = true;
-  void runGateJob({ store: leagueStore, notify: leagueNotify, isAdmin: (c) => isAdmin(c) })
+  void runGateJob({ store: leagueStore, notify: leagueNotify, isAdmin: (c) => isAdmin(c), discordLedger: discordState })
     .then((out) => {
       if (out.opened.length) console.log(`[leagues] gates opened: ${out.opened.join(", ")}`);
       if (out.failed.length) console.error(`[leagues] gate job could not read or write: ${out.failed.join(", ")}`);
@@ -789,7 +789,8 @@ const leagueGateTick = (): void => {
     .catch((e) => console.error(`[leagues] gate job failed: ${(e as Error).message}`))
     .finally(() => { leagueGatesRunning = false; });
 };
-setTimeout(leagueGateTick, 9_500).unref();
+// First run before the deadline (5 s), redraft (7 s) and ladder (8 s) jobs: projections are repaired before they read them.
+setTimeout(leagueGateTick, 3_000).unref();
 setInterval(leagueGateTick, 60_000).unref();
 setActiveNotifier(tournamentNotifier);
 // Tournament registration notices (lane L4, src/tournaments/registration.ts): check-in open (inbox + Discord DM through
@@ -2710,6 +2711,7 @@ async function handleApi(
       gamePage: (gameId) => { try { return onlineGamePageServes(gameId, tournamentResults.get(gameId)); } catch { return false; } },
       diceLog,
       leagueEvents: leagueEventsDeps,
+      discordLedger: discordState,
       // Start a new season "From template" (src/templates): the caller must own the template or have it shared.
       seasonTemplate: (id, coach) => seasonTemplateFor(templateStore, id, coach),
     });

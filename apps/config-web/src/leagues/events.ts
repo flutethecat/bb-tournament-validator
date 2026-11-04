@@ -34,7 +34,7 @@ import type {
   DiscordEventKey, FixtureSide, LeagueEventEntry, LeagueFixture, LeagueNewsPost, LeagueRecord, LeagueTeam, SeasonRecord,
 } from "./types.js";
 import { publicFixture } from "./fixturePublic.js";
-import { fixturePlayBlock, movedAwayTeam } from "./playBlock.js";
+import { fixturePlayRefusal, movedAwayTeam } from "./playBlock.js";
 
 export const EVENTS_MAX_BYTES = 64 * 1024;
 export const LOG_CAP = 200;
@@ -463,8 +463,9 @@ export async function editFixture(
   if (result !== undefined && fixture.forfeit) throw new SettingsError(409, "This fixture holds a forfeit. Undo the forfeit first (Forfeit dialog): that reverses its roster changes.", "result");
   // A team in an open redraft window (or still needing its redraft) cannot play: no result for it (redraftWindow.ts).
   if (result) {
-    const blocked = fixturePlayBlock(deps.store, league.id, seasonId, fixture, deps.now?.() ?? new Date());
-    if (blocked) throw new SettingsError(409, blocked, "result");
+    const blocked = fixturePlayRefusal(deps.store, league.id, seasonId, fixture, deps.now?.() ?? new Date());
+    if (blocked?.code) return fail(409, blocked.message, { field: "result", code: blocked.code, gate: blocked.gate ?? null });
+    if (blocked) throw new SettingsError(409, blocked.message, "result");
   }
   if (date !== undefined) { if (date === null) delete fixture.date; else fixture.date = date; }
   if (round !== undefined) fixture.round = round;

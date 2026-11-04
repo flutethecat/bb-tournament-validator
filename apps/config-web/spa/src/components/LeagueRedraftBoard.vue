@@ -76,6 +76,7 @@ const windowGate = computed(() => {
 const windowLine = computed(() => {
   const w = view.value.window;
   if (!w) return "";
+  if (w.before && w.opensAt >= "2199") return "Opens when the Redraft window gate opens (it has no time yet).";
   if (w.before) return `Opens ${fmtWhen(w.opensAt)}, closes ${fmtWhen(w.closesAt)}.`;
   if (w.open) return `Open until ${fmtWhen(w.closesAt)}. Teams in the redraft cannot play until then.`;
   return `The window closed ${fmtWhen(w.closesAt)}. Teams that need a redraft cannot play until they submit.`;

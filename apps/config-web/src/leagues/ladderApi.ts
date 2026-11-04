@@ -64,7 +64,7 @@ import { canonicalRace, rosterAllowed } from "./leagueBuilder.js";
 import { managesLeague } from "./lifecycle.js";
 import { competitionIdOf, rowToEntry, snapshotFromRoster, type LeagueEntryData } from "./registration.js";
 import { defaultSeasonRegistration, seasonRegistrationOf, seasonWindowStatus } from "./seasonRegistration.js";
-import { gateBlock } from "./gates.js";
+import { gateBlock, honoursHoldFor } from "./gates.js";
 import { LEAGUE_RULESETS, type LeagueFixture, type LeagueRecord, type LeagueRuleset, type LeagueTeam, type SeasonRecord } from "./types.js";
 import { leagueOwner, LeagueStoreError } from "./store.js";
 import { parseLeagueHouseRules, SettingsError } from "./settings.js";
@@ -460,12 +460,12 @@ async function startLadder(league: LeagueRecord, ladderId: string, auth: LeagueA
  */
 export function closeLadderRecord(
   ladder: SeasonRecord, now: Date, reason: string,
-  opts: { league?: TitleTickContext["league"]; competitions?: readonly SeasonRecord[]; titleNotes?: TitleNote[] } = {},
+  opts: { league?: TitleTickContext["league"]; competitions?: readonly SeasonRecord[]; titleNotes?: TitleNote[]; honoursHold?: TitleTickContext["honoursHold"] } = {},
 ): Array<{ coach: string; text: string }> {
   const at = now.toISOString();
   const competitions = opts.competitions ?? [ladder];
   // First the results already in (finished Rumble games, the last period's honours), at the close instant; then the discards.
-  settleForClose({ league: opts.league ?? { id: ladder.leagueId, name: "" }, ladder, competitions, now, notes: opts.titleNotes ?? [] });
+  settleForClose({ league: opts.league ?? { id: ladder.leagueId, name: "" }, ladder, competitions, now, notes: opts.titleNotes ?? [], ...(opts.honoursHold ? { honoursHold: opts.honoursHold } : {}) });
   const notes: Array<{ coach: string; text: string }> = [];
   const coachOf = (id: string) => teamAccount(ladder.teams.find((t) => t.id === id) ?? { coachId: "" });
   for (const ch of ladder.ladder?.challenges ?? []) {
@@ -500,7 +500,7 @@ async function closeLadder(league: LeagueRecord, ladderId: string, auth: LeagueA
   const ladder = w.ladder!;
   if (ladderState(ladder) === "closed") return fail(409, "The ladder is already closed.");
   const titleNotes: TitleNote[] = [];
-  const notes = closeLadderRecord(ladder, now, reason, { league: w.league, competitions: deps.store.competitions(w.league.id).map((c) => (c.id === ladder.id ? ladder : c)), titleNotes });
+  const notes = closeLadderRecord(ladder, now, reason, { league: w.league, competitions: deps.store.competitions(w.league.id).map((c) => (c.id === ladder.id ? ladder : c)), titleNotes, honoursHold: honoursHoldFor(deps.store, w.league.id, now) });
   deps.store.putSeason(ladder);
   for (const n of notes) tell(deps, n.coach, { type: "ladder", title: `${w.league.name} ${ladder.name}: challenge discarded`, body: n.text, link: ladderLink(w.league.id, ladderId), subject: ladder.name });
   sendTitleNotes(deps, w.league, ladder, titleNotes, w.who.coach);
@@ -956,7 +956,7 @@ async function titleWrite(league: LeagueRecord, ladderId: string, auth: LeagueAp
   const { input, league: lg, who, now } = w;
   const ladder = w.ladder!;
   if (ladderState(ladder) !== "active") return fail(409, ladderState(ladder) === "closed" ? "The ladder is closed." : "The ladder has not started yet.");
-  const ctx: TitleTickContext = { league: lg, ladder, competitions: deps.store.competitions(lg.id).map((c) => (c.id === ladder.id ? ladder : c)), now, notes: [] };
+  const ctx: TitleTickContext = { league: lg, ladder, competitions: deps.store.competitions(lg.id).map((c) => (c.id === ladder.id ? ladder : c)), now, notes: [], honoursHold: honoursHoldFor(deps.store, lg.id, now) };
   const done = fn(ctx, input, who);
   safeTitleTick(ctx);
   deps.store.putSeason(ladder);

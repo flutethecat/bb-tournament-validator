@@ -39,7 +39,7 @@ import { publicFixture } from "./fixturePublic.js";
 import { publishedLeagues } from "./lifecycle.js";
 import { fixtureRedraftBlock } from "./redraftWindow.js";
 import { competitionPlaysOnFork } from "./ladder.js";
-import { fixturePlayBlock } from "./playBlock.js";
+import { fixturePlayRefusal } from "./playBlock.js";
 
 /** Error a fork client throws with an HTTP status for the coach (503 no account store, 404 no fork account, ...). */
 export class ForkClientError extends Error {
@@ -412,8 +412,11 @@ async function generate(deps: ForkRouteDeps, client: LeagueForkClient, leagueId:
     if (status === "scheduled" || status === "in_progress") return res(200, { ok: true, fork: fixtureForkView(x.league, x.season, x.fixture, who) });
     if (status === "finished") return fail(409, "This fixture's Super FUMBBL game is finished.");
     if (status === "launch_failed") return fail(409, "The last attempt failed. An organiser can reset the game and try again.");
-    const blocker = generateBlocker(x.league, x.season, x.fixture) || fixturePlayBlock(deps.store, x.league.id, x.season.id, x.fixture, deps.now?.() ?? new Date());
-    return blocker ? fail(409, blocker) : undefined;
+    const blocked = fixturePlayRefusal(deps.store, x.league.id, x.season.id, x.fixture, deps.now?.() ?? new Date());
+    if (blocked?.code) return res(409, { error: blocked.message, code: blocked.code, gate: blocked.gate ?? null });
+    const plain = generateBlocker(x.league, x.season, x.fixture);
+    if (plain) return fail(409, plain);
+    return blocked ? fail(409, blocked.message) : undefined;
   };
   const early = precheck(at);
   if (early) return early;

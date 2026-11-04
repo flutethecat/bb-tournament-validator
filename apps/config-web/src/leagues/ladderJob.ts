@@ -20,6 +20,7 @@
  */
 import type { NotificationInput } from "../notifications.js";
 import { closeLadderRecord, ladderLink, proposeLink } from "./ladderApi.js";
+import { honoursHoldFor } from "./gates.js";
 import { safeTitleTick } from "./ladderTitles.js";
 import { applyTournamentResets, challengeState, currentRedraftWindow, declineLosses, fixtureOpen, isLadder, ladderState, liveChallenge, settingsOf, teamAccount } from "./ladder.js";
 import { draftAwareNotify } from "./lifecycle.js";
@@ -67,7 +68,7 @@ export function runLadderJob(deps: LadderJobDeps): LadderJobOutcome {
         if (!ladder || !isLadder(ladder) || ladderState(ladder) !== "active") continue;
         const notes: Note[] = [];
         const comps = deps.store.competitions(league.id).map((c) => (c.id === ladder.id ? ladder : c));
-        const changed = tick(league.name, ladder, now, notes, out, key, league, comps);
+        const changed = tick(league.name, ladder, now, notes, out, key, league, comps, honoursHoldFor(deps.store, league.id, now));
         if (!changed) continue;
         deps.store.putSeason(ladder);
         const link = ladderLink(league.id, ladder.id);
@@ -84,7 +85,7 @@ export function runLadderJob(deps: LadderJobDeps): LadderJobOutcome {
   return out;
 }
 
-function tick(leagueName: string, ladder: SeasonRecord, now: Date, notes: Note[], out: LadderJobOutcome, key: string, league: Parameters<typeof currentRedraftWindow>[0] & { id: string; name: string }, comps: readonly SeasonRecord[]): boolean {
+function tick(leagueName: string, ladder: SeasonRecord, now: Date, notes: Note[], out: LadderJobOutcome, key: string, league: Parameters<typeof currentRedraftWindow>[0] & { id: string; name: string }, comps: readonly SeasonRecord[], honoursHold?: ReturnType<typeof honoursHoldFor>): boolean {
   const rec = ladder.ladder!;
   const s = settingsOf(rec);
   const at = now.toISOString();
@@ -97,7 +98,7 @@ function tick(leagueName: string, ladder: SeasonRecord, now: Date, notes: Note[]
   // 1. The scheduled end.
   if (s.endsAt && now.getTime() >= Date.parse(s.endsAt)) {
     const titleNotes: Parameters<typeof safeTitleTick>[0]["notes"] = [];
-    for (const n of closeLadderRecord(ladder, now, "ended on its scheduled date", { league, competitions: comps, titleNotes })) notes.push({ coach: n.coach, title: `${title} has ended`, body: n.text });
+    for (const n of closeLadderRecord(ladder, now, "ended on its scheduled date", { league, competitions: comps, titleNotes, ...(honoursHold ? { honoursHold } : {}) })) notes.push({ coach: n.coach, title: `${title} has ended`, body: n.text });
     for (const n of titleNotes) notes.push({ coach: n.coach, title: n.title, body: n.body });
     for (const m of rec.members) if (!m.leftAt) notes.push({ coach: coach(m.teamId), title: `${title} has ended`, body: "The ladder reached its end date: the ranking is final." });
     out.closed.push(key);
@@ -171,7 +172,7 @@ function tick(leagueName: string, ladder: SeasonRecord, now: Date, notes: Note[]
 
   // 7. Titles: the belt, the mandatory challenger, Money in the Bank, the Rumble and period honours (ladderTitles.ts).
   const titleNotes: Parameters<typeof safeTitleTick>[0]["notes"] = [];
-  const titles = safeTitleTick({ league, ladder, competitions: comps, now, notes: titleNotes });
+  const titles = safeTitleTick({ league, ladder, competitions: comps, now, notes: titleNotes, ...(honoursHold ? { honoursHold } : {}) });
   if (titles.changed) { out.titles.push(key); changed = true; }
   for (const step of titles.failed) out.failed.push(`${key}:titles:${step}`);
   for (const n of titleNotes) {

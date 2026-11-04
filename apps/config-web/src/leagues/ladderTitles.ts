@@ -340,6 +340,9 @@ export interface TitleTickContext {
   notes: TitleNote[];
   /** The honours-reveal gate opened: write every held period's honours (gates.ts revealLadderHonours). */
   revealAll?: boolean;
+  /** The honours-reveal gate read from the league's gates file at publish time (gates.ts honoursHoldFor): { from } while shut,
+   *  "unreadable" = hold everything (fail closed). Absent = only the ladder's stored projection counts. */
+  honoursHold?: (ladderId: string) => { from: number } | "unreadable" | undefined;
 }
 
 export const BOUT_LABEL: Readonly<Record<TitleBoutKind, string>> = {
@@ -999,13 +1002,17 @@ export function periodHonours(ctx: TitleTickContext, untilArg = ctx.now.getTime(
   const done = new Set(rec.periodHonours ?? []);
   // The honours-reveal gate (gates.ts) while shut: periods ending at or after it was set are held back (nothing written, so
   // no read and no Discord post can show them) until it opens; its opening reveals them (gates.ts revealLadderHonours).
-  const held = ctx.revealAll ? undefined : rec.gates?.honours;
-  const heldFrom = held ? Date.parse(held.from) : NaN;
+  const projected = ctx.revealAll ? undefined : rec.gates?.honours;
+  const live = ctx.revealAll ? undefined : ctx.honoursHold?.(ladder.id);
+  // The earliest hold wins (the gates file is the authority; the projection covers callers without a store).
+  const froms = [projected ? Date.parse(projected.from) : NaN, live === "unreadable" ? -Infinity : live ? live.from : NaN].filter((x) => !Number.isNaN(x));
+  const held = Boolean(projected || live);
+  const heldFrom = froms.length ? Math.min(...froms) : NaN;
   for (let k = 1; k <= 400; k += 1) {
     const end = start + k * s.periodDays * DAY_MS;
     if (end > until) break;
     if (done.has(k)) continue;
-    if (held && (!Number.isFinite(heldFrom) || end >= heldFrom)) break;
+    if (held && (!(heldFrom > -Infinity) || Number.isNaN(heldFrom) || end >= heldFrom)) break;
     // The field as it was at the period's end (who had joined and not yet left), however late this runs.
     const rows = rankRows(ladder, replayLadder(ladder, now, { until: end, competitions: ctx.competitions }), membersAt(ladder, end, ctx.competitions));
     const label = `Period ${k}`;

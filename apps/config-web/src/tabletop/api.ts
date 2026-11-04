@@ -82,7 +82,12 @@ export interface FixtureView {
   resultOpId?: string;
   /** An organiser cleared the fixture's result, and that result was the tabletop publication with this op id. */
   clearedOpId?: string;
+  /** League fixtures: a gate keeps it shut (the season start gate, src/leagues/gates.ts): answered 409 code "gate-shut". */
+  shut?: { code: "gate-shut"; message: string; gate: unknown };
 }
+
+const shutAnswer = (f: Pick<FixtureView, "shut">): TabletopResult | undefined =>
+  (f.shut ? { status: 409, body: { error: f.shut.message, code: f.shut.code, gate: f.shut.gate } } : undefined);
 
 /** The tournaments store seen through the single existing result path (TournamentStore.recordResult). */
 export interface FixtureGateway {
@@ -902,6 +907,8 @@ export async function createMatch(
   if (b.fixtureRef) {
     const fixture = deps.fixtures?.get(b.fixtureRef);
     if (!fixture) return err(409, "That fixture does not exist.");
+    const gateShut = shutAnswer(fixture);
+    if (gateShut) return gateShut;
     if (!fixture.open) return err(409, "That fixture is already resolved or closed.");
     const k = (s: string) => s.trim().toLowerCase();
     const straight = k(fixture.home.coach) === k(home.coach) && k(fixture.away.coach) === k(away.coach);
@@ -1378,6 +1385,8 @@ function fixtureForPublish(match: MatchRecord, at: string, deps: TabletopApiDeps
   let fixtureLink: MatchRecord["fixtureLink"];
   if (match.fixtureRef) {
     const f = deps.fixtures?.get(match.fixtureRef);
+    const gateShut = f ? shutAnswer(f) : undefined;
+    if (gateShut) return { error: gateShut };
     if (!f || !f.open) return { error: err(409, "The fixture is no longer open; resolve it in the tournament first.") };
     const cas = (s: PostMatchSummary) => s.players.reduce((n, p) => n + p.casualtiesCaused, 0);
     const swapped = match.fixtureSwap === true;

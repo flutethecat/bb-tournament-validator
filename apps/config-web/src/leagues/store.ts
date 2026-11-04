@@ -371,12 +371,13 @@ export class LeagueStore {
     if (!existsSync(path)) return { revision: 0, gates: [] };
     const raw = this.readJson<LeagueGatesFile>(path);
     if (!raw || typeof raw !== "object" || !Array.isArray(raw.gates)) throw new LeagueStoreError(500, "The league's gates could not be read.");
-    return { revision: Number.isSafeInteger(raw.revision) ? raw.revision : 0, gates: raw.gates };
+    const retired = raw.retired && typeof raw.retired === "object" && !Array.isArray(raw.retired) ? raw.retired : undefined;
+    return { revision: Number.isSafeInteger(raw.revision) ? raw.revision : 0, gates: raw.gates, ...(retired ? { retired } : {}) };
   }
 
   putLeagueGates(id: string, file: LeagueGatesFile): void {
     if (!this.league(id)) throw new LeagueStoreError(404, "League not found.");
-    this.write(join(this.leagueDir(id), "gates.json"), { revision: file.revision, gates: file.gates });
+    this.write(join(this.leagueDir(id), "gates.json"), { revision: file.revision, gates: file.gates, ...(file.retired && Object.keys(file.retired).length ? { retired: file.retired } : {}) });
   }
 
   /** Every season of the league, newest first. A season stored before player ids existed is given the ids (and career links) the importer would assign.

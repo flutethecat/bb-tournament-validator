@@ -9,7 +9,7 @@
  */
 import type { FixtureView } from "../tabletop/api.js";
 import { fixtureOpenForDeadline } from "./deadlines.js";
-import { fixturePlayBlock } from "./playBlock.js";
+import { fixturePlayRefusal } from "./playBlock.js";
 import type { LeagueStore } from "./store.js";
 import { fixturePlayed } from "./tourplay.js";
 import type { LeagueFixture, SeasonRecord } from "./types.js";
@@ -31,9 +31,11 @@ export function leagueFixtureView(store: LeagueStore, ref: string, now: Date = n
   if (!at) return undefined;
   const { season, fixture: f } = at;
   const played = fixturePlayed(f);
+  const blocked = fixturePlayRefusal(store, season.leagueId, season.id, f, now);
   return {
     id: ref,
-    open: season.status === "active" && fixtureOpenForDeadline(f) && Boolean(f.home.coachId && f.away.coachId) && !fixturePlayBlock(store, season.leagueId, season.id, f, now),
+    open: season.status === "active" && fixtureOpenForDeadline(f) && Boolean(f.home.coachId && f.away.coachId) && !blocked,
+    ...(blocked?.code && !played ? { shut: { code: blocked.code, message: blocked.message, gate: blocked.gate ?? null } } : {}),
     status: played ? "completed" : f.suspended ? "cancelled" : "scheduled",
     revision: f.tabletop?.revision ?? 0,
     home: { coach: f.home.coachId ?? "" },
@@ -54,8 +56,8 @@ export function recordLeagueFixture(
   const { season, fixture: f } = found;
   if ((f.tabletop?.revision ?? 0) !== input.expectedRevision) throw new Error("The league fixture changed since the match started.");
   if (fixturePlayed(f)) throw new Error("The league fixture already has a result.");
-  const blocked = fixturePlayBlock(store, season.leagueId, season.id, f, at);
-  if (blocked) throw new Error(blocked);
+  const blocked = fixturePlayRefusal(store, season.leagueId, season.id, f, at);
+  if (blocked) throw new Error(blocked.message);
   f.home.score = input.homeScore;
   f.away.score = input.awayScore;
   f.home.cas = input.homeCasualties;

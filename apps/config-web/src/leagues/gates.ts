@@ -43,6 +43,7 @@ import { leagueCoaches, occurrences, parseWall, wallInstant } from "./leagueEven
 import { canMoveStage, draftAwareNotify, isDraftLeague, managesLeague, MIN_TEAMS_TO_START, seasonStage } from "./lifecycle.js";
 import { redraftSource } from "./redraft.js";
 import { gateWhen } from "./seasonRegistration.js";
+import { seasonTarget } from "../discord/targets.js";
 import { LeagueStoreError, type LeagueStore } from "./store.js";
 import { leagueTimeZone } from "./timeZone.js";
 import type { DiscordEventKey, LeagueCalendarEvent, LeagueRecord } from "./types.js";
@@ -92,17 +93,30 @@ export interface LeagueGate {
   /** When the gate was last set: an event gate opens with the first occurrence (+ offset) after this; the honours gate holds the
    *  periods that end from here. */
   armedAt: string;
+  /** Honours reveal: the earliest time this gate has been shut since it last opened. Every period ending from here stays held,
+   *  however often the reveal is rescheduled (a re-arm never moves it later). */
+  holdFrom?: string;
   /** Season start: start the season by itself when the gate opens (otherwise the organiser starts it, from then on). */
   autoStart?: boolean;
   state: "shut" | "open";
   openedBy?: "schedule" | "organiser";
   openedAt?: string;
+  /** What the opening still has to do, each retried until done (written before any is tried): start the season, reveal held
+   *  honours, tell coaches and Discord. "failed" is retried on later ticks; "done" never runs again. */
+  actions?: Partial<Record<GateAction, GateActionState>>;
+  /** Organisers already told that an action failed (told once). */
+  actionNoted?: GateAction[];
   revision: number;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface LeagueGatesFile { revision: number; gates: LeagueGate[] }
+export type GateAction = "start" | "reveal" | "announce";
+export type GateActionState = "pending" | "done" | "failed";
+
+/** retired: the last revision of each gate that was switched off, so a re-created gate never reuses a revision (a stale tab
+ *  can never Open now or overwrite it). */
+export interface LeagueGatesFile { revision: number; gates: LeagueGate[]; retired?: Record<string, number> }
 
 export const gateId = (kind: GateKind, target: string): string => `${kind}:${target}`;
 
@@ -246,15 +260,23 @@ export function gateBlock(store: LeagueStore, league: LeagueRecord, kind: GateKi
 
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
+/** A shut redraft window gate with no time (its League Event was deleted): the window projects as not opening at all. */
+export const NO_TIME_ISO = "2199-12-31T00:00:00.000Z";
+
+/** The honours gate's hold start: the earliest time it has been shut since it last opened (a re-arm never moves it later). */
+const holdStart = (g: Pick<LeagueGate, "holdFrom" | "armedAt">): string => g.holdFrom ?? g.armedAt;
+
 /**
  * Mirrors the shut gates onto what the existing checks read (see the header), and moves a confirmed redraft window with its
- * gate until the window has opened. Writes only what changed. Returns the competitions written.
+ * gate until the window has opened (a gate with no time projects the window as not opening: NO_TIME_ISO). Writes only what
+ * changed. `failed` names the competitions (or "gates" when the file is unreadable) that could not be written: the caller
+ * reports it, and the minute job retries.
  */
-export function syncGateTargets(store: LeagueStore, leagueId: string, now: Date): string[] {
+export function syncGateTargets(store: LeagueStore, leagueId: string, now: Date): { written: string[]; failed: string[] } {
   const league = store.league(leagueId);
-  if (!league) return [];
+  if (!league) return { written: [], failed: [] };
   let w: GateWorld;
-  try { w = world(store, league); } catch { return []; } // unreadable: leave every projection as it is (they stay shut)
+  try { w = world(store, league); } catch { return { written: [], failed: ["gates"] }; } // unreadable: every projection stays as it is
   const t = now.getTime();
   const shut = (g: LeagueGate | undefined): { at: number | undefined } | undefined => {
     if (!g) return undefined;
@@ -264,6 +286,7 @@ export function syncGateTargets(store: LeagueStore, leagueId: string, now: Date)
   const find = (kind: GateKind, target: string) => w.gates.find((g) => g.kind === kind && g.target === target);
   const iso = (at: number | undefined) => (at === undefined ? {} : { opensAt: new Date(at).toISOString() });
   const written: string[] = [];
+  const failed: string[] = [];
   for (const c of store.competitions(leagueId)) {
     let changed = false;
     // registration (a season or a ladder)
@@ -290,7 +313,7 @@ export function syncGateTargets(store: LeagueStore, leagueId: string, now: Date)
       }
       const hoG = find("honours-reveal", c.id);
       const ho = shut(hoG);
-      const wantHo = ho && hoG ? { from: hoG.armedAt, ...iso(ho.at) } : undefined;
+      const wantHo = ho && hoG ? { from: holdStart(hoG), ...iso(ho.at) } : undefined;
       if (!same(rec.gates?.honours, wantHo)) {
         if (wantHo) rec.gates = { ...(rec.gates ?? {}), honours: wantHo };
         else if (rec.gates) { delete rec.gates.honours; if (!Object.keys(rec.gates).length) delete rec.gates; }
@@ -308,7 +331,7 @@ export function syncGateTargets(store: LeagueStore, leagueId: string, now: Date)
       if (wg.state === "open") {
         // Opened early during this redraft (a gate opened for an earlier one does not count).
         if (wg.openedAt && Date.parse(wg.openedAt) >= Date.parse(rd.startedAt)) opens = Math.min(Date.parse(win.opensAt), Date.parse(wg.openedAt));
-      } else if (at !== undefined) opens = at;
+      } else opens = at ?? Date.parse(NO_TIME_ISO);
       if (opens !== undefined && opens !== Date.parse(win.opensAt)) {
         win.opensAt = new Date(opens).toISOString();
         win.closesAt = new Date(opens + length).toISOString();
@@ -317,22 +340,53 @@ export function syncGateTargets(store: LeagueStore, leagueId: string, now: Date)
       }
     }
     if (changed) {
-      try { store.putSeason(c); written.push(c.id); } catch { /* the next tick retries */ }
+      try { store.putSeason(c); written.push(c.id); } catch { failed.push(c.id); }
     }
   }
-  return written;
+  return { written, failed };
 }
 
-// ---- opening: side effects, notes, Discord ------------------------------------------------------------------------------
+/**
+ * The honours hold read from gates.json at publish time (ladderTitles.ts periodHonours), so a projection that failed to write
+ * can never publish held honours. Per ladder: { from } while the reveal gate is shut, "unreadable" when the file cannot be read
+ * (fail closed: everything is held), undefined when nothing is held.
+ */
+export function honoursHoldFor(store: LeagueStore, leagueId: string, now: Date): (ladderId: string) => { from: number } | "unreadable" | undefined {
+  return (ladderId) => {
+    const league = store.league(leagueId);
+    if (!league) return undefined;
+    let w: GateWorld;
+    try { w = world(store, league); } catch { return "unreadable"; }
+    const g = w.gates.find((x) => x.kind === "honours-reveal" && x.target === ladderId);
+    if (!g || gateOpenAt(g, gateTime(g, w.events, w.zone), now.getTime())) return undefined;
+    const from = Date.parse(holdStart(g));
+    return { from: Number.isFinite(from) ? from : 0 };
+  };
+}
+
+/** The season start gate of a season (never a ladder) while shut: its fixtures cannot be played (playBlock.ts). */
+export function seasonStartRefusal(store: LeagueStore, leagueId: string, seasonId: string, now: Date): { message: string; gate: GateRefusal | null } | undefined {
+  if (isLadderId(seasonId)) return undefined;
+  const league = store.league(leagueId);
+  if (!league) return undefined;
+  const r = gateRefusal(store, league, "season-start", seasonId, now);
+  return r ? { message: r.gate ? `${r.message} No games until then.` : r.message, gate: r.gate } : undefined;
+}
+
+// ---- opening: actions (start, reveal, announce), each retried until done ------------------------------------------------------
 
 export interface GateOpenDeps {
   store: LeagueStore;
   notify?: (coach: string, input: NotificationInput) => void;
   isAdmin?: (coach: string) => boolean;
   postWebhook?: WebhookPoster;
+  /** The Discord observer's ledger (src/discord/store.ts): a registration gate marks the observer's own "regopen" marker, so
+   *  one opening gives one post. */
+  discordLedger?: { mark(key: string, markers: readonly string[], at: string): string[] };
 }
 
-/** Start a season by itself (the season-start gate with "start automatically"): the same checks as Start season. "" = started. */
+/** Start a season by itself (the season-start gate with "start automatically"): the same checks as Start season. "" = started
+ *  (or already started: idempotent). */
 export function startSeasonByGate(store: LeagueStore, league: LeagueRecord, seasonId: string, now: Date): string {
   const s = store.season(league.id, seasonId);
   if (!s || isLadder(s)) return "The season is gone.";
@@ -346,7 +400,8 @@ export function startSeasonByGate(store: LeagueStore, league: LeagueRecord, seas
   return "";
 }
 
-/** The honours-reveal gate opened: every held period's honours are written now (and their champion notes returned). */
+/** The honours-reveal gate opened: every held period's honours are written now (and their champion notes returned). Idempotent:
+ *  periods already written are skipped. */
 export function revealLadderHonours(store: LeagueStore, league: LeagueRecord, ladderId: string, now: Date): Array<{ coach: string; title: string; body: string }> {
   const ladder = store.season(league.id, ladderId);
   if (!ladder || !isLadder(ladder)) return [];
@@ -380,38 +435,100 @@ const gateLink = (league: LeagueRecord, g: LeagueGate): string => {
   return `/app/leagues/${id}`;
 };
 
+/** What an opening has to do (start / reveal first, then the announcement). */
+const actionsFor = (g: LeagueGate): Partial<Record<GateAction, GateActionState>> => ({
+  ...(g.kind === "season-start" && g.autoStart ? { start: "pending" as const } : {}),
+  ...(g.kind === "honours-reveal" ? { reveal: "pending" as const } : {}),
+  announce: "pending",
+});
+
+/** Marks a gate open (in memory): a new revision, and its actions pending. The caller writes the file before any action runs. */
+function markOpen(g: LeagueGate, by: "schedule" | "organiser", iso: string): void {
+  g.state = "open";
+  g.openedBy = by;
+  g.openedAt = iso;
+  g.revision += 1;
+  g.updatedAt = iso;
+  g.actions = actionsFor(g);
+  delete g.actionNoted;
+}
+
+const ACTION_ORDER: readonly GateAction[] = ["start", "reveal", "announce"];
+
+/** The gate as stored now, if it is still the opening `revision` (an organiser who re-armed it since stops every action). */
+function currentGate(store: LeagueStore, leagueId: string, id: string, revision: number): { file: LeagueGatesFile; gate: LeagueGate } | undefined {
+  let file: LeagueGatesFile;
+  try { file = store.leagueGates(leagueId); } catch { return undefined; }
+  const gate = file.gates.find((g) => g.id === id);
+  return gate && gate.revision === revision && gate.state === "open" ? { file, gate } : undefined;
+}
+
 /**
- * What happens once a gate has opened (its open state is already written): the season starts by itself when asked to, held
- * honours are revealed, then the competition's coaches get one inbox note and the competition's Discord gets one post.
- * Never throws: a failed side effect tells the organisers.
+ * Runs what an opened gate still has to do, in order, each re-reading the gate first (skipped when the gate changed or is no
+ * longer open): start the season (idempotent: a season that already started is a no-op), reveal held honours (idempotent),
+ * then announce: the announcement is marked done and written BEFORE anyone is told, so it goes once across restarts. A start or
+ * reveal that throws or refuses is marked failed (organisers told once) and retried on later ticks.
  */
-export async function afterGateOpened(deps: GateOpenDeps, league: LeagueRecord, g: LeagueGate, now: Date): Promise<void> {
+export async function runGateActions(deps: GateOpenDeps, leagueId: string, id: string, revision: number, now: Date): Promise<void> {
+  const { store } = deps;
+  const send = deps.notify ? draftAwareNotify(store, leagueId, deps.notify, deps.isAdmin ?? (() => false)) : undefined;
+  const tell = (coach: string, input: NotificationInput) => { try { send?.(coach, input); } catch { /* fire-and-forget */ } };
+  for (const action of ACTION_ORDER) {
+    const cur = currentGate(store, leagueId, id, revision);
+    if (!cur) return;
+    const league = store.league(leagueId);
+    if (!league) return;
+    const g = cur.gate;
+    const st = g.actions?.[action];
+    if (!st || st === "done") continue;
+    const name = targetName(store, league.id, g.target);
+    if (action === "announce") {
+      g.actions = { ...(g.actions ?? {}), announce: "done" };
+      cur.file.revision += 1;
+      try { store.putLeagueGates(leagueId, cur.file); } catch { return; } // not written: nobody is told (retried next tick)
+      await announce(deps, league, g, name, tell, now);
+      continue;
+    }
+    let why = "";
+    let notes: Array<{ coach: string; title: string; body: string }> = [];
+    try {
+      if (action === "start") why = startSeasonByGate(store, league, g.target, now);
+      else notes = revealLadderHonours(store, league, g.target, now);
+    } catch (e) {
+      why = (e as Error)?.message || "it could not be written";
+      console.error(`[leagues] gate ${leagueId}/${id} ${action} failed: ${why}`);
+    }
+    for (const n of notes) if (n.coach) tell(n.coach, { type: "league-broadcast", title: n.title, body: n.body, link: gateLink(league, g), from: league.name });
+    const after = currentGate(store, leagueId, id, revision);
+    if (!after) return;
+    after.gate.actions = { ...(after.gate.actions ?? {}), [action]: why ? "failed" : "done" };
+    const noteIt = Boolean(why) && !(after.gate.actionNoted ?? []).includes(action);
+    if (noteIt) after.gate.actionNoted = [...(after.gate.actionNoted ?? []), action];
+    after.file.revision += 1;
+    try { store.putLeagueGates(leagueId, after.file); } catch { return; }
+    if (noteIt) {
+      const organisers = [...new Set([league.owner, ...league.organisers].map((c) => c?.trim()).filter((c): c is string => Boolean(c)))];
+      const what = action === "start" ? `${name} could not start by itself` : `${name}'s period honours could not be revealed`;
+      for (const o of organisers) tell(o, { type: "league-broadcast", title: `${league.name}: ${what}`.slice(0, 120), body: `The gate opened, but ${what}: ${why} It is tried again every minute.`, link: `/app/leagues/${encodeURIComponent(league.id)}/settings`, from: league.name, action: true });
+    }
+  }
+}
+
+/** One inbox note per coach of the step and one Discord post (a registration gate also marks the observer's "regopen"). */
+async function announce(deps: GateOpenDeps, league: LeagueRecord, g: LeagueGate, name: string, tell: (coach: string, input: NotificationInput) => void, now: Date): Promise<void> {
   const { store } = deps;
   const meta = GATE_META[g.kind];
-  const name = targetName(store, league.id, g.target);
-  const send = deps.notify ? draftAwareNotify(store, league.id, deps.notify, deps.isAdmin ?? (() => false)) : undefined;
-  const tell = (coach: string, input: NotificationInput) => { try { send?.(coach, input); } catch { /* fire-and-forget */ } };
-  const organisers = [...new Set([league.owner, ...league.organisers].map((c) => c?.trim()).filter((c): c is string => Boolean(c)))];
-  let extra = "";
-  try {
-    if (g.kind === "season-start" && g.autoStart) {
-      const why = startSeasonByGate(store, league, g.target, now);
-      if (why) for (const o of organisers) tell(o, { type: "league-broadcast", title: `${league.name}: ${name} did not start`, body: `The season start gate opened, but ${name} could not start by itself: ${why}`, link: `/app/leagues/${encodeURIComponent(league.id)}/settings`, from: league.name, action: true });
-      else extra = " Fixtures are out: good luck!";
-    }
-    if (g.kind === "honours-reveal") {
-      for (const n of revealLadderHonours(store, league, g.target, now)) if (n.coach) tell(n.coach, { type: "league-broadcast", title: n.title, body: n.body, link: gateLink(league, g), from: league.name });
-    }
-  } catch (e) {
-    console.error(`[leagues] gate ${league.id}/${g.id}: opening step failed: ${(e as Error).message}`);
-  }
+  const started = g.kind === "season-start" && g.actions?.start === "done";
+  const extra = started ? " Fixtures are out: good luck!" : "";
   const subject = g.target === "league" ? meta.opened : `${name}: ${meta.opened}`;
-  const body = `${league.name}: ${subject}${extra}`;
-  for (const c of recipients(store, league, g)) tell(c, { type: "league-broadcast", title: `${league.name}: ${subject}`.slice(0, 120), body, link: gateLink(league, g), from: league.name });
-  if (meta.discord) {
-    const competition = g.target !== "league" ? { seasonId: g.target } : {};
-    try { await postLeagueEvent(store, league, meta.discord, buildRedraftPost(league, subject, `${subject}${extra}`), deps.postWebhook ?? defaultPoster, competition); } catch { /* best effort */ }
+  for (const c of recipients(store, league, g)) tell(c, { type: "league-broadcast", title: `${league.name}: ${subject}`.slice(0, 120), body: `${league.name}: ${subject}${extra}`, link: gateLink(league, g), from: league.name });
+  if (!meta.discord) return;
+  const competition = g.target !== "league" ? { seasonId: g.target } : {};
+  if (g.kind === "registration" && g.target !== "league" && !isLadderId(g.target)) {
+    // The observer posts its own "Registration ... is open" once per season (marker "regopen"): mark it, so one opening = one post.
+    try { deps.discordLedger?.mark(seasonTarget(store, league, g.target).key, ["regopen"], now.toISOString()); } catch { /* best effort */ }
   }
+  try { await postLeagueEvent(store, league, meta.discord, buildRedraftPost(league, subject, `${subject}${extra}`), deps.postWebhook ?? defaultPoster, competition); } catch { /* best effort */ }
 }
 
 // ---- the minute job ----------------------------------------------------------------------------------------------------
@@ -419,8 +536,9 @@ export async function afterGateOpened(deps: GateOpenDeps, league: LeagueRecord, 
 export interface GateJobDeps extends GateOpenDeps { now?: () => Date }
 
 /**
- * Every minute (server.ts, never from a GET): projections follow moved events, and every shut gate that is due opens: the
- * open state is written first (a restart finds it open and tells nobody again), then afterGateOpened tells people once.
+ * Every minute (server.ts, never from a GET; the first run comes before the ladder and redraft jobs): projections follow moved
+ * events (and failed writes are retried), every shut gate that is due opens (written first: a restart finds it open), and every
+ * opened gate's unfinished actions run (re-reading the gate before each one).
  */
 export async function runGateJob(deps: GateJobDeps): Promise<{ opened: string[]; failed: string[] }> {
   const now = deps.now?.() ?? new Date();
@@ -434,15 +552,15 @@ export async function runGateJob(deps: GateJobDeps): Promise<{ opened: string[];
     const due = file.gates.filter((g) => isGateKind(g.kind) && g.state !== "open" && (() => { const at = gateTime(g, w.events, w.zone); return at !== undefined && at <= now.getTime(); })());
     if (due.length) {
       const iso = now.toISOString();
-      for (const g of due) { g.state = "open"; g.openedBy = "schedule"; g.openedAt = iso; g.revision += 1; g.updatedAt = iso; }
+      for (const g of due) markOpen(g, "schedule", iso);
       file.revision += 1;
       try { deps.store.putLeagueGates(league.id, file); } catch { out.failed.push(league.id); continue; } // not written: nobody is told
+      for (const g of due) out.opened.push(`${league.id}/${g.id}`);
     }
-    syncGateTargets(deps.store, league.id, now);
-    for (const g of due) {
-      await afterGateOpened(deps, deps.store.league(league.id) ?? league, g, now);
-      out.opened.push(`${league.id}/${g.id}`);
-    }
+    const synced = syncGateTargets(deps.store, league.id, now);
+    if (synced.failed.length) out.failed.push(`${league.id}:projections`);
+    const work = file.gates.filter((g) => g.state === "open" && Object.values(g.actions ?? {}).some((x) => x !== "done")).map((g) => ({ id: g.id, revision: g.revision }));
+    for (const x of work) await runGateActions(deps, league.id, x.id, x.revision, now);
   }
   return out;
 }
@@ -516,8 +634,10 @@ export async function leagueGateRoutes(
         events = deps.store.leagueEvents(league.id).events.map((e) => ({ id: e.id, title: e.title, next: (() => { const o = occurrences(e, zone).find((x) => x.start > now.getTime()); return o ? new Date(o.start).toISOString() : null; })() }));
       } catch { events = []; }
     }
+    let retired: Record<string, number> | undefined;
+    if (manage) { try { retired = deps.store.leagueGates(league.id).retired ?? {}; } catch { retired = {}; } }
     const headers = auth || isDraftLeague(league) ? NO_STORE : { "cache-control": "no-cache" };
-    return res(200, { timeZone: leagueTimeZone(league), now: now.toISOString(), manage, gates, ...(events ? { events } : {}) }, headers);
+    return res(200, { timeZone: leagueTimeZone(league), now: now.toISOString(), manage, gates, ...(events ? { events } : {}), ...(retired ? { retired } : {}) }, headers);
   }
   if (!isGateKind(second) || !third || (fourth !== undefined && fourth !== "open") || more.length) return fail(404, "Not found.");
   const kind = second;
@@ -538,13 +658,16 @@ export async function leagueGateRoutes(
   if (problem) return fail(400, problem, { field: "target" });
   let w: GateWorld;
   try { w = world(deps.store, lg); } catch { return fail(500, "The league's gates could not be read."); }
-  const file: LeagueGatesFile = { revision: w.revision, gates: deps.store.leagueGates(lg.id).gates };
+  let file: LeagueGatesFile;
+  try { file = deps.store.leagueGates(lg.id); } catch { return fail(500, "The league's gates could not be read."); }
   const id = gateId(kind, target);
   const existing = file.gates.find((g) => g.id === id);
+  // Revisions only ever go up per gate: a gate switched off keeps its last revision in `retired`, and a re-created one continues.
+  const base = existing?.revision ?? file.retired?.[id] ?? 0;
   const rev = requestRevision(input, deps.ifMatch);
-  if (rev === "missing") return fail(428, "Name the gate's revision (0 for a new gate). Reload and try again.", { revision: existing?.revision ?? 0 });
+  if (rev === "missing") return fail(428, "Name the gate's revision. Reload and try again.", { revision: base });
   if (rev === "bad") return fail(400, "revision must be a whole number.", { field: "revision" });
-  if (rev !== (existing?.revision ?? 0)) return fail(409, "Someone changed this gate since you opened it. Reload to see the latest.", { revision: existing?.revision ?? 0 });
+  if (rev !== base) return fail(409, "Someone changed this gate since you opened it. Reload to see the latest.", { revision: base });
   const iso = at.toISOString();
   const name = targetName(deps.store, lg.id, target);
 
@@ -552,41 +675,68 @@ export async function leagueGateRoutes(
     if (!existing) return fail(404, "There is no gate on this step: it is already open.");
     const view = gateView(existing, w, name, at.getTime());
     if (view.state === "open" && existing.state === "open") return fail(409, "This gate is already open.");
-    existing.state = "open";
-    existing.openedBy = "organiser";
-    existing.openedAt = iso;
-    existing.revision += 1;
-    existing.updatedAt = iso;
+    markOpen(existing, "organiser", iso);
     file.revision += 1;
     try { deps.store.putLeagueGates(lg.id, file); } catch (e) { return fail(e instanceof LeagueStoreError ? e.status : 500, "Could not open the gate right now."); }
-    syncGateTargets(deps.store, lg.id, at);
-    await afterGateOpened(deps, deps.store.league(lg.id) ?? lg, existing, at);
-    return res(200, { gate: gateView(existing, w, name, at.getTime()) });
+    const synced = applyProjections(deps.store, lg.id, at);
+    await runGateActions(deps, lg.id, id, existing.revision, at);
+    const saved = deps.store.leagueGates(lg.id).gates.find((g) => g.id === id) ?? existing;
+    if (synced) return fail(503, synced, { gate: gateView(saved, w, name, at.getTime()) });
+    return res(200, { gate: gateView(saved, w, name, at.getTime()) });
   }
 
   const setting = parseSetting(input, w.events, kind, w.zone, at.getTime());
   if ("error" in setting) return fail(400, setting.error, { field: setting.field });
   if (input.autoStart !== undefined && typeof input.autoStart !== "boolean") return fail(400, "autoStart must be true or false.", { field: "autoStart" });
   if (setting.mode === "off") {
-    if (!existing) return res(200, { gate: null, removed: false });
+    if (!existing) return res(200, { gate: null, removed: false, revision: base });
     file.gates = file.gates.filter((g) => g.id !== id);
+    file.retired = { ...(file.retired ?? {}), [id]: existing.revision };
     file.revision += 1;
     try { deps.store.putLeagueGates(lg.id, file); } catch { return fail(500, "Could not save the gate right now."); }
-    syncGateTargets(deps.store, lg.id, at);
-    return res(200, { gate: null, removed: true });
+    const synced = applyProjections(deps.store, lg.id, at);
+    if (synced) return fail(503, synced, { gate: null, removed: true, revision: existing.revision });
+    return res(200, { gate: null, removed: true, revision: existing.revision });
   }
+  // The honours hold covers every period that ended while the gate was shut: re-arming a gate that is still shut keeps the
+  // earliest hold start (a reschedule can never let an ended period through).
+  const stillShut = existing && existing.state !== "open";
+  const holdFrom = kind === "honours-reveal" ? (stillShut ? holdStart(existing!) : iso) : undefined;
   const next: LeagueGate = {
     id, kind, target,
     ...(setting.mode === "time" ? { opensAt: setting.opensAt } : { eventId: setting.eventId, offsetMinutes: setting.offsetMinutes }),
     armedAt: iso,
+    ...(holdFrom ? { holdFrom } : {}),
     ...(kind === "season-start" && (input.autoStart ?? existing?.autoStart) === true ? { autoStart: true } : {}),
-    state: "shut", revision: (existing?.revision ?? 0) + 1, createdAt: existing?.createdAt ?? iso, updatedAt: iso,
+    state: "shut", revision: base + 1, createdAt: existing?.createdAt ?? iso, updatedAt: iso,
   };
   file.gates = [...file.gates.filter((g) => g.id !== id), next];
+  if (file.retired?.[id] !== undefined) { delete file.retired[id]; if (!Object.keys(file.retired).length) delete file.retired; }
   file.revision += 1;
   try { deps.store.putLeagueGates(lg.id, file); } catch { return fail(500, "Could not save the gate right now."); }
-  syncGateTargets(deps.store, lg.id, at);
-  return res(existing ? 200 : 201, { gate: gateView(next, w, name, at.getTime()) });
+  const warning = redraftCloseWarning(deps.store, lg, next, w);
+  const synced = applyProjections(deps.store, lg.id, at);
+  const view = gateView(next, w, name, at.getTime());
+  if (synced) return fail(503, synced, { gate: view });
+  return res(existing ? 200 : 201, { gate: view, ...(warning ? { warning } : {}) });
+}
+
+/** Projections after a gate write, retried once; a failure is answered as an error (the minute job keeps retrying). "" = done. */
+function applyProjections(store: LeagueStore, leagueId: string, now: Date): string {
+  if (!syncGateTargets(store, leagueId, now).failed.length) return "";
+  if (!syncGateTargets(store, leagueId, now).failed.length) return "";
+  return "The gate was saved, but the season or ladder it controls could not be updated yet. It is retried every minute; the gate itself is already in force.";
+}
+
+/** A rest-roll or submission gate opening after the open redraft's window closes: the window close waits for it (say so). */
+function redraftCloseWarning(store: LeagueStore, league: LeagueRecord, g: LeagueGate, w: GateWorld): string {
+  if (g.kind !== "redraft-rest" && g.kind !== "redraft-submit") return "";
+  const source = redraftSource(store.seasons(league.id));
+  const win = source?.redraft && !source.redraft.closedAt ? source.redraft.window : undefined;
+  if (!win || win.processedAt) return "";
+  const at = gateTime(g, w.events, w.zone);
+  if (at !== undefined && at < Date.parse(win.closesAt)) return "";
+  return `This gate opens after the redraft window closes (${gateWhen(win.closesAt, w.zone)}). The window close, and its automatic rebuilds, wait until it opens.`;
 }
 
 // ---- the live "Redraft rolls" page ----------------------------------------------------------------------------------------

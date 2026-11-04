@@ -39,6 +39,8 @@ export interface GatesRead {
   gates: GateView[];
   /** Organisers: the league's events for the "With a League Event" picker. */
   events?: Array<{ id: string; title: string; next: string | null }>;
+  /** Organisers: the last revision of each gate that was switched off (a re-created gate continues from it). */
+  retired?: Record<string, number>;
 }
 
 /** What each step is called beside its editor, and what the coach banner says. */
@@ -59,7 +61,7 @@ export interface GatePayload { mode: "off" | "time" | "event"; opensAt?: string;
 export const gatesApi = {
   list: (api: Fetcher, leagueId: string) => api<GatesRead>(`${base(leagueId)}/gates`),
   save: (api: Fetcher, leagueId: string, kind: GateKind, target: string, revision: number, body: GatePayload) =>
-    api<{ gate: GateView | null; removed?: boolean }>(`${base(leagueId)}/gates/${kind}/${encodeURIComponent(target)}`, { method: "PUT", body: { ...body, revision } }),
+    api<{ gate: GateView | null; removed?: boolean; warning?: string }>(`${base(leagueId)}/gates/${kind}/${encodeURIComponent(target)}`, { method: "PUT", body: { ...body, revision } }),
   open: (api: Fetcher, leagueId: string, kind: GateKind, target: string, revision: number) =>
     api<{ gate: GateView }>(`${base(leagueId)}/gates/${kind}/${encodeURIComponent(target)}/open`, { method: "POST", body: { revision } }),
 };
@@ -98,7 +100,9 @@ export function useLeagueGates(api: Fetcher, leagueId: string) {
     if (!e.state.loaded) return reload();
   }
   const gate = (kind: GateKind, target: string): GateView | undefined => e.state.read?.gates.find((g) => g.kind === kind && g.target === target);
-  return { state: e.state, reload, ensure, gate };
+  /** The revision a save must name: the gate's, else the last one of the gate switched off here, else 0. */
+  const baseRevision = (kind: GateKind, target: string): number => gate(kind, target)?.revision ?? e.state.read?.retired?.[`${kind}:${target}`] ?? 0;
+  return { state: e.state, reload, ensure, gate, baseRevision };
 }
 
 /** Tests: forget every cached league. */

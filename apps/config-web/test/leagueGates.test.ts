@@ -11,6 +11,11 @@ import type { DiscordPayload } from "../src/leagues/discord";
 import { gateTime, runGateJob, syncGateTargets, type GateView } from "../src/leagues/gates";
 import { challengesPaused } from "../src/leagues/ladder";
 import { runLadderJob } from "../src/leagues/ladderJob";
+import { runRedraftWindowJob } from "../src/leagues/redraftWindow";
+import { leagueFixtureRef, leagueFixtureView, recordLeagueFixture } from "../src/leagues/tabletopFixtures";
+import { DiscordObserver } from "../src/discord/observer";
+import { DiscordStateStore } from "../src/discord/store";
+import { TournamentStore } from "../src/tournaments/store";
 import { seasonWindowStatus } from "../src/leagues/seasonRegistration";
 import { LeagueStore } from "../src/leagues/store";
 import type { LeagueFixture, LeaguePlayer, LeagueTeam, SeasonRecord } from "../src/leagues/types";
@@ -477,6 +482,194 @@ describe("access control, CSRF and GETs", () => {
     expect(start.status).toBe(503);
     expect((await call("GET", G)).status).toBe(500);
     expect((await job()).failed).toEqual(["tabbl"]);
-    expect(syncGateTargets(store, "tabbl", now)).toEqual([]);
+    expect(syncGateTargets(store, "tabbl", now)).toEqual({ written: [], failed: ["gates"] });
+  });
+});
+
+// ---- review fixes (Sol, 35626658) ----------------------------------------------------------------------------------------
+
+/** A started points ladder with 7-day periods, Ann beating Bob in period 1. */
+async function periodLadder(): Promise<string> {
+  const created = await call("POST", "/api/leagues/tabbl/ladders", JAY, { name: "Spring", ranking: "points" });
+  const id = (created.body as { id: string }).id;
+  await call("PATCH", `/api/leagues/tabbl/ladders/${id}`, JAY, { revision: store.season("tabbl", id)!.revision, settings: { periodDays: 7, redraft: { trigger: "schedule" } } });
+  expect((await call("POST", `/api/leagues/tabbl/ladders/${id}/start`, JAY, {})).status).toBe(200);
+  const lad = store.season("tabbl", id)!;
+  for (const c of ["Ann", "Bob"]) {
+    const t = team(`t-${c.toLowerCase()}`, `${c}'s team`, c);
+    lad.teams.push(t);
+    lad.ladder!.members.push({ teamId: t.id, joinedAt: "2026-11-02T12:00:00.000Z", via: "organiser" });
+  }
+  const side = (t: LeagueTeam, score: number) => ({ team: t.name, teamId: t.id, coach: t.coach, coachId: t.coachId, race: t.race, score, cas: 0, conceded: false });
+  lad.fixtures.push({ id: "lf-1", category: "Ladder", phase: "Challenges", phaseId: "ladder-challenges", group: "", round: 0, table: 0, home: side(lad.teams[0]!, 2), away: side(lad.teams[1]!, 0), suspended: false, finishedAt: "2026-11-03T10:00:00.000Z" });
+  store.putSeason(lad);
+  return id;
+}
+const ladderJob = () => runLadderJob({ store, now: () => now, notify: (coach, input) => { notes.push({ coach, title: input.title, body: input.body, link: input.link }); } });
+const gatesFile = () => JSON.parse(readFileSync(join(dir, "leagues", "tabbl", "gates.json"), "utf8")) as { gates: Array<Record<string, unknown> & { id: string }> };
+
+describe("review fixes", () => {
+  it("[1] rescheduling the reveal after a period ended keeps that period held (the hold start never moves later)", async () => {
+    const id = await periodLadder();
+    await setGate("honours-reveal", id, { mode: "time", opensAt: "2026-11-12T19:00" });
+    const armed = now.toISOString();
+    now = new Date(now.getTime() + 7 * D + H); // period 1 ends
+    ladderJob();
+    expect(store.season("tabbl", id)!.awards).toEqual([]);
+    // Postponed: the hold still starts at the first arming, so period 1 stays held.
+    const g = await gateOf(`honours-reveal:${id}`);
+    expect((await call("PUT", `${G}/honours-reveal/${id}`, JAY, { revision: g!.revision, mode: "time", opensAt: "2026-11-20T19:00" })).status).toBe(200);
+    expect(gatesFile().gates[0]!.holdFrom).toBe(armed);
+    expect(store.season("tabbl", id)!.ladder!.gates?.honours?.from).toBe(armed);
+    ladderJob();
+    ladderJob();
+    expect(store.season("tabbl", id)!.awards).toEqual([]);
+    now = new Date("2026-11-20T19:00:00.000Z");
+    await job();
+    expect(store.season("tabbl", id)!.awards.map((a) => a.type)).toContain("Spring champion, Period 1");
+  });
+
+  it("[2] while the season start gate is shut, the season's fixtures cannot be played: result entry, the recorder and Super FUMBBL launch answer gate-shut", async () => {
+    const s7 = store.season("tabbl", "season-7")!;
+    s7.fixtures.push({
+      ...fx("g1", "Elves", "Dwarfs", null, null),
+      home: { team: "Elves", teamId: "elves", coach: "Bob", coachId: "Bob", race: "Wood Elf", score: null, cas: null, conceded: false },
+      away: { team: "Dwarfs", teamId: "dwarfs", coach: "Dee", coachId: "Dee", race: "Dwarf", score: null, cas: null, conceded: false },
+    });
+    store.putSeason(s7);
+    store.updateLeague("tabbl", (l) => { l.playOnFork = true; });
+    await setGate("season-start", "season-7", { mode: "time", opensAt: "2026-11-04T19:00" });
+    const entry = await call("PATCH", "/api/leagues/tabbl/seasons/season-7/fixtures/g1", JAY, { result: { home: 1, away: 0 } });
+    expect(entry.status).toBe(409);
+    expect(entry.body).toMatchObject({ code: "gate-shut", gate: { kind: "season-start", target: "season-7" } });
+    const ref = leagueFixtureRef("tabbl", "season-7", "g1");
+    expect(leagueFixtureView(store, ref, now)).toMatchObject({ open: false, shut: { code: "gate-shut" } });
+    expect(() => recordLeagueFixture(store, ref, { expectedRevision: 0, homeScore: 1, awayScore: 0, homeCasualties: 0, awayCasualties: 0 }, now)).toThrow(/season starts/);
+    const launch = await leagueApi("POST", "/api/leagues/tabbl/seasons/season-7/fixtures/g1/fork/generate", new URLSearchParams(), { coach: "Bob", admin: false }, { ...deps({}), fork: {} as never });
+    expect(launch?.status).toBe(409);
+    expect(launch?.body).toMatchObject({ code: "gate-shut" });
+    // Open now: it plays.
+    expect((await openNow("season-start", "season-7")).status).toBe(200);
+    expect(leagueFixtureView(store, ref, now)?.shut).toBeUndefined();
+    expect((await call("PATCH", "/api/leagues/tabbl/seasons/season-7/fixtures/g1", JAY, { result: { home: 1, away: 0 } })).status).toBe(200);
+  });
+
+  it("[3] a window gate whose League Event is deleted projects the window as not opening, and /rest and submit check the gate itself", async () => {
+    const ev = await call("POST", "/api/leagues/tabbl/events", JAY, { title: "Redraft night", type: "draft", start: "2026-11-02T13:00", end: "2026-11-02T15:00", announce: false, remind: false });
+    const eventId = (ev.body as { event: { id: string } }).event.id;
+    await setGate("redraft-window", "league", { mode: "event", eventId });
+    expect((await confirmRedraft()).status).toBe(200);
+    expect((await call("DELETE", `/api/leagues/tabbl/events/${eventId}`, JAY, { revision: 1 })).status).toBe(200);
+    expect(store.season("tabbl", "season-6")!.redraft!.window!.opensAt).toBe("2199-12-31T00:00:00.000Z");
+    now = new Date("2026-11-02T14:00:00.000Z"); // past the deleted event's old time
+    const rev = () => store.season("tabbl", "season-6")!.redraft!.revision;
+    const rest = await call("POST", "/api/leagues/tabbl/redraft/teams/orcs/rest", ANN, { revision: rev(), mode: "site" });
+    expect(rest.status).toBe(409);
+    expect(rest.body).toMatchObject({ code: "gate-shut", gate: { kind: "redraft-window", opensAt: null } });
+    // Even with the projection undone by hand, the routes refuse (direct check).
+    const s6 = store.season("tabbl", "season-6")!;
+    s6.redraft!.window!.opensAt = "2026-11-02T13:00:00.000Z";
+    store.putSeason(s6);
+    const sub = await call("POST", "/api/leagues/tabbl/redraft/teams/gobbos/submit", { coach: "Cat", admin: false }, { revision: rev(), keep: [], hires: [], staff: {} });
+    expect(sub.body).toMatchObject({ code: "gate-shut", gate: { kind: "redraft-window" } });
+    // The window job does not open it either.
+    expect(runRedraftWindowJob({ store, now: () => now }).opened).toEqual([]);
+  });
+
+  it("[4] the window close (auto rest rolls and rebuilds) waits while the rest-roll or submission gate is shut; saving such a gate warns", async () => {
+    expect((await confirmRedraft({ windowDays: 1 })).status).toBe(200);
+    const put = await setGate("redraft-rest", "league", { mode: "time", opensAt: "2026-11-05T19:00" });
+    expect((put.body as { warning?: string }).warning).toMatch(/after the redraft window closes/);
+    now = new Date("2026-11-03T13:00:00.000Z"); // the window has closed
+    expect(runRedraftWindowJob({ store, now: () => now, rollD6: () => 6 }).closed).toEqual([]);
+    const s6 = store.season("tabbl", "season-6")!;
+    expect(s6.redraft!.window!.closing).toBeUndefined();
+    expect(s6.redraft!.teams.find((t) => t.teamId === "orcs")!.rest).toBeUndefined();
+    now = new Date("2026-11-05T19:00:00.000Z");
+    expect(runRedraftWindowJob({ store, now: () => now, rollD6: () => 6 }).closed).toHaveLength(1);
+  });
+
+  it("[5][7] actions are stored per gate and retried: a failed auto-start is retried on later ticks; a re-armed gate stops pending actions", async () => {
+    store.putSeason(season(8, { stage: "registration", teams: [team("a", "A", "Ann")] })); // one team: Start season refuses
+    await setGate("season-start", "season-8", { mode: "time", opensAt: "2026-11-02T13:00", autoStart: true });
+    now = new Date("2026-11-02T13:00:00.000Z");
+    await job();
+    const g8 = () => gatesFile().gates.find((x) => x.id === "season-start:season-8")!;
+    expect(g8().actions).toEqual({ start: "failed", announce: "done" });
+    expect(notes.filter((n) => /could not start by itself/.test(n.title)).map((n) => n.coach)).toEqual(["Jay"]);
+    // The season gets its second team: the next tick starts it.
+    const s8 = store.season("tabbl", "season-8")!;
+    s8.teams.push(team("b", "B", "Bob"));
+    store.putSeason(s8);
+    now = new Date(now.getTime() + 60_000);
+    await job();
+    expect(store.season("tabbl", "season-8")!.stage).toBe("active");
+    expect(g8().actions).toEqual({ start: "done", announce: "done" });
+    await job(); // nothing runs again
+    expect(notes.filter((n) => /could not start by itself/.test(n.title))).toHaveLength(1);
+    // [5] An opened gate whose actions never ran (a crash), then re-armed: the stale actions never run.
+    store.putSeason(season(9, { stage: "registration", teams: [team("x", "X", "Ann"), team("y", "Y", "Bob")] }));
+    await setGate("season-start", "season-9", { mode: "time", opensAt: "2026-11-02T13:30", autoStart: true });
+    const file = store.leagueGates("tabbl");
+    const g9 = file.gates.find((x) => x.id === "season-start:season-9")!;
+    g9.state = "open"; g9.revision += 1; g9.actions = { start: "pending", announce: "pending" };
+    store.putLeagueGates("tabbl", file);
+    const reArm = await call("PUT", `${G}/season-start/season-9`, JAY, { revision: g9.revision, mode: "time", opensAt: "2026-11-09T19:00", autoStart: true });
+    expect(reArm.status).toBe(200);
+    await job();
+    expect(store.season("tabbl", "season-9")!.stage).toBe("registration");
+    expect(titles().filter((t) => /Season 9/.test(t))).toEqual([]);
+  });
+
+  it("[6] the honours hold reads gates.json at publish time (a failed projection never publishes); unreadable gates hold everything; projection failures are reported", async () => {
+    const id = await periodLadder();
+    // The gate is written, but its projection is not (that write fails).
+    const realPut = store.putSeason.bind(store);
+    store.putSeason = (s) => { if (s.id === id) throw new Error("disk full"); return realPut(s); };
+    const put = await setGate("honours-reveal", id, { mode: "time", opensAt: "2026-11-12T19:00" });
+    expect(put.status).toBe(503);
+    expect((put.body as { error: string }).error).toMatch(/could not be updated yet/);
+    store.putSeason = realPut;
+    expect(store.season("tabbl", id)!.ladder!.gates?.honours).toBeUndefined();
+    now = new Date(now.getTime() + 7 * D + H);
+    ladderJob();
+    expect(store.season("tabbl", id)!.awards).toEqual([]);
+    // Unreadable gates file: fail closed.
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(join(dir, "leagues", "tabbl", "gates.json"), "{oops");
+    store.invalidate();
+    ladderJob();
+    expect(store.season("tabbl", id)!.awards).toEqual([]);
+  });
+
+  it("[8] a registration gate opening gives one post: the observer's own regopen is marked", async () => {
+    const s7 = store.season("tabbl", "season-7")!;
+    s7.stage = "active";
+    s7.registration = { ...s7.registration!, allowMidSeason: true };
+    store.putSeason(s7);
+    const state = new DiscordStateStore(join(dir, "discord"));
+    const all: string[] = [];
+    const poster = async (_u: string, p: DiscordPayload) => { all.push(p.embeds[0]!.title); return { ok: true, status: 204 }; };
+    const observer = () => new DiscordObserver({ leagues: store, tournaments: new TournamentStore(join(dir, "tournaments")), state, poster, now: () => now });
+    await setGate("registration", "season-7", { mode: "time", opensAt: "2026-11-02T13:00" });
+    await observer().tick(); // first sight baselines
+    now = new Date("2026-11-02T13:00:00.000Z");
+    await runGateJob({ store, now: () => now, discordLedger: state, postWebhook: poster });
+    await observer().tick();
+    await observer().tick();
+    expect(all.filter((t) => /Registration/i.test(t))).toEqual(["TABBL: Season 7: Registration is open"]);
+  });
+
+  it("[9] a gate switched off and re-created never reuses a revision (a stale tab cannot Open now or overwrite it)", async () => {
+    const first = await setGate("registration", "season-7", { mode: "time", opensAt: "2026-11-05T19:00" });
+    expect((first.body as { gate: GateView }).gate.revision).toBe(1);
+    expect((await call("PUT", `${G}/registration/season-7`, JAY, { revision: 1, mode: "off" })).body).toMatchObject({ removed: true, revision: 1 });
+    expect((await gates(JAY)) as unknown).toMatchObject({ retired: { "registration:season-7": 1 } });
+    expect((await call("PUT", `${G}/registration/season-7`, JAY, { revision: 0, mode: "time", opensAt: "2026-11-06T19:00" })).status).toBe(409);
+    const again = await call("PUT", `${G}/registration/season-7`, JAY, { revision: 1, mode: "time", opensAt: "2026-11-06T19:00" });
+    expect((again.body as { gate: GateView }).gate.revision).toBe(2);
+    // The stale tab still holds revision 1: Open now and a save are refused.
+    expect((await call("POST", `${G}/registration/season-7/open`, JAY, { revision: 1 })).status).toBe(409);
+    expect((await call("PUT", `${G}/registration/season-7`, JAY, { revision: 1, mode: "off" })).status).toBe(409);
   });
 });

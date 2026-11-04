@@ -53,9 +53,10 @@ async function save(): Promise<void> {
   error.value = "";
   notice.value = "";
   try {
-    const res = await gatesApi.save(api, props.leagueId, props.kind, props.target, gate.value?.revision ?? 0, gatePayload(form, props.kind));
+    const res = await gatesApi.save(api, props.leagueId, props.kind, props.target, store.baseRevision(props.kind, props.target), gatePayload(form, props.kind));
     await store.reload();
     notice.value = res.gate ? "Gate saved." : "Gate off: the step is open as usual.";
+    if (res.warning) error.value = res.warning;
   } catch (err) {
     if (err instanceof ApiError && err.status === 409) { await store.reload(); fill(); error.value = "This gate changed since you opened it, so it was reloaded. Check and save again."; }
     else error.value = err instanceof Error && err.message ? err.message : "That did not save.";
