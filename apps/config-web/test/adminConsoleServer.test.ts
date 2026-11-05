@@ -4,6 +4,7 @@
 // the ratings ones the dry run's revision), the moderation aggregate only reads, every Operations action is logged, and
 // /admin.html redirects to /app/admin. Isolated state: every store points into this suite's temp root. Invented names only.
 import { once } from "node:events";
+import { request as httpRequest } from "node:http";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -12,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { boardFileName } from "../src/boards/board.js";
 import { DEMO_LEAGUES } from "../src/leagues/demoLeagues.js";
 import { createSession, ONBOARDED_CONSENT } from "./onboardedFixture.js";
+import { deleteSession } from "../src/auth/session.js";
 
 const root = mkdtempSync(join(tmpdir(), "admin-console-server-"));
 const state = join(root, "state");
@@ -252,6 +254,105 @@ describe("operations without a fork, and the log", () => {
     expect(entries.every((e: { by: string; at: string }) => e.by === "Boss" && Number.isFinite(Date.parse(e.at)))).toBe(true);
     expect(entries.some((e: { action: string; dryRun: boolean }) => e.action === "ratings-reset" && e.dryRun)).toBe(true);
     expect(entries.some((e: { action: string; dryRun: boolean; backup?: string }) => e.action === "ratings-reset" && !e.dryRun && /^site-ratings-/.test(e.backup ?? ""))).toBe(true);
+  });
+});
+
+/** POST whose body arrives in two halves; `midway` runs after the headers and first half are sent (the server has resolved
+ *  the caller) and before the rest of the body (so before the route acts). */
+function slowPost(path: string, body: unknown, headers: Record<string, string>, midway: () => void): Promise<{ status: number; body: Record<string, any> }> {
+  const text = JSON.stringify(body);
+  return new Promise((resolve, reject) => {
+    const r = httpRequest(`${origin}${path}`, { method: "POST", headers: { ...headers, "content-type": "application/json", "content-length": String(Buffer.byteLength(text)) } }, (res) => {
+      let data = "";
+      res.on("data", (c) => { data += c; });
+      res.on("end", () => resolve({ status: res.statusCode ?? 0, body: data ? JSON.parse(data) : {} }));
+    });
+    r.on("error", reject);
+    const half = Math.floor(text.length / 2);
+    r.write(text.slice(0, half));
+    setTimeout(() => { try { midway(); } catch (e) { reject(e); } r.end(text.slice(half)); }, 150);
+  });
+}
+const setLevel = (key: string, patch: Record<string, unknown>) => {
+  const file = join(root, "identities.json");
+  const ids = JSON.parse(readFileSync(file, "utf8"));
+  Object.assign(ids.coaches[key], patch);
+  writeFileSync(file, JSON.stringify(ids), "utf8");
+};
+
+describe("a caller who stops being an admin mid-request (Sol P2)", () => {
+  const ratingsFile = join(state, "site-ratings.json");
+  const ensureAdmin = (key: string, name: string) => {
+    const file = join(root, "identities.json");
+    const ids = JSON.parse(readFileSync(file, "utf8"));
+    ids.coaches[key] = rec(name, "admin");
+    writeFileSync(file, JSON.stringify(ids), "utf8");
+  };
+  const resetBody = async (coach: string) => {
+    const dry = await json(await post("/api/admin/ops/ratings/reset", {}, coach));
+    return { apply: true, confirm: "RESET RATINGS", revision: dry.revision };
+  };
+
+  it("demoted after the request started: 403 and nothing is reset", async () => {
+    ensureAdmin("tempadmin", "TempAdmin");
+    rmSync(ratingsFile, { force: true });
+    const body = await resetBody("TempAdmin");
+    const r = await slowPost("/api/admin/ops/ratings/reset", body, as("TempAdmin"), () => setLevel("tempadmin", { level: "player" }));
+    expect(r.status).toBe(403);
+    expect(existsSync(ratingsFile)).toBe(false);
+  });
+
+  it("banned after the request started: 403 and no demo league is written", async () => {
+    ensureAdmin("tempadmin", "TempAdmin");
+    const r = await slowPost("/api/admin/ops/demo-leagues", { action: "seed", apply: true, confirm: "SEED DEMO LEAGUES" }, as("TempAdmin"), () => setLevel("tempadmin", { banned: true }));
+    expect(r.status).toBe(403);
+    expect(existsSync(join(state, "demo-leagues.seed.json"))).toBe(false);
+  });
+
+  it("signed out after the request started: 401 and nothing is restored", async () => {
+    ensureAdmin("tempadmin", "TempAdmin");
+    writeFileSync(ratingsFile, '{"version":1}\n', "utf8");
+    const dryReset = await resetBody("TempAdmin");
+    const out = await json(await post("/api/admin/ops/ratings/reset", dryReset, "TempAdmin"));
+    const after = readFileSync(ratingsFile, "utf8");
+    const plan = await json(await post("/api/admin/ops/ratings/restore", { backup: out.backup.name }, "TempAdmin"));
+    const session = createSession("TempAdmin");
+    const r = await slowPost("/api/admin/ops/ratings/restore", { backup: out.backup.name, apply: true, confirm: "RESTORE RATINGS", revision: plan.revision },
+      { authorization: `Bearer ${session.token}` }, () => deleteSession(session.token));
+    expect(r.status).toBe(401);
+    expect(readFileSync(ratingsFile, "utf8")).toBe(after);
+  });
+
+  it("still an admin: the same slow request goes through", async () => {
+    ensureAdmin("tempadmin", "TempAdmin");
+    const body = await resetBody("TempAdmin");
+    const r = await slowPost("/api/admin/ops/ratings/reset", body, as("TempAdmin"), () => undefined);
+    expect(r.status).toBe(200);
+  });
+});
+
+describe("the restore revision binds the backup's bytes (Sol P2)", () => {
+  it("a backup changed after the dry run is refused with 409 and nothing is written", async () => {
+    const ratingsFile = join(state, "site-ratings.json");
+    writeFileSync(ratingsFile, '{"version":1,"resetAt":"2026-05-05T00:00:00.000Z"}\n', "utf8");
+    const dry = await json(await post("/api/admin/ops/ratings/reset", {}, "Boss"));
+    const out = await json(await post("/api/admin/ops/ratings/reset", { apply: true, confirm: "RESET RATINGS", revision: dry.revision }, "Boss"));
+    const live = readFileSync(ratingsFile, "utf8");
+    const plan = await json(await post("/api/admin/ops/ratings/restore", { backup: out.backup.name }, "Boss"));
+    // the backup's content is swapped for another valid ratings file (same name, same live state)
+    const backupPath = join(state, "backups", "ratings", out.backup.name);
+    const b = JSON.parse(readFileSync(backupPath, "utf8"));
+    writeFileSync(backupPath, JSON.stringify({ ...b, content: '{"version":1,"resetAt":"2020-01-01T00:00:00.000Z"}\n' }, null, 2), "utf8");
+    const backupsBefore = readdirSync(join(state, "backups", "ratings")).length;
+    const r = await post("/api/admin/ops/ratings/restore", { backup: out.backup.name, apply: true, confirm: "RESTORE RATINGS", revision: plan.revision }, "Boss");
+    expect(r.status).toBe(409);
+    expect(readFileSync(ratingsFile, "utf8")).toBe(live);
+    expect(readdirSync(join(state, "backups", "ratings")).length).toBe(backupsBefore); // not even the safety backup
+    // a fresh dry run binds the new bytes and the apply then works
+    const again = await json(await post("/api/admin/ops/ratings/restore", { backup: out.backup.name }, "Boss"));
+    expect(again.revision).not.toBe(plan.revision);
+    expect((await post("/api/admin/ops/ratings/restore", { backup: out.backup.name, apply: true, confirm: "RESTORE RATINGS", revision: again.revision }, "Boss")).status).toBe(200);
+    expect(readFileSync(ratingsFile, "utf8")).toBe('{"version":1,"resetAt":"2020-01-01T00:00:00.000Z"}\n');
   });
 });
 

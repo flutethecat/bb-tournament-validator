@@ -1604,7 +1604,19 @@ async function handleAdminConsoleRequest(req: IncomingMessage, res: ServerRespon
   if (method === "POST" && who?.admin) {
     try { body = await readBody(req, 8 * 1024); } catch { return sendJson(res, 400, { error: "Send a JSON object." }); }
   }
-  const result = await adminConsoleApi(method, path, who, body, adminConsoleDeps(), query);
+  // Sol P2 (11-04): `who` was resolved before the body; every write re-reads the caller right before it acts. A session
+  // caller must still hold the same live session, be a site admin and not be banned; the legacy admin password / admin
+  // token caller must still present a valid one (the token may have expired). 401 signed out, 403 no longer an admin.
+  const viaSession = auth?.admin === true;
+  const recheck = (): { status: number; body: unknown } | undefined => {
+    if (!viaSession) return isAdminAuthed(req) || isTokenAuthed(req) ? undefined : { status: 401, body: { error: "Authentication required." } };
+    const current = requestIdentity(req);
+    if (!current || normalizeFfbCoachId(current.coach) !== normalizeFfbCoachId(auth!.coach)) return { status: 401, body: { error: "Authentication required." } };
+    if (isBanned(current.coach)) return { status: 403, body: { error: BANNED_ACCOUNT_MESSAGE } };
+    if (current.admin !== true) return { status: 403, body: { error: "Site admins only." } };
+    return undefined;
+  };
+  const result = await adminConsoleApi(method, path, who, body, { ...adminConsoleDeps(), recheck }, query);
   if (!result) return sendJson(res, 404, { error: "Not found." });
   res.setHeader("cache-control", "no-store");
   return sendJson(res, result.status, result.body);

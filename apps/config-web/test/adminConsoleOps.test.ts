@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { adminConsoleApi, exclusive, type AdminConsoleDeps } from "../src/admin/console.js";
 import { planDemoRemove, planDemoSeed, seedDemoLeagues } from "../src/leagues/demoLeagues.js";
-import { listRatingsBackups, ratingsBackupDir } from "../src/ratings/backup.js";
+import { listRatingsBackups, planRatingsRestore, ratingsBackupDir, restoreRatingsBackup } from "../src/ratings/backup.js";
 import { ratingsStateFile } from "../src/ratings/state.js";
 import { resetRatings, restoreRatings } from "../scripts/reset-ratings.js";
 
@@ -96,5 +96,36 @@ describe("route gate and the one-at-a-time guard", () => {
     release();
     expect((await first).status).toBe(200);
     expect((await exclusive(async () => ({ status: 200, body: {} }))).status).toBe(200);
+  });
+});
+
+describe("Sol P2 fixes below HTTP", () => {
+  it("recheck runs after the body and again right before an apply acts; a refusal there writes nothing", async () => {
+    const dir = temp("admin-recheck-");
+    let calls = 0;
+    const deps = { stateDir: dir, now: () => new Date("2026-11-04T10:00:00.000Z"), ratingsPreview: () => ({ coaches: 0, games: 0 }),
+      recheck: () => (++calls >= 2 ? { status: 403, body: { error: "Site admins only." } } : undefined) } as unknown as AdminConsoleDeps;
+    const who = { coach: "Root", admin: true };
+    const dry = await adminConsoleApi("POST", "/api/admin/ops/ratings/reset", who, {}, { ...deps, recheck: () => undefined });
+    calls = 0;
+    const out = await adminConsoleApi("POST", "/api/admin/ops/ratings/reset", who, { apply: true, confirm: "RESET RATINGS", revision: (dry!.body as { revision: string }).revision }, deps);
+    expect(out?.status).toBe(403);
+    expect(calls).toBe(2);
+    expect(existsSync(ratingsStateFile(dir))).toBe(false);
+    expect(existsSync(ratingsBackupDir(dir))).toBe(false);
+  });
+
+  it("the restore revision binds the backup bytes: changed bytes after the dry run answer 409 from the module", () => {
+    const dir = temp("admin-rev-");
+    writeFileSync(ratingsStateFile(dir), '{"version":1}', "utf8");
+    const reset = resetRatings({ stateDir: dir, yes: true, now: new Date("2026-11-04T10:00:00.000Z") });
+    const name = reset.backup!.name;
+    const plan = restoreRatings({ stateDir: dir, backup: name, yes: false }).plan;
+    const path = join(ratingsBackupDir(dir), name);
+    writeFileSync(path, readFileSync(path, "utf8").replace('"before-reset"', '"manual"'), "utf8"); // same content, other bytes
+    const live = readFileSync(ratingsStateFile(dir), "utf8");
+    expect(() => restoreRatingsBackup(dir, name, new Date(), plan.revision)).toThrow(/changed since the dry run/);
+    expect(readFileSync(ratingsStateFile(dir), "utf8")).toBe(live);
+    expect(planRatingsRestore(dir, name).revision).not.toBe(plan.revision);
   });
 });

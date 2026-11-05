@@ -6,10 +6,11 @@
 //
 // Used by POST /api/admin/ops/ratings/{reset,restore} (src/admin/console.ts) and scripts/reset-ratings.ts.
 
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { atomicWriteTextFile } from "@bb/fork-ops";
-import { ratingsStateFile, ratingsStateStamp, readRatingsState, writeRatingsReset, type RatingsState } from "./state.js";
+import { ratingsStateFile, readRatingsState, writeRatingsReset, type RatingsState } from "./state.js";
 
 export const RATINGS_BACKUP_KIND = "site-ratings-backup";
 /** site-ratings-20261104T101500123Z.json (UTC, milliseconds), plus -<n> when two land in the same millisecond. */
@@ -72,18 +73,37 @@ export function backupRatingsState(stateDir: string, at: Date, reason: string): 
 
 /** One backup by name (strict: an unknown name, a missing file or a malformed one throws). */
 export function readRatingsBackup(stateDir: string, name: string): RatingsBackupFile {
+  return loadRatingsBackup(stateDir, name).file;
+}
+
+const sha256 = (data: string | Buffer): string => createHash("sha256").update(data).digest("hex");
+
+/** A backup read ONCE from disk: the parsed file and the sha-256 of the exact bytes that were parsed. */
+function loadRatingsBackup(stateDir: string, name: string): { file: RatingsBackupFile; sha: string } {
   if (!RATINGS_BACKUP_NAME.test(name)) throw new RatingsBackupError(400, "Unknown backup.");
-  let text: string;
-  try { text = readFileSync(join(ratingsBackupDir(stateDir), name), "utf8"); } catch (e) {
+  let bytes: Buffer;
+  try { bytes = readFileSync(join(ratingsBackupDir(stateDir), name)); } catch (e) {
     if ((e as NodeJS.ErrnoException)?.code === "ENOENT") throw new RatingsBackupError(404, "No such backup.");
     throw e;
   }
-  const raw = JSON.parse(text) as Partial<RatingsBackupFile>;
+  let raw: Partial<RatingsBackupFile>;
+  try { raw = JSON.parse(bytes.toString("utf8")) as Partial<RatingsBackupFile>; } catch { throw new RatingsBackupError(422, `${name} is not a ratings backup.`); }
   if (!raw || raw.kind !== RATINGS_BACKUP_KIND || raw.version !== 1 || raw.file !== "site-ratings.json" || typeof raw.existed !== "boolean"
     || (raw.existed ? typeof raw.content !== "string" : raw.content !== null) || typeof raw.createdAt !== "string") {
     throw new RatingsBackupError(422, `${name} is not a ratings backup.`);
   }
-  return { kind: RATINGS_BACKUP_KIND, version: 1, createdAt: raw.createdAt, reason: String(raw.reason ?? ""), file: "site-ratings.json", existed: raw.existed, content: raw.content ?? null };
+  return {
+    file: { kind: RATINGS_BACKUP_KIND, version: 1, createdAt: raw.createdAt, reason: String(raw.reason ?? ""), file: "site-ratings.json", existed: raw.existed, content: raw.content ?? null },
+    sha: sha256(bytes),
+  };
+}
+
+/**
+ * The restore revision (Sol P2, 11-04): binds the live state file's exact content, the backup's name and a hash of the
+ * backup's exact bytes, so an apply refuses (409) if the live ratings OR the chosen backup changed after the dry run.
+ */
+export function ratingsRestoreRevision(liveText: string | null, name: string, backupSha: string): string {
+  return sha256([liveText === null ? "absent" : `live:${sha256(liveText)}`, name, backupSha].join("|")).slice(0, 32);
 }
 
 export class RatingsBackupError extends Error {
@@ -117,29 +137,35 @@ export interface RatingsRestorePlan {
   restored: { existed: boolean; resetAt: string | null };
   /** False when the live file already matches the backup byte for byte. */
   changes: boolean;
-  /** A stamp of the live state file; an apply must send it back (409 when the file moved since the dry run). */
+  /** Binds the live file, the backup name and the backup bytes; an apply must send it back (409 on any change). */
   revision: string;
 }
 
-/** The dry run of a restore: what would change. Writes nothing. */
-export function planRatingsRestore(stateDir: string, name: string): RatingsRestorePlan {
-  const backup = readRatingsBackup(stateDir, name);
+function planFrom(stateDir: string, name: string, loaded: { file: RatingsBackupFile; sha: string }): RatingsRestorePlan {
   const now = currentText(stateDir);
   return {
     backup: name,
     current: { existed: now !== null, resetAt: resetAtOf(now) },
-    restored: { existed: backup.existed, resetAt: resetAtOf(backup.content) },
-    changes: now !== backup.content,
-    revision: ratingsStateStamp(stateDir),
+    restored: { existed: loaded.file.existed, resetAt: resetAtOf(loaded.file.content) },
+    changes: now !== loaded.file.content,
+    revision: ratingsRestoreRevision(now, name, loaded.sha),
   };
+}
+
+/** The dry run of a restore: what would change. Writes nothing. */
+export function planRatingsRestore(stateDir: string, name: string): RatingsRestorePlan {
+  return planFrom(stateDir, name, loadRatingsBackup(stateDir, name));
 }
 
 /**
  * Restores a backup: first backs up the live state ("before-restore"), then writes the backup's exact text (or removes the
  * file when the backup says it did not exist). The restored text must parse as a ratings state, or nothing changes.
+ * `expectedRevision` (the dry run's): the backup is read once, its bytes hashed, and the revision recomputed from that
+ * read and the live file; any mismatch is a 409 and nothing is written. The bytes checked are the bytes restored.
  */
-export function restoreRatingsBackup(stateDir: string, name: string, at: Date): { restored: RatingsRestorePlan; safety: RatingsBackupInfo } {
-  const backup = readRatingsBackup(stateDir, name);
+export function restoreRatingsBackup(stateDir: string, name: string, at: Date, expectedRevision?: string): { restored: RatingsRestorePlan; safety: RatingsBackupInfo } {
+  const loaded = loadRatingsBackup(stateDir, name);
+  const backup = loaded.file;
   if (backup.content !== null) {
     // the same checks readRatingsState makes, before anything is written
     let ok = false;
@@ -150,7 +176,10 @@ export function restoreRatingsBackup(stateDir: string, name: string, at: Date): 
     } catch { ok = false; }
     if (!ok) throw new RatingsBackupError(422, `${name} holds a ratings file this site cannot read; nothing was changed.`);
   }
-  const plan = planRatingsRestore(stateDir, name);
+  const plan = planFrom(stateDir, name, loaded);
+  if (expectedRevision !== undefined && expectedRevision !== plan.revision) {
+    throw new RatingsBackupError(409, "The ratings or the backup changed since the dry run. Run it again.");
+  }
   const safety = backupRatingsState(stateDir, at, "before-restore");
   const file = ratingsStateFile(stateDir);
   if (backup.content === null) {

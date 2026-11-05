@@ -2,7 +2,8 @@
 // covers. Site admins only, on every route (403 for organisers and coaches, 401 signed out). GETs never write. Writes are
 // POST only (CSRF is enforced in front by src/auth/csrf.ts for cookie sessions). Every Operations action, dry run or
 // apply, is logged (src/admin/opsLog.ts); applies need the typed phrase (400 without it), the ratings ones also the
-// revision their dry run returned (428 missing, 409 stale), and one Operations write runs at a time (409 while busy).
+// revision their dry run returned (428 missing, 409 stale; the restore one also binds the backup bytes), one Operations
+// write runs at a time (409 while busy), and every write re-reads the caller after the body and right before it acts.
 //
 //   GET  /api/admin/overview                     version, uptime, counts (read-only)
 //   GET  /api/admin/moderation                   open board reports and running mutes across league and tournament boards
@@ -67,6 +68,11 @@ export interface AdminConsoleDeps {
   forkReload?(): Promise<AdminResult>;
   /** The league fork copy backfill (src/leagues/forkCleanup.ts leagueForkCleanupRoute). */
   forkCleanup?(who: AdminWho, input: { apply: boolean }): Promise<AdminResult>;
+  /**
+   * Re-reads the caller from the live session / credential stores: undefined while they are still a site admin, else the
+   * 401 / 403 to answer. Called after the body is read and again right before an apply acts.
+   */
+  recheck?(): AdminResult | undefined;
   /** Overrides for tests: the build-log file and the repo folder (git). */
   buildLogFile?: string;
   repoDir?: string;
@@ -199,6 +205,18 @@ export async function exclusive(run: () => Promise<AdminResult>): Promise<AdminR
   try { return await run(); } finally { busy = false; }
 }
 
+/**
+ * An Operations write: one at a time, and the caller's admin rights are re-read from the session store right before it
+ * acts (Sol P2, 11-04: a request that began as an admin must not finish after the admin was demoted, banned or signed out).
+ */
+function act(deps: AdminConsoleDeps, run: () => Promise<AdminResult>): Promise<AdminResult> {
+  return exclusive(async () => {
+    const denied = deps.recheck?.();
+    if (denied) return denied;
+    return run();
+  });
+}
+
 function log(deps: AdminConsoleDeps, who: AdminWho, entry: Omit<OpsLogEntry, "at" | "by">): string | undefined {
   try {
     appendOpsLog(deps.stateDir, { at: deps.now().toISOString(), by: who.coach, ...entry });
@@ -238,7 +256,7 @@ async function ratingsReset(deps: AdminConsoleDeps, who: AdminWho, input: Record
   if (!confirmOk(input, CONFIRM.ratingsReset)) return err(400, `Type ${CONFIRM.ratingsReset} to confirm.`);
   if (typeof input.revision !== "string") return err(428, "Run the dry run first: the reset needs its revision.");
   if (input.revision !== revision) return err(409, "The ratings changed since the dry run. Run it again.", { revision });
-  return exclusive(async () => {
+  return act(deps, async () => {
     const done = resetRatingsWithBackup(deps.stateDir, deps.now());
     const out = json(200, { dryRun: false, ...facts, resetAt: done.state.resetAt, backup: done.backup, revision: ratingsStateStamp(deps.stateDir) });
     return logged(out, log(deps, who, { action: "ratings-reset", dryRun: false, ok: true, status: 200, summary: `Reset every rating to 1500; games count from ${done.state.resetAt}.`, backup: done.backup.name, detail: facts }));
@@ -260,10 +278,11 @@ async function ratingsRestore(deps: AdminConsoleDeps, who: AdminWho, input: Reco
   }
   if (!confirmOk(input, CONFIRM.ratingsRestore)) return err(400, `Type ${CONFIRM.ratingsRestore} to confirm.`);
   if (typeof input.revision !== "string") return err(428, "Run the dry run first: the restore needs its revision.");
-  if (input.revision !== plan.revision) return err(409, "The ratings changed since the dry run. Run it again.", { revision: plan.revision });
-  return exclusive(async () => {
+  if (input.revision !== plan.revision) return err(409, "The ratings or the backup changed since the dry run. Run it again.", { revision: plan.revision });
+  return act(deps, async () => {
     let done;
-    try { done = restoreRatingsBackup(deps.stateDir, name, deps.now()); } catch (e) {
+    // the backup is read once inside, its bytes hashed and the revision recomputed: 409 if the live ratings or the backup moved
+    try { done = restoreRatingsBackup(deps.stateDir, name, deps.now(), input.revision as string); } catch (e) {
       if (e instanceof RatingsBackupError) return err(e.status, e.message);
       throw e;
     }
@@ -287,7 +306,7 @@ async function demoLeagues(deps: AdminConsoleDeps, who: AdminWho, input: Record<
     return logged(out, log(deps, who, { action: logAction, dryRun: true, ok: true, status: 200, summary, detail: counts }));
   }
   if (!confirmOk(input, action === "seed" ? CONFIRM.demoSeed : CONFIRM.demoRemove)) return err(400, `Type ${action === "seed" ? CONFIRM.demoSeed : CONFIRM.demoRemove} to confirm.`);
-  return exclusive(async () => {
+  return act(deps, async () => {
     const lines: string[] = [];
     const ids = action === "seed"
       ? await seedDemoLeagues({ ...opts, log: (l) => lines.push(l) })
@@ -299,7 +318,7 @@ async function demoLeagues(deps: AdminConsoleDeps, who: AdminWho, input: Record<
 
 async function forkReload(deps: AdminConsoleDeps, who: AdminWho): Promise<AdminResult> {
   if (!deps.forkReload) return err(503, "Super FUMBBL is not connected on this server.");
-  return exclusive(async () => {
+  return act(deps, async () => {
     const out = await deps.forkReload!();
     const b = obj(out.body);
     const summary = out.status !== 200 ? `Fork reload failed: ${String(b.error ?? out.status)}` : b.reloaded ? "Fork reloaded." : `Fork not reloaded: ${String(b.reason ?? "no reason given")}`;
@@ -311,7 +330,7 @@ async function forkCleanup(deps: AdminConsoleDeps, who: AdminWho, input: Record<
   if (!deps.forkCleanup) return err(503, "Super FUMBBL is not connected on this server.");
   const apply = input.apply === true;
   if (apply && !confirmOk(input, CONFIRM.forkCleanup)) return err(400, `Type ${CONFIRM.forkCleanup} to confirm.`);
-  return exclusive(async () => {
+  return act(deps, async () => {
     const out = await deps.forkCleanup!(who, { apply });
     const rows = Array.isArray(obj(out.body).rows) ? (obj(out.body).rows as unknown[]) : [];
     const summary = out.status !== 200 ? `League fork cleanup failed: ${String(obj(out.body).error ?? out.status)}` : `${apply ? "Applied" : "Dry run"}: ${rows.length} fixture(s) with Super FUMBBL team copies to remove.`;
@@ -344,6 +363,9 @@ export async function adminConsoleApi(method: string, path: string, who: AdminWh
     }
   }
   if (method !== "POST") return err(405, "Use POST.");
+  // the body has been read by now: the caller must still be a site admin (re-read, not the identity from before the body)
+  const denied = deps.recheck?.();
+  if (denied) return denied;
   const input = obj(body);
   try {
     if (path === "/api/admin/ops/ratings/reset") return await ratingsReset(deps, who, input);
