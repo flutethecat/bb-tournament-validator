@@ -129,30 +129,4 @@ describe("Tournament Creator — booted page", () => {
   });
 });
 
-describe("admin.html still renders on the shared stylesheet", () => {
-  const adminHtml = readPublic("admin.html");
-  const adminCss = readPublic("admin.css");
-
-  it("links theme.css + tournament-rules.css + admin.css and keeps its legacy frame", () => {
-    expect(adminHtml).toContain('href="./theme.css"');
-    expect(adminHtml).toContain('href="./tournament-rules.css"');
-    expect(adminHtml).toContain('href="./admin.css"');
-    for (const id of ["toolbar", "workspace", "right-rail", "modal-root", "connection-state"]) expect(adminHtml).toContain(`id="${id}"`);
-  });
-
-  it("boots admin.js signed out and every shared class it renders is still styled", async () => {
-    const page = runPage(readPublic("admin.js"), ["toolbar", "workspace", "right-rail", "modal-root", "connection-state"], { "/api/auth/session": { authenticated: false } });
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    const rendered = ["#toolbar", "#workspace", "#right-rail"].map((id) => page.elements[id]!.innerHTML).join("\n");
-    expect(page.elements["#toolbar"]!.innerHTML.length).toBeGreaterThan(0);
-    const defined = new Set([...cssClasses(css), ...cssClasses(adminCss)]);
-    const used = new Set([...`${adminHtml}\n${rendered}`.matchAll(/class="([^"$]*)"/g)].flatMap((match) => match[1]!.split(/\s+/)).filter(Boolean));
-    // The legacy console classes admin.html relies on, all still defined by tournament-rules.css.
-    for (const shared of ["page-shell", "brand-header", "brand-logo", "brand-copy", "page-title", "page-subtitle", "back-link", "toolbar", "main-grid", "editor-column", "right-rail", "footer", "footer-spacer"]) {
-      expect(used.has(shared)).toBe(true);
-      expect(cssClasses(css).has(shared)).toBe(true);
-    }
-    const unstyled = [...used].filter((name) => !defined.has(name));
-    expect(unstyled).toEqual([]);
-  });
-});
+// admin.html / admin.js / admin.css retired (admin console v2, owner 11-04): the console lives at /app/admin; see spaAdminConsole.test.ts.
