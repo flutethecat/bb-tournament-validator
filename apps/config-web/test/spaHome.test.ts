@@ -483,7 +483,7 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(nav).toMatch(/<ul id="sf-tree-tournaments" class="sf-rows" style="">/);
   });
 
-  it("testing tools: site admins only, collapsed by default, with Lobby / Tabletop / Team Builder / Roster Builder / Organiser requests", async () => {
+  it("testing tools: site admins only, collapsed by default, with Lobby / Tabletop / Team Builder / Roster Builder / Admin console", async () => {
     const admin = await render("/home", { ...signedInRoutes(), "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord", admin: true } });
     expect(topLabels(admin.html).at(-1)).toBe("Testing");
     const nav = navOf(admin.html);
@@ -491,7 +491,7 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     const tools = nav.slice(nav.indexOf('id="sf-tree-testing" class="sf-rows"'));
     expect(tools).toMatch(/^id="sf-tree-testing" class="sf-rows" style="display:none;?"/);
     const labels = [...tools.matchAll(/class="sf-label">([^<]+)</g)].map((m) => m[1]);
-    expect(labels).toEqual(["Lobby", "Tabletop", "Team Builder", "Roster Builder", "Organiser requests"]);
+    expect(labels).toEqual(["Lobby", "Tabletop", "Team Builder", "Roster Builder", "Admin console"]);
     expect(nav).not.toContain('href="/app/account"');
   });
 

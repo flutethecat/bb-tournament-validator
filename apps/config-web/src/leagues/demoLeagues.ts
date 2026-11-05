@@ -1,0 +1,330 @@
+/**
+ * Demo leagues for Browse leagues (owner 11-02; moved here from scripts/seed-demo-leagues.ts for the admin console v2,
+ * owner 11-04, which seeds and removes them through POST /api/admin/ops/demo-leagues with a dry run first): writes 12 varied FAKE leagues (names, places, teams and coaches are made
+ * up; links use example.com) through the app's own store writers (LeagueStore, storeLeagueArt), never by editing JSON.
+ *
+ *   pnpm exec tsx apps/config-web/scripts/seed-demo-leagues.ts <state dir>            create or refresh the demo leagues
+ *   pnpm exec tsx apps/config-web/scripts/seed-demo-leagues.ts <state dir> --remove   delete them again
+ *
+ * The state dir is the server's FORK_STATE_DIR (leagues live under <state dir>/leagues). The script refuses the live data
+ * dir (the server's default apps/config-web/data-store, the FORK_STATE_DIR of this shell, or any folder named data-store)
+ * unless it is given both --live and --yes.
+ *
+ * Every league it writes is flagged test: true, named "Demo ...", and stamped seededBy { script, run }; the run id and the
+ * league ids are recorded in <state dir>/demo-leagues.seed.json. --remove deletes a league only when its id is on the
+ * script's fixed demo list, the marker lists it, and the record still carries this script's stamp with the marker's run
+ * id (and is still a test league named "Demo ..."); every other league is left alone. A league id that already exists and
+ * is not one of the script's own stamped records is never overwritten. The live-dir check compares real paths (links and
+ * junctions followed).
+ *
+ * Artwork comes from art already in the repo (public/crests, public/assets): nothing is downloaded.
+ */
+import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { checkLeagueArt, storeLeagueArt, type ArtKind } from "./api.js";
+import { DEFAULT_REGISTRATIONS } from "./settings.js";
+import { LeagueStore } from "./store.js";
+import type { LeagueFixture, LeagueRecord, LeagueRuleset, LeagueTeam, SeasonRecord } from "./types.js";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const APP = resolve(HERE, "../..");
+export const MARKER_FILE = "demo-leagues.seed.json";
+const MARKER_SCRIPT = "seed-demo-leagues";
+
+type Stage = "setup" | "registration" | "active" | "completed";
+
+interface DemoLeague {
+  id: string;
+  name: string;
+  fullName: string;
+  description: string;
+  organisers: string[];
+  place?: { country: "US" | "CA"; region: string; locality: string };
+  regions?: string[];
+  rulesetPackage?: string;
+  playOnFork?: boolean;
+  logo?: string;
+  banner?: string;
+  /** Oldest first; the last is the current season. */
+  seasons: Array<{ ruleset: LeagueRuleset; stage: Stage; teams: number; start?: string; end?: string }>;
+}
+
+const crest = (race: string) => `public/crests/${race}.png`;
+const SPLASH = "public/assets/welcome-splash.jpg";
+const BOARD = "public/assets/motherboard-header.jpg";
+
+export const DEMO_LEAGUES: readonly DemoLeague[] = [
+  { id: "demo-harbour-league", name: "Demo Harbour League", fullName: "Demo Harbour Blood Bowl League", description: "Weekly games at the Example Games Hall by the harbour. Details at https://harbour.example.com.",
+    organisers: ["demo-organiser-ana"], place: { country: "US", region: "WA", locality: "Port Example" }, logo: crest("human"), banner: SPLASH,
+    seasons: [{ ruleset: "BB2020", stage: "completed", teams: 10, start: "2025-09-06", end: "2026-01-24" }, { ruleset: "BB2025", stage: "active", teams: 12, start: "2026-08-30" }] },
+  { id: "demo-river-cup", name: "Demo River Cup", fullName: "Demo River Valley Cup", description: "A friendly cup for new coaches. Painted teams welcome, never required.",
+    organisers: ["demo-organiser-ben"], place: { country: "US", region: "OR", locality: "Riverbend" }, regions: ["North bank", "South bank"], logo: crest("dwarf"),
+    seasons: [{ ruleset: "BB2025", stage: "registration", teams: 5 }] },
+  { id: "demo-pixel-pros", name: "Demo Pixel Pros", fullName: "Demo Pixel Pros Online League", description: "Online league played on Super FUMBBL, one game a week.",
+    organisers: ["demo-organiser-cai", "demo-organiser-dee"], playOnFork: true, logo: crest("skaven"), banner: BOARD,
+    seasons: [{ ruleset: "BB2025", stage: "completed", teams: 8, start: "2026-02-01", end: "2026-05-10" }, { ruleset: "BB2025", stage: "active", teams: 8, start: "2026-09-14" }] },
+  { id: "demo-maple-league", name: "Demo Maple League", fullName: "Demo Maple Leaf Blood Bowl Association", description: "Fortnightly tabletop games across the valley.",
+    organisers: ["demo-organiser-eli"], place: { country: "CA", region: "BC", locality: "Maple Example" }, regions: ["Coast", "Interior"], logo: crest("norse"),
+    seasons: [{ ruleset: "BB2020", stage: "completed", teams: 14, start: "2025-03-01", end: "2025-07-19" }, { ruleset: "BB2020", stage: "completed", teams: 16, start: "2025-09-06", end: "2026-02-14" }] },
+  { id: "demo-small-gods-circle", name: "Demo Small Gods Circle", fullName: "Demo Small Gods Circle", description: "Tier-balanced league on the Small Gods ruleset.",
+    organisers: ["demo-organiser-fay"], rulesetPackage: "Small Gods", place: { country: "US", region: "CA", locality: "Example Bay" }, logo: crest("goblin"), banner: SPLASH,
+    seasons: [{ ruleset: "BB2025", stage: "active", teams: 9, start: "2026-10-04" }] },
+  { id: "demo-night-shift", name: "Demo Night Shift", fullName: "Demo Night Shift League", description: "Late games for coaches on shift work. Ask in the league chat for a slot.",
+    organisers: ["demo-organiser-gus"], playOnFork: true,
+    seasons: [{ ruleset: "BB2025", stage: "setup", teams: 0 }] },
+  { id: "demo-eurobowl-prep", name: "Demo EuroBowl Prep", fullName: "Demo EuroBowl 2026 Practice League", description: "Practice games on the EuroBowl 2026 rules pack.",
+    organisers: ["demo-organiser-hal"], rulesetPackage: "EuroBowl 2026", playOnFork: true, logo: crest("highelf"), banner: BOARD,
+    seasons: [{ ruleset: "BB2025", stage: "registration", teams: 11 }] },
+  { id: "demo-prairie-league", name: "Demo Prairie League", fullName: "Demo Prairie Open League", description: "Open league in the prairies. Bring a team, any race.",
+    organisers: ["demo-organiser-ivy"], place: { country: "CA", region: "AB", locality: "Prairie Example" }, logo: crest("orc"),
+    seasons: [{ ruleset: "BB2020", stage: "completed", teams: 6, start: "2024-10-05", end: "2025-02-22" }, { ruleset: "BB2025", stage: "completed", teams: 7, start: "2025-10-04", end: "2026-03-14" },
+      { ruleset: "BB2025", stage: "active", teams: 10, start: "2026-09-26" }] },
+  { id: "demo-desert-dust", name: "Demo Desert Dust", fullName: "Demo Desert Dust Blood Bowl", description: "A short summer league that has wrapped up for the year.",
+    organisers: ["demo-organiser-jon"], place: { country: "US", region: "AZ", locality: "Dustville" }, logo: crest("tombkings"), banner: SPLASH,
+    seasons: [{ ruleset: "BB2025", stage: "completed", teams: 6, start: "2026-05-02", end: "2026-08-15" }] },
+  { id: "demo-lakeside-league", name: "Demo Lakeside League", fullName: "Demo Lakeside Friendly League", description: "No league yet this year: the organisers are planning the next season.",
+    organisers: ["demo-organiser-kim"], place: { country: "US", region: "MN", locality: "Lakeside Example" },
+    seasons: [] },
+  { id: "demo-metro-league", name: "Demo Metro League", fullName: "Demo Metro City League", description: "Big city league with two divisions and a playoff.",
+    organisers: ["demo-organiser-lou", "demo-organiser-mia"], place: { country: "US", region: "IL", locality: "Metro Example" }, regions: ["East", "West"], logo: crest("lizardmen"), banner: BOARD,
+    seasons: [{ ruleset: "BB2025", stage: "active", teams: 16, start: "2026-09-07" }] },
+  { id: "demo-snowfield-league", name: "Demo Snowfield League", fullName: "Demo Snowfield Winter League", description: "Winter league, online and at the club. Sign-ups are open.",
+    organisers: ["demo-organiser-ned"], place: { country: "CA", region: "QC", locality: "Snowfield" }, playOnFork: true, logo: crest("vampire"),
+    seasons: [{ ruleset: "BB2020", stage: "completed", teams: 8, start: "2025-11-01", end: "2026-03-28" }, { ruleset: "BB2025", stage: "registration", teams: 3 }] },
+];
+
+// Made-up team names and coach handles (no real people).
+const TEAM_A = ["Grudge", "Iron", "Mud", "Lucky", "Rusty", "Copper", "Thunder", "Mossy", "Crimson", "Silver", "Rowdy", "Gloomy", "Brass", "Frost", "Pebble", "Storm", "Velvet", "Hollow"];
+const TEAM_B = ["Rollers", "Hammers", "Badgers", "Ravens", "Stompers", "Kickers", "Lanterns", "Boars", "Gulls", "Wardens", "Pickles", "Comets", "Moles", "Tusks", "Lynx", "Owls"];
+const RACES = ["Human", "Orc", "Dwarf", "Wood Elf", "Skaven", "Lizardmen", "Norse", "Halfling", "Goblin", "High Elf", "Undead", "Ogre"];
+const COACHES = ["Coach Ironfoot", "Pat Example", "Sam Sample", "Robin Placeholder", "Alex Demo", "Jo Testcase", "Casey Mock", "Drew Dummy", "Lee Fixture", "Max Stub", "Quinn Faux", "Rae Pretend",
+  "Sky Sandbox", "Toby Trial", "Uma Draft", "Val Specimen", "Wren Model", "Yan Proxy"];
+
+/** Small deterministic generator (so a re-run writes the same data). */
+function rng(seed: string): () => number {
+  let h = 2166136261;
+  for (const ch of seed) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
+  return () => { h = Math.imul(h ^ (h >>> 15), 2246822507) >>> 0; h = Math.imul(h ^ (h >>> 13), 3266489909) >>> 0; h ^= h >>> 16; return (h >>> 0) / 4294967296; };
+}
+
+function demoTeams(leagueId: string, count: number): LeagueTeam[] {
+  const r = rng(leagueId);
+  const used = new Set<string>();
+  const teams: LeagueTeam[] = [];
+  for (let i = 0; teams.length < count && i < 500; i++) {
+    const name = `${TEAM_A[Math.floor(r() * TEAM_A.length)]} ${TEAM_B[Math.floor(r() * TEAM_B.length)]}`;
+    if (used.has(name)) continue;
+    used.add(name);
+    teams.push({
+      id: name.toLowerCase().replace(/[^a-z0-9]+/g, "-"), name, race: RACES[Math.floor(r() * RACES.length)]!, coach: COACHES[(teams.length + Math.floor(r() * 3)) % COACHES.length]!,
+      teamValue: 1_000_000, treasury: 0, rerolls: 2, fans: 1, assistantCoaches: 0, cheerleaders: 0, apothecary: false, tier: "1", raceLeague: "", players: [], formerPlayers: [],
+    });
+  }
+  return teams;
+}
+
+function demoFixtures(teams: LeagueTeam[], seed: string, played: number, start?: string): LeagueFixture[] {
+  const r = rng(seed);
+  const out: LeagueFixture[] = [];
+  const t0 = start ? Date.parse(`${start}T19:00:00.000Z`) : NaN;
+  for (let round = 1; round <= Math.min(teams.length - 1, 5); round++) {
+    for (let k = 0; k + 1 < teams.length; k += 2) {
+      const a = teams[(k + round - 1) % teams.length]!;
+      const b = teams[(k + round) % teams.length]!;
+      if (a.id === b.id) continue;
+      const done = out.length < played;
+      const at = Number.isNaN(t0) ? undefined : new Date(t0 + (round - 1) * 7 * 86_400_000).toISOString();
+      const side = (t: LeagueTeam) => ({ team: t.name, teamId: t.id, coach: t.coach, race: t.race, score: done ? Math.floor(r() * 4) : null, cas: done ? Math.floor(r() * 3) : null, conceded: false });
+      out.push({ id: `demo-r${round}-t${k / 2 + 1}`, category: "Season", phase: "Regular", phaseId: "season-regular", group: "", round, table: k / 2 + 1, home: side(a), away: side(b), suspended: false,
+        ...(done && at ? { finishedAt: at } : {}) });
+    }
+  }
+  return out;
+}
+
+function demoSeason(league: DemoLeague, index: number, now: Date): SeasonRecord {
+  const s = league.seasons[index]!;
+  const number = index + 1;
+  const teams = demoTeams(`${league.id}-${number}`, s.teams);
+  const playing = s.stage === "active" || s.stage === "completed";
+  const fixtures = playing ? demoFixtures(teams, `${league.id}-${number}-fx`, s.stage === "completed" ? Infinity : Math.floor(teams.length * 1.5), s.start) : [];
+  return {
+    id: `season-${number}`, leagueId: league.id, number, name: `Season ${number}`, sourceSlug: `${league.id}-season-${number}`, ruleset: s.ruleset,
+    status: s.stage === "completed" ? "completed" : "active",
+    ...(s.stage === "setup" || s.stage === "registration" ? { stage: s.stage } : {}),
+    ...(s.start ? { startedAt: `${s.start}T00:00:00.000Z` } : {}),
+    ...(s.end ? { endedAt: `${s.end}T00:00:00.000Z` } : {}),
+    phases: [{ id: "season-regular", category: "Season", name: "Regular", groups: [""], standings: [] }],
+    fixtures, participants: [], teams, honours: [], awards: [], unattributedStats: [],
+    importedAt: now.toISOString(), source: "manual",
+  };
+}
+
+// ---- live-dir guard and the marker ----
+
+/**
+ * The real path of `p` (symlinks and junctions followed, native case). A path that does not exist yet resolves its
+ * nearest existing parent and appends the rest, so a not-yet-created folder under a linked live dir is still caught.
+ */
+export function realPath(p: string): string {
+  const abs = resolve(p);
+  const rest: string[] = [];
+  let cur = abs;
+  for (;;) {
+    try {
+      return join(realpathSync.native(cur), ...rest);
+    } catch {
+      const up = dirname(cur);
+      if (up === cur) return abs;
+      rest.unshift(basename(cur));
+      cur = up;
+    }
+  }
+}
+
+const samePath = (a: string, b: string) => (process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b);
+
+/** True for a folder that is (or may be) the live data dir: compared by real path, so a link or junction to it counts. */
+export function isLiveStateDir(dir: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  const target = realPath(dir);
+  const live = [join(APP, "data-store"), ...(env.FORK_STATE_DIR ? [env.FORK_STATE_DIR] : [])].map(realPath);
+  return live.some((l) => samePath(l, target)) || basename(target).toLowerCase() === "data-store" || basename(resolve(dir)).toLowerCase() === "data-store";
+}
+
+interface Marker { script: string; run: string; ids: string[]; updatedAt: string }
+
+const DEMO_IDS: ReadonlySet<string> = new Set(DEMO_LEAGUES.map((d) => d.id));
+
+/** The marker, or undefined when there is none. A file that is not this script's marker (no run id) is refused. */
+function readMarker(stateDir: string): Marker | undefined {
+  const file = join(stateDir, MARKER_FILE);
+  if (!existsSync(file)) return undefined;
+  const raw = JSON.parse(readFileSync(file, "utf8")) as Partial<Marker>;
+  if (raw.script !== MARKER_SCRIPT || typeof raw.run !== "string" || !/^[a-f0-9-]{16,64}$/.test(raw.run) || !Array.isArray(raw.ids)) {
+    throw new Error(`${file} is not this script's marker; refusing to touch it.`);
+  }
+  return { script: MARKER_SCRIPT, run: raw.run, ids: raw.ids.filter((id): id is string => typeof id === "string" && DEMO_IDS.has(id)), updatedAt: String(raw.updatedAt ?? "") };
+}
+
+function writeMarker(stateDir: string, run: string, ids: string[], now: Date): void {
+  writeFileSync(join(stateDir, MARKER_FILE), `${JSON.stringify({ script: MARKER_SCRIPT, run, ids, updatedAt: now.toISOString() }, null, 2)}\n`);
+}
+
+/**
+ * One of this script's own records: an id from the fixed demo list, still a test league named "Demo ...", and stamped
+ * with this script's provenance and the marker's run id. Nothing is overwritten or deleted without all of it.
+ */
+function isOwnDemo(league: LeagueRecord | undefined, run: string | undefined): league is LeagueRecord {
+  return Boolean(league && run && DEMO_IDS.has(league.id) && league.test === true && league.name.startsWith("Demo ")
+    && league.seededBy?.script === MARKER_SCRIPT && league.seededBy.run === run);
+}
+
+function openStore(stateDir: string): LeagueStore {
+  // The demo seasons carry no coach accounts, so the roster-exit hook never fires; the file named here is never the live one.
+  return new LeagueStore(stateDir, { identitiesFile: join(stateDir, ".demo-seed-identities.json") });
+}
+
+/**
+ * `store`: the running server's own LeagueStore (the admin console), so its cache and writers stay the one source of truth;
+ * the script opens its own.
+ */
+export interface SeedOptions { stateDir: string; now?: Date; log?: (line: string) => void; store?: LeagueStore }
+
+export type DemoSeedAction = "create" | "refresh" | "skip";
+export type DemoRemoveAction = "remove" | "keep" | "gone";
+export interface DemoPlanRow<A extends string> { id: string; name: string; action: A; reason?: string }
+
+/**
+ * The dry run of a seed: what each demo league would do (create, refresh this script's own record, or skip a league with
+ * the same id that is not one). Reads only: no marker, store or art file is written.
+ */
+export function planDemoSeed(opts: SeedOptions): DemoPlanRow<DemoSeedAction>[] {
+  const store = opts.store ?? (existsSync(opts.stateDir) ? openStore(opts.stateDir) : undefined);
+  const marker = existsSync(opts.stateDir) ? readMarker(opts.stateDir) : undefined;
+  const ids = new Set(marker?.ids ?? []);
+  return DEMO_LEAGUES.map((demo) => {
+    const existing = store?.league(demo.id);
+    if (!existing) return { id: demo.id, name: demo.name, action: "create" as const };
+    if (ids.has(demo.id) && isOwnDemo(existing, marker?.run)) return { id: demo.id, name: demo.name, action: "refresh" as const };
+    return { id: demo.id, name: demo.name, action: "skip" as const, reason: "A league with this id exists and is not one of these demo leagues." };
+  });
+}
+
+/** The dry run of a remove: which marker-listed leagues would go and which stay. Reads only. */
+export function planDemoRemove(opts: SeedOptions): DemoPlanRow<DemoRemoveAction>[] {
+  if (!existsSync(opts.stateDir)) return [];
+  const marker = readMarker(opts.stateDir);
+  if (!marker) return [];
+  const store = opts.store ?? openStore(opts.stateDir);
+  return marker.ids.map((id) => {
+    const league = store.league(id);
+    const name = DEMO_LEAGUES.find((d) => d.id === id)?.name ?? id;
+    if (!league) return { id, name, action: "gone" as const, reason: "Already gone." };
+    if (!isOwnDemo(league, marker.run)) return { id, name, action: "keep" as const, reason: "Not a demo league stamped by this seed run." };
+    return { id, name, action: "remove" as const };
+  });
+}
+
+export async function seedDemoLeagues(opts: SeedOptions): Promise<string[]> {
+  const log = opts.log ?? (() => undefined);
+  const now = opts.now ?? new Date();
+  mkdirSync(opts.stateDir, { recursive: true });
+  const store = opts.store ?? openStore(opts.stateDir);
+  const marker = readMarker(opts.stateDir);
+  const run = marker?.run ?? randomUUID();
+  const ids = new Set(marker?.ids ?? []);
+  for (const demo of DEMO_LEAGUES) {
+    const existing = store.league(demo.id);
+    if (existing && !(ids.has(demo.id) && isOwnDemo(existing, run))) { log(`${demo.id}: skipped (a league with this id exists and is not a demo league from this script)`); continue; }
+    // Record the id first: a run that stops half way can still be removed.
+    ids.add(demo.id);
+    writeMarker(opts.stateDir, run, [...ids], now);
+    store.upsertLeague({
+      id: demo.id, name: demo.name, fullName: demo.fullName, slug: demo.id, description: demo.description, organisers: demo.organisers, owner: demo.organisers[0],
+      test: true, mode: "individual", ruleset: demo.seasons.at(-1)?.ruleset ?? "BB2025", playOnFork: demo.playOnFork === true, authorised: true,
+      registrations: { ...DEFAULT_REGISTRATIONS, allowRegistration: true },
+      seededBy: { script: MARKER_SCRIPT, run },
+      ...(demo.place ? { address: { ...demo.place, postcode: "", street: "" } } : {}),
+      ...(demo.regions ? { regions: demo.regions } : {}),
+      ...(demo.rulesetPackage ? { rulesetPackage: demo.rulesetPackage } : {}),
+    }, now);
+    for (const old of store.seasons(demo.id)) if (Number(old.id.replace("season-", "")) > demo.seasons.length) store.removeSeason(demo.id, old.id);
+    demo.seasons.forEach((_, i) => store.putSeason(demoSeason(demo, i, now)));
+    for (const [kind, rel] of [["logo", demo.logo], ["banner", demo.banner]] as Array<[ArtKind, string | undefined]>) {
+      if (!rel) { if (store.league(demo.id)?.[kind === "logo" ? "logoPath" : "bannerPath"]) store.setArt(demo.id, kind, undefined, now); continue; }
+      const bytes = readFileSync(join(APP, rel));
+      const checked = checkLeagueArt(kind, bytes);
+      if (!checked.ok) throw new Error(`${kind} ${rel}: ${checked.error}`);
+      await storeLeagueArt(store, demo.id, kind, bytes, checked.image.ext, now);
+    }
+    log(`${demo.id}: ${demo.name} (${demo.seasons.length} ${demo.seasons.length === 1 ? "season" : "seasons"})`);
+  }
+  return [...ids];
+}
+
+export function removeDemoLeagues(opts: SeedOptions): string[] {
+  const log = opts.log ?? (() => undefined);
+  if (!existsSync(opts.stateDir)) return [];
+  const store = opts.store ?? openStore(opts.stateDir);
+  const marker = readMarker(opts.stateDir);
+  if (!marker) { log("No demo-league marker here: nothing to remove."); return []; }
+  const removed: string[] = [];
+  const kept: string[] = [];
+  // Only ids from the fixed demo list (readMarker drops any other) whose record carries this run's provenance stamp.
+  for (const id of marker.ids) {
+    const league = store.league(id);
+    if (!league) { log(`${id}: already gone`); continue; }
+    if (!isOwnDemo(league, marker.run)) { log(`${id}: kept (not a demo league stamped by this script's run)`); kept.push(id); continue; }
+    for (const s of store.seasons(id)) store.removeSeason(id, s.id);
+    rmSync(store.leagueDir(id), { recursive: true, force: true });
+    store.invalidate();
+    removed.push(id);
+    log(`${id}: removed`);
+  }
+  if (kept.length) writeMarker(opts.stateDir, marker.run, kept, opts.now ?? new Date());
+  else rmSync(join(opts.stateDir, MARKER_FILE), { force: true });
+  return removed;
+}
+

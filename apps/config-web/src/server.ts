@@ -408,6 +408,8 @@ import { setClubDirectory } from "./clubs/pick.js";
 import { clubHasHistory, clubLedger, type ClubLedger } from "./clubs/stats.js";
 import { ClubStore } from "./clubs/store.js";
 import { BoardStore } from "./boards/board.js";
+import { adminConsoleApi, isAdminConsolePath, type AdminConsoleDeps } from "./admin/console.js";
+import { appendOpsLog } from "./admin/opsLog.js";
 import { competitionBoardApi, competitionBoardPath, createCompetitionBoardLimiters, type CompetitionBoardDeps } from "./boards/competitionApi.js";
 import { forkGame, setPublicPlayerNames, tabletopGame, type GameRecord } from "./discord/games.js";
 import { playerLabel, visibleComments } from "./discord/hub.js";
@@ -498,6 +500,8 @@ const PUBLIC_PATHS = new Set([
 const translateHandler = createTranslateHandler();
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
+/** Process start (admin console Overview: uptime). */
+const SERVER_STARTED_AT = new Date();
 const PUBLIC_DIR = resolve(HERE, "../public");
 /** Site build log (WHAT'S NEW): appended by every landed lane, served read-only at GET /api/build-log. */
 const BUILD_LOG_FILE = process.env.BUILD_LOG_FILE || resolve(HERE, "../docs/build-log.json");
@@ -1538,7 +1542,91 @@ async function handleTestingRequest(req: IncomingMessage, res: ServerResponse, p
   }
   const result = await testingApi(method, path, query, body, { me: auth?.coach ?? "admin" }, await tabletopDeps());
   if (!result) return sendJson(res, 404, { error: "Not found." });
+  // The admin console's Operations log (src/admin/opsLog.ts) records the suite's writes too: who made or purged test matches.
+  if (method === "POST" || method === "DELETE") {
+    const purge = path === "/api/admin/testing/tabletop-matches";
+    const b = (result.body ?? {}) as { matchId?: unknown; purged?: unknown; error?: unknown };
+    try {
+      appendOpsLog(FORK_STATE_DIR, {
+        at: new Date().toISOString(), by: auth?.coach ?? "admin-password", action: purge ? "test-purge" : "test-match", dryRun: false,
+        ok: result.status < 400, status: result.status,
+        summary: result.status >= 400 ? `Testing suite refused: ${String(b.error ?? result.status)}` : purge ? `Purged ${String(b.purged ?? 0)} test match(es).` : `Created test match ${String(b.matchId ?? "")}.`,
+      });
+    } catch { /* the suite's answer stands; the log is best effort here */ }
+  }
   return sendJson(res, result.status, result.body);
+}
+
+/** The game server reload behind POST /api/fork/reload and the admin console's Operations button (status + body). */
+async function runForkReload(): Promise<{ status: number; body: unknown }> {
+  const J = (status: number, body: unknown) => ({ status, body });
+  const cfg = forkConfigFromEnv();
+  if (!cfg) return J(503, { error: "Fork teams dir not configured on this host (set FORK_TEAMS_DIR)." });
+  const generationLock = acquireTeamNameWriteLock(cfg.teamsDir);
+  if (!generationLock) return J(409, { error: "Another team/cache generation update is in progress." });
+  try {
+    const recovery = recoverTeamFileTransactions(cfg.teamsDir);
+    if (recovery.errors.length) return J(503, { error: `Team transaction recovery failed closed: ${recovery.errors.join("; ")}` });
+    const reload = await reloadFork(cfg, FORK_STATE_DIR);
+    if (reload.reloaded) {
+      acknowledgeRecoveredTeamTransactions(recovery.receipts);
+      acknowledgeForkCacheReload(cfg.teamsDir);
+      const deferred = await replayDeferredGameResults(
+        { teamsDir: cfg.teamsDir, resultsDir: join(dirname(cfg.teamsDir), "results"), libraryDir: LIBRARY_DIR },
+        async () => {
+          const replayReload = await reloadFork(cfg, FORK_STATE_DIR);
+          if (replayReload.reloaded) acknowledgeForkCacheReload(cfg.teamsDir);
+          return replayReload.reloaded;
+        },
+        true,
+      );
+      if (deferred.errors.length) {
+        return J(503, { error: `Fork reloaded, but deferred result recovery failed closed: ${deferred.errors.join("; ")}` });
+      }
+      return J(200, { ...reload, replayedResults: deferred.replayed });
+    }
+    return J(200, reload);
+  } catch (e) {
+    return J(400, { error: (e as Error).message });
+  } finally {
+    generationLock.release();
+  }
+}
+
+/**
+ * Admin console v2 routes (src/admin/console.ts): a site-admin session, or (as on the other admin routes) the legacy admin
+ * password / admin token, which acts as "admin-password". Writes are POST with a small JSON body.
+ */
+async function handleAdminConsoleRequest(req: IncomingMessage, res: ServerResponse, path: string, query: URLSearchParams, auth?: SessionIdentity): Promise<void> {
+  const method = req.method ?? "GET";
+  const who = auth?.admin ? auth : isAdminAuthed(req) || isTokenAuthed(req) ? { coach: "admin-password", admin: true } : auth;
+  let body: unknown;
+  if (method === "POST" && who?.admin) {
+    try { body = await readBody(req, 8 * 1024); } catch { return sendJson(res, 400, { error: "Send a JSON object." }); }
+  }
+  const result = await adminConsoleApi(method, path, who, body, adminConsoleDeps(), query);
+  if (!result) return sendJson(res, 404, { error: "Not found." });
+  res.setHeader("cache-control", "no-store");
+  return sendJson(res, result.status, result.body);
+}
+
+function adminConsoleDeps(): AdminConsoleDeps {
+  return {
+    stateDir: FORK_STATE_DIR,
+    startedAt: SERVER_STARTED_AT,
+    now: () => new Date(),
+    leagues: leagueStore,
+    leagueStore,
+    tournaments: { all: () => tournamentStore.tournaments(["draft", "active", "completed", "cancelled"]), tournament: (id) => tournamentStore.tournament(id) },
+    boards: boardStore,
+    coachCount: () => Object.keys(readIdentitiesStrict().coaches).length,
+    openBugReports: () => listBugReports(BUG_REPORTS_DIR).filter((r) => r.triage.status !== "resolved" && r.triage.status !== "closed").length,
+    privacyJobs: () => privacyService.jobs(),
+    ratingsPreview: () => { const { ratings } = siteRatings.current(); return { coaches: ratings.overall.size, games: ratings.games }; },
+    ...(forkConfigFromEnv() ? { forkReload: runForkReload } : {}),
+    forkCleanup: (who, input) => leagueForkCleanupRoute(who, input, { store: leagueStore, fork: forkAdminCfg ? leagueFork : undefined, baselineFile: LEAGUE_FORK_CLEANUP_BASELINE }),
+    buildLogFile: BUILD_LOG_FILE,
+  };
 }
 
 /** Tabletop recorder HTTP: Discord session only (checked in tabletopApi), bounded body. */
@@ -2164,9 +2252,6 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
         pathname === "/tournament-rules.html" ||
         pathname === "/tournament-rules.css" ||
         pathname === "/tournament-rules.js" ||
-        pathname === "/admin.html" ||
-        pathname === "/admin.css" ||
-        pathname === "/admin.js" ||
         pathname === "/tournaments.html" ||
         pathname === "/tournaments.js" ||
         pathname === "/team-builder.html" ||
@@ -2535,6 +2620,7 @@ async function handleApi(
   if (isLobbyApiPath(path)) return handleLobbyRequest(req, res, path, query);
   if (isTabletopApiPath(path)) return handleTabletopRequest(req, res, path, query);
   if (isAdminTestingPath(path)) return handleTestingRequest(req, res, path, query, auth);
+  if (isAdminConsolePath(path)) return handleAdminConsoleRequest(req, res, path, query, auth);
   const method = req.method ?? "GET";
   const cacheGateCfg = forkConfigFromEnv();
   const gameStartDelivery = [
@@ -4283,37 +4369,8 @@ async function handleApi(
     if (auth?.admin !== true && !isAdminAuthed(req) && !isTokenAuthed(req)) {
       return sendJson(res, auth ? 403 : 401, auth ? { error: "Admin access required." } : { error: "Authentication required.", code: SIGN_IN_REQUIRED });
     }
-    const cfg = forkConfigFromEnv();
-    if (!cfg) return sendJson(res, 503, { error: "Fork teams dir not configured on this host (set FORK_TEAMS_DIR)." });
-    const generationLock = acquireTeamNameWriteLock(cfg.teamsDir);
-    if (!generationLock) return sendJson(res, 409, { error: "Another team/cache generation update is in progress." });
-    try {
-      const recovery = recoverTeamFileTransactions(cfg.teamsDir);
-      if (recovery.errors.length) return sendJson(res, 503, { error: `Team transaction recovery failed closed: ${recovery.errors.join("; ")}` });
-      const reload = await reloadFork(cfg, FORK_STATE_DIR);
-      if (reload.reloaded) {
-        acknowledgeRecoveredTeamTransactions(recovery.receipts);
-        acknowledgeForkCacheReload(cfg.teamsDir);
-        const deferred = await replayDeferredGameResults(
-          { teamsDir: cfg.teamsDir, resultsDir: join(dirname(cfg.teamsDir), "results"), libraryDir: LIBRARY_DIR },
-          async () => {
-            const replayReload = await reloadFork(cfg, FORK_STATE_DIR);
-            if (replayReload.reloaded) acknowledgeForkCacheReload(cfg.teamsDir);
-            return replayReload.reloaded;
-          },
-          true,
-        );
-        if (deferred.errors.length) {
-          return sendJson(res, 503, { error: `Fork reloaded, but deferred result recovery failed closed: ${deferred.errors.join("; ")}` });
-        }
-        return sendJson(res, 200, { ...reload, replayedResults: deferred.replayed });
-      }
-      return sendJson(res, 200, reload);
-    } catch (e) {
-      return sendJson(res, 400, { error: (e as Error).message });
-    } finally {
-      generationLock.release();
-    }
+    const out = await runForkReload();
+    return sendJson(res, out.status, out.body);
   }
 
   // Opponent-name autocomplete against fork coach names.
@@ -5636,6 +5693,9 @@ export function legacyTournamentRedirect(pathname: string, search: string): stri
     const q = params.toString();
     return q ? `${path}?${q}` : path;
   }
+  // Admin console v2 (owner 11-04): the old console moved into the SPA. The browser keeps the #users / #teams / #games /
+  // #reports fragment across the redirect and the SPA's /admin route maps it to that section.
+  if (pathname === "/admin.html") return "/app/admin";
   if (pathname === "/tournament-rules.html") {
     const q = new URLSearchParams(search).toString();
     return q ? `/app/tournament-creator?${q}` : "/app/tournament-creator";
@@ -5822,6 +5882,7 @@ export const server = createServer((req, res) => {
           isLobbyApiPath(url.pathname) ||
           isTabletopApiPath(url.pathname) ||
           isAdminTestingPath(url.pathname) ||
+          isAdminConsolePath(url.pathname) ||
           isOrganiserRequestAdminPath(url.pathname) ||
           ADMIN_COACH_DELETE_PATH.test(url.pathname) ||
           url.pathname === "/api/admin/privacy/jobs" ||

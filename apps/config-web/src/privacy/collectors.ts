@@ -792,6 +792,19 @@ export const STORE_COLLECTORS: StoreCollector[] = [
     erase: ["mail", "final-sweep"],
   },
   { id: "test-games", location: "FORK_STATE_DIR/test-games.json", export: { none: "Game ids only." }, erase: { none: "No personal data." } },
+  // Admin console Operations log (src/admin/opsLog.ts): names only the site admin who acted. Their own entries are exported;
+  // deletion keeps them as the audit trail of an admin action (like organiser-request decisions and privacy job closes).
+  {
+    id: "admin-ops-log",
+    location: "FORK_STATE_DIR/admin/ops-log.jsonl",
+    export: (ctx) => {
+      let text = "";
+      try { text = readFileSync(join(ctx.deps.stateDir, "admin", "ops-log.jsonl"), "utf8"); } catch (e) { if ((e as NodeJS.ErrnoException)?.code === "ENOENT") return []; throw e; }
+      const mine = text.split(/\r?\n/).flatMap((line) => { try { const e = JSON.parse(line) as Obj; return isMine(ctx.keys, e.by) ? [e] : []; } catch { return []; } });
+      return mine.length ? [{ name: "admin-operations.json", content: json(mine) }] : [];
+    },
+    erase: { none: "Audit trail of site-admin actions; kept, like organiser-request decisions." },
+  },
   { id: "logs", location: "config-web.*.log, data-store/config-web.log", export: { none: "Operational logs, rotated; not per coach." }, erase: { none: "Expire with log rotation (spec §4)." } },
   {
     id: "fork-teams-xml",
@@ -822,7 +835,7 @@ export const KNOWN_STORES = [
   "team-library", "fork-db", "tournaments", "leagues", "tabletop", "tabletop-teams", "tournament-results", "tournament-matches", "naf-games",
   "coach-titles", "replay-moments", "notifications", "bug-reports", "test-games", "logs", "fork-teams-xml", "bot-registry",
   "privacy-blocklist", "lobby-chat", "desktop-claims", "translation-cache", "mail", "friends", "blocks", "messages",
-  "fixture-lobbies", "schedule-proposals", "organiser-requests", "competition-templates", "clubs", "club-boards", "site-ratings", "badges",
+  "fixture-lobbies", "schedule-proposals", "organiser-requests", "competition-templates", "clubs", "club-boards", "site-ratings", "badges", "admin-ops-log",
 ] as const;
 
 /**
@@ -840,7 +853,7 @@ export const INVENTORY_ROWS: Record<(typeof KNOWN_STORES)[number], string[]> = {
   "translation-cache": ["translation-cache"], mail: ["mail"], friends: ["friends"], blocks: ["blocks"], messages: ["messages"],
   "fixture-lobbies": ["fixture-lobbies"], "schedule-proposals": ["schedule-proposals"], "organiser-requests": ["organiser-requests"],
   "competition-templates": ["competition-templates"],
-  clubs: ["clubs"], "club-boards": ["club-boards"], "site-ratings": ["results"], badges: ["badges"],
+  clubs: ["clubs"], "club-boards": ["club-boards"], "site-ratings": ["results"], badges: ["badges"], "admin-ops-log": ["logs"],
 };
 
 /** Team keys whose logos belong to the coach: their builder saves and library teams. */

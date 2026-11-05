@@ -31,7 +31,8 @@ export const TESTING_TOOLS: NavLink[] = [
   { label: "Tabletop", to: "/tabletop" },
   { label: "Team Builder", to: "/team-builder" },
   { label: "Roster Builder", to: "/tournament-team-builder" },
-  { label: "Organiser requests", to: "/admin/organiser-requests" },
+  // Admin console v2 (owner 11-04): users, teams, games, reports, moderation, organisers, privacy jobs and operations.
+  { label: "Admin console", to: "/admin/overview" },
 ];
 
 export const NAV_OPEN_STORAGE_KEY = "sf.navOpen";

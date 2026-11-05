@@ -6,7 +6,6 @@ import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
 import { COACH_SEARCH_KEY, createCoachSearch } from "../tabletop/coachSearch";
 import TabletopTestMatchCard from "../components/TabletopTestMatchCard.vue";
-import AdminDeleteCoachCard from "../components/AdminDeleteCoachCard.vue";
 import CaptainVacantChip from "../components/CaptainVacantChip.vue";
 import CaptainVacantDialog from "../components/CaptainVacantDialog.vue";
 import { fmtK } from "../shared/format";
@@ -217,7 +216,6 @@ onMounted(() => {
     <CaptainVacantDialog v-if="captain" :team-name="captain.info.teamName ?? ''" :players="captain.info.players" :appoint="appoint" @close="captain = null" />
 
     <TabletopTestMatchCard />
-    <AdminDeleteCoachCard />
     </div>
 
     <div class="hm-col">

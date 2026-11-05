@@ -8,8 +8,7 @@ import { contentArea, createHashReveal, createPaneScrollMemory, entryKey, fitMod
 import { hashId } from "./tournaments/scroll";
 import { legacyRedirect } from "./shell/sectionNav";
 import AccountView from "./views/AccountView.vue";
-import AdminOrganiserRequestsView from "./views/AdminOrganiserRequestsView.vue";
-import AdminTournamentsView from "./views/AdminTournamentsView.vue";
+import { ADMIN_SECTION_PATTERN, adminSectionFromHash } from "./admin/model";
 import HelpView from "./views/HelpView.vue";
 import GameSummaryView from "./views/GameSummaryView.vue";
 import HomeView from "./views/HomeView.vue";
@@ -50,6 +49,8 @@ declare module "vue-router" {
   interface RouteMeta {
     /** Needs a Discord session: signed out, the shell shows the sign-in prompt in place of the page. */
     requiresAuth?: boolean;
+    /** Site admins only (admin console v2): anyone else signed in gets the 403 page; the server gates every call too. */
+    requiresAdmin?: boolean;
     /** The page title: the shell header's h1 and the document title (a view may override it with usePageTitle). */
     title?: string;
   }
@@ -217,10 +218,21 @@ export const routes: RouteRecordRaw[] = [
       ? { name: "roster-builder-redraft", params: { leagueId: String(to.params.id) }, query: { team: to.query.team } }
       : { name: "league-settings", params: { id: String(to.params.id) }, query: { tab: "redraft" } }),
   },
-  { path: "/admin/tournaments", name: "admin-tournaments", component: AdminTournamentsView, meta: { requiresAuth: true, title: "Tournaments admin" } },
+  // Admin console v2 (owner 11-04, spec-admin-console-v2-2026-11-04): one page with a section header and tabs, site admins
+  // only (router gate + every server route). /admin.html 302s to /app/admin and the browser keeps its #section, mapped here.
+  // The old separate admin pages fold into the Organisers section.
+  { path: "/admin", name: "admin-root", redirect: (to) => ({ name: "admin", params: { section: adminSectionFromHash(to.hash) }, hash: "" }) },
+  { path: "/admin/tournaments", redirect: { name: "admin", params: { section: "organisers" } } },
+  { path: "/admin/organiser-requests", redirect: { name: "admin", params: { section: "organisers" } } },
+  {
+    path: `/admin/:section(${ADMIN_SECTION_PATTERN})`,
+    name: "admin",
+    component: () => import("./views/AdminConsoleView.vue"),
+    props: (route) => ({ section: String(route.params.section) }),
+    meta: { requiresAuth: true, requiresAdmin: true, title: "Admin console" },
+  },
   // Organiser requests (registration spec 2026-11-02 §3): coaches ask here; site admins answer in the queue.
   { path: "/organiser/request", name: "organiser-request", component: OrganiserRequestView, meta: { requiresAuth: true, title: "Become an organiser" } },
-  { path: "/admin/organiser-requests", name: "admin-organiser-requests", component: AdminOrganiserRequestsView, meta: { requiresAuth: true, title: "Organiser requests" } },
   {
     path: "/team-builder",
     name: "team-builder",
@@ -270,15 +282,21 @@ export const routes: RouteRecordRaw[] = [
   { path: "/:pathMatch(.*)*", name: "not-found", component: NotFoundView, meta: { title: "Page not found" } },
 ];
 
-export type GateResult = "loading" | "error" | "signin" | "allow";
+export type GateResult = "loading" | "error" | "signin" | "forbidden" | "allow";
 
-/** What the shell shows for a route given the session: the page, a sign-in prompt, or a session error. */
+/**
+ * What the shell shows for a route given the session: the page, a sign-in prompt, a session error, or (requiresAdmin) the
+ * 403 page for anyone signed in who is not a site admin. session.admin() fails closed while a re-read is pending.
+ */
 export function gateFor(route: Pick<RouteLocationNormalized, "meta">, session: SessionStore): GateResult {
-  if (!route.meta.requiresAuth) return "allow";
+  if (!route.meta.requiresAuth && !route.meta.requiresAdmin) return "allow";
   const { status } = session.state;
-  if (status === "idle" || status === "loading") return session.state.info ? (session.signedIn() ? "allow" : "signin") : "loading";
-  if (status === "error") return "error";
-  return session.signedIn() ? "allow" : "signin";
+  let gate: GateResult;
+  if (status === "idle" || status === "loading") gate = session.state.info ? (session.signedIn() ? "allow" : "signin") : "loading";
+  else if (status === "error") gate = "error";
+  else gate = session.signedIn() ? "allow" : "signin";
+  if (gate === "allow" && route.meta.requiresAdmin && !session.admin()) return status === "loading" ? "loading" : "forbidden";
+  return gate;
 }
 
 /** Fitted shell: a hash target is revealed in its pane now and again shortly while the page fills in (shell/fit.ts). */

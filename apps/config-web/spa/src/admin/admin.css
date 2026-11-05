@@ -1,0 +1,106 @@
+/* Admin console v2 (/app/admin, owner 11-04). The shared panel, band, tab, button, table and field classes do the work
+   (home.css .hm-panel/.hm-band[data-tone=admin], .sf-tabs, .sf-btn, .sf-table, .sf-field, .sf-k, .sf-error, .sf-notice,
+   shell/section.css .sh); this file only lays the sections out. Tokens only. At 1920x1080 the page never scrolls: each
+   section is a grid whose columns (and table panes) scroll inside themselves; below the fit size they stack. */
+
+.adm-sh { border-left-color: var(--ui-admin); }
+.adm-sh .sh-logo-blank { color: var(--ui-text); border-color: var(--ui-admin); }
+
+/* section grids */
+.adm-cols { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); align-items: start; min-width: 0; }
+.adm-col { display: grid; gap: 16px; min-width: 0; align-content: start; }
+@media (min-width: 1024px) {
+  .adm-cols { grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr); }
+  .adm-cols.even { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .adm-cols.lead { grid-template-columns: minmax(300px, 1fr) minmax(0, 2fr); }
+  .adm-cols.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .adm-cols.one { grid-template-columns: minmax(0, 1fr); }
+  .adm-cols.users { grid-template-columns: minmax(0, 1fr) 280px; }
+}
+@media screen and (min-width: 1367px) and (min-height: 700px) {
+  .shell-main .adm-cols { grid-template-rows: minmax(0, 1fr); align-items: stretch; }
+  .shell-main .adm-cols > .adm-col { min-height: 0; overflow-y: auto; overscroll-behavior: contain; position: relative; padding: 2px 6px 8px 2px; margin: -2px -6px 0 -2px; }
+  .shell-main .adm-cols > .sf-pane { min-height: 0; }
+}
+
+/* tables: wide ones scroll sideways inside their panel, never the page */
+.adm-table-wrap { overflow-x: auto; max-width: 100%; }
+.adm-table td, .adm-table th { white-space: nowrap; }
+.adm-table td.adm-wrap { white-space: normal; min-width: 180px; }
+.adm-table .adm-num { text-align: right; }
+.adm-table tr[data-open="true"] > td { background: color-mix(in srgb, var(--ui-admin) 10%, transparent); }
+.adm-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.adm-table .adm-actions.nowrap { flex-wrap: nowrap; }
+.adm-table select.sf-input { width: auto; min-height: 34px; padding-top: 2px; padding-bottom: 2px; }
+.adm-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.adm-muted { color: var(--ui-muted); font-size: 13px; }
+.adm-help { margin: 0; color: var(--ui-muted); font-size: 14px; }
+.adm-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+.adm-toolbar .sf-input, .adm-toolbar input { flex: 1 1 200px; min-width: 0; }
+
+/* the switches (Allowed / Banned, Normal / Silenced, Resurrection): a small bevelled toggle */
+.adm-toggle { min-height: 30px; padding: 0 10px; font: 11px/1 var(--sf-band-font); text-transform: uppercase; letter-spacing: .06em; color: var(--ui-text); background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: var(--sf-bevel); cursor: pointer; }
+.adm-toggle[aria-checked="true"] { color: var(--ui-scarlet-contrast); background: var(--ui-scarlet); border-color: var(--ui-scarlet); }
+.adm-toggle:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.adm-toggle:disabled { color: var(--ui-muted); cursor: not-allowed; }
+
+/* key/value rows (design.md §5 key/value list) */
+.adm-kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; margin: 0; font-size: 14px; }
+.adm-kv dt { font: 10px/1.8 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
+.adm-kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+
+/* Overview count tiles: each a link into its section */
+.adm-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
+.adm-tile { display: grid; gap: 2px; padding: 10px 12px; color: var(--ui-text); text-decoration: none; background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--ui-admin); border-radius: 2px; box-shadow: 0 3px 0 var(--sf-panel-drop); }
+.adm-tile:hover { border-color: var(--ui-heading); }
+.adm-tile:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.adm-tile strong { font: 28px/1.1 var(--font-heading); }
+.adm-tile span { font: 10px/1.4 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
+.adm-tile[data-alert="true"] strong { color: var(--ui-danger); }
+
+/* lists of rows (report queue, team results, boards, log) */
+.adm-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.adm-row { display: grid; gap: 2px; width: 100%; padding: 8px 10px; text-align: left; font: inherit; color: var(--ui-text); background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-radius: 2px; cursor: pointer; }
+.adm-row:hover { border-color: var(--ui-heading); }
+.adm-row[aria-pressed="true"] { border-color: var(--sf-seat-home); background: color-mix(in srgb, var(--sf-seat-home) 14%, var(--ui-surface-2)); }
+.adm-row:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.adm-row-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.adm-row-text { overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.adm-log-row { display: grid; gap: 2px; padding: 6px 0; border-bottom: 1px solid var(--sf-panel-line); font-size: 14px; }
+
+/* forms inside panels */
+.adm-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(min(180px, 100%), 1fr)); }
+.adm-grid .wide { grid-column: 1 / -1; }
+.adm-field { display: grid; gap: 4px; min-width: 0; }
+.adm-field :is(input, select, textarea) { width: 100%; min-width: 0; box-sizing: border-box; }
+.adm-field textarea { min-height: 84px; resize: vertical; }
+.adm-sub { margin: 12px 0 6px; font: 11px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-heading); }
+.adm-fieldset { margin: 12px 0 0; padding: 10px 12px; border: 2px solid var(--ui-admin); border-radius: 2px; }
+.adm-fieldset > legend { padding: 0 6px; font: 11px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-admin); }
+.adm-confirm { display: grid; gap: 6px; margin-top: 10px; padding: 10px; border: 2px dashed var(--ui-scarlet); border-radius: 2px; }
+.adm-confirm code { font: 13px/1.2 var(--sf-band-font); letter-spacing: .06em; color: var(--ui-text); }
+.adm-screenshot img { max-width: 100%; height: auto; border: 2px solid var(--sf-panel-line); border-radius: 2px; }
+.adm-quote { margin: 4px 0 0; padding-left: 8px; border-left: 2px solid var(--sf-panel-line); color: var(--ui-muted); font-size: 14px; overflow-wrap: anywhere; }
+.adm-pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
+
+.adm-save-row { margin-top: 10px; }
+
+/* live game cards */
+.adm-game .hm-band { align-items: center; }
+.adm-game-actions { margin-top: 8px; }
+.adm-games { display: grid; gap: 12px; }
+
+/* team editor bits */
+.adm-metrics { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; margin-bottom: 10px; }
+.adm-metric { display: grid; gap: 2px; padding: 6px 8px; background: var(--ui-surface-2); border: 1px solid var(--sf-panel-line); border-radius: 2px; }
+.adm-metric span { font: 10px/1.4 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
+.adm-metric strong { font-family: var(--font-heading); font-size: 16px; }
+.adm-stepper { display: inline-flex; gap: 4px; }
+.adm-tiny { width: 64px; }
+.adm-player-editor { display: grid; gap: 8px; padding: 8px 0; }
+.adm-player-editor .adm-actions { gap: 8px; }
+
+@media (max-width: 640px) {
+  .adm-kv { grid-template-columns: minmax(0, 1fr); }
+  .adm-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

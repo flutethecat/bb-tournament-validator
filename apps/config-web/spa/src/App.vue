@@ -252,6 +252,11 @@ async function signOut(): Promise<void> {
         <TestSignInCard />
         <RecentGames class="rc-landing" />
       </template>
+      <section v-else-if="gate === 'forbidden'" class="hm-panel sf-solo" aria-labelledby="sf-forbidden-h" data-forbidden>
+        <header class="hm-band" data-tone="admin"><h2 id="sf-forbidden-h">Admins only</h2><span class="hm-cap">403</span></header>
+        <p class="hm-empty">This page is for site admins. You are signed in as {{ session.coach() }}, which is not an admin account.</p>
+        <div class="sf-btn-row"><RouterLink class="sf-btn primary" to="/home">Go to your coach page</RouterLink></div>
+      </section>
       <template v-else>
         <LeagueShareNotice v-if="leagueSharing && session.signedIn() && !onboardingOpen" />
         <RouterView :key="route.path" />

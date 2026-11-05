@@ -526,8 +526,10 @@ describe("phase 2/3 views (server-rendered against a mocked API)", () => {
       await a.load();
       inject(mods.admin.ADMIN_TOURNAMENTS_KEY, a);
     };
+    // Admin console v2 (owner 11-04): the old page redirects into the console's Organisers section.
     const admin = await render("/admin/tournaments", { ...AS("Root", { admin: true }), "/api/fork/tournaments?status=all": list }, prep);
-    expect(admin.html).toContain("Tournaments admin");
+    expect(admin.spa.router.currentRoute.value.fullPath).toBe("/admin/organisers");
+    expect(admin.html).toContain("All tournaments");
     expect(admin.html).toContain("Spike Open");
     expect(admin.html).toContain("Old Cup");
     expect(admin.html).toContain("None (admins only)");
@@ -536,7 +538,8 @@ describe("phase 2/3 views (server-rendered against a mocked API)", () => {
     expect(admin.html).toContain(">Add organiser</button>");
     expect(admin.html).toContain('href="/app/tournaments/t1/manage"');
     const plain = await render("/admin/tournaments", { ...AS("Alice"), "/api/fork/tournaments?status=all": list }, prep);
-    expect(plain.html).toContain("Admins only.");
+    expect(plain.html).toContain("data-forbidden");
+    expect(plain.html).toContain("Admins only");
     expect(plain.html).not.toContain("Spike Open");
   });
 

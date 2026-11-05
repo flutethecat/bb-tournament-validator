@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-04",
+    "title": "A new admin console",
+    "body": "Site admins have a new admin console in the site's own look, with Users, Teams, Games, Reports, board Moderation across leagues and tournaments, Organisers, Privacy jobs and Operations in one place. Operations covers the game server reload, the league fork cleanup, the ratings reset (it always takes a backup first, and a backup can be restored), demo leagues and the testing suite, each with a dry run first and every use logged. The old admin page now opens the new console.",
+    "links": [
+      {
+        "label": "Admin console",
+        "href": "/app/admin"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-04",
     "title": "Today's new screens match the site's look",
     "body": "Board threads now look like league news cards, Ratings numbers line up on the right like Standings, and a few spacing, colour and button-row fixes on the check-in pages, Money settings, Badges and the redraft board bring today's new screens in line with the rest of the site.",
     "links": [
@@ -17,7 +28,7 @@
     "links": [
       {
         "label": "Admin Console",
-        "href": "/admin.html#reports"
+        "href": "/app/admin/reports"
       }
     ]
   },
