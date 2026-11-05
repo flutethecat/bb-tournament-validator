@@ -243,9 +243,14 @@ export async function submitBugReport(
     return { status: 413, body: { error: `wireLog exceeds the ${WIRE_LOG_CAP / (1024 * 1024)}MB limit.` } };
   if (body.appLog && Buffer.byteLength(body.appLog, "utf8") > APP_LOG_CAP)
     return { status: 413, body: { error: `appLog exceeds the ${APP_LOG_CAP / (1024 * 1024)}MB limit.` } };
+  // Released clients (1.0.305 and earlier) send an in-game gameId as a NUMBER: a finite number becomes its decimal
+  // string. Any other non-string gameId / clientVersion is dropped, never a 400 (as before the metadata caps).
+  const rawGameId: unknown = body.gameId;
+  body.gameId = typeof rawGameId === "number" && Number.isFinite(rawGameId) ? String(rawGameId)
+    : typeof rawGameId === "string" ? rawGameId : undefined;
+  if (typeof body.clientVersion !== "string") body.clientVersion = undefined;
   for (const field of ["clientVersion", "gameId"] as const) {
     const value = body[field];
-    if (value != null && typeof value !== "string") return { status: 400, body: { error: `${field} must be a string.` } };
     if (typeof value === "string" && value.trim().length > METADATA_FIELD_CAP)
       return { status: 400, body: { error: `${field} is limited to ${METADATA_FIELD_CAP} characters.` } };
   }

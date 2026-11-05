@@ -484,16 +484,33 @@ describe("status check reads only the small status record (Sol P2, 11-04)", () =
   const submit = async (d: string, extra: Record<string, unknown> = {}) =>
     (await submitBugReport({ ...BASE, ...extra }, undefined, deps(d), Date.UTC(2026, 10, 4, 10))) as { status: number; body: { id: string; receipt: string; error?: string } };
 
-  it("refuses over-long or non-string clientVersion / gameId with 400 at submit", async () => {
+  it("refuses over-long clientVersion / gameId strings with 400 at submit, and drops other non-strings", async () => {
     const d = dir();
     const long = "x".repeat(METADATA_FIELD_CAP + 1);
     expect((await submit(d, { clientVersion: long })).status).toBe(400);
     expect((await submit(d, { gameId: long })).status).toBe(400);
-    expect((await submit(d, { clientVersion: 5 })).status).toBe(400);
-    expect((await submit(d, { gameId: { a: 1 } })).status).toBe(400);
     expect((await submit(d, { gameService: ["fork"] })).status).toBe(400);
+    expect(readdirSync(d)).toHaveLength(0);
+    // a non-string clientVersion or a non-number, non-string gameId is dropped, not refused
+    const a = await submit(d, { clientVersion: 5, gameId: { a: 1 } });
+    expect(a.status).toBe(200);
+    const ra = JSON.parse(readFileSync(join(d, (a.body as { id: string }).id, "report.json"), "utf8")) as Record<string, unknown>;
+    expect(ra.clientVersion).toBeNull();
+    expect(ra.gameId).toBeNull();
     expect((await submit(d, { publicEdition: true, coach: "y".repeat(5000), clientVersion: "1.0.307", gameId: "x".repeat(METADATA_FIELD_CAP) })).status).toBe(200);
-    expect(readdirSync(d)).toHaveLength(1);
+  });
+
+  it("accepts a numeric gameId from released clients (1.0.305 and earlier) as its decimal string", async () => {
+    const d = dir();
+    const r = await submit(d, { gameId: 1932766, gameService: "fumbbl", clientVersion: "1.0.305" });
+    expect(r.status).toBe(200);
+    const id = (r.body as { id: string }).id;
+    expect(id).toContain("fumbbl-1932766");
+    const report = JSON.parse(readFileSync(join(d, id, "report.json"), "utf8")) as Record<string, unknown>;
+    expect(report.gameId).toBe("1932766");
+    const bad = await submit(d, { gameId: Number.NaN });
+    expect(bad.status).toBe(200);
+    expect(JSON.parse(readFileSync(join(d, (bad.body as { id: string }).id, "report.json"), "utf8")).gameId).toBeNull();
   });
 
   it("answers from status.json even when report.json is unreadable, and skips a status record over the cap", async () => {
