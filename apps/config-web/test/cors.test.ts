@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { APP_WEBVIEW_ORIGINS, corsDecision, parseAllowedOrigins } from "../src/cors.js";
+import { APP_WEBVIEW_ORIGINS, corsDecision, nullOriginEligible, parseAllowedOrigins } from "../src/cors.js";
 
 describe("parseAllowedOrigins", () => {
   it("splits, trims, lowercases, and drops trailing slashes + empties", () => {
@@ -45,12 +45,33 @@ describe("corsDecision", () => {
 
   it("denies any other origin — fail closed", () => {
     expect(corsDecision("https://evil.example", "box.example:4310", allow).kind).toBe("denied");
-    expect(corsDecision("null", "box.example:4310", allow).kind).toBe("denied");
+    expect(corsDecision("null", "box.example:4310", allow).kind).toBe("denied"); // unless the caller passes allowNullOrigin
     expect(corsDecision("not a url", "box.example:4310", allow).kind).toBe("denied");
   });
 
   it("never treats a wildcard entry as a real origin match for arbitrary origins", () => {
     // Someone setting CORS_ALLOWED_ORIGINS=* gets a literal (useless) entry, not a wildcard.
     expect(corsDecision("https://evil.example", "h:1", parseAllowedOrigins("*")).kind).toBe("denied");
+  });
+});
+
+// Owner 11-06 (Linux "Origin not allowed"): plugin-http serializes sfapp://localhost as the opaque origin "null".
+describe("Origin null (the Linux / macOS app)", () => {
+  const allow = parseAllowedOrigins(undefined);
+  it("is allowed only when the request carries no ambient browser credential", () => {
+    expect(corsDecision("null", "h:1", allow, { allowNullOrigin: true })).toEqual({ kind: "allowed", origin: "null" });
+    expect(corsDecision("null", "h:1", allow, { allowNullOrigin: false }).kind).toBe("denied");
+    expect(nullOriginEligible({}, "/api/bug-reports")).toBe(true);
+    expect(nullOriginEligible({ authorization: "Bearer abc" }, "/api/bug-reports")).toBe(true);
+  });
+  it("Sol 11-06 HIGH: a cookie or a (browser-cached) Basic login makes it ineligible", () => {
+    expect(nullOriginEligible({ cookie: "cw_session=x" }, "/api/bug-reports")).toBe(false);
+    expect(nullOriginEligible({ authorization: "Basic YWRtaW46eA==" }, "/api/fork/game/1/delete")).toBe(false);
+    expect(nullOriginEligible({ authorization: "  basic YWRtaW46eA==" }, "/api/x")).toBe(false);
+  });
+  it("Sol 11-06 LOW: never on the loopback-gated test-login routes", () => {
+    expect(nullOriginEligible({}, "/api/auth/test-login/options")).toBe(false);
+    expect(nullOriginEligible({}, "/api/auth/test-login")).toBe(false);
+    expect(nullOriginEligible({}, "/api/auth/test-loginx")).toBe(true);
   });
 });

@@ -25,6 +25,22 @@ export function parseAllowedOrigins(raw: string | undefined): Set<string> {
   );
 }
 
+/** Owner 11-06 (Linux bug report "Origin not allowed"): Tauri plugin-http writes the Origin from the page URL, and the
+ *  url crate serializes a custom scheme other than `tauri` (sfapp://localhost on WebKitGTK / WKWebView) as the opaque
+ *  origin "null", so every Linux / macOS request from the patched app arrives as `Origin: null`. Sandboxed iframes,
+ *  file: and data: pages send "null" too, so it is accepted ONLY on a request that carries no ambient browser
+ *  credential: no Cookie header (the session / Discord cookies) and no Basic Authorization (a browser replays a cached
+ *  admin login on a form post; Sol 11-06 HIGH). The app authenticates with Bearer tokens or credentials in the body.
+ *  Never on the loopback-gated test-login routes (Sol 11-06 LOW). Drop once the shell sends its real origin and the
+ *  old shells are gone. */
+export const NULL_ORIGIN_BLOCKED_PREFIXES = ["/api/auth/test-login"];
+
+export function nullOriginEligible(headers: { cookie?: string; authorization?: string }, pathname: string): boolean {
+  if (headers.cookie) return false;
+  if (/^\s*basic\s/i.test(headers.authorization ?? "")) return false;
+  return !NULL_ORIGIN_BLOCKED_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+}
+
 export type CorsDecision =
   | { kind: "no-origin" } // non-browser caller — no CORS headers needed
   | { kind: "allowed"; origin: string } // reflect THIS origin (never *)
@@ -34,9 +50,11 @@ export function corsDecision(
   origin: string | undefined,
   host: string | undefined,
   allowlist: Set<string>,
+  opts: { allowNullOrigin?: boolean } = {},
 ): CorsDecision {
   if (!origin) return { kind: "no-origin" };
   const normalized = origin.trim().replace(/\/+$/, "").toLowerCase();
+  if (normalized === "null") return opts.allowNullOrigin ? { kind: "allowed", origin } : { kind: "denied" };
   if (allowlist.has(normalized)) return { kind: "allowed", origin };
   // Same-origin: the page came from THIS server (config-web's own frontend).
   try {

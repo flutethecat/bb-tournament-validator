@@ -205,7 +205,7 @@ import { teamBuilderBoundsError, teamBuilderWireError } from "./teamBuilderWire.
 import { applyPickNames, builtLibraryTeam, registerBuiltTeam, resolveTeamBuilderBuildTarget, retargetComposedTeam } from "./teamBuilderBuild.js";
 import { teamBuilderInducementCatalog } from "./teamBuilderInducements.js";
 import { teamBuilderTierCatalog } from "./teamBuilderTiers.js";
-import { corsDecision, parseAllowedOrigins } from "./cors.js";
+import { corsDecision, nullOriginEligible, parseAllowedOrigins } from "./cors.js";
 import { createTranslateHandler } from "./translate/route.js";
 import { teamEditingError } from "./customGate.js";
 import { forkGamesEndpoint } from "./forkGames.js";
@@ -5731,7 +5731,8 @@ export const server = createServer((req, res) => {
       // without them). No-Origin callers (curl, tauriFetch, the fork's Java client) are
       // untouched; an allowed origin is reflected (never *); any other Origin on an /api
       // path is refused outright — fail closed.
-      const cors = corsDecision(req.headers.origin, req.headers.host, CORS_ALLOWLIST);
+      // Owner 11-06: the Linux / macOS app sends Origin "null"; accepted only without ambient credentials (cors.ts)
+      const cors = corsDecision(req.headers.origin, req.headers.host, CORS_ALLOWLIST, { allowNullOrigin: nullOriginEligible(req.headers, url.pathname) });
       if (cors.kind === "allowed") {
         res.setHeader("access-control-allow-origin", cors.origin);
         res.setHeader("vary", "origin");
