@@ -411,6 +411,24 @@ describe("tournament builder controller", () => {
     expect(b.state.buildResult).toEqual({ ok: false, title: "Build failed", lines: ["Team is not valid.", "Too many players — Fire one"] });
   });
 
+  it("Export PDF: a sheet beyond one readable page downloads complete and says how many pages", async () => {
+    const saved: string[] = [];
+    const pdf = {
+      loadPdfMake: async () => ({ createPdf: () => ({ getBlob: async () => new Blob(["%PDF"]) }) }),
+      buildSheetDocDefinition: (model: any) => ({ model }),
+      fitSheetPdf: async () => ({ blob: new Blob(["%PDF"]), fitted: false, pages: 2 }),
+      sheetPdfFileName: (n: string) => n.replace(/\.html$/, ".pdf"),
+    };
+    const b = createTournamentBuilder({ api: mockFetcher(routes()), coach: () => "Alice", previewDelay: 0, loadSheetPdf: async () => pdf, saveBlob: (_b, name) => saved.push(name), print: () => { throw new Error("no print"); } });
+    await b.init({ packageName: "Test Cup", race: "human" });
+    b.setTeamName("Reavers");
+    b.addPosition("hlin");
+    await b.flushPreview();
+    expect(await b.exportPdf()).toBe("pdf");
+    expect(saved).toEqual(["Reavers_roster.pdf"]);
+    expect(b.state.buildResult).toEqual({ ok: true, title: "Export PDF", lines: ["This team sheet needs 2 pages."] });
+  });
+
   it("Export PDF builds in the browser; a failure falls back to the print dialog", async () => {
     const saved: string[] = [];
     let printed = 0;

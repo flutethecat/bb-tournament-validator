@@ -10,8 +10,10 @@
  * fit loop. It lays the definition out at density level 0 and reads the page count and the content height (a sentinel
  * node at the end of the content, seen through pdfmake's pageBreakBefore hook). Over one page, it binary-searches the
  * density levels (smaller fonts, tighter padding, narrower fixed columns so the Skills column wraps wider; no font below
- * FONT_FLOOR). If even the floor overflows, the last resort scales the whole content uniformly by the measured ratio.
- * Never a second page. The PDF of the layout that fitted is the one returned (no extra render).
+ * FONT_FLOOR). If even the floor overflows, the last resort scales the whole content uniformly by the measured ratio,
+ * down to MIN_SCALE (readability). A sheet that still overflows there (beyond any real team) is rendered COMPLETE at
+ * MIN_SCALE with rows allowed to break across pages and reported `fitted: false`; the export callers then tell the coach
+ * "This team sheet needs N pages." Text is never dropped. The PDF of the final layout is the one returned.
  *
  * Fonts: only the Roboto bundled in pdfmake's vfs_fonts.js. No other font files.
  *
@@ -280,7 +282,8 @@
   /**
    * pdfmake document definition for one roster sheet. `options`:
    *   { gold(value) -> "100k" (defaults to the builder's format), generatedOn (Date | ISO string),
-   *     density (0..MAX_DENSITY, default 0), scale (0 < s <= 1, default 1; the fit loop's last resort) }
+   *     density (0..MAX_DENSITY, default 0), scale (0 < s <= 1, default 1; the fit loop's last resort),
+   *     allowRowBreaks (the overflow fallback: rows may split across pages) }
    */
   function buildSheetDocDefinition(model, options = {}) {
     const gold = typeof options.gold === "function" ? options.gold : fallbackGold;
@@ -349,7 +352,9 @@
     const roster = {
       table: {
         headerRows: 1, // repeated on every page
-        dontBreakRows: true,
+        // A row never splits, except in the overflow fallback (allowRowBreaks): a row taller than a page (a star with
+        // very long custom rules) would otherwise be clipped.
+        dontBreakRows: options.allowRowBreaks !== true,
         // The Player column is fixed so a long name wraps inside its row (rows grow; dontBreakRows keeps a player whole).
         // Denser levels narrow the fixed columns with the font, so the Skills column wraps wider.
         widths: [c.number, playerColumnWidth(rows, m), c.stat, c.stat, c.stat, c.stat, c.av, "*", c.cost],
@@ -415,6 +420,8 @@
 
   // ── one page, always (owner 11-09) ──
   const MAX_LAYOUTS = 12;
+  /** The readable floor of the last-resort scale: FONT_FLOOR × 0.6 ≈ 3.9 pt. Below it the sheet takes extra pages. */
+  const MIN_SCALE = 0.6;
   /** A measuring page: A4 landscape's width, PDF's maximum height, so nothing paginates and the height is exact. */
   const MEASURE_PAGE = { width: PAGE_W, height: 14400 };
   const yieldMacrotask = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -455,9 +462,11 @@
    *  1. level 0 on A4: one page → done (the usual team: one layout);
    *  2. else exact heights on a tall measuring page: binary search for the least dense level that fits;
    *  3. if even the densest level overflows, uniform scale-downs by the measured ratio until the height fits;
-   *  4. the chosen definition laid out on A4 (its PDF is the output). Never a second page: a final A4 layout that still
-   *     spills (rounding) shrinks 3 % and tries again.
-   * Returns { doc, output, level, scale, pages, layouts }.
+   *  4. the chosen definition laid out on A4 (its PDF is the output); a final A4 layout that still spills (rounding)
+   *     shrinks 3 % and tries again.
+   * The scale never goes below MIN_SCALE (readability). A sheet that overflows even there is rendered complete at
+   * MIN_SCALE with rows allowed to break across pages (build's third argument), and reported `fitted: false`.
+   * Returns { doc, output, level, scale, pages, fitted, layouts }.
    */
   async function fitLoop(build, layout, inner = CONTENT_H) {
     let layouts = 0;
@@ -472,7 +481,7 @@
       return { doc, output: result.output, level, scale, pages: result.pages, layouts };
     };
     const first = await onA4(0, 1);
-    if (first.pages <= 1) return first;
+    if (first.pages <= 1) return { ...first, fitted: true };
     const fits = (height) => typeof height === "number" && height <= inner - 0.5;
     const measure = async (level, scale) => (await run(measuringDefinition(build(level, scale)))).height;
 
@@ -496,38 +505,50 @@
       let height = densestHeight;
       let prev = null;
       let k = 1;
-      while (!fits(height) && layouts < MAX_LAYOUTS - 1) {
+      while (!fits(height) && scale > MIN_SCALE && layouts < MAX_LAYOUTS - 2) {
         if (!(height > 0)) {
-          scale = Math.max(0.05, Math.floor(scale * 850) / 1000);
+          scale = Math.max(MIN_SCALE, Math.floor(scale * 850) / 1000);
         } else {
           if (prev && prev.height > 0 && prev.scale !== scale && prev.height !== height) {
             k = Math.min(1.5, Math.max(0.2, Math.log(height / prev.height) / Math.log(scale / prev.scale)));
           }
           prev = { scale, height };
           const next = scale * Math.pow((inner * 0.995) / height, 1 / k);
-          scale = Math.max(0.05, Math.floor(Math.min(scale * 0.98, next) * 1000) / 1000);
+          scale = Math.max(MIN_SCALE, Math.floor(Math.min(scale * 0.98, next) * 1000) / 1000);
         }
         height = await measure(level, scale);
       }
+      // Even the readable floor overflows: no further shrinking (it would make text unreadable).
+      if (!fits(height)) return overflow();
     }
     let last = await onA4(level, scale);
-    while (last.pages > 1 && layouts < MAX_LAYOUTS) {
-      scale = Math.max(0.05, Math.floor(scale * 0.97 * 1000) / 1000);
+    while (last.pages > 1 && scale > MIN_SCALE && layouts < MAX_LAYOUTS - 1) {
+      scale = Math.max(MIN_SCALE, Math.floor(scale * 0.97 * 1000) / 1000);
       last = await onA4(level, scale);
     }
-    return { ...last, layouts };
+    if (last.pages > 1) return overflow();
+    return { ...last, fitted: true, layouts };
+
+    /** The overflow fallback (Sol 6.1 P2, 11-09): a COMPLETE sheet at the readable floor that may take extra pages; its
+     *  rows may break across pages so no cell taller than a page is ever clipped. The caller tells the coach. */
+    async function overflow() {
+      const doc = build(MAX_DENSITY, MIN_SCALE, true);
+      const result = await run(doc);
+      return { doc, output: result.output, level: MAX_DENSITY, scale: MIN_SCALE, pages: result.pages, fitted: false, layouts };
+    }
   }
 
   /**
    * The one-page team-sheet PDF (owner 11-09): buildSheetDocDefinition + the fit loop with the given pdfMake.
    * `options` as buildSheetDocDefinition, plus `blob: true` for a Blob output (the browser download) and `layout` to
-   * replace the pdfmake layout (tests). Resolves { doc, output, blob | buffer, level, scale, pages, layouts }.
+   * replace the pdfmake layout (tests). Resolves { doc, output, blob | buffer, level, scale, pages, fitted, layouts }; with
+   * `fitted: false` the PDF is complete but takes `pages` pages, and the caller says so ("This team sheet needs N pages.").
    */
   async function fitSheetPdf(pdfMake, model, options = {}) {
     const layout = typeof options.layout === "function"
       ? options.layout
       : (def) => layoutWithPdfMake(pdfMake, def, options.blob === true && !isMeasuring(def));
-    const result = await fitLoop((density, scale) => buildSheetDocDefinition(model, { ...options, density, scale }), layout);
+    const result = await fitLoop((density, scale, overflow) => buildSheetDocDefinition(model, { ...options, density, scale, allowRowBreaks: overflow === true }), layout);
     return { ...result, [options.blob === true ? "blob" : "buffer"]: result.output };
   }
 
@@ -579,7 +600,7 @@
     loading = null;
   }
 
-  const api = { buildSheetDocDefinition, fitSheetPdf, fitLoop, isMeasuring, sheetMetrics, rulesetRows, compactRulesetRows, rulesetBoxLines, rulesetBoxModel, MAX_DENSITY, FONT_FLOOR, PALETTE, sheetPdfFileName, loadPdfMake, abandonPdfMakeLoad, PDFMAKE_SCRIPTS, PRODUCT };
+  const api = { buildSheetDocDefinition, fitSheetPdf, fitLoop, isMeasuring, MIN_SCALE, sheetMetrics, rulesetRows, compactRulesetRows, rulesetBoxLines, rulesetBoxModel, MAX_DENSITY, FONT_FLOOR, PALETTE, sheetPdfFileName, loadPdfMake, abandonPdfMakeLoad, PDFMAKE_SCRIPTS, PRODUCT };
   root.SheetPdf = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })();

@@ -317,6 +317,18 @@ describe("Export PDF button flow (team-builder.js printSheet, stubbed DOM)", () 
     expect(h.el("print-sheet").textContent).toBe("Export PDF");
   });
 
+  it("a sheet beyond one readable page (fitted: false) still downloads and tells the coach how many pages", async () => {
+    const h = harness({ ...SheetPdf, loadPdfMake: async () => ({}), fitSheetPdf: async () => ({ blob: { size: 10 }, fitted: false, pages: 3 }) });
+    await h.printSheet();
+    expect(h.calls.saved).toEqual(["T_roster.pdf"]);
+    expect(h.calls.printed).toBe(0);
+    expect(h.el("build-result").innerHTML).toContain("This team sheet needs 3 pages.");
+    expect(h.el("build-result").hidden).toBe(false);
+    const fits = harness({ ...SheetPdf, loadPdfMake: async () => ({}), fitSheetPdf: async () => ({ blob: { size: 10 }, fitted: true, pages: 1 }) });
+    await fits.printSheet();
+    expect(fits.el("build-result").hidden).toBe(true); // a one-page sheet says nothing
+  });
+
   it("a script-load failure falls back to the print dialog with the notice; the button resets", async () => {
     const h = harness({ ...SheetPdf, loadPdfMake: async () => { throw new Error("Could not load /vendor/pdfmake/pdfmake.min.js"); } });
     await h.printSheet();

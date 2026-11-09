@@ -3344,11 +3344,18 @@ ${rosterSheetHtml(model)}
       // an already-expired deadline wins before the main thread is busy.
       await bounded(new Promise((resolve) => setTimeout(resolve, 0)));
       // One page, always (owner 11-09): sheet-pdf.js's fit loop; a copy without it renders as before.
-      const blob = typeof sheetPdf.fitSheetPdf === "function"
-        ? (await bounded(sheetPdf.fitSheetPdf(pdfMake, model, { gold: Core.gold, generatedOn: new Date(), blob: true }))).blob
-        : await bounded(pdfMake.createPdf(sheetPdf.buildSheetDocDefinition(model, { gold: Core.gold, generatedOn: new Date() })).getBlob());
+      const fit = typeof sheetPdf.fitSheetPdf === "function"
+        ? await bounded(sheetPdf.fitSheetPdf(pdfMake, model, { gold: Core.gold, generatedOn: new Date(), blob: true }))
+        : { blob: await bounded(pdfMake.createPdf(sheetPdf.buildSheetDocDefinition(model, { gold: Core.gold, generatedOn: new Date() })).getBlob()) };
       clearTimeout(timer);
-      saveBlob(blob, sheetPdf.sheetPdfFileName(Core.sheetFileName(model)));
+      saveBlob(fit.blob, sheetPdf.sheetPdfFileName(Core.sheetFileName(model)));
+      // A sheet beyond one readable page comes back complete with `fitted: false`: tell the coach how many pages.
+      if (fit.fitted === false) {
+        const pages = Number.isInteger(fit.pages) && fit.pages > 1 ? fit.pages : "more than one"; // a number or fixed text only
+        $("build-result").className = "result-banner";
+        $("build-result").innerHTML = `<strong>Export PDF</strong><span>This team sheet needs ${pages} pages.</span>`;
+        $("build-result").hidden = false;
+      }
     } catch {
       $("build-result").className = "result-banner";
       $("build-result").innerHTML = "<strong>Export PDF</strong><span>PDF service unavailable, opened the print dialog instead.</span>";

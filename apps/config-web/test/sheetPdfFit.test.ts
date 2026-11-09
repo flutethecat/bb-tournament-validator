@@ -3,7 +3,7 @@ import { createContext, runInContext } from "node:vm";
 import { describe, expect, it } from "vitest";
 import { extractPdfPages } from "../../../packages/bb-ingest/src/pdf/extractText.js";
 // @ts-expect-error plain ES module fixture (shared with the owner's before/after renders)
-import { EMERALD_RULESET, WORST_RULESET, emeraldWardens, worstCase } from "./fixtures/sheetFitModels.mjs";
+import { EMERALD_RULESET, WORST_RULESET, emeraldWardens, solOverflow, worstCase } from "./fixtures/sheetFitModels.mjs";
 
 // ONE PAGE, ALWAYS (owner 11-09): public/sheet-pdf.js compresses the TOURNAMENT RULESET box and fits every team sheet on
 // one A4 landscape page (density levels, then a uniform scale as the last resort). The vendored pdfmake runs here in a
@@ -27,11 +27,11 @@ const opts = { gold: core.gold, generatedOn: "2026-11-09" };
 const plain = <T>(value: T): T => JSON.parse(JSON.stringify(value)); // vm-realm data, as the browser hands it over
 const emerald = () => plain(emeraldWardens(core));
 const worst = () => plain(worstCase(core));
-/** Worse than any real team: the worst case with every star carrying long custom rules (forces the uniform scale). */
+/** Worse than any real team: the worst case with every row carrying a long custom rule (forces the uniform scale, above its readable floor). */
 function beyondFloor() {
   const model: any = worst();
   const rule = (i: number) => ({ kind: i % 2 ? "rule" : "trait", name: `Ancient Oath ${i}`, description: "When this player is activated, roll a D6 and consult the oath table; on a 4+ they may ignore the first Tackle Zone they leave this turn. ".repeat(3) });
-  for (const row of model.rows) row.specialRules = [0, 1, 2].map(rule);
+  for (const row of model.rows) row.specialRules = [0].map(rule);
   return model;
 }
 const pagesText = async (bytes: Uint8Array) => (await extractPdfPages(bytes)).map((p) => p.lines.map((l) => l.text).join("\n").replace(/​/g, ""));
@@ -71,7 +71,7 @@ describe("the owner's export: Emerald Wardens (11 High Elves, NAF World Cup 2027
 
   it("fits at level 0 in one layout; the real PDF is one page with all 11 players, the keywords and every box value on one line", async () => {
     const result = await SheetPdf.fitSheetPdf(ctx.pdfMake, emerald(), opts);
-    expect(result).toMatchObject({ level: 0, scale: 1, pages: 1, layouts: 1 });
+    expect(result).toMatchObject({ level: 0, scale: 1, pages: 1, fitted: true, layouts: 1 });
     const pages = await pagesText(new Uint8Array(result.buffer));
     expect(pages).toHaveLength(1);
     const text = pages[0]!;
@@ -94,6 +94,7 @@ describe("worst case: 16 rows, 30-character names, 4-5 skills each, stars, custo
     expect(model.rows).toHaveLength(16);
     const result = await SheetPdf.fitSheetPdf(ctx.pdfMake, model, opts);
     expect(result.pages).toBe(1);
+    expect(result.fitted).toBe(true);
     expect(result.level).toBeGreaterThan(0);
     expect(result.layouts).toBeLessThanOrEqual(12);
     const pages = await pagesText(new Uint8Array(result.buffer));
@@ -128,13 +129,14 @@ describe("worst case: 16 rows, 30-character names, 4-5 skills each, stars, custo
     expect(widths(SheetPdf.MAX_DENSITY)[8]).toBeLessThan(widths(0)[8]);
   });
 
-  it("beyond the floor (every row carrying long custom rules): the uniform scale-down keeps it to ONE page", async () => {
+  it("beyond the density floor (every row carrying a long custom rule): the uniform scale-down keeps it to ONE page", async () => {
     const model = beyondFloor();
     const result = await SheetPdf.fitSheetPdf(ctx.pdfMake, model, opts);
     expect(result.level).toBe(SheetPdf.MAX_DENSITY);
     expect(result.scale).toBeLessThan(1);
-    expect(result.scale).toBeGreaterThan(0.3);
+    expect(result.scale).toBeGreaterThanOrEqual(SheetPdf.MIN_SCALE); // never below the readable floor
     expect(result.pages).toBe(1);
+    expect(result.fitted).toBe(true);
     const pages = await pagesText(new Uint8Array(result.buffer));
     expect(pages).toHaveLength(1);
     for (let n = 1; n <= 16; n++) expect(pages[0]).toMatch(new RegExp(`(^|\\n)${n} `));
@@ -153,6 +155,37 @@ describe("worst case: 16 rows, 30-character names, 4-5 skills each, stars, custo
     const result = await SheetPdf.fitSheetPdf(ctx.pdfMake, emerald(), { ...opts, blob: true });
     expect(result.blob.type).toBe("application/pdf");
     expect(result.blob.size).toBeGreaterThan(1000);
+  }, 30_000);
+});
+
+describe("beyond one readable page (Sol 6.1 P2, 11-09): complete, readable, reported", () => {
+  it("11 players + a custom star with 12 multiline ~590-character rules: extra pages at the floor scale, every rule whole", async () => {
+    const model = plain(solOverflow(core));
+    for (const r of model.rows.at(-1).specialRules) expect(r.description.length).toBeGreaterThan(560);
+    const result = await SheetPdf.fitSheetPdf(ctx.pdfMake, model, opts);
+    expect(result.fitted).toBe(false);
+    expect(result.scale).toBe(SheetPdf.MIN_SCALE); // never shrunk past readable (6.5 pt x 0.6, about 3.9 pt)
+    expect(result.pages).toBeGreaterThan(1);
+    expect(result.doc.content[2].table.dontBreakRows).toBe(false); // the star's row may split across pages
+    const pages = await pagesText(new Uint8Array(result.buffer));
+    expect(pages).toHaveLength(result.pages);
+    const all = pages.join("\n").replace(/\s+/g, "");
+    for (let i = 1; i <= 12; i++) {
+      expect(all, `rule ${i}`).toContain(`OathoftheGrove${i}`);
+      expect(all, `rule ${i} end`).toContain(`END-OF-RULE-${i}`);
+    }
+    for (const row of model.rows.slice(0, 11)) expect(all).toContain(row.name.replace(/\s+/g, ""));
+    expect(all).toContain("Keywords:");
+    expect(all).toContain(`Page${result.pages}/${result.pages}`);
+  }, 60_000);
+  it("the same sheet kept unbreakable loses the star's rules (why the fallback lets rows break)", async () => {
+    const def = SheetPdf.buildSheetDocDefinition(plain(solOverflow(core)), { ...opts, density: SheetPdf.MAX_DENSITY, scale: SheetPdf.MIN_SCALE });
+    const text = (await pagesText(new Uint8Array(await ctx.pdfMake.createPdf(def).getBuffer()))).join("\n").replace(/\s+/g, "");
+    expect(text).not.toContain("END-OF-RULE-1");
+  }, 30_000);
+  it("a normal team still fits on one page", async () => {
+    const result = await SheetPdf.fitSheetPdf(ctx.pdfMake, emerald(), opts);
+    expect(result).toMatchObject({ fitted: true, pages: 1, scale: 1 });
   }, 30_000);
 });
 
@@ -194,11 +227,11 @@ describe("fitLoop (pure, injected layout)", () => {
   /** A fake layout: the content height for (level, scale), one page when it fits the A4 content height. */
   const INNER = 595.28 - 2 * 10 * (72 / 25.4);
   function fake(heightOf: (level: number, scale: number) => number) {
-    const calls: Array<{ level: number; scale: number; measuring: boolean }> = [];
-    const build = (level: number, scale: number) => ({ level, scale, pageSize: "A4" });
+    const calls: Array<{ level: number; scale: number; measuring: boolean; overflow?: boolean }> = [];
+    const build = (level: number, scale: number, overflow?: boolean) => ({ level, scale, overflow, pageSize: "A4" });
     const layout = async (def: any) => {
       const measuring = SheetPdf.isMeasuring(def);
-      calls.push({ level: def.level, scale: def.scale, measuring });
+      calls.push({ level: def.level, scale: def.scale, measuring, ...(def.overflow ? { overflow: true } : {}) });
       const height = heightOf(def.level, def.scale);
       return { pages: measuring ? 1 : Math.max(1, Math.ceil(height / INNER)), height, output: `pdf ${def.level} ${def.scale}` };
     };
@@ -207,7 +240,7 @@ describe("fitLoop (pure, injected layout)", () => {
   it("a team that fits at level 0 takes ONE layout", async () => {
     const f = fake(() => 300);
     const result = await SheetPdf.fitLoop(f.build, f.layout);
-    expect(result).toMatchObject({ level: 0, scale: 1, pages: 1, layouts: 1, output: "pdf 0 1" });
+    expect(result).toMatchObject({ level: 0, scale: 1, pages: 1, fitted: true, layouts: 1, output: "pdf 0 1" });
   });
   it("otherwise: binary search over the levels on the measuring page, then the chosen level on A4 (deterministic)", async () => {
     const heights = [700, 640, 590, 520, 500, 480]; // fits from level 3 on
@@ -222,19 +255,26 @@ describe("fitLoop (pure, injected layout)", () => {
     expect(runs[0]!.filter((c) => c.measuring).length).toBeLessThanOrEqual(3); // log2 of 5 levels
     expect(runs[0]!.at(-1)).toEqual({ level: 3, scale: 1, measuring: false });
   });
-  it("past the floor: a uniform scale by the measured ratio, never a second page", async () => {
-    const f = fake((level, scale) => (level === 5 ? 1200 : 1500) * scale);
+  it("past the density floor: a uniform scale by the measured ratio, one page", async () => {
+    const f = fake((level, scale) => (level === 5 ? 800 : 1000) * scale);
     const result = await SheetPdf.fitLoop(f.build, f.layout);
-    expect(result.level).toBe(5);
-    expect(result.pages).toBe(1);
-    expect(result.scale).toBeGreaterThan(0.4);
-    expect(result.scale).toBeLessThan(INNER / 1200);
+    expect(result).toMatchObject({ level: 5, pages: 1, fitted: true });
+    expect(result.scale).toBeGreaterThanOrEqual(SheetPdf.MIN_SCALE);
+    expect(result.scale).toBeLessThan(INNER / 800);
     expect(result.layouts).toBeLessThanOrEqual(12);
   });
-  it("a layout that shrinks less than the scale suggests still converges to one page within the layout cap", async () => {
-    const f = fake((level, scale) => 2000 * Math.sqrt(scale));
+  it("a layout that shrinks less than the scale suggests still converges within the layout cap", async () => {
+    const f = fake((level, scale) => 650 * Math.sqrt(scale));
     const result = await SheetPdf.fitLoop(f.build, f.layout);
-    expect(result.pages).toBe(1);
+    expect(result).toMatchObject({ pages: 1, fitted: true });
+    expect(result.layouts).toBeLessThanOrEqual(12);
+  });
+  it("past the readable floor: stops at MIN_SCALE and renders the overflow fallback (rows may break), fitted: false", async () => {
+    const f = fake((level, scale) => 2000 * scale);
+    const result = await SheetPdf.fitLoop(f.build, f.layout);
+    expect(result).toMatchObject({ level: 5, scale: SheetPdf.MIN_SCALE, fitted: false, pages: 3 });
+    expect(f.calls.every((c) => c.scale >= SheetPdf.MIN_SCALE)).toBe(true);
+    expect(f.calls.at(-1)).toEqual({ level: 5, scale: SheetPdf.MIN_SCALE, measuring: false, overflow: true });
     expect(result.layouts).toBeLessThanOrEqual(12);
   });
   it("a pdfmake that reports no measurements (a stub) counts as one page", async () => {

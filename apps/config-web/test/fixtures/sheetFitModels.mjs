@@ -109,3 +109,21 @@ export function worstCase(core) {
   });
   return { ...model, ruleset: WORST_RULESET.map((r) => [...r]) };
 }
+
+/** Sol 6.1's overflow case (11-09 review): 11 players plus a custom star carrying 12 valid multiline rules of about 590
+ *  characters each. Beyond any real team, it cannot fit one readable page, so the sheet must take extra pages with
+ *  every word present. Each rule ends in a unique marker ("END-OF-RULE-n") so tests can see nothing was clipped. */
+export function solOverflow(core) {
+  const model = emeraldWardens(core);
+  // Multiline: a line break every few words, as a coach might format a long list of conditions.
+  const sentence = "When this player is activated\nthey may declare the oath.\nRoll a D6 and add\nthe number of team-mates\nwithin two squares.\n"
+    + "On a 7+ they gain\nthe listed skill\nuntil the end of the drive.\nOtherwise they suffer\na -1 modifier to every\nAgility test this turn.\n";
+  const rule = (i) => ({ kind: i % 2 ? "rule" : "trait", name: `Oath of the Grove ${i + 1}`, description: `${sentence.repeat(3).slice(0, 575)} END-OF-RULE-${i + 1}` });
+  const star = {
+    name: "Custom Star: The Grove Warden", position: "Custom Star: The Grove Warden", positionFull: "Custom Star: The Grove Warden", isStar: true, captain: false,
+    stats: { MA: { value: 7 }, ST: { value: 3 }, AG: { value: "2+" }, PA: { value: "3+" }, AV: { value: "9+" } },
+    printed: ["Block", "Dodge", "Loner (4+)"], added: [], free: [], statIncreases: [], cost: 250_000, keywords: ["Elf"],
+    specialRules: Array.from({ length: 12 }, (_, i) => rule(i)), number: model.rows.length + 1,
+  };
+  return { ...model, rows: [...model.rows, { ...star, name: "" }] };
+}

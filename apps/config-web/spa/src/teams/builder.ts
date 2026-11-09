@@ -376,13 +376,16 @@ export function groupByCategory(skills: PickerSkill[]): PickerGroup[] {
 }
 const bare = (skill: string): string => String(skill).replace(/\s*\(.*\)\s*$/, "").replace(/\*+$/, "").trim();
 
+/** The notice for a team sheet that cannot fit one readable page (sheet-pdf.js fitSheetPdf `fitted: false`). */
+export const sheetPagesNotice = (pages: unknown): string => `This team sheet needs ${typeof pages === "number" && pages > 1 ? pages : "more than one"} pages.`;
+
 /** The vendored PDF builder (public/sheet-pdf.js, window.SheetPdf). */
 export interface SheetPdfApi {
   loadPdfMake(): Promise<{ createPdf(doc: unknown): { getBlob(): Promise<Blob> } }>;
   abandonPdfMakeLoad?(): void;
   buildSheetDocDefinition(model: SheetModel, opts: { gold: (v: unknown) => string; generatedOn: Date }): unknown;
   /** One page, always (owner 11-09): the fit loop over density levels, then a uniform scale; resolves the PDF Blob. */
-  fitSheetPdf?(pdfMake: unknown, model: SheetModel, opts: { gold: (v: unknown) => string; generatedOn: Date; blob: true }): Promise<{ blob: Blob }>;
+  fitSheetPdf?(pdfMake: unknown, model: SheetModel, opts: { gold: (v: unknown) => string; generatedOn: Date; blob: true }): Promise<{ blob: Blob; fitted?: boolean; pages?: number }>;
   sheetPdfFileName(htmlFileName: string): string;
 }
 
@@ -2077,10 +2080,12 @@ export function createTournamentBuilder(deps: BuilderDeps) {
       await bounded(new Promise((r) => setTimeout(r, 0)));
       // One page, always (owner 11-09); a sheet-pdf.js without the fit loop (a stale cached copy) renders as before.
       const opts = { gold: core.gold, generatedOn: new Date() };
-      const blob = pdf.fitSheetPdf
-        ? (await bounded(pdf.fitSheetPdf(pdfMake, model, { ...opts, blob: true }))).blob
-        : await bounded(pdfMake.createPdf(pdf.buildSheetDocDefinition(model, opts)).getBlob());
-      (deps.saveBlob ?? browserSaveBlob)(blob, pdf.sheetPdfFileName(core.sheetFileName(model)));
+      // A sheet beyond one readable page comes back complete with `fitted: false`; the coach is told how many pages.
+      const fit = pdf.fitSheetPdf
+        ? await bounded(pdf.fitSheetPdf(pdfMake, model, { ...opts, blob: true }))
+        : { blob: await bounded(pdfMake.createPdf(pdf.buildSheetDocDefinition(model, opts)).getBlob()) };
+      (deps.saveBlob ?? browserSaveBlob)(fit.blob, pdf.sheetPdfFileName(core.sheetFileName(model)));
+      if (fit.fitted === false) state.buildResult = { ok: true, title: "Export PDF", lines: [sheetPagesNotice(fit.pages)] };
       return "pdf";
     } catch {
       pdf?.abandonPdfMakeLoad?.();
