@@ -82,13 +82,13 @@ describe("buildSheetDocDefinition (pure)", () => {
     expect(doc.info).toMatchObject({ title: "Amorical Dwarves w/ Bribe roster sheet", author: "flutethecat", creator: "Super FUMBBL Tournament Builder" });
   });
 
-  it("header: the team's name bold 18 as the title (owner 11-01), coach and race under it", () => {
+  it("header: the team's name bold 18 as the title (owner 11-01), coach and race under it (owner 11-09: one column)", () => {
     const header = doc.content[0];
-    expect(header.columns[0]).toMatchObject({ text: "Amorical Dwarves w/ Bribe", style: "race" });
-    expect(textOf(header.columns[1].stack)).toContain("RACE  Dwarf");
-    expect(textOf(header.columns[1].stack)).not.toContain("TEAM  ");
+    expect(header.columns[0].stack[0]).toMatchObject({ text: "Amorical Dwarves w/ Bribe", style: "race" });
+    expect(textOf(header.columns[0].stack)).toContain("RACE  Dwarf");
+    expect(textOf(header.columns[0].stack)).not.toContain("TEAM  ");
     expect(doc.styles.race).toEqual({ fontSize: 18, bold: true });
-    expect(textOf(header.columns[1].stack)).toContain("flutethecat");
+    expect(textOf(header.columns[0].stack)).toContain("flutethecat");
   });
 
   it("top band: Sideline / Inducements / Leagues & special rules / Summary with totals vs cap", () => {

@@ -1,5 +1,11 @@
 [
   {
+    "date": "2026-11-09",
+    "title": "Team sheets always fit on one page",
+    "body": "The Tournament Ruleset box at the top right of the team sheet is now wider and more compact, so long package names and skill rules sit on one line and push nothing down. The exported PDF always fits on one page: a long roster prints a little denser instead of spilling onto a second page.",
+    "links": []
+  },
+  {
     "date": "2026-11-04",
     "title": "A new admin console",
     "body": "Site admins have a new admin console in the site's own look, with Users, Teams, Games, Reports, board Moderation across leagues and tournaments, Organisers, Privacy jobs and Operations in one place. Operations covers the game server reload, the league fork cleanup, the ratings reset (it always takes a backup first, and a backup can be restored), demo leagues and the testing suite, each with a dry run first and every use logged. The old admin page now opens the new console.",

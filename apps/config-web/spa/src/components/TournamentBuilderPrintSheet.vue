@@ -1,29 +1,28 @@
 <script setup lang="ts">
 // The team sheet as the exported PDF prints it (owner 10-30), one-to-one with public/sheet-pdf.js
-// buildSheetDocDefinition: the header (team name, COACH, RACE, the TOURNAMENT RULESET box top right), the band of four
+// buildSheetDocDefinition at its level-0 density: the header (team name with COACH and RACE under it, the compact TOURNAMENT
+// RULESET box top right: short rows two to a line, long values across the box, owner 11-09), the band of four
 // panels (Sideline · Inducements · Leagues & special rules · Summary), the roster table (# · Player (name over position) · MA ST AG PA AV ·
 // Skills · Cost; "(Star)" / "(C)" markers, zebra rows, hairline rules, head fill), the keywords line and the footer.
-// It renders the SAME model object the PDF consumes (spa/src/teams/sheetRuleset.ts sheetModel) and reads the ruleset rows
-// through sheet-pdf.js's own rulesetRows(), so the preview and the PDF cannot disagree. Paper palette and Roboto:
+// It renders the SAME model object the PDF consumes (spa/src/teams/sheetRuleset.ts sheetModel) and reads the ruleset box
+// lines through sheet-pdf.js's own rulesetBoxModel(), so the preview and the PDF cannot disagree. Paper palette and Roboto:
 // spa/src/teams/sheet.css + sheetFonts.ts.
 import { computed } from "vue";
 import "../../../public/sheet-pdf.js";
-import type { PrintSheetModel, SheetRulesetRow } from "../teams/sheetRuleset";
+import type { PrintSheetModel } from "../teams/sheetRuleset";
 import type { SheetRow, Stat } from "../teams/builderCore";
 import "../teams/sheet.css";
 
-interface SheetPdfCore { rulesetRows(model: PrintSheetModel): SheetRulesetRow[]; PRODUCT: string }
+/** One compact box row (sheet-pdf.js compactRulesetRows) and one box line (rulesetBoxLines). */
+interface BoxRow { label: string; value: string; from: string[] }
+interface BoxLine { full: boolean; rows: BoxRow[] }
+interface SheetPdfCore { rulesetBoxModel(model: PrintSheetModel): BoxLine[]; PRODUCT: string }
 const SheetPdf = (globalThis as unknown as { SheetPdf: SheetPdfCore }).SheetPdf;
 
 const props = defineProps<{ model: PrintSheetModel; gold: (v: unknown) => string; generatedOn?: Date | string }>();
 const STATS: Stat[] = ["MA", "ST", "AG", "PA", "AV"];
 
-const ruleset = computed(() => SheetPdf.rulesetRows(props.model));
-const rulesetLines = computed(() => {
-  const out: Array<[SheetRulesetRow, SheetRulesetRow | null]> = [];
-  for (let i = 0; i < ruleset.value.length; i += 2) out.push([ruleset.value[i]!, ruleset.value[i + 1] ?? null]);
-  return out;
-});
+const rulesetLines = computed(() => SheetPdf.rulesetBoxModel(props.model));
 const date = computed(() => {
   const d = props.generatedOn instanceof Date ? props.generatedOn : new Date(props.generatedOn ?? Date.now());
   return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
@@ -52,19 +51,23 @@ const improved = (row: SheetRow, k: Stat): boolean => !row.isStar && row.stats?.
 <template>
   <article class="ps-paper" aria-label="Team sheet">
     <header class="ps-header">
-      <div class="ps-race">{{ model.teamName || model.raceName || "Team" }}</div>
-      <div class="ps-ident">
-        <div v-if="model.formatTitle" class="ps-format">{{ model.formatTitle }}</div>
-        <div><span class="ps-label">COACH</span> {{ model.coach || "—" }}</div>
-        <div><span class="ps-label">RACE</span> {{ model.raceName || "—" }}</div>
+      <div class="ps-idcol">
+        <div class="ps-race">{{ model.teamName || model.raceName || "Team" }}</div>
+        <div class="ps-ident">
+          <div v-if="model.formatTitle" class="ps-format">{{ model.formatTitle }}</div>
+          <div><span class="ps-label">COACH</span> {{ model.coach || "—" }}</div>
+          <div><span class="ps-label">RACE</span> {{ model.raceName || "—" }}</div>
+        </div>
       </div>
-      <table v-if="ruleset.length" class="ps-box ps-ruleset">
-        <colgroup><col class="ps-ck"><col class="ps-cv"><col class="ps-ck"><col class="ps-cv"></colgroup>
+      <table v-if="rulesetLines.length" class="ps-box ps-ruleset">
         <thead><tr><th colspan="4">TOURNAMENT RULESET</th></tr></thead>
         <tbody>
           <tr v-for="(line, i) in rulesetLines" :key="i">
-            <td class="ps-k">{{ line[0][0] }}</td><td class="ps-v">{{ line[0][1] }}</td>
-            <td class="ps-k">{{ line[1]?.[0] ?? "" }}</td><td class="ps-v">{{ line[1]?.[1] ?? "" }}</td>
+            <template v-if="line.full"><td class="ps-k">{{ line.rows[0]!.label }}</td><td class="ps-v" colspan="3">{{ line.rows[0]!.value }}</td></template>
+            <template v-else>
+              <td class="ps-k">{{ line.rows[0]!.label }}</td><td class="ps-v">{{ line.rows[0]!.value }}</td>
+              <td class="ps-k">{{ line.rows[1]?.label ?? "" }}</td><td class="ps-v">{{ line.rows[1]?.value ?? "" }}</td>
+            </template>
           </tr>
         </tbody>
       </table>

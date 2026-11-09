@@ -585,7 +585,9 @@ describe("Roster Builder player names (owner 11-01)", () => {
     expect(JSON.stringify(doc.content[0].columns[0])).toContain("Named Reavers"); // the big title
     const table = doc.content.find((c: any) => c.table)?.table;
     expect(table).toMatchObject({ headerRows: 1, dontBreakRows: true }); // a player's row never splits across pages
-    expect(table.widths[1]).toBe(112); // a long name wraps inside its fixed column
+    // owner 11-09: the Player column widens (112 → at most 170 pt) so the longest name prints on one line
+    expect(table.widths[1]).toBeGreaterThan(112);
+    expect(table.widths[1]).toBeLessThanOrEqual(170);
     const cell = table.body[1][1];
     expect(cell.stack[0]).toMatchObject({ bold: true });
     expect(JSON.stringify(cell.stack[1])).toContain("Lineman");

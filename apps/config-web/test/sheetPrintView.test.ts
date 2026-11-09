@@ -162,34 +162,51 @@ describe("sheetRulesetRows: the skill system decides the rows", () => {
   });
 });
 
+// Owner 11-09: the box's compact rows (lossless): SP budget + SP prices merge, "Skills per player" reads "Skills / player".
+const NAF_BOX: Array<[string, string]> = [
+  ["Package", "NAF World Cup 2027 (Malta) - Rules Pack V3.0"],
+  ["Tier", "Gold Budget 1,160,000"],
+  ["TV cap", "1,160k"],
+  ["SP budget", "52 SP (primary 6 · secondary 10 · elite +2 · stacking +2)"],
+  ["Skills / player", "max 2"],
+  ["Stacked players", "max 1 (max 2 skills · max 2 secondary)"],
+  ["Star players", "None"],
+];
+const byLabel = (rows: string[][]) => [...rows].sort((a, b) => a[0]!.localeCompare(b[0]!));
+
 describe("sheet-pdf.js: the TOURNAMENT RULESET box", () => {
-  const box = (doc: any) => doc.content[0].columns[2];
+  const box = (doc: any) => doc.content[0].columns[1];
   const boxRows = (doc: any) => {
     const body = box(doc).stack[0].table.body;
-    return body.slice(1).flatMap((r: any[]) => [[textOf(r[0]), textOf(r[1])], [textOf(r[2]), textOf(r[3])]]).filter(([k]: string[]) => k);
+    return body.slice(1).flatMap((r: any[]) => (r[1].colSpan === 3 ? [[textOf(r[0]), textOf(r[1])]] : [[textOf(r[0]), textOf(r[1])], [textOf(r[2]), textOf(r[3])]]))
+      .filter(([k]: string[]) => k).map(([k, v]: string[]) => [k, v!.replace(/​/g, "")]);
   };
   it("model with ruleset rows → the full box top right; A4 landscape; roster headerRows 1", () => {
     const doc = SheetPdf.buildSheetDocDefinition(sheetModel(fakeBuilder()), { gold: core.gold, generatedOn: "2026-10-30" });
     expect(doc.pageSize).toBe("A4");
     expect(doc.pageOrientation).toBe("landscape");
     expect(doc.content[2].table.headerRows).toBe(1);
-    expect(doc.content[0].columns).toHaveLength(3); // race · coach/team · ruleset box (right)
+    expect(doc.content[0].columns).toHaveLength(2); // team name over coach/race · ruleset box (right)
     expect(textOf(box(doc).stack[0].table.body[0][0])).toBe("TOURNAMENT RULESET");
-    expect(box(doc).width).toBe(330);
-    expect(boxRows(doc)).toEqual(NAF_RULESET);
+    expect(box(doc).width).toBe(SheetPdf.sheetMetrics(0).boxWidth); // 60 % of the content width (owner 11-09)
+    expect(box(doc).width).toBeGreaterThan(450);
+    expect(byLabel(boxRows(doc))).toEqual(byLabel(NAF_BOX));
+    // nothing dropped: every source row's value is printed whole
+    const printed = boxRows(doc).map(([, v]: string[]) => v).join("\n");
+    for (const [, v] of NAF_RULESET) expect(printed).toContain(v);
     expect(doc.content[2].table.body).toHaveLength(13);
   });
   it("model without ruleset rows → the fallback box (package, tier, TV cap from the model)", () => {
     const doc = SheetPdf.buildSheetDocDefinition(baseModel(), { gold: core.gold });
-    expect(boxRows(doc)).toEqual([
+    expect(byLabel(boxRows(doc))).toEqual(byLabel([
       ["Package", "NAF World Cup 2027 (Malta) - Rules Pack V3.0"],
       ["Tier", "Gold Budget 1,160,000"],
       ["TV cap", "1,160k"],
-    ]);
+    ]));
   });
-  it("no ruleset at all (a custom sheet) → no box, the header keeps two columns", () => {
+  it("no ruleset at all (a custom sheet) → no box, the header keeps its identity column only", () => {
     const doc = SheetPdf.buildSheetDocDefinition({ ...baseModel(), rulesetName: "", summary: [] }, { gold: core.gold });
-    expect(doc.content[0].columns).toHaveLength(2);
+    expect(doc.content[0].columns).toHaveLength(1);
   });
   it("the fixture renders to ONE A4 landscape page with the box text on it", async () => {
     const ctx = loadContext(true);
@@ -219,7 +236,9 @@ describe("sheet-pdf.js: a long unbroken team name never pushes the ruleset box o
     expect(pageWidth).toBeCloseTo(841.89, 0);
     expect(right).toBeLessThanOrEqual(pageWidth - margin + 0.5);
     const title = items.find((it) => it.str === "TOURNAMENT");
-    expect(title.transform[4]).toBeGreaterThan(pageWidth / 2); // still top right
+    // still top right: the box keeps its full width against the right margin (owner 11-09: 60 % of the content width)
+    const boxLeft = pageWidth - margin - SheetPdf.sheetMetrics(0).boxWidth;
+    expect(Math.abs(title.transform[4] - (boxLeft + SheetPdf.sheetMetrics(0).padX))).toBeLessThan(2); // padding + 0.8 pt rule
     const ws = items.filter((it) => /^W+$/.test(it.str.replace(/\u200B/g, "")));
     expect(ws.length).toBeGreaterThan(1); // the name wrapped onto several lines
     expect(ws.map((it) => it.str.replace(/\u200B/g, "")).join("")).toBe("W".repeat(60)); // no glyphs lost
@@ -247,8 +266,10 @@ describe("the on-screen sheet (TournamentBuilderPrintSheet.vue, server-rendered)
     expect(html).toMatch(/<span class="ps-label">RACE<\/span> Necromantic Horror/);
     const titles = [...html.matchAll(/<thead><tr><th(?: colspan="\d")?>([^<]+)<\/th><\/tr><\/thead>/g)].map((m) => m[1]!.replace("&amp;", "&"));
     expect(titles).toEqual(["TOURNAMENT RULESET", "SIDELINE", "INDUCEMENTS", "LEAGUES & SPECIAL RULES", "SUMMARY"]);
-    const cells = [...html.matchAll(/<td class="ps-k">([^<]*)<\/td><td class="ps-v">([^<]*)<\/td>/g)].map((m) => [m[1], m[2]]).filter(([k]) => k);
-    expect(cells).toEqual(NAF_RULESET);
+    const cells = [...html.matchAll(/<td class="ps-k">([^<]*)<\/td><td class="ps-v"(?: colspan="3")?>([^<]*)<\/td>/g)].map((m) => [m[1]!, m[2]!]).filter(([k]) => k);
+    expect(byLabel(cells)).toEqual(byLabel(NAF_BOX));
+    // the screen lays the box out exactly as the PDF does (same lines, same full-width rows)
+    expect(html.match(/colspan="3"/g)?.length ?? 0).toBe(SheetPdf.rulesetBoxModel(sheetModel(fakeBuilder())).filter((l: any) => l.full).length);
     const body = html.slice(html.indexOf('<table class="ps-roster">'));
     expect([...body.matchAll(/<td class="ps-pos"/g)]).toHaveLength(12);
     expect(body).toMatch(/<th scope="col" class="ps-r">#<\/th><th scope="col">PLAYER<\/th>/);

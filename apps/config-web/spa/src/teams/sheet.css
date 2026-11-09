@@ -23,8 +23,9 @@
 .ps-nowrap { white-space: nowrap; }
 .ps-paper .ps-muted { color: var(--ps-muted); }
 
-/* header: race, COACH / TEAM, the ruleset box top right */
-.ps-header { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 40%); gap: 0 12px; align-items: start; }
+/* header: the team name with COACH / RACE under it; the compact ruleset box top right takes 60 % (the PDF's share) */
+.ps-header { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 60%); gap: 0 12px; align-items: start; }
+.ps-idcol { min-width: 0; overflow-wrap: anywhere; }
 .ps-race { font-size: 24px; font-weight: 700; line-height: 1.1; }
 .ps-ident { display: grid; gap: 3px; padding-top: 4px; overflow-wrap: anywhere; }
 .ps-label { font-size: 9px; font-weight: 700; letter-spacing: .05em; color: var(--ps-muted); margin-right: 6px; }
@@ -33,11 +34,11 @@
 .ps-box { width: 100%; border: 1px solid var(--ps-ink) !important; }
 .ps-box > thead th { font-size: 10px; letter-spacing: .05em; background: var(--ps-head); border-bottom: 1px solid var(--ps-ink); }
 .ps-box td { padding-top: 1.5px; padding-bottom: 1.5px; }
-.ps-ruleset { font-size: 11px; table-layout: fixed; }
-.ps-ruleset .ps-ck { width: 21%; }
-.ps-ruleset .ps-cv { width: 29%; }
-.ps-ruleset .ps-k { color: var(--ps-muted); }
-.ps-ruleset .ps-v { font-weight: 700; overflow-wrap: anywhere; }
+/* owner 11-09: 7.5 pt = 10 px, tight rows; labels never wrap, values wrap at most once at this width */
+.ps-ruleset { font-size: 10px; line-height: 1.2; }
+.ps-ruleset td { padding: 1px 4px; }
+.ps-ruleset .ps-k { width: 1%; color: var(--ps-muted); white-space: nowrap; }
+.ps-ruleset .ps-v { width: 49%; font-weight: 700; overflow-wrap: anywhere; }
 .ps-band { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; align-items: start; }
 .ps-band .ps-box td.ps-r { white-space: nowrap; }
 .ps-rules { margin: 0; padding-left: 14px; }
@@ -72,8 +73,7 @@
 /* narrower panes: the band wraps 2 + 2, then 1; the ruleset box drops under the identity block */
 @media (max-width: 900px) {
   .ps-band { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .ps-header { grid-template-columns: auto minmax(0, 1fr); gap: 8px 12px; }
-  .ps-ruleset { grid-column: 1 / -1; }
+  .ps-header { grid-template-columns: minmax(0, 1fr); gap: 8px 12px; }
 }
 @media (max-width: 560px) {
   .ps-paper { padding: 14px; }

@@ -3343,8 +3343,10 @@ ${rosterSheetHtml(model)}
       // pdfmake generation is synchronous (bounded by the roster cap); yield one macrotask first so
       // an already-expired deadline wins before the main thread is busy.
       await bounded(new Promise((resolve) => setTimeout(resolve, 0)));
-      const doc = sheetPdf.buildSheetDocDefinition(model, { gold: Core.gold, generatedOn: new Date() });
-      const blob = await bounded(pdfMake.createPdf(doc).getBlob());
+      // One page, always (owner 11-09): sheet-pdf.js's fit loop; a copy without it renders as before.
+      const blob = typeof sheetPdf.fitSheetPdf === "function"
+        ? (await bounded(sheetPdf.fitSheetPdf(pdfMake, model, { gold: Core.gold, generatedOn: new Date(), blob: true }))).blob
+        : await bounded(pdfMake.createPdf(sheetPdf.buildSheetDocDefinition(model, { gold: Core.gold, generatedOn: new Date() })).getBlob());
       clearTimeout(timer);
       saveBlob(blob, sheetPdf.sheetPdfFileName(Core.sheetFileName(model)));
     } catch {

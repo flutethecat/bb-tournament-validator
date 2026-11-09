@@ -381,6 +381,8 @@ export interface SheetPdfApi {
   loadPdfMake(): Promise<{ createPdf(doc: unknown): { getBlob(): Promise<Blob> } }>;
   abandonPdfMakeLoad?(): void;
   buildSheetDocDefinition(model: SheetModel, opts: { gold: (v: unknown) => string; generatedOn: Date }): unknown;
+  /** One page, always (owner 11-09): the fit loop over density levels, then a uniform scale; resolves the PDF Blob. */
+  fitSheetPdf?(pdfMake: unknown, model: SheetModel, opts: { gold: (v: unknown) => string; generatedOn: Date; blob: true }): Promise<{ blob: Blob }>;
   sheetPdfFileName(htmlFileName: string): string;
 }
 
@@ -2073,8 +2075,11 @@ export function createTournamentBuilder(deps: BuilderDeps) {
       pdf = await bounded((deps.loadSheetPdf ?? browserLoadSheetPdf)());
       const pdfMake = await bounded(pdf.loadPdfMake());
       await bounded(new Promise((r) => setTimeout(r, 0)));
-      const doc = pdf.buildSheetDocDefinition(model, { gold: core.gold, generatedOn: new Date() });
-      const blob = await bounded(pdfMake.createPdf(doc).getBlob());
+      // One page, always (owner 11-09); a sheet-pdf.js without the fit loop (a stale cached copy) renders as before.
+      const opts = { gold: core.gold, generatedOn: new Date() };
+      const blob = pdf.fitSheetPdf
+        ? (await bounded(pdf.fitSheetPdf(pdfMake, model, { ...opts, blob: true }))).blob
+        : await bounded(pdfMake.createPdf(pdf.buildSheetDocDefinition(model, opts)).getBlob());
       (deps.saveBlob ?? browserSaveBlob)(blob, pdf.sheetPdfFileName(core.sheetFileName(model)));
       return "pdf";
     } catch {

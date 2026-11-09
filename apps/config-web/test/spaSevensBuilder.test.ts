@@ -369,8 +369,9 @@ describe("Sevens: the sheet and the PDF", () => {
     const text = pages.join("\n");
     for (const needle of ["Bartholomew", "Desperate Measures", "2 · 200k", "4 / 4"]) expect(text).toContain(needle);
     expect(pages[0]).toContain("Blood Bowl Sevens · Matched Play");
-    // The Veteran's row: the long name wraps inside the Player cell; the position and the Veteran marker stay with it.
-    expect(text).toMatch(/5 Bartholomew 5 3 3\+ 4\+ 9\+ 50k\nThunderstrike Vee\nLineman Veteran/);
+    // The Veteran's row: the Player column fits the long name on one line (owner 11-09); the position and the Veteran
+    // marker stay with it.
+    expect(text).toMatch(/5 Bartholomew Thunderstrike Vee 5 3 3\+ 4\+ 9\+ 50k\nLineman Veteran/);
     pages.forEach((page, i) => {
       expect(page).toMatch(/#\s+PLAYER\s+MA\s+ST\s+AG\s+PA\s+AV\s+SKILLS\s+COST/); // the header repeats on every page
       expect(page).toContain(`Page ${i + 1} / ${pages.length}`);
