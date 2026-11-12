@@ -107,7 +107,8 @@ const NUMBER_COLS: ReadonlyArray<{ key: "td" | "cas" | "mvp" | "spp"; field: str
             <template v-else>{{ shown(r, s) }}</template>
           </td>
           <td class="lg-skills ts-skills">
-            <template v-if="!can.removeSkill"><template v-for="(k, i) in r.skills" :key="k.name"><span v-if="k.added" class="ts-skill ts-added" :class="{ 'ts-secondary': k.access === 'secondary' }" :title="`${k.access === 'secondary' ? 'Secondary' : 'Primary'} skill added`">{{ k.name }}</span><template v-else>{{ k.name }}</template><template v-if="i < r.skills.length - 1">, </template></template></template>
+            <template v-if="!can.removeSkill && !r.skills.some((k) => k.added)">{{ r.skills.map((k) => k.name).join(", ") }}</template>
+            <template v-else-if="!can.removeSkill"><template v-for="(k, i) in r.skills" :key="k.name"><span v-if="k.added" class="ts-skill ts-added" :class="{ 'ts-secondary': k.access === 'secondary' }" :title="`${k.access === 'secondary' ? 'Secondary' : 'Primary'} skill added`">{{ k.name }}</span><template v-else>{{ k.name }}</template><template v-if="i < r.skills.length - 1">, </template></template></template>
             <template v-for="(k, i) in r.skills" v-else :key="k.name">
               <span class="ts-skill" :class="{ 'ts-added': k.added, 'ts-secondary': k.access === 'secondary' }">{{ k.name }}<button v-if="removable(k)" type="button" class="tb-chip-x ts-chip-x" :aria-label="`Remove ${k.name} from ${who(r)}`" :disabled="busy" @click="emit('removeSkill', r.id, k.name)"><span aria-hidden="true">×</span></button></span><template v-if="i < r.skills.length - 1 && !removable(k)">, </template>
             </template>
