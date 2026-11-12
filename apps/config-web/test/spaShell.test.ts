@@ -487,6 +487,19 @@ describe("SPA routes (server-rendered against a mocked API)", () => {
     }
   });
 
+  it("a team share link's page never hands its token to sign-in or any other link's query (Login returns to the home page)", async () => {
+    const token = "c".repeat(32);
+    const { html, spa } = await render(`/t/${token}`, { "/api/auth/session": { authenticated: false, discordSsoEnabled: true } });
+    expect(spa.router.currentRoute.value.name).toBe("team-share");
+    expect(html).toContain('href="/api/auth/discord/start?next=%2Fapp%2Fhome"');
+    // the token may sit only in this page's own path: never after a "?" in any href or src
+    for (const m of html.matchAll(/(?:href|src|action)="([^"]*)"/g)) expect(m[1]!.split("?").slice(1).join("?"), m[1]).not.toContain(token);
+    expect(html).not.toContain(encodeURIComponent(`/app/t/${token}`));
+    // the check-in page keeps its own rule: signing in returns to the tournament
+    const check = await render(`/tournaments/t1/check-in/p${"A".repeat(44)}`, { "/api/auth/session": { authenticated: false, discordSsoEnabled: true } });
+    expect(check.html).not.toContain(`next=${encodeURIComponent("/app/tournaments/t1/check-in")}`);
+  });
+
   it("router gate: a password session gets the Login with Discord action, never the Discord label", async () => {
     for (const path of ["/lobby", "/lobby/abcDEF12", "/account"]) {
       const { html } = await render(path, { "/api/auth/session": { authenticated: true, coach: "PwCoach", authMethod: "password", discordSsoEnabled: true } });

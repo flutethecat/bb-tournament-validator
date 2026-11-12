@@ -112,6 +112,17 @@ export function appPath(routePath: string): string {
   return `/app${routePath.startsWith("/") ? routePath : `/${routePath}`}`;
 }
 
+/**
+ * Where signing in from a page returns to (the OAuth `next`). Pages whose path carries a secret token never hand it to the
+ * sign-in flow (the auth URL and the stored OAuth state would hold it): a check-in code's page returns to its tournament,
+ * a team share link's page (/t/<token>) to the home page, and the coach opens the link again.
+ */
+export function loginReturnPath(route: { name?: unknown; params: Record<string, unknown>; fullPath: string }): string {
+  if (route.name === "tournament-check-in") return appPath(`/tournaments/${encodeURIComponent(String(route.params.id ?? ""))}`);
+  if (route.name === "team-share") return appPath("/home");
+  return appPath(route.fullPath);
+}
+
 /** Test sign-in sessions (local UAT) cannot write tournament data on the server: write controls stay hidden for them. */
 export function writesAllowed(session: SessionStore): boolean {
   return session.state.info?.test !== true;

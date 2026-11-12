@@ -17,7 +17,7 @@ import { ONBOARDING_KEY } from "./account/onboarding";
 import LeagueShareNotice from "./components/LeagueShareNotice.vue";
 import { LEAGUE_SHARING_KEY } from "./account/leagueSharing";
 import { canCreateTournament, TOURNAMENT_CREATOR_KEY } from "./tournaments/create";
-import { appPath, discordLoginUrl, SESSION_KEY } from "./session";
+import { discordLoginUrl, loginReturnPath, SESSION_KEY } from "./session";
 import { THEME_KEY, themeLabel } from "./theme";
 import { gateFor } from "./router";
 import { COACH_TREE_KEY } from "./home/tree";
@@ -70,9 +70,9 @@ function openCreate(): void {
 
 // RouterView is keyed by path: moving between two lobbies builds a fresh controller.
 const gate = computed(() => gateFor(route, session));
-// A check-in code's page never hands its token to the sign-in flow (it is only ever in that page's own path): signing in
-// from there returns to the tournament, and the coach scans again.
-const loginHref = computed(() => discordLoginUrl(appPath(route.name === "tournament-check-in" ? `/tournaments/${encodeURIComponent(String(route.params.id ?? ""))}` : route.fullPath)));
+// A check-in code's page and a team share link's page never hand their token to the sign-in flow (it is only ever in that
+// page's own path): signing in returns to the tournament or the home page (session.ts loginReturnPath).
+const loginHref = computed(() => discordLoginUrl(loginReturnPath(route)));
 const avatar = ref("");
 const menuOpen = ref(false);
 /** The shared notifications store (createSpa): BellPopover shows its unread count. */
