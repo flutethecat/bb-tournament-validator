@@ -252,8 +252,14 @@ describe("Destination Blood Bowl package (Charleston 2027 rules pack, read 2026-
     expect(rich.recomputedSummary.goldUsed).toBeGreaterThan(1_200_000);
     expect(rich.valid).toBe(false);
     const allowed = teamBuilderInducementCatalog(pkg, bb2025).filter((i) => i.allowed).map((i) => i.key).sort();
-    expect(allowed).toEqual(["biased_referee", "bloodweiser_kegs", "bribes", "extra_team_training", "halfling_master_chef", "mortuary_assistant", "part_time_assistant_coaches", "plague_doctor", "riotous_rookies", "team_mascot", "temp_agency_cheerleaders", "wandering_apothecaries", "weather_mage"]);
-    for (const key of ["hireling_sports_wizard", "prayers_to_nuffle"]) {
+    expect(allowed).toEqual(["biased_referee", "bloodweiser_kegs", "bribes", "extra_team_training", "halfling_master_chef", "infamous_coaching_staff", "mortuary_assistant", "part_time_assistant_coaches", "plague_doctor", "riotous_rookies", "team_mascot", "temp_agency_cheerleaders", "wandering_apothecaries", "weather_mage"]);
+    // A base budget of 1,100k under the 1,200k cap: over it is legal, and the builder is told the base.
+    expect(pkg.baseGoldBudget).toBe(1_100_000);
+    expect(packageRulesInfo(pkg, "Human").baseBudget).toBe(1_100_000);
+    const overBase = build("Human", [{ name: "Human Blitzer", count: 2 }, { name: "Human Catcher", count: 2 }, { name: "Human Thrower", count: 2 }, { name: "Ogre" }, { name: "Human Lineman", count: 5 }], { reRolls: 4, apothecary: true }).result;
+    expect(overBase.recomputedSummary.goldUsed).toBe(1_110_000);
+    expect(overBase.errors).toEqual([]);
+    for (const key of ["hireling_sports_wizard", "prayers_to_nuffle", "bretonnian_pastries"]) {
       const r = build("Human", humans([], 11), { inducements: [{ key, count: 1 }] }).result;
       expect(ruleErrors(r, "inducements").length).toBeGreaterThan(0);
     }

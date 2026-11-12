@@ -608,6 +608,9 @@
 .tv-totals.tb-value > div:has(> .tb-posbreak) { flex-wrap: wrap; }
 .tv-totals.tb-value .tb-posbreak { flex: 0 0 100%; list-style: none; margin: 0; padding: 0; font-size: 12px; line-height: 1.35; color: var(--ui-muted); text-align: left; }
 .tv-totals.tb-value .tb-posbreak li { overflow-wrap: anywhere; }
+/* Squad events: gold above the base budget (allowed up to the cap). Quiet at zero, gold once the team is over. */
+.tv-totals.tb-value .tb-overbase b { color: var(--ui-muted); }
+.tv-totals.tb-value .tb-overbase[data-over] b { color: var(--ui-gold); }
 .tv-totals.tb-value .tb-posbreak b { font: inherit; text-shadow: none; text-align: left; color: var(--ui-text); font-weight: 600; }
 /* Roster Builder league mode (lane L7): the league line over the pane, and the race picker (Free Create's race buttons with a
    terms line; a full race stays in the grid, disabled, with its reason). */

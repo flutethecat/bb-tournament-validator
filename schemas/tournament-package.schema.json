@@ -264,6 +264,7 @@
       }
     },
     "goldBudget": { "type": ["number", "null"], "default": null, "description": "Optional parallel gold cap (team value incl. skills). Null = SP-only tournament." },
+    "baseGoldBudget": { "type": ["number", "null"], "default": null, "description": "Optional per-team base budget below the gold cap (squad events with a shared treasury). Never refuses a roster: builders show how far a team is over it." },
     "goldCapIncludesAddedSkills": { "type": "boolean", "default": false, "description": "When true the gold cap is a hard total: added-skill, stat-increase and star-pack-fee gold count inside it." },
 
     "starPlayers": {

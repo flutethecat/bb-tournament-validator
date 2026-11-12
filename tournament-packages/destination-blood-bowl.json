@@ -3,8 +3,8 @@
   "name": "Destination Blood Bowl",
   "ruleset": "bb2025-default",
   "date": "2027-04-17",
-  "description": "Destination Blood Bowl - Charleston 2027 (17-18 April 2027). Resurrection squad event: squads of 3 coaches, one team of each race per squad. Five tiers set each team's Skill Points (5/6/7/8/9), stacking and Star Player access. Skills: primary 1 Skill Point, secondary 2; Tier 3-5 teams may stack two primary skills on a player for 3 Skill Points (Tier 3: 1 stack, Tiers 4-5: 2). Star Players for Tiers 3-5 only, after 11 rostered players, at 2 Skill Points each on top of their gold (Tiers 3-4: 1 star, no Mega-Stars; Tier 5: 2 stars, 1 of them may be a Mega-Star at 4 Skill Points). Rulebook inducements only; no Mercenaries, Prayers to Nuffle or Wizards.",
-  "dataNote": "Transcribed from the Destination Blood Bowl - Charleston 2027 Rules Pack (Google Doc, read 2026-11-12). Each team is capped at 1,200,000 gold: the most one team can spend from the 3,400,000 squad treasury while the other two meet the 1,100,000 minimum. NOT enforced by the package model, the organiser checks by hand: (1) the squad's shared treasury of 3,400,000 gold across its three teams; (2) every team's Team Value is at least 1,100,000 gold; (3) squad teams total at most 10 Squad Points (Tier 1 = 5, Tier 2 = 4, Tier 3 = 3, Tier 4 = 2, Tier 5 = 1); (4) one team of each race per squad; (5) no Star Player hired by two teams in the same squad; (6) Star Players only after 11 rostered players. Infamous Coaching Staff and the Spike! Journal inducements (Bretonnian Pastries, Bretonnian Damsel, Canopic Jar) are left out as not in the Third Season rulebook; the Weather Mage is allowed (the pack bans Wizards, read as the Sports-Wizard).",
+  "description": "Destination Blood Bowl - Charleston 2027 (17-18 April 2027). Resurrection squad event: squads of 3 coaches, one team of each race per squad. Five tiers set each team's Skill Points (5/6/7/8/9), stacking and Star Player access. Skills: primary 1 Skill Point, secondary 2; Tier 3-5 teams may stack two primary skills on a player for 3 Skill Points (Tier 3: 1 stack, Tiers 4-5: 2). Star Players for Tiers 3-5 only, after 11 rostered players, at 2 Skill Points each on top of their gold (Tiers 3-4: 1 star, no Mega-Stars; Tier 5: 2 stars, 1 of them may be a Mega-Star at 4 Skill Points). Teams are built to 1,100,000 gold, up to 1,200,000 with gold from the squad's shared treasury. Rulebook inducements only; no Mercenaries, Prayers to Nuffle or Wizards.",
+  "dataNote": "Transcribed from the Destination Blood Bowl - Charleston 2027 Rules Pack (Google Doc, read 2026-11-12). Each team may be built up to 1,200,000 gold: the most one team can spend from the 3,400,000 squad treasury while the other two meet the 1,100,000 minimum. The builder shows how far a team is over 1,100,000. NOT enforced by the package model, the organiser checks by hand: (1) the squad's shared treasury of 3,400,000 gold across its three teams; (2) every team's Team Value is at least 1,100,000 gold; (3) squad teams total at most 10 Squad Points (Tier 1 = 5, Tier 2 = 4, Tier 3 = 3, Tier 4 = 2, Tier 5 = 1); (4) one team of each race per squad; (5) no Star Player hired by two teams in the same squad; (6) Star Players only after 11 rostered players. Rulebook inducements only: the Spike! Journal items (Bretonnian Pastries, Bretonnian Damsel, Canopic Jar) are left out. The pack bans Mercenaries, Prayers to Nuffle and Wizards; everything else on the rulebook list is allowed, including the Weather Mage and Infamous Coaching Staff.",
   "eligibleRosters": [
     "Amazon",
     "Black Orc",
@@ -62,6 +62,7 @@
     }
   },
   "goldBudget": 1200000,
+  "baseGoldBudget": 1100000,
   "goldCapIncludesAddedSkills": false,
   "starPlayers": {
     "allowed": true,
@@ -641,7 +642,8 @@
       "extra_team_training",
       "weather_mage",
       "biased_referee",
-      "team_mascot"
+      "team_mascot",
+      "infamous_coaching_staff"
     ],
     "caps": {}
   },

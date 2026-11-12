@@ -414,6 +414,8 @@ export function packageRulesInfo(
   name: string;
   dataNote?: string;
   budget?: number | null;
+  /** The package's base budget below the cap (baseGoldBudget), when it sets one. */
+  baseBudget?: number;
   tierSummary: TierSummaryRow[];
   race?: RaceRulesInfo;
   overview: RulesetOverview;
@@ -424,6 +426,7 @@ export function packageRulesInfo(
     ...(pkg.dataNote ? { dataNote: pkg.dataNote } : {}),
     tierSummary: packageTierSummary(pkg),
     ...(race ? { budget: race.gold, race } : {}),
+    ...(typeof pkg.baseGoldBudget === "number" && Number.isFinite(pkg.baseGoldBudget) && pkg.baseGoldBudget > 0 ? { baseBudget: pkg.baseGoldBudget } : {}),
     overview: packageOverview(pkg, data),
   };
 }

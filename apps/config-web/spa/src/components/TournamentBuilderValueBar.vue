@@ -26,5 +26,8 @@ const breakdown = computed(() => builder.positionBreakdown());
       <span>{{ t.estimated && t.capped ? "Estimate" : "Total" }}</span>
       <b>{{ core.gold(t.used) }} <small v-if="t.capped">/ {{ core.gold(t.budget) }}</small></b>
     </div>
+    <div v-if="t.base != null" class="tb-overbase" :data-over="t.overBase > 0 ? '1' : undefined" :title="`Teams start from ${core.gold(t.base)}. Gold above that comes out of the squad's shared treasury.`">
+      <span>Over {{ core.gold(t.base) }} budget</span><b>{{ t.overBase > 0 ? "+" : "" }}{{ core.gold(t.overBase) }}</b>
+    </div>
   </section>
 </template>

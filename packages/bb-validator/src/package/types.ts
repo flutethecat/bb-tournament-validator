@@ -318,6 +318,9 @@ export interface TournamentPackage {
   skillAllotment: SkillAllotment;
   /** Optional parallel gold cap; null = SP-only tournament. */
   goldBudget: number | null;
+  /** Optional per-team BASE budget below the gold cap (squad events with a shared treasury, e.g. Destination
+   *  Blood Bowl: 1,100k base, 1,200k cap). Never refuses a roster: builders show how far a team is over it. */
+  baseGoldBudget?: number | null;
   /**
    * When true, the gold cap is a HARD total-value limit: added-skill gold counts against
    * goldBudget alongside Staff + Inducements. Default (false/undefined) = added skills add TV

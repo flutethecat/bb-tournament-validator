@@ -522,6 +522,26 @@ describe("tournament builder controller", () => {
     expect(sp.valueLines().find((l) => l.label === "Skill points")).toEqual({ label: "Skill points", value: "3.5 / 2", tone: "over" });
   });
 
+  it("a base budget under the cap shows how far over it the team is; none without one", async () => {
+    const preview = (goldUsed: number) => ({ valid: true, errors: [], warnings: [], summary: { goldUsed }, package: { name: "Test Cup", budget: 1150000, rules: TIER_ROW } });
+    const based = (goldUsed: number) => mockFetcher(routes({
+      "/api/packages/Test%20Cup?roster=Human": { pkg: { description: "", eligibleRosters: ["Human"] }, rules: { ...RULES, baseBudget: 1100000, race: RACE } },
+      "POST /api/fork/team-builder/preview": preview(goldUsed),
+    }));
+    const over = (await ready(based(1130000))).b;
+    over.setTeamName("Reavers");
+    over.addPosition("hlin");
+    await over.flushPreview();
+    expect(over.totals()).toMatchObject({ used: 1130000, budget: 1150000, over: false, base: 1100000, overBase: 30000 });
+    const under = (await ready(based(600000))).b;
+    under.setTeamName("Reavers");
+    under.addPosition("hlin");
+    await under.flushPreview();
+    expect(under.totals()).toMatchObject({ base: 1100000, overBase: 0 });
+    const plain = (await ready(mockFetcher(routes()))).b;
+    expect(plain.totals()).toMatchObject({ base: null, overBase: 0 });
+  });
+
   it("per-player SP sums to the total: the stacking surcharge applies with a choose-one skill pack and without one", async () => {
     const costs = { primary: 1, secondary: 2, eliteSurcharge: 0, stackSurcharge: 1, eliteSkills: [] };
     const build = async (race: object, summary: object = { goldUsed: 600000 }) => {

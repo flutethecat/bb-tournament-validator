@@ -47,6 +47,8 @@ export interface PackageRules {
   name: string;
   dataNote?: string;
   budget: number | null;
+  /** Base budget below the cap (squad events): the value bar shows how far over it the team is. */
+  baseBudget?: number;
   overview: Overview | null;
   tierSummary: TierSummaryRow[];
   race?: RaceRules;
@@ -265,6 +267,7 @@ export function sanitizePackageRules(raw: unknown): PackageRules | null {
     name: sv(raw.name),
     ...(raw.dataNote ? { dataNote: sv(raw.dataNote) } : {}),
     budget: n0(raw.budget),
+    ...(typeof raw.baseBudget === "number" && Number.isFinite(raw.baseBudget) && raw.baseBudget > 0 ? { baseBudget: raw.baseBudget } : {}),
     overview: core.normalizeOverview(raw.overview),
     tierSummary: raw.tierSummary.map((t) => {
       const q = isRec(t) ? t : {};
@@ -755,6 +758,9 @@ export function createTournamentBuilder(deps: BuilderDeps) {
       budget: budget(),
       capped: capped(),
       over: capped() && used > budget(),
+      // Squad events: a base budget below the cap. Going over it is allowed; the bar shows by how much.
+      base: capped() && !ignoring() ? state.packageRules?.baseBudget ?? null : null,
+      overBase: Math.max(0, used - (state.packageRules?.baseBudget ?? used)),
       estimated: !s,
     };
   }
