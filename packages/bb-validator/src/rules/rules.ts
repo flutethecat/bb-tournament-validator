@@ -838,6 +838,17 @@ export const starPlayers: Rule = {
         const name = stars.find((s) => normName(findStar(data, s.player.positionName)?.name ?? s.player.positionName) === k)!.player.positionName;
         findings.push(err("star-players", `${name} is hired ${n} times; a team may hire each Star Player once.`, { expected: "1", actual: n, suggestion: `Remove ${n - 1} copy of ${name}.` }));
       }
+    // A paired star (Grak & Crumbleberry, Dribl & Drull, the Swift twins) is hired with its partner or not at all.
+    for (const s of stars) {
+      const partner = findStar(data, s.player.positionName)?.pairedWith;
+      if (partner && !stars.some((o) => normName(findStar(data, o.player.positionName)?.name ?? o.player.positionName) === normName(partner)))
+        findings.push(
+          err("star-players", `${s.player.positionName} is hired together with ${partner}; ${partner} is missing.`, {
+            playerRef: s.player.number,
+            suggestion: `Add ${partner}, or remove ${s.player.positionName}.`,
+          }),
+        );
+    }
     if (!allowed) {
       /* reported above */
     } else if (pkg.starPlayers.maxCount != null) {

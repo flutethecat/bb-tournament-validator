@@ -240,6 +240,11 @@ describe("Destination Blood Bowl package (Charleston 2027 rules pack, read 2026-
     const pair = build("Goblin", goblins([single, single, single], 8), { stars: ["Grak", "Crumbleberry", "Fungus the Loon"] }).result;
     expect(pair.errors).toEqual([]);
     expect(pair.recomputedSummary.skillPointsUsed).toBe(9); // pair 4 + star 2 + 3 skills
+    // Half a pair cannot be hired alone (the 0-SP half would dodge the charge).
+    for (const [half, partner] of [["Crumbleberry", "Grak"], ["Grak", "Crumbleberry"], ["Drull", "Dribl"], ["Valen Swift", "Lucien Swift"]] as const) {
+      const lone = build("Goblin", goblins([], 11), { stars: [half] }).result;
+      expect(ruleErrors(lone, "star-players").map((e) => e.message)).toContain(`${half} is hired together with ${partner}; ${partner} is missing.`);
+    }
   });
 
   it("caps a team at 1,200,000 gold and refuses Mercenaries, Prayers to Nuffle, Wizards and non-rulebook inducements", () => {
