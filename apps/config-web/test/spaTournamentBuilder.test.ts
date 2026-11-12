@@ -522,7 +522,7 @@ describe("tournament builder controller", () => {
     expect(sp.valueLines().find((l) => l.label === "Skill points")).toEqual({ label: "Skill points", value: "3.5 / 2", tone: "over" });
   });
 
-  it("per-player SP sums to the total: no stacking surcharge with a choose-one skill pack, the surcharge without one", async () => {
+  it("per-player SP sums to the total: the stacking surcharge applies with a choose-one skill pack and without one", async () => {
     const costs = { primary: 1, secondary: 2, eliteSurcharge: 0, stackSurcharge: 1, eliteSkills: [] };
     const build = async (race: object, summary: object = { goldUsed: 600000 }) => {
       const f = mockFetcher(routes({
@@ -538,18 +538,18 @@ describe("tournament builder controller", () => {
       return b;
     };
     const sum = (sp: { players: Array<{ sp: number }> }) => sp.players.reduce((n, p) => n + p.sp, 0);
-    // Choose-one pack: the server charges no stacking surcharge (bb-validator validate.ts); per-player must agree.
+    // Choose-one pack: the server charges the stacking surcharge too (bb-validator validate.ts); per-player must agree.
     const pack = await build({ skillCosts: costs, packs: [{ label: "Pack A", gold: 1150000, skillPointBudget: 4 }] });
     pack.setSkillPack("Pack A");
-    expect(pack.skillPoints()).toMatchObject({ used: 2, budget: 4, players: [{ index: 0, sp: 2 }] });
+    expect(pack.skillPoints()).toMatchObject({ used: 3, budget: 4, players: [{ index: 0, sp: 3 }] });
     expect(sum(pack.skillPoints()!)).toBe(pack.skillPoints()!.used);
     await pack.flushPreview();
     // ...and the same once the server's authoritative count is in.
-    const served = await build({ skillCosts: costs, packs: [{ label: "Pack A", gold: 1150000, skillPointBudget: 4 }] }, { goldUsed: 600000, skillPointsUsed: 2, skillPointBudget: 4 });
+    const served = await build({ skillCosts: costs, packs: [{ label: "Pack A", gold: 1150000, skillPointBudget: 4 }] }, { goldUsed: 600000, skillPointsUsed: 3, skillPointBudget: 4 });
     served.setSkillPack("Pack A");
     await served.flushPreview();
-    expect(served.skillPoints()!.used).toBe(2);
-    expect(sum(served.skillPoints()!)).toBe(2);
+    expect(served.skillPoints()!.used).toBe(3);
+    expect(sum(served.skillPoints()!)).toBe(3);
     // No pack: the NAF-style surcharge applies to the stacked player (1 + 1 + 1).
     const plain = await build({ skillCosts: costs, skillPointBudget: 6 });
     expect(plain.skillPoints()).toMatchObject({ used: 3, budget: 6, players: [{ index: 0, sp: 3 }] });

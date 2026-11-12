@@ -758,11 +758,10 @@ export function createTournamentBuilder(deps: BuilderDeps) {
       estimated: !s,
     };
   }
-  /** One player's SP for added skills, as the server counts it: choose-one skill packs charge no stacking surcharge
-   *  (bb-validator validate.ts / the skill-packages rule), other rulesets add stackSurcharge per skill beyond the first. */
+  /** One player's SP for added skills, as the server counts it (bb-validator validate.ts): stackSurcharge per skill
+   *  beyond the first, with or without choose-one skill packs. */
   function slotSkillSp(sl: Slot): number {
-    const base = raceRules()?.skillCosts ?? core.DEFAULT_SKILL_COSTS;
-    const costs = raceRules()?.packs.length ? { ...base, stackSurcharge: 0 } : base;
+    const costs = raceRules()?.skillCosts ?? core.DEFAULT_SKILL_COSTS;
     return core.playerSkillSp(sl.chosenSkills, (k) => accessOf(sl.positionId, k) === "secondary", costs);
   }
   /** Skill points (the vanilla page's tournament box, now the validator box): used / budget (the server's count once a

@@ -136,9 +136,8 @@ export function validate(
       if (access === "primary") primary++;
       else secondary++;
     });
-  // NAF stacking surcharge: same per-player calc as the skill-points rule, so the summary matches its message.
-  // Choose-one skill packages are checked by the skill-packages rule, which charges no surcharge: skip it there.
-  const stackSurchargeSP = resolveTeamConfig(pkg, roster.rosterName).skillPackages?.length ? 0 : (pkg.skillAllotment.stackSurchargeSP ?? 0);
+  // Stacking surcharge: same per-player calc as the skill-points and skill-packages rules, so the summary matches them.
+  const stackSurchargeSP = pkg.skillAllotment.stackSurchargeSP ?? 0;
   if (stackSurchargeSP > 0)
     for (const rp of players) {
       const legal = rp.addedSkills.filter((_, i) => rp.access[i] !== undefined && rp.access[i] !== "illegal").length;

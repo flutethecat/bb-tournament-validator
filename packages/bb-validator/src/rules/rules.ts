@@ -392,14 +392,21 @@ export const skillPackages: Rule = {
     let skillSP = 0;
     let primaryCount = 0;
     let secondaryCount = 0;
-    for (const rp of players)
+    // A package may price stacking (Destination Blood Bowl: two primaries on one player cost 3 SP): every legal
+    // added skill beyond a player's first costs +stackSurchargeSP, as in the skill-points rule. 0/absent = none.
+    const stackSurchargeSP = pkg.skillAllotment.stackSurchargeSP ?? 0;
+    for (const rp of players) {
+      let legal = 0;
       rp.addedSkills.forEach((s, i) => {
         const a = rp.access[i];
         if (a === undefined || a === "illegal") return; // only legal picks cost SP / count
+        legal++;
         skillSP += costSP(s, a, pkg.skillAllotment);
         if (a === "primary") primaryCount++;
         else secondaryCount++;
       });
+      if (stackSurchargeSP > 0) skillSP += Math.max(0, legal - 1) * stackSurchargeSP;
+    }
 
     // Stars: per-tier SP cost + availability; optionally exclude their gold.
     const { starGold, starSP } = starCosts(players, pkg, data, cfg.tierNumber);

@@ -185,8 +185,17 @@ export function builderRaceRules(pkg: TournamentPackage, race: string): BuilderR
     statRulesRace: findRoster(bb2025, race)?.name ?? race,
     statIncreases: pkg.special.statIncreasesAllowed === true && si && si.allowed.length ? { allowed: [...si.allowed], costGold: { ...si.costGold } } : null,
     starPacks,
-    maxStars: cfg.starPlayersAllowed ? pkg.starPlayers.maxCount : 0,
+    maxStars: cfg.starPlayersAllowed ? tierStarCap(pkg.starPlayers.maxCount, cfg.skillPackages) : 0,
   };
+}
+
+/** Most Star Player picks a team may take: the package cap, tightened by the most generous star-allowing skill
+ *  package when every such package sets its own `maxStars` (Destination Blood Bowl: Tiers 3-4 one star, Tier 5 two). */
+function tierStarCap(maxCount: number | null, packs: readonly SkillPackage[] | undefined): number | null {
+  const open = (packs ?? []).filter((p) => p.starPlayersAllowed !== false);
+  if (!open.length || open.some((p) => p.maxStars == null)) return maxCount;
+  const packCap = Math.max(...open.map((p) => p.maxStars!));
+  return maxCount == null ? packCap : Math.min(maxCount, packCap);
 }
 
 const fmtK = (n: number): string => `${Math.round(n / 1000)}k`;

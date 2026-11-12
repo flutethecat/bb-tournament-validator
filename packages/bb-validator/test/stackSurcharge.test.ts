@@ -46,7 +46,7 @@ describe("stackSurchargeSP (owner 09-09)", () => {
     expect(flat.recomputedSummary.skillPointsUsed).toBe(12);
   });
 
-  it("skill-packages mode: no surcharge is charged, so a legal 12-SP package stays valid at 12", () => {
+  it("skill-packages mode charges the surcharge too: 14 SP breaks a 12-SP pack and fits a 14-SP one", () => {
     const pkg = load({
       name: "WC packs", eligibleRosters: ["Amazon"], goldBudget: null,
       skillAllotment: { skillPointBudget: 12, primaryCostSP: 6, secondaryCostSP: 10, eliteSurchargeSP: 2, stackSurchargeSP: 2, maxPerPlayer: 2 },
@@ -54,8 +54,11 @@ describe("stackSurchargeSP (owner 09-09)", () => {
         skillPackages: [{ gold: 1_200_000, skillPointBudget: 12, maxPerPlayer: 2 }] }],
     });
     const r = validate(withSkills({ 1: ["Wrestle", "Tackle"] }), pkg, bb2025);
-    expect(r.errors.filter((e) => e.ruleId === "skill-packages" || e.ruleId === "skill-points")).toHaveLength(0);
-    expect(r.recomputedSummary.skillPointsUsed).toBe(12);
+    expect(r.errors.filter((e) => e.ruleId === "skill-packages")).toHaveLength(1);
+    expect(r.recomputedSummary.skillPointsUsed).toBe(14);
+    pkg.tiers![0]!.skillPackages![0]!.skillPointBudget = 14;
+    expect(validate(withSkills({ 1: ["Wrestle", "Tackle"] }), pkg, bb2025).errors.filter((e) => e.ruleId === "skill-packages" || e.ruleId === "skill-points")).toHaveLength(0);
+    expect(validate(withSkills({ 1: ["Wrestle"], 2: ["Tackle"] }), pkg, bb2025).recomputedSummary.skillPointsUsed).toBe(12);
   });
 
   it("two single-skill players pay no surcharge (12), and a 2nd elite primary is 6 + 8 + 2", () => {
