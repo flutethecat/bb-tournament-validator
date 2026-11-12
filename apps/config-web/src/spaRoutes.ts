@@ -27,6 +27,8 @@ export function spaStaticPath(pathname: string, publicDir: string): { root: stri
 
 /** A QR check-in page: its token is in the path (src/tournaments/checkInQr.ts). */
 const CHECK_IN_PAGE = /^\/app\/tournaments\/[^/]+\/check-in\/[^/]+\/?$/;
+/** A team share page (/t/<token> redirects here): its token is in the path too. */
+const TEAM_SHARE_PAGE = /^\/app\/t\/[0-9a-f]{32}\/?$/;
 
 /**
  * Extra headers for an SPA page response. A check-in page carries its token in the URL, so the document itself says
@@ -34,5 +36,6 @@ const CHECK_IN_PAGE = /^\/app\/tournaments\/[^/]+\/check-in\/[^/]+\/?$/;
  * request) and is never cached.
  */
 export function spaPageHeaders(pathname: string): Record<string, string> {
+  if (TEAM_SHARE_PAGE.test(pathname)) return { "referrer-policy": "no-referrer", "cache-control": "no-store", "x-robots-tag": "noindex" };
   return CHECK_IN_PAGE.test(pathname) ? { "referrer-policy": "no-referrer", "cache-control": "no-store" } : {};
 }

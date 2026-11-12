@@ -607,19 +607,42 @@ describe("tournament builder page (server-rendered)", () => {
     expect(html).toMatch(/<strong>Blitzer<\/strong>/); // short position name (src/positionNames.ts)
   });
 
-  it("Summary step (team page v2): the shared team summary (the league team page's component) with the builder's accordion on its left", async () => {
+  it("Summary step (owner 11-11): the league team page's summary, read only, with portraits; the save line, Validator and Inducements in its panel row", async () => {
     const html = await render("/tournament-team-builder?tab=summary", mockFetcher(routes()), (b) => { b.setTeamName("Reavers"); b.addPosition("hlin"); b.addPosition("hlin"); });
     expect(html).toContain('id="tb-pane-summary"');
     expect(html).toContain("data-builder-summary");
     expect(html).toContain("data-team-summary");
-    expect(html).toContain('class="ts-editing lg-table lg-players ts-table"'); // the same table as the league page, coach-editable
+    expect(html).toContain('class="lg-table lg-players ts-table"'); // the league page's table, read only until Edit team
     expect(html).toContain('<h2 id="tb-summary-h">Reavers</h2>');
+    expect(html).toContain("data-team-crest");
+    expect(html.match(/data-sprite-cell/g)).toHaveLength(2); // a portrait per player (initials here: no sprite set in this mock)
+    expect(html).toMatch(/aria-pressed="false" data-builder-edit>Edit team<\/button>/);
+    expect(html).not.toContain("tb-acc-title"); // the accordion waits for Edit team
+    expect(html).not.toMatch(/aria-label="Fire [^"]+ #1"/);
+    expect(html.slice(html.indexOf("data-builder-summary"))).not.toContain("<input"); // (the shell header's search box sits above)
+    // nothing the Summary showed before is lost: the strip, the Validator (value cards against the budget, SP, rule bullets)
+    for (const k of [">Team value</dt>", ">Treasury</dt>", ">Rerolls</dt>", ">Fans</dt>", ">Apothecary</dt>", ">Tier</dt>"]) expect(html).toContain(k);
+    expect(html).toContain('id="tb-validator-h"');
+    expect(between(html, "tb-validator-h")).toContain('class="tv-totals tb-value"');
+    // ...and the end of the road gains the save line (verdict, Export PDF, Save) and the Inducements panel
+    expect(html).toContain("data-builder-saveline");
+    expect(html).toContain('id="tb-valid-h"');
+    expect(html).toContain("Save Team");
+    expect(html).toContain("data-summary-inducements");
+    expect(html.indexOf("data-builder-saveline")).toBeLessThan(html.indexOf('id="tb-validator-h"'));
+    expect(html).not.toContain(">Avail.</th>"); // no season columns on a team being built
+  });
+
+  it("Summary step, Edit team (?edit=1, as the league page's deep link): the builder's accordion on the left and the coach's edits in the table", async () => {
+    const html = await render("/tournament-team-builder?tab=summary&edit=1", mockFetcher(routes()), (b) => { b.setTeamName("Reavers"); b.addPosition("hlin"); b.addPosition("hlin"); });
+    expect(html).toContain('class="ts-editing lg-table lg-players ts-table"'); // the same table as the league page, coach-editable
+    expect(html).toMatch(/aria-pressed="true" data-builder-edit>Done<\/button>/);
     expect(html).toContain('<span class="tb-acc-title">Hireable players</span>'); // the left accordion
     expect(html.indexOf("tb-acc-title")).toBeLessThan(html.indexOf("ts-table"));
-    expect(html).toContain(">Rerolls</dt>");
     expect(html).toMatch(/aria-label="Fire [^"]+ #1"/);
+    expect(html.match(/data-sprite-cell/g)).toHaveLength(2);
     expect(html).toContain('id="tb-validator-h"');
-    expect(html).not.toContain(">Avail.</th>"); // no season columns on a team being built
+    expect(html).toContain("data-builder-saveline");
   });
 
   it("Roster step: Cards (default) or Table: the table is the shared summary's roster table", async () => {

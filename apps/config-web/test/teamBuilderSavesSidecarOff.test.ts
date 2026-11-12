@@ -100,9 +100,10 @@ describe("team-builder saves with the auth sidecar off", () => {
     // No fork teams dir on this host: the sheet can't compose, so the view keeps its header and flags an issue.
     expect(((await read.json()) as { team: { teamName: string; coach: string; players: unknown[]; validity: { valid: boolean } } }).team)
       .toMatchObject({ teamName: "Shared XI", coach: "ShareCoach", players: [], validity: { valid: false } });
-    const page = await fetch(`${origin}/t/${shareToken}`);
-    expect(page.status).toBe(200);
-    expect(await page.text()).toContain('data-page="team-view"');
+    const page = await fetch(`${origin}/t/${shareToken}`, { redirect: "manual" });
+    expect(page.status).toBe(302); // the SPA's share page (owner 11-11), public like every /app page
+    expect(page.headers.get("location")).toBe(`/app/t/${shareToken}`);
+    expect(page.headers.get("www-authenticate")).toBeNull();
     const gone = await fetch(`${origin}/api/fork/team-builder/shared/${"0".repeat(32)}`);
     expect(gone.status).toBe(404);
     expect(gone.headers.get("www-authenticate")).toBeNull();

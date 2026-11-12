@@ -5708,6 +5708,10 @@ export function legacyTournamentRedirect(pathname: string, search: string): stri
   // Admin console v2 (owner 11-04): the old console moved into the SPA. The browser keeps the #users / #teams / #games /
   // #reports fragment across the redirect and the SPA's /admin route maps it to that section.
   if (pathname === "/admin.html") return "/app/admin";
+  // Team share links (owner 11-11: "The shareable link should also carry the table style look"): the SPA's read-only team
+  // summary. Only a well-formed token moves; anything else under /t/ stays a 404 as before.
+  const share = teamViewPagePath(pathname) ?? (pathname === "/team-view.html" ? /^[0-9a-f]{32}$/.exec(new URLSearchParams(search).get("t") ?? "")?.[0] : undefined);
+  if (share) return `/app/t/${share}`;
   if (pathname === "/tournament-rules.html") {
     const q = new URLSearchParams(search).toString();
     return q ? `/app/tournament-creator?${q}` : "/app/tournament-creator";
@@ -5813,7 +5817,8 @@ export const server = createServer((req, res) => {
       {
         const legacy = req.method === "GET" || req.method === "HEAD" ? legacyTournamentRedirect(url.pathname, url.search) : undefined;
         if (legacy) {
-          res.writeHead(302, { location: legacy, "cache-control": "no-store" }).end();
+          // A share link carries its token in the URL: the redirect never sends it on as a Referer (as the page itself).
+          res.writeHead(302, { location: legacy, "cache-control": "no-store", ...(legacy.startsWith("/app/t/") ? { "referrer-policy": "no-referrer" } : {}) }).end();
           return;
         }
       }

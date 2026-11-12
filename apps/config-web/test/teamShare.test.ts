@@ -23,6 +23,7 @@ import {
   updateSave,
 } from "../src/teamBuilderSaves.js";
 import { resolveCrest, resolveSprite } from "../src/teamShareView.js";
+import { spaPageHeaders } from "../src/spaRoutes.js";
 
 // Team share links (owner 10-27): create / revoke on the coach's own save, the public sanitised read, and the
 // /t/<token> page route — against a real server (auth sidecar ON) with a synthesised Dwarf fork roster.
@@ -248,18 +249,36 @@ describe("share routes", () => {
     expect((await call("POST", `/api/fork/team-builder/shared/${token}`, undefined, {})).status).not.toBe(200);
   });
 
-  it("serves the team view page at /t/<token> and refuses other /t/ paths", async () => {
-    const page = await call("GET", `/t/${token}`);
-    expect(page.status).toBe(200);
-    expect(page.headers.get("content-type")).toMatch(/text\/html/);
-    expect(await page.text()).toContain('data-page="team-view"');
-    for (const path of ["/team-view.html", "/team-view.js", "/team-view.css"]) expect((await call("GET", path)).status).toBe(200);
-    for (const path of ["/t/abc", `/t/${token}/x`, "/t/../package.json", "/t/%2e%2e/server.ts", `/t/..%2f..%2fsrc%2fserver.ts`]) {
+  it("/t/<token> moves to the SPA's table-style share page (owner 11-11) and refuses other /t/ paths", async () => {
+    const page = await fetch(`${origin}/t/${token}`, { redirect: "manual" });
+    expect(page.status).toBe(302);
+    expect(page.headers.get("location")).toBe(`/app/t/${token}`);
+    expect(page.headers.get("referrer-policy")).toBe("no-referrer"); // the token never rides on as a Referer
+    expect(page.headers.get("cache-control")).toBe("no-store");
+    // the old ?t= form follows; without a well-formed token the static page still answers as before
+    const legacy = await fetch(`${origin}/team-view.html?t=${token}`, { redirect: "manual" });
+    expect([legacy.status, legacy.headers.get("location")]).toEqual([302, `/app/t/${token}`]);
+    expect((await fetch(`${origin}/team-view.html?t=../x`, { redirect: "manual" })).status).toBe(200);
+    for (const path of ["/team-view.html", "/team-view.js", "/team-view.css"]) expect((await call("GET", path)).status).toBe(200); // the team management page still uses team-view.js
+    for (const path of ["/t/abc", `/t/${token}/x`, "/t/../package.json", "/t/%2e%2e/server.ts", `/t/..%2f..%2fsrc%2fserver.ts`, `/t/${token.toUpperCase()}`]) {
       const res = await rawGet(path);
       expect(res.body).not.toContain('data-page="team-view"');
       expect(res.body).not.toContain("createServer");
       expect(res.status).not.toBe(200);
     }
+    for (const path of ["/t/abc", `/t/${token}/x`, `/t/${token.toUpperCase()}`]) {
+      const res = await fetch(`${origin}${path}`, { redirect: "manual" });
+      expect(res.headers.get("location") ?? "").not.toContain("/app/t/"); // only a well-formed token moves (the rest meet the sign-in gate as before)
+    }
+    // the SPA page itself is public (no sign-in gate) and says no-referrer, no-store, noindex like the old page's meta tags
+    const spa = await fetch(`${origin}/app/t/${token}`, { redirect: "manual" });
+    expect([301, 302, 401, 403]).not.toContain(spa.status);
+    expect(spaPageHeaders(`/app/t/${token}`)).toEqual({ "referrer-policy": "no-referrer", "cache-control": "no-store", "x-robots-tag": "noindex" });
+    expect(spaPageHeaders("/app/t/abc")).toEqual({});
+    // an unshared or unknown token moves too (the format alone decides); the SPA page then shows "Team not found" from the API's 404
+    const unknown = await fetch(`${origin}/t/${"0".repeat(32)}`, { redirect: "manual" });
+    expect(unknown.headers.get("location")).toBe(`/app/t/${"0".repeat(32)}`);
+    expect((await call("GET", `/api/fork/team-builder/shared/${"0".repeat(32)}`)).status).toBe(404);
   });
 
   it("revoke: old link 404s, re-sharing mints a new token; deleting the save drops its link", async () => {

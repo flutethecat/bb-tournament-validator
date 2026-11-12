@@ -264,6 +264,8 @@ export const routes: RouteRecordRaw[] = [
     props: (route) => ({ saveId: typeof route.params.saveId === "string" && route.params.saveId ? route.params.saveId : undefined }),
     meta: { title: "Roster Builder" },
   },
+  // Public team share link (owner 10-27; the table-style summary since 11-11): /t/<token> 302s here. No sign-in.
+  { path: "/t/:token([0-9a-f]{32})", name: "team-share", component: () => import("./views/TeamShareView.vue"), props: true, meta: { title: "Team" } },
   { path: "/my-teams", name: "my-teams", component: MyTeamsView, meta: { requiresAuth: true, title: "My teams" } },
   // Team management (owner 10-30): the coach's own team (fork library team "library:<id>" or a Tournament Builder save id).
   // The server answers only the owner; anyone else gets "Team not found." shown as a friendly note.

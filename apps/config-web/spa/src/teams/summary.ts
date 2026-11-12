@@ -5,6 +5,7 @@
 
 import { reactive } from "vue";
 import type { Fetcher } from "../session";
+import { ApiError } from "../shared/api";
 import type { LeaguePlayer, LeagueTeam, PlayerSeasonStats } from "../leagues/types";
 import type { PrintSheetModel } from "./sheetRuleset";
 
@@ -42,6 +43,8 @@ export interface SummaryRow {
   /** Shared-total lines (an export that could not split two players). */
   shared: string[];
   star: boolean;
+  /** The portrait (a "/sprites/..." path from the generated art, "" when there is none: the frame shows initials). */
+  sprite?: string;
 }
 /** What the roster table lets the viewer change (all off = read only). */
 export interface RosterCan { rename?: boolean; renumber?: boolean; fire?: boolean; plus?: boolean; stats?: boolean; numbers?: boolean; mng?: boolean; removeSkill?: "all" | "added"; plusFor?: (id: string) => boolean }
@@ -59,7 +62,27 @@ export interface SummaryTeam {
   /** League rosters carry season stats (TD / CAS / MVP / SPP / Avail.); a builder roster has none. */
   seasonStats: boolean;
   inactive?: boolean;
+  /** The identity block's picture: the team avatar or the race crest ("/crests/..."); absent = initials. */
+  crest?: string;
+  /** The race's special rules, small text beside the caption (owner 10-27: "not a panel"). */
+  specialRules?: string[];
+  /** Panels under the roster (the Roster Builder and the share page): what the team spent and its inducements. */
+  panels?: SummaryPanels;
 }
+export interface SummaryCost { key: string; label: string; value: string; tone?: "total" | "over" }
+export interface SummaryInducement { name: string; count: number; icon: string }
+export interface SummaryPanels {
+  costs?: SummaryCost[];
+  inducements?: { items: SummaryInducement[]; total: string | null };
+}
+
+// ---- art (the generated public/sprites and public/crests; never a URL from outside) -----------------------------------
+
+/** Only relative paths inside the generated art folders are used (the rule team-view.js and the builder use). */
+export const artSrc = (path: string | null | undefined): string =>
+  typeof path === "string" && /^\/?(?:sprites|crests|icons)\/(?:[a-z0-9_-]+\/)*[a-z0-9_-]+\.png$/.test(path) ? `/${path.replace(/^\//, "")}` : "";
+/** Up to two initials (the sprite frame's fallback). */
+export const artInitials = (name: string): string => name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "?";
 
 export const kValue = (n: number | null | undefined): string => (n === null || n === undefined ? "-" : `${Math.round(n / 1000).toLocaleString("en-US")}k`);
 const stat = (v: number | null): string => (v === null ? "-" : String(v));
@@ -91,6 +114,10 @@ export interface LeagueSummaryOptions {
   shared?: (playerId: string) => string[];
   /** Organiser edit mode: facts carry their raw value for inputs. */
   editable?: boolean;
+  /** A player's portrait for this team's race (teams/sprites.ts spriteSrc); none = the initials frame. */
+  sprite?: (position: string) => string;
+  /** The race crest ("/crests/..."). */
+  crest?: string;
 }
 
 /** The team value line: CTV with TV beside it when they differ (league.ts teamValueFigures' rule). */
@@ -120,12 +147,13 @@ export function summaryFromLeague(team: LeagueTeam, opts: LeagueSummaryOptions =
     skills: p.skills.map((name) => ({ name })),
     td: p.stats.td, cas: p.stats.cas, mvp: p.stats.mvp, spp: p.stats.spp, avail: p.availableSpp, value: p.value,
     seasonsPlayed: p.seasonsPlayed ?? null, mng: p.missNextGame, niggling: p.niggling, counters: counterValues(p.stats),
-    shared: opts.shared?.(p.playerId) ?? [], star: false,
+    shared: opts.shared?.(p.playerId) ?? [], star: false, sprite: artSrc(opts.sprite?.(p.position)),
   }));
   return {
     id: team.id, name: team.name, caption: [team.race, team.coach, team.coachId && team.coachAssigned && !team.coachAssigned.cleared ? team.coachId : ""].filter(Boolean).join(" · "), facts, rows,
     former: team.formerPlayers.map((p) => ({ id: p.playerId, name: p.name, position: p.position, td: p.stats.td, cas: p.stats.cas, mvp: p.stats.mvp, spp: p.stats.spp, counters: counterValues(p.stats) })),
     counters: countersFor(team.players), formerCounters: countersFor(team.formerPlayers), seasonStats: true, inactive: team.status === "inactive",
+    ...(artSrc(opts.crest) ? { crest: artSrc(opts.crest) } : {}),
   };
 }
 
@@ -143,6 +171,11 @@ export interface BuilderSummaryExtras {
   /** Per row: whether the added skills may be removed here, and the chosen skills' access. */
   rowAccess?: (index: number, skill: string) => "primary" | "secondary";
   eliteMark?: (skill: string) => boolean;
+  /** A row's portrait by its full position name (the builder's spritePath: custom stars wear their own pick). */
+  sprite?: (positionFull: string) => string;
+  crest?: string;
+  /** The inducements bought, with their icons and the total spend (the Summary's Inducements panel). */
+  inducements?: { items: SummaryInducement[]; total: number | null };
 }
 
 /** The Roster Builder's team (its PDF sheet model, the one both the Sheet tab and the PDF read) as the shared summary. */
@@ -160,6 +193,7 @@ export function summaryFromBuilder(model: PrintSheetModel, extras: BuilderSummar
       ].filter((s, j, all) => all.findIndex((x) => x.name === s.name) === j),
       ...(rules?.length ? { specialRules: rules } : {}),
       td: null, cas: null, mvp: null, spp: null, avail: null, value: r.cost, seasonsPlayed: null, mng: false, niggling: 0, counters: {}, shared: [], star: r.isStar,
+      sprite: artSrc(extras.sprite?.(r.positionFull)),
     };
   });
   const s = extras.staff;
@@ -176,7 +210,104 @@ export function summaryFromBuilder(model: PrintSheetModel, extras: BuilderSummar
       ...(extras.tier ? [{ key: "tier", label: "Tier", value: extras.tier }] : []),
     ],
     rows, former: [], counters: [], formerCounters: [], seasonStats: false,
+    ...(artSrc(extras.crest) ? { crest: artSrc(extras.crest) } : {}),
+    ...(model.specialRules?.length ? { specialRules: model.specialRules.map(String) } : {}),
+    ...(extras.inducements ? { panels: { inducements: { items: extras.inducements.items, total: extras.inducements.total === null ? null : kValue(extras.inducements.total) } } } : {}),
   };
+}
+
+// ---- the public share page (/t/<token>; server teamShareView.ts SharedTeamView) -----------------------------------------
+
+/** The share page's model as the server sends it (sanitised there: no ids, no coach account data beyond the coach name). */
+export interface SharedTeamModel {
+  avatarUrl?: string;
+  teamName: string;
+  coach: string;
+  raceName: string;
+  crest: string | null;
+  ruleset: { name: string; tierLabel: string | null } | null;
+  updatedAt: string;
+  players: Array<{
+    name?: string; number: number; position: string; positionFull: string; isStar: boolean; captain: boolean; veteran?: true;
+    stats: { MA: number; ST: number; AG: string; PA: string; AV: string };
+    printed: Array<{ name: string }>; free: Array<{ name: string }>; added: Array<{ name: string; access?: "primary" | "secondary" }>;
+    statIncreases: string[]; cost: number | null; sprite: string | null;
+  }>;
+  sideline: { reRolls: number; apothecary: boolean; assistantCoaches: number; cheerleaders: number; dedicatedFans: number };
+  inducements: Array<{ name: string; count: number; icon: string | null }>;
+  specialRules: string[];
+  summary: {
+    players: number; playersCost: number | null; starsCost: number | null; skillsCost: number | null; inducementsCost: number | null; sidelineCost: number | null;
+    total: number | null; cap: number | null; primarySkills: number; secondarySkills: number;
+  };
+  /** Present only when the viewer's session coach owns the save. */
+  ownerSaveId?: string;
+}
+
+/** An uploaded team avatar's public read (src/teamAvatars.ts), the only non-art picture the share page may show. */
+const avatarSrc = (url: unknown): string => (typeof url === "string" && /^\/api\/fork\/teams\/[^/?#]+\/avatar(?:\?v=\d+)?$/.test(url) ? url : "");
+
+/** A shared Roster Builder team (the public share page) as the shared summary: read only, exactly the fields the page had. */
+export function summaryFromShared(team: SharedTeamModel): SummaryTeam {
+  const s = team.sideline;
+  const sum = team.summary;
+  const ruleset = team.ruleset ? [team.ruleset.name, team.ruleset.tierLabel].filter(Boolean).join(" · ") : "";
+  const total = sum.total === null ? "-" : sum.cap !== null ? `${kValue(sum.total)} / ${kValue(sum.cap)}` : kValue(sum.total);
+  const over = sum.total !== null && sum.cap !== null && sum.total > sum.cap;
+  const rows: SummaryRow[] = team.players.map((p, i) => ({
+    id: String(i), number: p.number, name: p.isStar ? "" : p.name ?? "", position: p.position,
+    sub: [p.isStar ? "Star player" : "", p.captain ? "Team Captain" : "", p.veteran ? "Veteran" : "", p.statIncreases.length ? p.statIncreases.map((x) => `+${x}`).join(" ") : ""].filter(Boolean),
+    ma: num(p.stats.MA), st: num(p.stats.ST), ag: num(p.stats.AG), pa: num(p.stats.PA), av: num(p.stats.AV),
+    skills: [
+      ...p.printed.map((k) => ({ name: k.name })), ...p.free.map((k) => ({ name: k.name })),
+      ...p.added.map((k) => ({ name: k.name, added: true, access: k.access === "secondary" ? "secondary" as const : "primary" as const })),
+    ].filter((k, j, all) => all.findIndex((x) => x.name === k.name) === j),
+    td: null, cas: null, mvp: null, spp: null, avail: null, value: p.cost, seasonsPlayed: null, mng: false, niggling: 0, counters: {}, shared: [], star: p.isStar,
+    sprite: artSrc(p.sprite),
+  }));
+  const crest = avatarSrc(team.avatarUrl) || artSrc(team.crest);
+  return {
+    id: "shared", name: team.teamName, caption: [team.raceName, team.coach, ruleset].filter(Boolean).join(" · "),
+    facts: [
+      { key: "tv", label: "Team value", value: total },
+      { key: "rerolls", label: "Rerolls", value: String(s.reRolls) },
+      { key: "fans", label: "Dedicated fans", value: String(s.dedicatedFans) },
+      { key: "assistantCoaches", label: "Assistant coaches", value: String(s.assistantCoaches) },
+      { key: "cheerleaders", label: "Cheerleaders", value: String(s.cheerleaders) },
+      { key: "apothecary", label: "Apothecary", value: s.apothecary ? "Yes" : "No" },
+    ],
+    rows, former: [], counters: [], formerCounters: [], seasonStats: false,
+    ...(crest ? { crest } : {}),
+    ...(team.specialRules.length ? { specialRules: team.specialRules.map(String) } : {}),
+    panels: {
+      costs: [
+        { key: "players", label: "Players", value: String(sum.players) },
+        { key: "playersCost", label: "Players cost", value: kValue(sum.playersCost) },
+        ...(sum.starsCost !== null && sum.starsCost > 0 ? [{ key: "stars", label: "Stars", value: kValue(sum.starsCost) }] : []),
+        { key: "skills", label: "Skills", value: kValue(sum.skillsCost) },
+        { key: "inducements", label: "Inducements", value: kValue(sum.inducementsCost) },
+        { key: "sideline", label: "Sideline", value: kValue(sum.sidelineCost) },
+        { key: "skillSplit", label: "Primary / Secondary", value: `${sum.primarySkills} / ${sum.secondarySkills}` },
+        { key: "total", label: "Total", value: total, tone: over ? "over" : "total" },
+      ],
+      inducements: { items: team.inducements.map((x) => ({ name: x.name, count: x.count, icon: artSrc(x.icon) })), total: sum.inducementsCost === null ? null : kValue(sum.inducementsCost) },
+    },
+  };
+}
+
+/**
+ * Load a shared team for the share page: a malformed token never asks; the server's 404 (unknown, unshared or revoked)
+ * is "gone"; anything else is an error line.
+ */
+export async function loadSharedTeam(api: Fetcher | null | undefined, token: string): Promise<{ team: SharedTeamModel } | { gone: true } | { error: string }> {
+  if (!api || !/^[0-9a-f]{32}$/.test(token)) return { gone: true };
+  try {
+    const res = await api<{ team?: SharedTeamModel }>(`/api/fork/team-builder/shared/${token}`);
+    return res?.team ? { team: res.team } : { error: "Couldn't load this team." };
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return { gone: true };
+    return { error: `Couldn't load this team (${e instanceof Error && e.message ? e.message : "network error"}).` };
+  }
 }
 
 // ---- the edit context (server teamPage.ts TeamPageView) --------------------------------------------------------------

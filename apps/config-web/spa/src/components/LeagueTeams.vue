@@ -31,6 +31,7 @@ import TeamHistory from "./TeamHistory.vue";
 import TeamSwapDialog from "./TeamSwapDialog.vue";
 import { createTeamLibrary, entryCoachLine, entryHistoryLine } from "../leagues/takeover";
 import "../leagues/takeover.css";
+import { loadSpriteManifest, spriteManifest, spriteSrc } from "../teams/sprites";
 
 const props = defineProps<{ season: SeasonRecord; team: string; player?: string; leagueId: string; crests: Record<string, string>; manage?: boolean }>();
 const route = useRoute();
@@ -67,6 +68,8 @@ const appointCaptain = (playerId: string): Promise<string> => detail!.appointCap
 
 // ---- team page v2: the edit context, coach and organiser modes ----
 const fetcher = inject(API_KEY, null);
+// Player portraits (the generated sprite set): fetched once when a team page opens; initials until then.
+watch(showing, (on) => { if (on) loadSpriteManifest(fetcher); }, { immediate: true });
 const page = fetcher ? createTeamPage(fetcher, () => detail?.reloadSeason(props.season.id)) : null;
 const me = computed(() => (session?.coach() ?? "").trim().toLowerCase());
 const seated = computed(() => Boolean(me.value && picked.value?.coachId && picked.value.coachId.trim().toLowerCase() === me.value));
@@ -91,7 +94,10 @@ const mode = computed<SummaryMode>(() => {
 });
 const summary = computed(() => {
   const t = ctx.value?.team ?? picked.value;
-  return t ? summaryFromLeague(t, { shared: sharedLines, editable: mode.value === "organiser" }) : null;
+  const sprites = spriteManifest();
+  return t ? summaryFromLeague(t, {
+    shared: sharedLines, editable: mode.value === "organiser", crest: crestFor(props.crests, t.race), sprite: (position) => spriteSrc(sprites, t.race, position),
+  }) : null;
 });
 const can = computed<RosterCan>(() => {
   if (mode.value === "organiser") return { rename: true, renumber: true, fire: true, plus: true, stats: true, numbers: true, mng: true, removeSkill: "all" };

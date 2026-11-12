@@ -243,7 +243,7 @@ async function pickPackage(name: string): Promise<void> {
         </div>
       </div>
       <!-- Summary (team page v2): the shared team summary, with the hire / staff accordion on its left as on the league team page -->
-      <TournamentBuilderSummary v-else-if="tab === 'summary'" />
+      <TournamentBuilderSummary v-else-if="tab === 'summary'" :sign-in-href="signInHref" :sso-enabled="session.ssoEnabled()" />
       <TournamentBuilderSheet v-else />
     </div>
 

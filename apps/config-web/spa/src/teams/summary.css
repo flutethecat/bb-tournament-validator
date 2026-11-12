@@ -13,6 +13,45 @@
 .ts-cog img { image-rendering: pixelated; }
 .ts-summary[data-inactive="true"] .ts-facts, .ts-summary[data-inactive="true"] .ts-table { opacity: .85; }
 
+/* identity block: the crest (or team avatar) before the name; the race's special rules beside the caption */
+.ts-band { align-items: center; }
+.ts-band .sprite-frame.ts-crest { position: relative; display: grid; place-items: center; flex: none; width: 34px; height: 34px; overflow: hidden; color: var(--ui-muted);
+  background: var(--ui-surface-2); border: 1px solid var(--sf-panel-line); border-radius: 4px; font: 700 12px/1 var(--sf-band-font); }
+.ts-band .ts-crest .crest-image { position: absolute; inset: 2px; width: calc(100% - 4px); height: calc(100% - 4px); object-fit: contain; }
+.ts-band .ts-crest:has(.crest-image) .sprite-fallback { visibility: hidden; }
+.ts-caption { min-width: 0; white-space: normal; text-align: right; }
+.ts-rules-inline { display: block; margin-top: 2px; font: 12px/1.3 var(--font-body); text-transform: none; letter-spacing: 0; color: var(--ui-muted); }
+
+/* the roster's portrait column: TabletopRosterRow's sprite frame (initials until the art loads, or when there is none) */
+.ts-table .ts-sprite-h, .ts-table .ts-sprite-cell { width: 1%; padding-left: 2px; padding-right: 4px; }
+.ts-table .sprite-frame.ts-sprite { position: relative; display: grid; place-items: center; width: 40px; height: 40px; overflow: hidden; color: var(--ui-muted);
+  background: var(--ui-surface-2); border: 1px solid var(--sf-panel-line); border-radius: 4px; font: 700 12px/1 var(--sf-band-font); }
+.ts-table .sprite-frame.ts-sprite .sprite-image { position: absolute; inset: 2px; width: calc(100% - 4px); height: calc(100% - 4px); object-fit: contain; image-rendering: pixelated; }
+.ts-table .sprite-frame.ts-sprite:has(.sprite-image) .sprite-fallback { visibility: hidden; }
+@media (max-width: 640px) { .ts-table .sprite-frame.ts-sprite { width: 32px; height: 32px; font-size: 11px; } }
+
+/* the panel row under the roster (the Roster Builder's and the share page's costs, inducements, validator, save line) */
+.ts-layout { display: grid; gap: 16px; min-width: 0; }
+/* 1920-class screens: the panels stand right of the roster (when no hire accordion takes the left), so they share its screen */
+@media (min-width: 1600px) {
+  .ts-layout.ts-with-side { grid-template-columns: minmax(0, 1fr) minmax(280px, 340px); align-items: start; }
+  .ts-with-side > .ts-panels { grid-template-columns: minmax(0, 1fr); }
+}
+.ts-panels { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); align-items: start; min-width: 0; }
+.ts-panels > * { min-width: 0; margin: 0; }
+.ts-pairs { display: grid; margin: 0; padding: 0 4px; }
+.ts-pairs > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--sf-panel-line); }
+.ts-pairs > div:last-child { border-bottom: 0; }
+.ts-pairs dt { font: 11px/1.3 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
+.ts-pairs dd { margin: 0; font: 700 16px/1.2 var(--font-heading); font-variant-numeric: tabular-nums; }
+.ts-pairs [data-tone="total"] dd { color: var(--sf-gold); font-size: 19px; }
+.ts-pairs [data-tone="over"] dd { color: var(--ui-danger); font-size: 19px; }
+.ts-ind-list { display: grid; gap: 6px; margin: 0; padding: 0 4px; list-style: none; }
+.ts-ind-list li { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+.ts-ind-list li > span { grid-column: 2; }
+.ts-ind-list b { font: 700 15px/1.2 var(--font-heading); }
+.ts-ind-icon { width: 28px; height: 28px; object-fit: contain; image-rendering: pixelated; }
+
 .ts-body { display: grid; gap: 16px; min-width: 0; }
 .ts-left, .ts-main { min-width: 0; }
 .ts-left { display: grid; gap: 8px; align-content: start; }

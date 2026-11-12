@@ -33,7 +33,7 @@ function setView(v: "cards" | "table"): void {
   try { globalThis.localStorage?.setItem(VIEW_KEY, v); } catch { /* storage blocked: this page only */ }
 }
 const tableRows = computed(() => (view.value === "table" && state.roster ? summaryFromBuilder(sheetModel(builder), {
-  coach: "", teamValue: null, treasury: null, staff: state.staff, tier: "", eliteMark: (k) => builder.eliteMark(k),
+  coach: "", teamValue: null, treasury: null, staff: state.staff, tier: "", eliteMark: (k) => builder.eliteMark(k), sprite: (positionFull) => builder.spritePath(positionFull),
 }).rows : []));
 const tableCan = computed<RosterCan>(() => ({ rename: true, fire: true, plus: true, plusFor: (id) => builder.advanceLock(Number(id)).offered, removeSkill: "added" }));
 

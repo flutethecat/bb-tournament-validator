@@ -1,13 +1,14 @@
 <script setup lang="ts">
 // The table-style roster of the shared team summary (team page v2; owner's reference: the league team page): number,
-// player (name over position and level), MA / ST / AG / PA / AV, skills (custom stars' special rules under them), then the
+// a portrait (TabletopRosterRow's sprite frame: the generated sprite, initials when there is none; not in the organiser's
+// edit mode), player (name over position and level), MA / ST / AG / PA / AV, skills (custom stars' special rules under them), then the
 // season columns (TD, CAS, MVP, SPP, the Super FUMBBL counters a player has, unspent SPP, Seasons Played) and the value.
 // The same table serves the league page and the Roster Builder (teams/summary.ts holds the row model). Editing is opt-in
 // per capability: rename / renumber (coach and organiser), +/- over the stats and every number (organiser edit mode),
 // skill chips with a remove badge, the row "+" (skills; the organiser's band-aid lives in the menu it opens) and fire.
-import { computed } from "vue";
+import { computed, reactive } from "vue";
 import type { RosterCan, SummaryCounter, SummaryMode, SummaryRow } from "../teams/summary";
-import { kValue, statStep } from "../teams/summary";
+import { artInitials, kValue, statStep } from "../teams/summary";
 
 const props = withDefaults(defineProps<{
   rows: SummaryRow[];
@@ -33,6 +34,10 @@ const shown = (r: SummaryRow, s: (typeof STATS)[number]): string => (r[s.key] ==
 const seasons = computed(() => props.seasonStats && (props.can.numbers || props.rows.some((r) => (r.seasonsPlayed ?? 0) > 0)));
 const actions = computed(() => Boolean(props.can.fire || props.can.plus));
 const editing = computed(() => Boolean(props.can.rename || props.can.renumber || props.can.stats || props.can.numbers));
+/** The portrait column, except in the organiser's edit mode, where the steppers and number inputs need the width. */
+const portraits = computed(() => !(props.can.stats || props.can.numbers));
+/** Portraits whose file failed to load: the frame keeps its initials (a missing file never shows a broken image). */
+const broken = reactive(new Set<string>());
 const who = (r: SummaryRow): string => `${r.name || r.position}${r.number !== null ? ` #${r.number}` : ""}`;
 
 function commitName(r: SummaryRow, e: Event): void {
@@ -64,7 +69,7 @@ const NUMBER_COLS: ReadonlyArray<{ key: "td" | "cas" | "mvp" | "spp"; field: str
     <table class="lg-table lg-players ts-table" :class="{ 'ts-editing': editing }" :aria-label="label" :aria-busy="busy ? 'true' : undefined">
       <thead>
         <tr>
-          <th scope="col" class="lg-num">#</th><th scope="col">Player</th>
+          <th scope="col" class="lg-num">#</th><th v-if="portraits" scope="col" class="ts-sprite-h"><span class="tn-sr">Portrait</span></th><th scope="col">Player</th>
           <th v-for="s in STATS" :key="s.key" scope="col" class="lg-num">{{ s.label }}</th>
           <th scope="col">Skills</th>
           <template v-if="seasonStats">
@@ -83,6 +88,9 @@ const NUMBER_COLS: ReadonlyArray<{ key: "td" | "cas" | "mvp" | "spp"; field: str
             <input v-if="can.renumber && !r.star" class="ts-in ts-in-num" type="number" min="1" max="99" :value="r.number ?? ''" :aria-label="`Number for ${who(r)}`" :disabled="busy" @change="commitNumber(r, $event)" />
             <template v-else>{{ r.number ?? "" }}</template>
           </td>
+          <td v-if="portraits" class="ts-sprite-cell" data-sprite-cell>
+            <span class="sprite-frame ts-sprite" aria-hidden="true"><span class="sprite-fallback">{{ artInitials(r.star ? r.position : r.position || r.name) }}</span><img v-if="r.sprite && !broken.has(r.sprite)" class="sprite-image" :src="r.sprite" alt="" loading="lazy" decoding="async" @error="broken.add(r.sprite ?? '')" /></span>
+          </td>
           <th scope="row" class="lg-team-cell ts-player">
             <input v-if="can.rename && !r.star" class="ts-in ts-in-name" type="text" maxlength="60" :value="r.name" :placeholder="r.position" :aria-label="`Name for ${r.position}${r.number !== null ? ` #${r.number}` : ''}`" :disabled="busy" @change="commitName(r, $event)" @keydown.enter.prevent="($event.target as HTMLInputElement).blur()" />
             <span v-else class="lg-team-name">{{ r.name || r.position }}</span>
@@ -99,7 +107,7 @@ const NUMBER_COLS: ReadonlyArray<{ key: "td" | "cas" | "mvp" | "spp"; field: str
             <template v-else>{{ shown(r, s) }}</template>
           </td>
           <td class="lg-skills ts-skills">
-            <template v-if="!can.removeSkill">{{ r.skills.map((k) => k.name).join(", ") }}</template>
+            <template v-if="!can.removeSkill"><template v-for="(k, i) in r.skills" :key="k.name"><span v-if="k.added" class="ts-skill ts-added" :class="{ 'ts-secondary': k.access === 'secondary' }" :title="`${k.access === 'secondary' ? 'Secondary' : 'Primary'} skill added`">{{ k.name }}</span><template v-else>{{ k.name }}</template><template v-if="i < r.skills.length - 1">, </template></template></template>
             <template v-for="(k, i) in r.skills" v-else :key="k.name">
               <span class="ts-skill" :class="{ 'ts-added': k.added, 'ts-secondary': k.access === 'secondary' }">{{ k.name }}<button v-if="removable(k)" type="button" class="tb-chip-x ts-chip-x" :aria-label="`Remove ${k.name} from ${who(r)}`" :disabled="busy" @click="emit('removeSkill', r.id, k.name)"><span aria-hidden="true">×</span></button></span><template v-if="i < r.skills.length - 1 && !removable(k)">, </template>
             </template>
