@@ -99,7 +99,7 @@ describe("fit to 1920x1080: the pages that opted in", () => {
     ["views/MessagesView.vue", ["so-page sf-fit", "so-side sf-scroll sf-col"]],
     ["views/TabletopListView.vue", ["hm-page sf-fit", "hm-grid sf-fill sf-cols tt-home-grid"]],
     ["views/FixtureLobbyView.vue", ["fl-page sf-fit", "fl-grid sf-fill"]],
-    ["views/TeamManageView.vue", ["tm-page sf-fit", "tm-content sf-fit sf-fill", "tm-sheet sf-shrink sf-scroll sf-col"]],
+    ["views/TeamManageView.vue", ["tm-page sf-fit", "tm-content sf-fit sf-fill", "tm-summary sf-shrink sf-scroll sf-col"]],
     ["views/StandingsView.vue", ["hm-page st-page sf-fit", "sf-pane sf-shrink", "lg-scroll sf-pane-body"]],
     ["views/TournamentListView.vue", ["hm-page tl-page sf-fit", "tl-cards sf-shrink sf-scroll sf-col"]],
     ["views/LeagueListView.vue", ["hm-page lg-page lgb-page sf-fit", "lgb-grid sf-fill sf-scroll sf-col", "lgb-table-pane sf-pane sf-fill", "lgb-table-wrap sf-pane-body"]],

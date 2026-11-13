@@ -1,12 +1,15 @@
 <script setup lang="ts">
-// Team management (/app/teams/:ref, owner 10-30): the coach's own team laid out exactly like the public share page (the
-// sheet is public/team-view.js's own markup, styled by public/team-view.css), plus per player an "Add Skill" button when a
-// random or chosen Primary advancement is affordable and an "Add Characteristic" button when the characteristic roll is
-// (teamAdvancement.ts costs). Header: Back to My teams, Team avatar (opens the upload dialog), Share / Unshare, Open in Tournament Builder.
+// Team management (/app/teams/:ref, owner 10-30; table style owner 11-12: "This view on the 'My Teams' page should also just
+// be the new table view"): the coach's own team as the shared team summary (TeamSummary, the league team page's and the
+// share page's layout; teams/summary.ts summaryFromManaged builds it from the share page's model). Each player's name opens
+// the player sheet; on a fork library team each row also has "Add Skill" (a random or chosen Primary advancement is
+// affordable) and "Add Stat" (the characteristic roll is affordable), greyed out otherwise, with a "Level up!" chip (or
+// "Finish level up" when a roll is saved on the team: both buttons then resume it), and the SPP column (current SPP
+// against the cheapest next advancement; teamAdvancement.ts costs). Header: Back to My teams, Team avatar (opens the
+// upload dialog), Open in Roster Builder, Share / Unshare.
 import { computed, inject, nextTick, onMounted, onServerPrefetch, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
-import "../../../public/team-view.js";
-import "../../../public/team-view.css";
+// (The legacy sheet script and stylesheet now load with PlayerSheetModal, the only part of this page that still uses them.)
 import "../teams/teams.css";
 import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
@@ -14,14 +17,13 @@ import AdvanceModal from "../components/AdvanceModal.vue";
 import LeagueRedraftPanel from "../components/LeagueRedraftPanel.vue";
 import PlayerSheetModal from "../components/PlayerSheetModal.vue";
 import TeamAvatarModal from "../components/TeamAvatarModal.vue";
+import TeamSummary from "../components/TeamSummary.vue";
 import CaptainVacantChip from "../components/CaptainVacantChip.vue";
 import CaptainVacantDialog from "../components/CaptainVacantDialog.vue";
 import { libraryCaptainRows } from "../shared/captain";
-import { builderHref, canAdvance, createTeamManage, progressLine, shareUrl, TEAM_MANAGE_KEY, teamManagePath, type ManagedPlayer } from "../teams/manage";
+import { builderHref, canAdvance, createTeamManage, shareUrl, TEAM_MANAGE_KEY, teamManagePath } from "../teams/manage";
+import { summaryFromManaged, type SummaryRow } from "../teams/summary";
 import { copyText } from "../shell/copyText";
-
-interface TeamViewCore { viewHtml: (team: unknown, opts?: Record<string, unknown>) => string }
-const TeamView = (globalThis as unknown as { TeamView?: TeamViewCore }).TeamView;
 
 const props = defineProps<{ teamRef: string }>();
 const fetcher = inject(API_KEY)!;
@@ -31,62 +33,45 @@ const { state } = manage;
 const model = computed(() => state.model);
 const info = computed(() => state.model?.manage);
 
-const ESC: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
-const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (c) => ESC[c]!);
+/** The summary (row ids are the player indexes manage.open / openSheet take); the avatar shown on the page is its crest. */
+const summary = computed(() => (model.value ? summaryFromManaged(model.value.team, { avatarUrl: state.avatar.url }) : null));
+/** A Roster Builder save has no progression: no advancement column at all. */
+const hasProgress = computed(() => Boolean(model.value?.team.players.some((p) => p.progress)));
 
-/** The SPP cell for one player: current SPP against the cost of the next (cheapest) advancement, e.g. "0/14". */
-function sppHtml(p: ManagedPlayer): string {
+/** Per player: the two advancement buttons' state (owner 10-30: always both, greyed out when not affordable, no
+ *  explanatory text) and the chip beside them. null = no progression (no buttons). */
+const acts = computed(() => (model.value?.team.players ?? []).map((p, i) => {
   const g = p.progress;
-  if (!g) return '<span class="tv-none">—</span>';
-  const cost = g.costs ? g.costs.randomPrimary : null;
-  return `<span class="tm-spp" title="${esc(progressLine(g))}">${g.spp}${cost !== null ? `/${cost}` : ""}</span>`;
-}
-
-/** The Advancement cell for one player (HTML for team-view.js's actions hook; clicks are delegated). Owner 10-30: always
- *  the two buttons, greyed out when the player cannot take that advancement, no explanatory text; a "Level up!" toast
- *  beside them when an advancement is waiting (or "Finish level up" when a roll is saved on the team). */
-function actionsHtml(p: ManagedPlayer, i: number): string {
-  const g = p.progress;
-  if (!g) return '<span class="tv-none">—</span>';
-  const label = esc(p.name || `#${p.number} ${p.position}`);
+  if (!g) return null;
   const pending = Boolean(g.pending);
-  const btn = (kind: string, on: boolean, text: string, aria: string) =>
-    `<button type="button" class="tm-act" data-adv="${i}" data-kind="${pending ? "resume" : kind}"${on ? "" : ' disabled aria-disabled="true"'} aria-label="${aria} ${label}">${text}</button>`;
-  const skillOn = canAdvance(p, "skill");
-  const statOn = canAdvance(p, "characteristic");
-  const toast = pending
-    ? '<span class="tm-toast" role="status">Finish level up</span>'
-    : skillOn || statOn ? '<span class="tm-toast" role="status">Level up!</span>' : "";
-  return `<span class="tm-acts">${btn("skill", skillOn, "Add Skill", "Add a skill to")}${btn("characteristic", statOn, "Add Stat", "Add a stat to")}${toast}</span>`;
+  const skill = canAdvance(p, "skill");
+  const stat = canAdvance(p, "characteristic");
+  return { i, pending, skill, stat, label: p.name || `#${p.number} ${p.position}`, chip: pending ? "Finish level up" : skill || stat ? "Level up!" : "" };
+}));
+const actsFor = (row: SummaryRow) => acts.value[Number(row.id)] ?? null;
+
+/** The name button of each row opens the player sheet (owner 10-30). */
+function sheetLabel(row: SummaryRow): string {
+  const p = model.value?.team.players[Number(row.id)];
+  return p ? `Open the player sheet for ${p.name ? `${p.name}, ` : ""}#${p.number} ${p.position}` : `Open the player sheet for ${row.position}`;
 }
-
-/** The name/position button of each row opens the player sheet (owner 10-30). */
-const sheetLabel = (p: ManagedPlayer): string => `Open the player sheet for ${p.name ? `${p.name}, ` : ""}#${p.number} ${p.position}`;
-
-const sheetHtml = computed(() => {
-  const m = model.value;
-  if (!m || !TeamView) return "";
-  const hasProgress = m.team.players.some((p) => p.progress);
-  const team = { ...m.team, avatarUrl: state.avatar.url || undefined };
-  return TeamView.viewHtml(team, { avatarButton: true, hideOwnerLink: true, sheet: sheetLabel, ...(hasProgress ? { actions: actionsHtml, spp: sppHtml } : {}) });
-});
 
 // The opener of the advancement dialog (or of the player sheet: kind "sheet", the row's name button, which also keeps focus
-// when the sheet hands over to the advancement dialog) gets focus back on close, and again once the reloaded sheet re-renders
-// (the sheet is v-html, so a reload replaces the button). Falls back to the Back link when the button is gone.
+// when the sheet hands over to the advancement dialog) gets focus back on close, and again once the reloaded team
+// re-renders. Falls back to the Back link when the button is gone.
 const avatarBtn = ref<HTMLElement | null>(null);
+const backLink = ref<{ $el?: HTMLElement } | null>(null);
 watch(() => state.avatar.open, async (open, was) => {
   if (open || !was) return;
   await nextTick();
-  (document.querySelector<HTMLElement>(".tm-sheet [data-avatar-open]") ?? avatarBtn.value ?? backLink.value?.$el)?.focus({ preventScroll: true });
+  (avatarBtn.value ?? backLink.value?.$el)?.focus({ preventScroll: true });
 });
 const opener = ref<{ index: number; kind: string } | null>(null);
 const restorePending = ref(false);
-const backLink = ref<{ $el?: HTMLElement } | null>(null);
 function focusOpener(): void {
   const o = opener.value;
   if (!o || typeof document === "undefined") return;
-  const selector = o.kind === "sheet" ? `.tm-sheet [data-sheet="${o.index}"]` : `.tm-sheet [data-adv="${o.index}"]`;
+  const selector = o.kind === "sheet" ? `.tm-summary [data-open="${o.index}"]` : `.tm-summary [data-adv="${o.index}"]`;
   const candidates = Array.from(document.querySelectorAll<HTMLElement>(selector));
   const visible = candidates.filter((el) => el.offsetParent !== null);
   const target = visible.find((el) => el.dataset.kind === o.kind) ?? visible[0] ?? backLink.value?.$el;
@@ -103,26 +88,20 @@ watch(() => state.sheet, async (sheet, was) => {
   await nextTick();
   focusOpener();
 });
-watch(sheetHtml, async () => {
+watch(summary, async () => {
   if (!restorePending.value || state.flow) return;
   restorePending.value = false;
   await nextTick();
   focusOpener();
 });
 
-function onSheetClick(e: MouseEvent): void {
-  const target = e.target as HTMLElement | null;
-  if (target?.closest?.("[data-avatar-open]")) { manage.openAvatar(); return; }
-  const btn = target?.closest?.("[data-adv]") as HTMLElement | null;
-  if (!btn) {
-    // The name/position button, or anywhere else in that cell / the phone card's head.
-    const row = target?.closest?.("[data-sheet], [data-sheet-row]") as HTMLElement | null;
-    const i = Number(row?.dataset.sheet ?? row?.dataset.sheetRow);
-    if (row && Number.isInteger(i) && manage.openSheet(i)) opener.value = { index: i, kind: "sheet" };
-    return;
-  }
-  const i = Number(btn.dataset.adv);
-  if (manage.open(i, btn.dataset.kind === "characteristic" ? "characteristic" : "skill")) opener.value = { index: i, kind: btn.dataset.kind ?? "skill" };
+function openSheet(id: string): void {
+  const i = Number(id);
+  if (Number.isInteger(i) && manage.openSheet(i)) opener.value = { index: i, kind: "sheet" };
+}
+/** Add Skill / Add Stat; with a roll saved on the team both resume it (manage.open opens it at the pick step). */
+function advance(i: number, kind: "skill" | "characteristic", pending: boolean): void {
+  if (manage.open(i, kind)) opener.value = { index: i, kind: pending ? "resume" : kind };
 }
 
 const origin = computed(() => (typeof window !== "undefined" ? window.location.origin : ""));
@@ -130,7 +109,6 @@ const link = computed(() => (info.value?.shareToken ? shareUrl(origin.value, inf
 async function copy(): Promise<void> {
   try { await copyText(link.value); } catch { /* the field stays selectable */ }
 }
-const kTv = (n: number) => `${n.toLocaleString("en-US")}k`;
 const gold = (n: number) => `${Math.round(n / 1000).toLocaleString("en-US")}k`;
 
 // Team Captain replacement (owner 10-30): a vacant captaincy shows the chip and opens the Choose a captain dialog each
@@ -154,7 +132,7 @@ watch(() => props.teamRef, (ref) => void manage.load(ref));
       <template v-if="info">
         <button ref="avatarBtn" type="button" class="lobby-btn" aria-haspopup="dialog" @click="manage.openAvatar()">Team avatar</button>
         <RouterLink v-if="info.saveId" class="lobby-btn" :to="builderHref(info.saveId)">Open in Roster Builder</RouterLink>
-        <RouterLink v-if="info.libraryRef" class="lobby-btn" :to="teamManagePath(info.libraryRef)">Manage the fork team</RouterLink>
+        <RouterLink v-if="info.libraryRef" class="lobby-btn" :to="teamManagePath(info.libraryRef)">Manage the created team</RouterLink>
         <button v-if="info.saveId && !info.shareToken" type="button" class="lobby-btn primary" :disabled="state.shareBusy" @click="manage.setShared(true)">Share</button>
       </template>
     </nav>
@@ -174,11 +152,23 @@ watch(() => props.teamRef, (ref) => void manage.load(ref));
       <LeagueRedraftPanel :team-name="model.team.teamName" :api="fetcher" />
       <p v-if="!info!.advancement.available && info!.advancement.reason" class="tm-note">{{ info!.advancement.reason }}</p>
       <p v-if="captain?.vacant" class="tm-captain"><CaptainVacantChip action @choose="captainOpen = true" /></p>
-      <p v-if="info!.kind === 'library'" class="tm-facts">
-        <span v-if="typeof info!.teamValue === 'number'">Team value <b>{{ kTv(info!.teamValue) }}</b></span>
-        <span v-if="typeof info!.treasury === 'number'">Treasury <b>{{ gold(info!.treasury) }}</b></span>
+      <!-- The summary's strip already shows the team value; this line keeps what the strip has no cell for. -->
+      <p v-if="info!.kind === 'library' && typeof info!.treasury === 'number'" class="tm-facts">
+        <span>Treasury <b>{{ gold(info!.treasury) }}</b></span>
       </p>
-      <div class="team-view tm-sheet sf-shrink sf-scroll sf-col" @click="onSheetClick" v-html="sheetHtml"></div>
+      <div v-if="summary" class="tm-summary sf-shrink sf-scroll sf-col">
+        <TeamSummary :team="summary" mode="view" heading-id="tm-summary-h" :open-label="sheetLabel" row-actions-label="Advancement" @open="openSheet">
+          <template v-if="hasProgress" #row-actions="{ row }">
+            <span v-if="actsFor(row)" class="tm-acts">
+              <button type="button" class="tm-act" :data-adv="row.id" :data-kind="actsFor(row)!.pending ? 'resume' : 'skill'" :disabled="!actsFor(row)!.skill" :aria-disabled="actsFor(row)!.skill ? undefined : 'true'"
+                :aria-label="`Add a skill to ${actsFor(row)!.label}`" aria-haspopup="dialog" @click="advance(actsFor(row)!.i, 'skill', actsFor(row)!.pending)">Add Skill</button>
+              <button type="button" class="tm-act" :data-adv="row.id" :data-kind="actsFor(row)!.pending ? 'resume' : 'characteristic'" :disabled="!actsFor(row)!.stat" :aria-disabled="actsFor(row)!.stat ? undefined : 'true'"
+                :aria-label="`Add a stat to ${actsFor(row)!.label}`" aria-haspopup="dialog" @click="advance(actsFor(row)!.i, 'characteristic', actsFor(row)!.pending)">Add Stat</button>
+              <span v-if="actsFor(row)!.chip" class="tm-toast" role="status">{{ actsFor(row)!.chip }}</span>
+            </span>
+          </template>
+        </TeamSummary>
+      </div>
     </template>
     </div>
     <TeamAvatarModal v-if="state.avatar.open && model" :manage="manage" />

@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-12",
+    "title": "Your teams use the table-style summary too",
+    "body": "Opening a team from My teams now shows the same table-style summary as league team pages and shared links: the crest or your team avatar, the team strip and a roster table with portraits. Click a player name for their sheet. On created teams, each row also shows SPP against the next advancement, career touchdowns, casualties and MVPs, injuries, and the Add Skill and Add Stat buttons with a Level up! marker when an advancement is ready.",
+    "links": [
+      {
+        "label": "My teams",
+        "href": "/app/my-teams"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-12",
     "title": "Destination Blood Bowl ruleset",
     "body": "The Roster Builder now offers the Destination Blood Bowl ruleset (Charleston, April 2027): five tiers with 5 to 9 Skill Points, two-skill stacks for Tiers 3 to 5 at 3 Skill Points, and Star Players that cost Skill Points as well as gold, with one Mega-Star for Tier 5 teams. Teams can be built up to 1,200,000 gold, and the value bar shows how far a team is over the 1,100,000 budget. Squad rules (shared treasury, Squad Points, one race per squad) are checked by the organiser.",
     "links": [

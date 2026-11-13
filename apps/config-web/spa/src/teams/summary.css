@@ -98,6 +98,14 @@
 .ts-act { text-align: right; }
 .ts-act > button { display: inline-grid; place-items: center; vertical-align: middle; }
 .ts-act > button + button { margin-left: 6px; }
+
+/* Opt-in hooks (the coach's team management page): the name as a button that opens something, the page's own per-row
+   controls in the last column, and the extra columns' titled cells. */
+.ts-player > .ts-open { padding: 0; margin: 0; color: inherit; background: none; border: 0; font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
+.ts-player > .ts-open:hover { color: var(--ui-heading); text-decoration: underline; text-underline-offset: 3px; }
+.ts-player > .ts-open:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; border-radius: 2px; }
+.ts-row-act-h, .ts-row-act { width: 1%; white-space: nowrap; }
+.ts-extra { font-variant-numeric: tabular-nums; white-space: nowrap; font-weight: 600; cursor: help; }
 .ts-plus { position: static; }
 .ts-fire { position: static; }
 

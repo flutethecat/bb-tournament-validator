@@ -317,8 +317,8 @@ export function saveManageView(view: SharedTeamView, save: TeamBuilderSave, libr
       advancement: {
         available: false,
         reason: libraryRef
-          ? "This sheet was built onto the fork: manage that team to add skills and characteristics."
-          : "This is a Tournament Builder sheet. Skills and characteristics are added once the team is built and plays on the fork.",
+          ? "This sheet has been created as a team: manage that team to add skills and characteristics."
+          : "This is a Roster Builder sheet. Skills and characteristics are added once the team is created and plays its games.",
       },
     },
   };

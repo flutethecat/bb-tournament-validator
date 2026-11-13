@@ -67,6 +67,9 @@
 .tm-act[data-kind="resume"] { background: var(--ui-heading); }
 @media (max-width: 639px) { .tm-acts { grid-template-columns: repeat(auto-fit, minmax(110px, auto)); } }
 .tm-act:focus-visible { outline: 2px solid var(--ui-focus, #ff3b3b); outline-offset: 2px; }
+/* In the shared summary's last column (owner 11-12, table view): Add Skill, Add Stat and the chip on one line. */
+.ts-row-act .tm-acts { grid-template-columns: repeat(3, auto); padding-bottom: 0; }
+.ts-row-act .tm-acts > .tm-toast { grid-column: auto; }
 
 /* Advancement modal (tn-modal frame from tournaments.css). */
 .tm-modal { width: min(560px, 100%); }

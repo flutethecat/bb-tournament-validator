@@ -9,7 +9,7 @@
 // each page adds (assign coach, the status cog, the redraft budget, history). Organiser edit mode turns the strip's numbers
 // into inputs. It renders only what it is given (teams/summary.ts builds the model).
 import { computed, ref, useSlots } from "vue";
-import { artInitials, type RosterCan, type SummaryMode, type SummaryTeam } from "../teams/summary";
+import { artInitials, type RosterCan, type SummaryMode, type SummaryRow, type SummaryTeam } from "../teams/summary";
 import TeamRosterTable from "./TeamRosterTable.vue";
 import "../leagues/leagues.css";
 import "../teams/summary.css";
@@ -22,10 +22,15 @@ const props = withDefaults(defineProps<{
   can?: RosterCan;
   /** The summary's own band heading id (the builder and the league page both label their panel with it). */
   headingId?: string;
-}>(), { mode: "view", focusId: "", busy: false, can: () => ({}), headingId: "" });
+  /** Opt-in (TeamRosterTable): each player name is a button with this accessible name that emits `open`. */
+  openLabel?: (r: SummaryRow) => string;
+  /** The hidden heading of the roster's per-row actions column (the `row-actions` slot). */
+  rowActionsLabel?: string;
+}>(), { mode: "view", focusId: "", busy: false, can: () => ({}), headingId: "", openLabel: undefined, rowActionsLabel: "Actions" });
 const emit = defineEmits<{
   rename: [id: string, name: string]; renumber: [id: string, n: number]; fire: [id: string]; plus: [id: string, el: HTMLElement];
   set: [id: string, field: string, value: number | boolean]; removeSkill: [id: string, skill: string]; fact: [field: string, value: number | boolean];
+  open: [id: string, el: HTMLElement];
 }>();
 const slots = useSlots();
 /** Read on every render: slots are not reactive, and the left slot comes and goes with the edit mode. */
@@ -80,10 +85,12 @@ function commitFact(field: string, kind: "number" | "gold" | "bool", e: Event, r
           <slot name="roster-top" />
           <p v-if="!team.rows.length" class="hm-empty">No roster recorded.</p>
           <TeamRosterTable
-            v-else :rows="team.rows" :mode="mode" :season-stats="team.seasonStats" :counters="team.counters" :focus-id="focusId" :busy="busy" :can="can" :label="`${team.name} roster`"
+            v-else :rows="team.rows" :mode="mode" :season-stats="team.seasonStats" :counters="team.counters" :focus-id="focusId" :busy="busy" :can="can" :label="`${team.name} roster`" :extra-columns="team.extraColumns" :open-label="openLabel" :row-actions-label="rowActionsLabel"
             @rename="(id, v) => emit('rename', id, v)" @renumber="(id, n) => emit('renumber', id, n)" @fire="(id) => emit('fire', id)" @plus="(id, el) => emit('plus', id, el)"
-            @set="(id, f, v) => emit('set', id, f, v)" @remove-skill="(id, k) => emit('removeSkill', id, k)"
-          />
+            @set="(id, f, v) => emit('set', id, f, v)" @remove-skill="(id, k) => emit('removeSkill', id, k)" @open="(id, el) => emit('open', id, el)"
+          >
+            <template v-if="slots['row-actions']" #row-actions="{ row }"><slot name="row-actions" :row="row" /></template>
+          </TeamRosterTable>
         </div>
       </div>
     </section>

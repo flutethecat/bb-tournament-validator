@@ -7,6 +7,10 @@
 // Same dialog pattern as AdvanceModal: aria-modal, focus moves in, Tab wraps (dialogKey), Escape closes; the view makes the
 // page behind inert and returns focus to the row's opener.
 import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
+// The skill chips come from team-view.js (TeamView.skillsHtml) and wear team-view.css's tv-* classes (moved here from
+// TeamManageView, whose roster is now the shared summary).
+import "../../../public/team-view.js";
+import "../../../public/team-view.css";
 import { FOCUSABLE } from "../home/shell";
 import { canAdvance, careerCells, dialogKey, sppMeter, valueBreakdownText, type TeamManage } from "../teams/manage";
 

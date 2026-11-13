@@ -8,6 +8,7 @@ import type { Fetcher } from "../session";
 import { ApiError } from "../shared/api";
 import type { LeaguePlayer, LeagueTeam, PlayerSeasonStats } from "../leagues/types";
 import type { PrintSheetModel } from "./sheetRuleset";
+import { progressLine, type TeamManageModel } from "./manage";
 
 // ---- the shared view model --------------------------------------------------------------------------------------------
 
@@ -45,6 +46,8 @@ export interface SummaryRow {
   star: boolean;
   /** The portrait (a "/sprites/..." path from the generated art, "" when there is none: the frame shows initials). */
   sprite?: string;
+  /** Cells of the team's extra columns (SummaryTeam.extraColumns), by column key; a missing key shows "-". */
+  extra?: Record<string, { text: string; title?: string }>;
 }
 /** What the roster table lets the viewer change (all off = read only). */
 export interface RosterCan { rename?: boolean; renumber?: boolean; fire?: boolean; plus?: boolean; stats?: boolean; numbers?: boolean; mng?: boolean; removeSkill?: "all" | "added"; plusFor?: (id: string) => boolean }
@@ -68,6 +71,8 @@ export interface SummaryTeam {
   specialRules?: string[];
   /** Panels under the roster (the Roster Builder and the share page): what the team spent and its inducements. */
   panels?: SummaryPanels;
+  /** Extra roster columns after Skills (the coach's team management page: career TD / CAS / MVP and SPP); absent = none. */
+  extraColumns?: SummaryCounter[];
 }
 export interface SummaryCost { key: string; label: string; value: string; tone?: "total" | "over" }
 export interface SummaryInducement { name: string; count: number; icon: string }
@@ -293,6 +298,65 @@ export function summaryFromShared(team: SharedTeamModel): SummaryTeam {
       inducements: { items: team.inducements.map((x) => ({ name: x.name, count: x.count, icon: artSrc(x.icon) })), total: sum.inducementsCost === null ? null : kValue(sum.inducementsCost) },
     },
   };
+}
+
+// ---- the coach's own team (/app/teams/:ref; server teamManageView.ts TeamManageModel) ----------------------------------
+
+export interface ManagedSummaryOptions {
+  /** The avatar the page shows now (cache-busted after a change on the page); "" or absent = the race crest. */
+  avatarUrl?: string;
+}
+
+const CAREER: ReadonlyArray<{ key: "td" | "cas" | "mvp"; label: string; title: string }> = [
+  { key: "td", label: "TD", title: "Career touchdowns" },
+  { key: "cas", label: "CAS", title: "Career casualties caused" },
+  { key: "mvp", label: "MVP", title: "Career MVP awards" },
+];
+
+/**
+ * The coach's own team (the team management page) as the shared summary: the share page's model (summaryFromShared, the
+ * same server shape) with what the page adds layered on top. A fork library team's players may carry progression: then
+ * the roster gains career TD / CAS / MVP (only the columns someone has a record for) and SPP against the cheapest next
+ * advancement ("12/6", the progress line as its title), injuries and Miss Next Game join the row's muted line, and the
+ * Team costs panel is left out (its Total repeats the strip's team value; the per-part costs are not known for those
+ * teams). A Roster Builder save is exactly the share page's summary. The avatar, when set, is the crest.
+ */
+export function summaryFromManaged(team: TeamManageModel["team"], opts: ManagedSummaryOptions = {}): SummaryTeam {
+  const players = team.players;
+  // The manage view types a few lists as optional (a sheet without a captain has no free grants): the share adapter
+  // reads them as lists.
+  const asShared = {
+    ...team, avatarUrl: opts.avatarUrl || undefined, inducements: team.inducements ?? [], specialRules: team.specialRules ?? [],
+    players: players.map((p) => ({ ...p, printed: p.printed ?? [], free: p.free ?? [], added: p.added ?? [], statIncreases: p.statIncreases ?? [] })),
+  };
+  const base = summaryFromShared(asShared as unknown as SharedTeamModel);
+  if (!players.some((p) => p.progress)) return base;
+  const career = CAREER.filter((c) => players.some((p) => typeof p.careerStats?.[c.key] === "number"));
+  const extraColumns: SummaryCounter[] = [
+    ...career.map(({ key, label, title }) => ({ key, label, title })),
+    { key: "spp", label: "SPP", title: "SPP against the cost of the next advancement" },
+  ];
+  const rows = base.rows.map((r, i): SummaryRow => {
+    const p = players[i];
+    const g = p?.progress;
+    const extra: NonNullable<SummaryRow["extra"]> = {};
+    for (const c of career) {
+      const v = p?.careerStats?.[c.key];
+      if (typeof v === "number") extra[c.key] = { text: String(v) };
+    }
+    if (g) {
+      const cost = g.costs ? g.costs.randomPrimary : null;
+      extra.spp = { text: cost !== null ? `${g.spp}/${cost}` : String(g.spp), title: progressLine(g) };
+    }
+    const injuries = p?.injuries ?? g?.injuries ?? [];
+    const mng = Boolean(g?.mng);
+    return { ...r, sub: [...r.sub, ...injuries, mng ? "Misses next game" : ""].filter(Boolean), mng, extra };
+  });
+  const out: SummaryTeam = { ...base, rows, extraColumns };
+  const inducements = base.panels?.inducements;
+  if (inducements?.items.length) out.panels = { inducements };
+  else delete out.panels;
+  return out;
 }
 
 /**

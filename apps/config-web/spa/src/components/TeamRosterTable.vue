@@ -6,7 +6,7 @@
 // The same table serves the league page and the Roster Builder (teams/summary.ts holds the row model). Editing is opt-in
 // per capability: rename / renumber (coach and organiser), +/- over the stats and every number (organiser edit mode),
 // skill chips with a remove badge, the row "+" (skills; the organiser's band-aid lives in the menu it opens) and fire.
-import { computed, reactive } from "vue";
+import { computed, reactive, useSlots } from "vue";
 import type { RosterCan, SummaryCounter, SummaryMode, SummaryRow } from "../teams/summary";
 import { artInitials, kValue, statStep } from "../teams/summary";
 
@@ -20,11 +20,22 @@ const props = withDefaults(defineProps<{
   /** Edit capabilities (all off = the read-only table). */
   can?: RosterCan;
   label?: string;
-}>(), { mode: "view", seasonStats: true, counters: () => [], focusId: "", busy: false, can: () => ({}), label: "Roster" });
+  /** Extra columns after Skills on a roster without season stats (cells from each row's `extra`); none by default. Chained
+   *  after the season block (v-else-if) so the pages that do not use it render exactly as before. */
+  extraColumns?: SummaryCounter[];
+  /** Opt-in: the player's name becomes a button with this accessible name that emits `open` (e.g. a player sheet). */
+  openLabel?: (r: SummaryRow) => string;
+  /** The hidden heading of the per-row actions column: shown only when the page fills the `row-actions` slot and the
+   *  table has no edit actions column (fire / "+"), which it stands in for. */
+  rowActionsLabel?: string;
+}>(), { mode: "view", seasonStats: true, counters: () => [], focusId: "", busy: false, can: () => ({}), label: "Roster", extraColumns: () => [], openLabel: undefined, rowActionsLabel: "Actions" });
 const emit = defineEmits<{
   rename: [id: string, name: string]; renumber: [id: string, n: number]; fire: [id: string]; plus: [id: string, el: HTMLElement];
-  set: [id: string, field: string, value: number | boolean]; removeSkill: [id: string, skill: string];
+  set: [id: string, field: string, value: number | boolean]; removeSkill: [id: string, skill: string]; open: [id: string, el: HTMLElement];
 }>();
+const slots = useSlots();
+/** Read on every render (slots are not reactive): a page's per-row controls get their own last column. */
+const hasRowActions = (): boolean => Boolean(slots["row-actions"]);
 
 type Stat = "ma" | "st" | "ag" | "pa" | "av";
 const STATS: ReadonlyArray<{ key: Stat; label: string; plus: boolean }> = [
@@ -78,8 +89,10 @@ const NUMBER_COLS: ReadonlyArray<{ key: "td" | "cas" | "mvp" | "spp"; field: str
             <th scope="col" class="lg-num" title="Unspent SPP">Avail.</th>
             <th v-if="seasons" scope="col" class="lg-num" title="Seasons Played">Seas.</th>
           </template>
+          <template v-else-if="extraColumns.length"><th v-for="c in extraColumns" :key="c.key" scope="col" class="lg-num" :title="c.title" :data-col="c.key">{{ c.label }}</th></template>
           <th scope="col" class="lg-num">Value</th>
           <th v-if="actions" scope="col" class="ts-act-h"><span class="tn-sr">Actions</span></th>
+          <th v-else-if="hasRowActions()" scope="col" class="ts-row-act-h"><span class="tn-sr">{{ rowActionsLabel }}</span></th>
         </tr>
       </thead>
       <tbody>
@@ -93,6 +106,7 @@ const NUMBER_COLS: ReadonlyArray<{ key: "td" | "cas" | "mvp" | "spp"; field: str
           </td>
           <th scope="row" class="lg-team-cell ts-player">
             <input v-if="can.rename && !r.star" class="ts-in ts-in-name" type="text" maxlength="60" :value="r.name" :placeholder="r.position" :aria-label="`Name for ${r.position}${r.number !== null ? ` #${r.number}` : ''}`" :disabled="busy" @change="commitName(r, $event)" @keydown.enter.prevent="($event.target as HTMLInputElement).blur()" />
+            <button v-else-if="openLabel" type="button" class="lg-team-name ts-open" :data-open="r.id" :aria-label="openLabel(r)" aria-haspopup="dialog" @click="emit('open', r.id, $event.currentTarget as HTMLElement)">{{ r.name || r.position }}</button>
             <span v-else class="lg-team-name">{{ r.name || r.position }}</span>
             <small>{{ r.position }}<template v-for="s in r.sub" :key="s"> · {{ s }}</template></small>
             <label v-if="can.mng" class="ts-mng-toggle"><input type="checkbox" :checked="r.mng" :disabled="busy" @change="emit('set', r.id, 'missNextGame', ($event.target as HTMLInputElement).checked)" /> MNG</label>
@@ -131,6 +145,7 @@ const NUMBER_COLS: ReadonlyArray<{ key: "td" | "cas" | "mvp" | "spp"; field: str
               <template v-else>{{ r.seasonsPlayed ?? 0 }}</template>
             </td>
           </template>
+          <template v-else-if="extraColumns.length"><td v-for="c in extraColumns" :key="c.key" class="lg-num" :data-col="c.key"><span v-if="r.extra?.[c.key]?.title" class="ts-extra" :title="r.extra[c.key]!.title">{{ r.extra[c.key]!.text }}</span><template v-else>{{ r.extra?.[c.key]?.text ?? "-" }}</template></td></template>
           <td class="lg-num">
             <input v-if="can.numbers" class="ts-in ts-in-k" type="number" min="0" step="5" :value="r.value === null ? '' : Math.round(r.value / 1000)" :aria-label="`Value of ${who(r)} in thousands`" :disabled="busy" @change="commitNum(r, 'value', r.value, $event, 1000)" />
             <template v-else>{{ kValue(r.value) }}</template>
@@ -139,6 +154,7 @@ const NUMBER_COLS: ReadonlyArray<{ key: "td" | "cas" | "mvp" | "spp"; field: str
             <button v-if="can.plus && !r.star && (!can.plusFor || can.plusFor(r.id))" type="button" class="tb-row-plus ts-plus" :aria-label="`Add skill${mode === 'organiser' ? ' or injury' : ''} for ${who(r)}`" aria-haspopup="dialog" :disabled="busy" @click="emit('plus', r.id, $event.currentTarget as HTMLElement)"><span aria-hidden="true">+</span></button>
             <button v-if="can.fire" type="button" class="tb-fire-x ts-fire" :aria-label="`Fire ${who(r)}`" title="Fire" :disabled="busy" @click="emit('fire', r.id)"><span aria-hidden="true">×</span></button>
           </td>
+          <td v-else-if="hasRowActions()" class="ts-row-act"><slot name="row-actions" :row="r" /></td>
         </tr>
       </tbody>
     </table>

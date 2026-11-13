@@ -185,7 +185,8 @@ describe("GET /api/me/teams/:ref", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { team: any; manage: any };
     expect(body.manage).toMatchObject({ kind: "save", saveId: id, advancement: { available: false } });
-    expect(body.manage.advancement.reason).toMatch(/plays on the fork/);
+    expect(body.manage.advancement.reason).toBe("This is a Roster Builder sheet. Skills and characteristics are added once the team is created and plays its games.");
+    expect(body.manage.advancement.reason).not.toMatch(/fork/i);
     expect(body.team.teamName).toBe("Grudge XI");
     expect(body.team.ownerSaveId).toBeUndefined();
     expect(body.team.players[0].progress).toBeUndefined();
