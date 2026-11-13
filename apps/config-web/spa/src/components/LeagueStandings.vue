@@ -10,10 +10,10 @@ import { useRoute, useRouter } from "vue-router";
 import CoachSummaryDialog from "./CoachSummaryDialog.vue";
 import RosterDialog from "./RosterDialog.vue";
 import ListFilter from "./ListFilter.vue";
-import { filterList, listCount } from "../shared/listView";
+import { listCount } from "../shared/listView";
 import { isMyStanding, LATEST_LABEL, STANDINGS_STAT_COLUMNS, standingsTables } from "../leagues/league";
 import { teamForRow } from "../leagues/popups";
-import { currentStandingsPhase, pickStandingsPhase, standingsPhaseOptions, tablePhase } from "../leagues/standingsView";
+import { currentStandingsPhase, filterStandings, pickStandingsPhase, standingsPhaseOptions, tablePhase } from "../leagues/standingsView";
 import type { LeagueTeam, SeasonRecord, StandingRow } from "../leagues/types";
 
 const props = withDefaults(defineProps<{ season: SeasonRecord; me?: string; leagueId?: string }>(), { me: "", leagueId: "" });
@@ -29,11 +29,15 @@ const phases = computed(() => standingsPhaseOptions(props.season, all.value));
 const current = computed(() => currentStandingsPhase(props.season, phases.value));
 const phase = computed(() => pickStandingsPhase(route.query.phase, phases.value, current.value));
 const picked = computed(() => (phase.value === "all" ? all.value : all.value.filter((t) => t.phase === phase.value)));
-// The filter box (league pages treatment, owner 11-13): team, coach or race; rows keep their rank.
+// The filter box (league pages treatment, owner 11-13; standingsView.ts filterStandings): team, coach or race, rows keep
+// their rank. Several divisions: the filter and the phase selector sit in a bar above them and a division without a
+// match hides while filtering. One division: both stay in its own panel (the fitted pane keeps it filling the tab).
 const query = ref("");
-const filtering = computed(() => Boolean(query.value.trim()));
-const tables = computed(() => picked.value.map((t) => ({ ...t, shownRows: filterList(t.rows, query.value, (r) => [r.team, r.coach, r.race]) })));
-const filterCount = computed(() => listCount(tables.value.reduce((n, t) => n + t.shownRows.length, 0), picked.value.reduce((n, t) => n + t.rows.length, 0), "team"));
+const view = computed(() => filterStandings(picked.value, query.value));
+const filtering = computed(() => view.value.filtering);
+const multi = computed(() => view.value.multi);
+const tables = computed(() => view.value.tables);
+const filterCount = computed(() => view.value.count);
 function onPhase(e: Event): void {
   const v = (e.target as HTMLSelectElement).value;
   const q = { ...route.query };
@@ -56,12 +60,23 @@ const rosterOf = (r: StandingRow): LeagueTeam | undefined => teamForRow(props.se
       <header class="hm-band"><h2 id="lg-st-none">Standings</h2></header>
       <p class="hm-empty">No results yet this season. The table fills in as results come in.</p>
     </section>
+    <div v-if="multi" class="lg-st-bar" data-standings-bar>
+      <ListFilter v-model="query" class="lg-list-filter" label="Filter standings" placeholder="Filter by team, coach or race" data="data-standings-filter" :status="filterCount" />
+      <label v-if="phases.length > 1" class="lg-st-phase">
+        <span class="sf-sr">Phase</span>
+        <select data-standings-phase :value="phase" @change="onPhase">
+          <option v-for="p in phases" :key="p.id" :value="p.id">{{ p.title }}</option>
+          <option value="all">All phases</option>
+        </select>
+      </label>
+    </div>
+    <p v-if="multi && view.none" class="hm-empty" role="status" data-standings-none>No teams match that filter.</p>
     <section v-for="(t, i) in tables" :key="t.key" class="hm-panel" :aria-label="t.title">
       <header class="hm-band">
         <h2>{{ t.title }}</h2>
         <span class="lg-st-tools">
           <span class="hm-cap"><template v-if="filtering">{{ listCount(t.shownRows.length, t.rows.length, "team") }}</template><template v-else>{{ t.rows.length }} teams</template><template v-if="sourceCap(t.source)"> · {{ sourceCap(t.source) }}</template></span>
-          <label v-if="i === 0 && phases.length > 1" class="lg-st-phase">
+          <label v-if="!multi && i === 0 && phases.length > 1" class="lg-st-phase">
             <span class="sf-sr">Phase</span>
             <select data-standings-phase :value="phase" @change="onPhase">
               <option v-for="p in phases" :key="p.id" :value="p.id">{{ p.title }}</option>
@@ -70,7 +85,7 @@ const rosterOf = (r: StandingRow): LeagueTeam | undefined => teamForRow(props.se
           </label>
         </span>
       </header>
-      <ListFilter v-if="i === 0" v-model="query" class="lg-list-filter" label="Filter standings" placeholder="Filter by team, coach or race" data="data-standings-filter" :status="filterCount" />
+      <ListFilter v-if="!multi && i === 0" v-model="query" class="lg-list-filter" label="Filter standings" placeholder="Filter by team, coach or race" data="data-standings-filter" :status="filterCount" />
       <p v-if="t.note" class="hm-empty hm-small">{{ t.note }}</p>
       <p v-if="t.mine" class="lg-my-standing">
         <span class="lg-award-type">My standing</span>

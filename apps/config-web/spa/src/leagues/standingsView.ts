@@ -2,7 +2,8 @@
 // (league.ts standingsTables); no DOM.
 
 import { fixturePlayed, phaseTitle, type StandingsTable } from "./league";
-import type { SeasonRecord } from "./types";
+import type { SeasonRecord, StandingRow } from "./types";
+import { filterList, listCount } from "../shared/listView";
 
 export interface StandingsPhaseOption { id: string; title: string }
 export type StandingsPick = string; // a phase id, or "all"
@@ -33,4 +34,18 @@ export function pickStandingsPhase(asked: unknown, options: readonly StandingsPh
   const v = Array.isArray(asked) ? asked[0] : asked;
   if (v === "all") return "all";
   return typeof v === "string" && options.some((o) => o.id === v) ? v : current;
+}
+
+/** The Standings filter box (league pages treatment, owner 11-13): team, coach or race; rows keep their rank. With several
+ *  divisions on show (`multi`: the filter bar sits above them) a division without a matching row drops out while
+ *  filtering, and `none` says nothing matched anywhere; one division always stays (it holds the filter). */
+export function filterStandings<T extends { rows: StandingRow[] }>(tables: readonly T[], query: string): {
+  tables: Array<T & { shownRows: StandingRow[] }>; multi: boolean; filtering: boolean; none: boolean; count: string;
+} {
+  const filtering = Boolean(query.trim());
+  const multi = tables.length > 1;
+  const all = tables.map((t) => ({ ...t, shownRows: filterList(t.rows, query, (r) => [r.team, r.coach, r.race]) }));
+  const shown = multi && filtering ? all.filter((t) => t.shownRows.length) : all;
+  const matched = all.reduce((n, t) => n + t.shownRows.length, 0);
+  return { tables: shown, multi, filtering, none: filtering && matched === 0, count: listCount(matched, tables.reduce((n, t) => n + t.rows.length, 0), "team") };
 }
