@@ -8,6 +8,9 @@
 import { computed, ref } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import CoachProfileDialog from "./CoachProfileDialog.vue";
+import ListFilter from "./ListFilter.vue";
+import ListViewToggle from "./ListViewToggle.vue";
+import { filterList, LIST_VIEW_KEYS, listCount, useListView } from "../shared/listView";
 import "../teams/summary.css";
 import { crestFor, initials, kValue, teamValueFigures } from "../leagues/league";
 import type { LeagueTeam, SeasonRecord } from "../leagues/types";
@@ -21,8 +24,15 @@ const link = (teamId: string) => ({
 });
 const row = (t: LeagueTeam) => ({ t, crest: crestFor(props.crests, t.race), tv: teamValueFigures(t) });
 // Team page v2: an inactive team (organiser's status cog) is listed apart, under a collapsed "Inactive" group.
-const rows = computed(() => props.season.teams.filter((t) => t.status !== "inactive").map(row));
-const inactiveRows = computed(() => props.season.teams.filter((t) => t.status === "inactive").map(row));
+// League pages treatment (owner 11-13): a filter box (team, coach or race) over both groups, and a Table | Cards switch;
+// the table stays the default, the cards are the team tiles (remembered per browser once mounted).
+const query = ref("");
+const { view, setView } = useListView(LIST_VIEW_KEYS.participants, "table");
+const hay = (t: LeagueTeam): string[] => [t.name, t.coach, t.race];
+const rows = computed(() => filterList(props.season.teams.filter((t) => t.status !== "inactive"), query.value, hay).map(row));
+const inactiveRows = computed(() => filterList(props.season.teams.filter((t) => t.status === "inactive"), query.value, hay).map(row));
+const filtering = computed(() => Boolean(query.value.trim()));
+const filterCount = computed(() => listCount(rows.value.length + inactiveRows.value.length, props.season.teams.length, "team"));
 const showInactive = ref(false);
 const profile = ref<LeagueTeam | null>(null);
 const manageTo = computed(() => ({ name: "league-settings", params: { id: props.leagueId }, query: { tab: "participants", ...(route.query.season ? { season: String(route.query.season) } : {}) } }));
@@ -33,11 +43,30 @@ const manageTo = computed(() => ({ name: "league-settings", params: { id: props.
     <section class="hm-panel lg-plist" aria-labelledby="lg-plist-h">
       <header class="hm-band">
         <h2 id="lg-plist-h">Participants</h2>
-        <span class="hm-cap">{{ season.name }} · {{ season.teams.length }} {{ season.teams.length === 1 ? "team" : "teams" }}</span>
+        <span class="lg-band-tools">
+          <span class="hm-cap">{{ season.name }} · <template v-if="filtering">{{ filterCount }}</template><template v-else>{{ season.teams.length }} {{ season.teams.length === 1 ? "team" : "teams" }}</template></span>
+          <ListViewToggle v-if="season.teams.length" class="small lg-view-toggle" :model-value="view" label="Participants view" data="data-participants-view" @update:model-value="setView" />
+        </span>
       </header>
       <p v-if="organiser" class="lg-plist-manage"><RouterLink class="sf-btn small" data-manage-participants :to="manageTo">Manage participants</RouterLink></p>
       <p v-if="!season.teams.length" class="hm-empty">No teams in this season yet.</p>
-      <div v-else class="lg-scroll">
+      <ListFilter v-if="season.teams.length" v-model="query" class="lg-list-filter" label="Filter participants" placeholder="Filter by team, coach or race" data="data-participants-filter" :status="filterCount" />
+      <p v-if="season.teams.length && filtering && !rows.length && !inactiveRows.length" class="hm-empty" role="status">No teams match that filter.</p>
+      <div v-else-if="season.teams.length && view === 'cards'" class="lg-scroll" data-participants-cards>
+        <ul v-if="rows.length" class="hm-teams hm-teams-lg lg-team-tiles">
+          <li v-for="r in rows" :key="r.t.id" :data-team="r.t.id">
+            <RouterLink class="hm-team" :to="link(r.t.id)" :aria-label="`${r.t.name}, ${r.t.race}, coached by ${r.t.coach}`">
+              <img v-if="r.crest" class="hm-team-crest" :src="r.crest" alt="" />
+              <span v-else class="hm-team-crest hm-team-blank" aria-hidden="true">{{ initials(r.t.name) }}</span>
+              <span class="hm-team-name">{{ r.t.name }}</span>
+              <span class="hm-team-race">{{ r.t.race }} · {{ r.t.coach }}</span>
+              <span class="hm-team-race">{{ r.tv.main.label }} {{ kValue(r.tv.main.value) }}</span>
+            </RouterLink>
+            <button v-if="organiser" type="button" class="sh-coach-btn lg-tile-coach" data-coach-profile :aria-label="`${r.t.coach}: coach profile`" @click="profile = r.t">Coach profile</button>
+          </li>
+        </ul>
+      </div>
+      <div v-else-if="season.teams.length" class="lg-scroll">
         <table class="lg-table lg-plist-table">
           <thead><tr><th scope="col">Team</th><th scope="col">Race</th><th scope="col">Coach</th><th scope="col" class="lg-num">Team value</th></tr></thead>
           <tbody>

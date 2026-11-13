@@ -20,9 +20,12 @@ import { leagueFixtureRef, proposePath, whenIn } from "../schedule/schedule";
 import { SESSION_KEY } from "../session";
 import { fixtureOpenForLobby } from "../leagues/fixtureNav";
 import {
-  currentRound, filterFixtures, fixtureRounds, fixtureStatus, fixtureTeams, keepPhase, keepTeam, parseRound, phaseComplete, phaseFoldId, phaseOpen, readFixturesView,
-  readPhaseFolds, roundSteps, scoreLinkLabel, writeFixturesView, writePhaseFold, type FixturesView, type PhaseFolds, type RoundPick,
+  currentRound, filterFixtures, filterFixturesText, fixtureCount, fixtureRounds, fixtureStatus, fixtureTeams, keepPhase, keepTeam, parseRound, phaseComplete, phaseFoldId, phaseOpen,
+  readPhaseFolds, roundSteps, scoreLinkLabel, writePhaseFold, type PhaseFolds, type RoundPick,
 } from "../leagues/fixtureNav";
+import ListFilter from "./ListFilter.vue";
+import ListViewToggle from "./ListViewToggle.vue";
+import { LIST_VIEW_KEYS, listCount, useListView } from "../shared/listView";
 import LeagueDeadlinesEditor from "./LeagueDeadlinesEditor.vue";
 import LeagueFixturesEditor from "./LeagueFixturesEditor.vue";
 import { browserTimeZone, validTimeZone } from "../home/deadlines";
@@ -37,8 +40,8 @@ const route = useRoute();
 const detail = inject(LEAGUE_DETAIL_KEY, null);
 const forkSwitch = (f: LeagueFixture): boolean => Boolean(props.manage && props.league.playOnFork && detail && !fixturePlayed(f));
 const setFork = (f: LeagueFixture, e: Event): void => { void detail?.setFixtureFork(props.season.id, f.id, (e.target as HTMLInputElement).checked); };
-const view = ref<FixturesView>(readFixturesView());
-const setView = (v: FixturesView): void => { view.value = v; writeFixturesView(v); };
+// Cards | Table, one remembered choice shared with the Overview's latest results (read once mounted)
+const { view, setView } = useListView(LIST_VIEW_KEYS.fixtures);
 const latest = computed(() => detail?.state.seasons[0]?.id);
 const summaryLink = (f: LeagueFixture) => ({ query: fixtureQuery(props.season.id === latest.value ? undefined : props.season.id, f.id) });
 /** Pending fixtures open their lobby (spec §8: reachable from the fixture row). */
@@ -67,7 +70,11 @@ const phased = computed(() => (phaseOn.value === "all" ? groups.value : groups.v
 const rounds = computed(() => fixtureRounds(phased.value));
 const pick = computed<RoundPick>(() => parseRound(route.query.round, rounds.value) ?? currentRound(phased.value));
 const steps = computed(() => roundSteps(rounds.value, pick.value));
-const shown = computed(() => filterFixtures(phased.value, pick.value, teamOn.value));
+const picked = computed(() => filterFixtures(phased.value, pick.value, teamOn.value));
+// The filter box (league pages treatment, owner 11-13): team, coach, race, round or phase; both views, beside the selects.
+const query = ref("");
+const shown = computed(() => filterFixturesText(picked.value, query.value));
+const filterCount = computed(() => listCount(fixtureCount(shown.value), fixtureCount(picked.value), "fixture"));
 // Collapse state: judged on the whole phase (every round), not the round or team on show.
 const folds = ref<PhaseFolds>(readPhaseFolds(props.league.id));
 watch(() => props.league.id, (id) => { folds.value = readPhaseFolds(id); });
@@ -79,6 +86,8 @@ const tally = computed(() => {
   const all = shown.value.flatMap((g) => g.rounds);
   return { played: all.reduce((n, r) => n + r.played, 0), total: all.reduce((n, r) => n + r.fixtures.length, 0) };
 });
+/** "Round 3 · 2 of 4 played"; while filtering "Round 3 · 3 of 12 fixtures · 1 of 3 played". */
+const navCap = computed(() => [pick.value === "all" ? "All rounds" : `Round ${pick.value}`, ...(query.value.trim() ? [filterCount.value] : []), `${tally.value.played} of ${tally.value.total} played`].join(" · "));
 /** Round strip links keep the rest of the query (season, tab) and drop an open fixture. */
 const roundLink = (r: RoundPick) => {
   const rest = { ...route.query };
@@ -119,7 +128,7 @@ watch(pick, placeStrip);
     <section class="hm-panel lg-fx-nav" aria-labelledby="lg-fx-nav-h">
       <header class="hm-band">
         <h2 id="lg-fx-nav-h">Fixtures</h2>
-        <span class="hm-cap">{{ pick === "all" ? "All rounds" : `Round ${pick}` }} · {{ tally.played }} of {{ tally.total }} played</span>
+        <span class="hm-cap">{{ navCap }}</span>
       </header>
       <div v-if="rounds.length" class="lg-fx-rounds">
         <RouterLink v-if="steps.prev !== undefined" class="sf-btn small lg-fx-step" :to="roundLink(steps.prev)" replace :aria-label="`Previous round, Round ${steps.prev}`">‹ Prev</RouterLink>
@@ -146,16 +155,14 @@ watch(pick, placeStrip);
             <option v-for="t in teams" :key="t" :value="t">{{ t }}</option>
           </select>
         </label>
-        <div class="sf-tabs small lg-fx-view" role="group" aria-label="Fixtures view">
-          <button type="button" class="sf-tab" :aria-pressed="view === 'cards' ? 'true' : 'false'" @click="setView('cards')">Cards</button>
-          <button type="button" class="sf-tab" :aria-pressed="view === 'table' ? 'true' : 'false'" @click="setView('table')">Table</button>
-        </div>
+        <ListFilter v-if="groups.length" v-model="query" class="lg-fx-filter" label="Filter fixtures" placeholder="Filter by team, coach, race or round" data="data-fixtures-filter" :status="filterCount" />
+        <ListViewToggle tag="div" class="small lg-fx-view" :model-value="view" label="Fixtures view" @update:model-value="setView" />
       </div>
     </section>
     <p v-if="detail?.state.forkError" class="lobby-error" role="alert">{{ detail.state.forkError }}</p>
     <section v-if="!shown.length" class="hm-panel" aria-labelledby="lg-fx-none">
       <header class="hm-band"><h2 id="lg-fx-none">Fixtures</h2></header>
-      <p class="hm-empty">{{ groups.length ? "No fixtures match." : "No fixtures recorded for this season." }}</p>
+      <p class="hm-empty" :role="groups.length ? 'status' : undefined">{{ groups.length ? "No fixtures match." : "No fixtures recorded for this season." }}</p>
     </section>
     <section
       v-for="g in shown" :key="g.phase.id" class="hm-panel lg-fx-phase" :aria-label="g.title" :data-phase="g.phase.id"

@@ -8,6 +8,8 @@ import { RouterLink, useRoute, useRouter } from "vue-router";
 import { API_KEY } from "../app";
 import LeagueSectionHeader from "../components/LeagueSectionHeader.vue";
 import LeagueStatsCards from "../components/LeagueStatsCards.vue";
+import ListFilter from "../components/ListFilter.vue";
+import { matchesWords, queryWords } from "../shared/listView";
 import { carriedSeason, createLeagueDetail, createLeagueStats, LEAGUE_DETAIL_KEY, isStatsScope, LEAGUE_STATS_KEY, pct, phaseLabel, playerQuery, RULESET_TONE, seasonsLine, STATS_SCOPES } from "../leagues/league";
 import type { LeaderStat, StatsScope } from "../leagues/types";
 import "../leagues/leagues.css";
@@ -47,8 +49,21 @@ const LEADERS: ReadonlyArray<{ id: LeaderStat; label: string }> = [
   { id: "td", label: "Touchdowns" }, { id: "cas", label: "Casualties" }, { id: "mvp", label: "MVPs" }, { id: "spp", label: "SPP" },
   { id: "completions", label: "Completions" }, { id: "int", label: "Interceptions" }, { id: "fouls", label: "Fouls" },
 ];
-const coaches = computed(() => (stats.value?.coaches ?? []).slice(0, 25));
-const teams = computed(() => (stats.value?.teams ?? []).slice(0, 20));
+// The filter box (league pages treatment, owner 11-13): team, coach, race or player over the lists on the page; each row
+// keeps its rank. The spotlight cards and totals are not lists and stay as they are.
+const query = ref("");
+const words = computed(() => queryWords(query.value));
+const keep = (hay: Array<string | number | undefined>): boolean => matchesWords(words.value, hay);
+const ranked = <T,>(list: readonly T[], hay: (x: T) => Array<string | number | undefined>) => list.map((x, i) => ({ x, rank: i + 1 })).filter((r) => keep(hay(r.x)));
+const coaches = computed(() => ranked((stats.value?.coaches ?? []).slice(0, 25), (c) => [c.coach]));
+const teams = computed(() => ranked((stats.value?.teams ?? []).slice(0, 20), (t) => [t.team, t.race, t.coach]));
+const races = computed(() => ranked(stats.value?.races ?? [], (r) => [r.race]));
+const champions = computed(() => ranked(stats.value?.champions ?? [], (c) => [c.team, c.coach, c.race, `Season ${c.season}`]));
+const leadersOf = (id: LeaderStat) => ranked(stats.value?.leaders[id] ?? [], (p) => [p.name, p.team, p.coach, p.race, p.position]);
+const wins = computed(() => ranked(stats.value?.biggestWins ?? [], (w) => [w.winner.team, w.loser.team]));
+const most = computed(() => ranked(stats.value?.mostGames ?? [], (c) => [c.coach]));
+const filtering = computed(() => words.value.length > 0);
+const filterStatus = computed(() => (filtering.value ? `${coaches.value.length} coaches, ${teams.value.length} teams and ${races.value.length} races match` : ""));
 const wdl = (r: { wins: number; draws: number; losses: number }): string => `${r.wins}-${r.draws}-${r.losses}`;
 const diff = (a: number, b: number): string => (a - b > 0 ? `+${a - b}` : String(a - b));
 
@@ -68,6 +83,7 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} statistics` : "")
         :aria-checked="scope === s.id ? 'true' : 'false'" :tabindex="scope === s.id ? 0 : -1" @click="pickScope(s.id)"
       >{{ s.label }}</button>
     </div>
+    <ListFilter v-if="stats" v-model="query" class="lg-stats-filter" label="Filter statistics" placeholder="Filter by team, coach, race or player" data="data-stats-filter" :status="filterStatus" />
 
     <!-- fit to 1920x1080 (owner 11-02): the front, tabs and scope stay; the statistics scroll in this pane -->
     <div class="lg-tab-body sf-fill sf-scroll sf-col">
@@ -92,8 +108,9 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} statistics` : "")
         <section class="hm-panel" aria-labelledby="lg-champ-h">
           <header class="hm-band"><h2 id="lg-champ-h">Champions</h2></header>
           <p v-if="!stats.champions.length" class="hm-empty">No champions crowned yet.</p>
+          <p v-else-if="!champions.length" class="hm-empty">No champions match.</p>
           <ul v-else class="lg-podium">
-            <li v-for="c in stats.champions" :key="c.seasonId" data-award="Overall Champion">
+            <li v-for="{ x: c } in champions" :key="c.seasonId" data-award="Overall Champion">
               <span class="lg-award-type">Season {{ c.season }} <span class="sf-chip" :data-tone="RULESET_TONE[c.ruleset] ?? 'muted'">{{ c.ruleset }}</span></span>
               <strong>{{ c.team }}</strong><small>{{ c.coach }} · {{ c.race }}</small>
             </li>
@@ -106,9 +123,10 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} statistics` : "")
             <article v-for="b in LEADERS" :key="b.id" class="lg-board" :data-stat="b.id">
               <h3 class="lg-board-h">{{ b.label }}</h3>
               <p v-if="!stats.leaders[b.id]?.length" class="hm-empty hm-small">None recorded.</p>
+              <p v-else-if="!leadersOf(b.id).length" class="hm-empty hm-small">None match.</p>
               <ol v-else class="lg-board-rows">
-                <li v-for="(p, i) in stats.leaders[b.id]" :key="p.playerId">
-                  <span class="lg-board-rank">{{ i + 1 }}</span>
+                <li v-for="{ x: p, rank } in leadersOf(b.id)" :key="p.playerId">
+                  <span class="lg-board-rank">{{ rank }}</span>
                   <span class="lg-board-who"><strong><RouterLink class="lg-player-link" :to="{ name: 'league-detail', params: { id }, query: playerQuery(p.seasonId, p.playerId) }">{{ p.name }}</RouterLink></strong><small>{{ p.team }} · {{ seasonsLine(p.seasons) }}</small></span>
                   <span class="lg-board-val">{{ p.value }}</span>
                 </li>
@@ -123,8 +141,9 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} statistics` : "")
             <table class="lg-table">
               <thead><tr><th scope="col" class="lg-num">#</th><th scope="col">Coach</th><th scope="col" class="lg-num">G</th><th scope="col" class="lg-num">W-D-L</th><th scope="col" class="lg-num">Win %</th><th scope="col" class="lg-num">TD</th><th scope="col" class="lg-num">CAS</th><th scope="col" class="lg-num">Titles</th><th scope="col" class="lg-num">Pts</th></tr></thead>
               <tbody>
-                <tr v-for="(c, i) in coaches" :key="c.coach">
-                  <td class="lg-num">{{ i + 1 }}</td>
+                <tr v-if="filtering && !coaches.length"><td colspan="9" class="hm-empty">No coaches match.</td></tr>
+                <tr v-for="{ x: c, rank } in coaches" :key="c.coach">
+                  <td class="lg-num">{{ rank }}</td>
                   <th scope="row" class="lg-team-cell"><span class="lg-team-name">{{ c.coach }}</span><small>{{ seasonsLine(c.seasons) }} · {{ c.teams }} {{ c.teams === 1 ? "team" : "teams" }}</small></th>
                   <td class="lg-num">{{ c.games }}</td><td class="lg-num">{{ wdl(c) }}</td><td class="lg-num">{{ pct(c.winPct) }}</td>
                   <td class="lg-num">{{ diff(c.tdFor, c.tdAgainst) }}</td><td class="lg-num">{{ diff(c.casFor, c.casAgainst) }}</td>
@@ -138,12 +157,13 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} statistics` : "")
         <div class="hm-grid">
           <div class="hm-col">
             <section class="hm-panel" aria-labelledby="lg-team-h">
-              <header class="hm-band"><h2 id="lg-team-h">Team records</h2><span class="hm-cap">Top {{ teams.length }}</span></header>
+              <header class="hm-band"><h2 id="lg-team-h">Team records</h2><span class="hm-cap">Top {{ Math.min(stats.teams.length, 20) }}</span></header>
               <div class="lg-scroll">
                 <table class="lg-table">
                   <thead><tr><th scope="col">Team</th><th scope="col" class="lg-num">G</th><th scope="col" class="lg-num">W-D-L</th><th scope="col" class="lg-num">TD</th><th scope="col" class="lg-num">Pts</th></tr></thead>
                   <tbody>
-                    <tr v-for="t in teams" :key="t.team">
+                    <tr v-if="filtering && !teams.length"><td colspan="5" class="hm-empty">No teams match.</td></tr>
+                    <tr v-for="{ x: t } in teams" :key="t.team">
                       <th scope="row" class="lg-team-cell"><span class="lg-team-name">{{ t.team }}</span><small>{{ t.race }} · {{ t.coach }} · {{ seasonsLine(t.seasons) }}</small></th>
                       <td class="lg-num">{{ t.games }}</td><td class="lg-num">{{ wdl(t) }}</td><td class="lg-num">{{ diff(t.tdFor, t.tdAgainst) }}</td><td class="lg-num lg-pts">{{ t.points }}</td>
                     </tr>
@@ -157,7 +177,8 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} statistics` : "")
                 <table class="lg-table">
                   <thead><tr><th scope="col">Race</th><th scope="col" class="lg-num">Teams</th><th scope="col" class="lg-num">G</th><th scope="col" class="lg-num">W-D-L</th><th scope="col" class="lg-num">Win %</th></tr></thead>
                   <tbody>
-                    <tr v-for="r in stats.races" :key="r.race">
+                    <tr v-if="filtering && !races.length"><td colspan="5" class="hm-empty">No races match.</td></tr>
+                    <tr v-for="{ x: r } in races" :key="r.race">
                       <th scope="row" class="lg-team-cell"><span class="lg-team-name">{{ r.race }}</span></th>
                       <td class="lg-num">{{ r.teams }}</td><td class="lg-num">{{ r.games }}</td><td class="lg-num">{{ wdl(r) }}</td>
                       <td class="lg-num lg-pts"><span class="lg-bar" :style="{ '--lg-bar': pct(r.winPct) }">{{ pct(r.winPct) }}</span></td>
@@ -171,9 +192,10 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} statistics` : "")
             <section class="hm-panel" aria-labelledby="lg-big-h">
               <header class="hm-band"><h2 id="lg-big-h">Biggest wins</h2></header>
               <p v-if="!stats.biggestWins.length" class="hm-empty">None yet.</p>
+              <p v-else-if="!wins.length" class="hm-empty">None match.</p>
               <ol v-else class="lg-board-rows lg-wins">
-                <li v-for="(w, i) in stats.biggestWins" :key="`${w.seasonId}-${i}`">
-                  <span class="lg-board-rank">{{ i + 1 }}</span>
+                <li v-for="{ x: w, rank } in wins" :key="`${w.seasonId}-${rank}`">
+                  <span class="lg-board-rank">{{ rank }}</span>
                   <span class="lg-board-who"><strong>{{ w.winner.team }} {{ w.winner.score }}-{{ w.loser.score }} {{ w.loser.team }}</strong><small>Season {{ w.season }} · {{ phaseLabel(w.phase) }} · Round {{ w.round }}</small></span>
                   <span class="lg-board-val">+{{ w.margin }}</span>
                 </li>
@@ -182,8 +204,8 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} statistics` : "")
             <section class="hm-panel" aria-labelledby="lg-most-h">
               <header class="hm-band"><h2 id="lg-most-h">Most games</h2></header>
               <ol class="lg-board-rows">
-                <li v-for="(c, i) in stats.mostGames" :key="c.coach">
-                  <span class="lg-board-rank">{{ i + 1 }}</span>
+                <li v-for="{ x: c, rank } in most" :key="c.coach">
+                  <span class="lg-board-rank">{{ rank }}</span>
                   <span class="lg-board-who"><strong>{{ c.coach }}</strong><small>{{ wdl(c) }} · {{ seasonsLine(c.seasons) }}</small></span>
                   <span class="lg-board-val">{{ c.games }}</span>
                 </li>

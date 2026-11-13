@@ -151,3 +151,9 @@
 .aw-table th[aria-sort="ascending"], .aw-table th[aria-sort="descending"] { color: var(--ui-text); }
 
 .hof-sub-note { text-transform: none; letter-spacing: 0; font-family: var(--font-body); }
+
+/* League pages treatment (owner 11-13): the Awards and Honours filter boxes, the Hall of Fame Cards / Table switch and tables */
+.aw-filter, .hof-filter { flex: 1 1 220px; max-width: 360px; }
+.hof-table { font-size: 15px; }
+.hof-table .lg-team-cell { min-width: 140px; }
+.hof-table th[scope="row"] { font-weight: 600; white-space: nowrap; }

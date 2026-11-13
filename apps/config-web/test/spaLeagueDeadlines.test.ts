@@ -96,15 +96,17 @@ describe("Fixtures tab and Deadlines editor (server-rendered)", () => {
     league: typeof import("../spa/src/leagues/league");
     Fixtures: unknown;
     Editor: unknown;
+    listView: typeof import("../spa/src/shared/listView");
   };
   beforeAll(async () => {
     const { createServer } = await import("vite");
     vite = await createServer({ configFile: SPA_CONFIG, logLevel: "silent", appType: "custom", server: { middlewareMode: true, hmr: false, ws: false } });
-    const [renderer, vueRouter, league, fixtures, editor] = await Promise.all([
+    const [renderer, vueRouter, league, fixtures, editor, listView] = await Promise.all([
       vite.ssrLoadModule("vue/server-renderer"), vite.ssrLoadModule("vue-router"),
       vite.ssrLoadModule("/src/leagues/league.ts"), vite.ssrLoadModule("/src/components/LeagueFixtures.vue"), vite.ssrLoadModule("/src/components/LeagueDeadlinesEditor.vue"),
+      vite.ssrLoadModule("/src/shared/listView.ts"),
     ]);
-    mods = { createSSRApp, renderToString: renderer.renderToString, vueRouter: vueRouter as never, league: league as never, Fixtures: fixtures.default, Editor: editor.default };
+    mods = { createSSRApp, renderToString: renderer.renderToString, vueRouter: vueRouter as never, league: league as never, Fixtures: fixtures.default, Editor: editor.default, listView: listView as never };
   }, 60_000);
   afterAll(async () => { await vite?.close(); });
 
@@ -118,7 +120,7 @@ describe("Fixtures tab and Deadlines editor (server-rendered)", () => {
     s.fixtures[2]!.deadline = at(5);
     return s;
   };
-  async function render(component: unknown, props: Record<string, unknown>, path = "/leagues/tabbl?tab=fixtures&round=all", s = liveSeason()) {
+  async function render(component: unknown, props: Record<string, unknown>, path = "/leagues/tabbl?tab=fixtures&round=all", s = liveSeason(), view?: string) {
     const detail = mods.league.createLeagueDetail({ api: (async () => { throw new Error("no api"); }) as never });
     detail.state.season[s.id] = s;
     const router = mods.vueRouter.createRouter({ history: mods.vueRouter.createMemoryHistory("/app/"), routes: [{ path: "/:p(.*)*", component: { render: () => null } }] });
@@ -127,6 +129,7 @@ describe("Fixtures tab and Deadlines editor (server-rendered)", () => {
     const app = mods.createSSRApp(component as never, { season: detail.state.season[s.id], ...props });
     app.use(router);
     app.provide(mods.league.LEAGUE_DETAIL_KEY, detail);
+    if (view) app.provide(mods.listView.LIST_VIEW_START, { "sf-league-fixtures-view": view as "cards" | "table" });
     return mods.renderToString(app);
   }
 
@@ -135,7 +138,8 @@ describe("Fixtures tab and Deadlines editor (server-rendered)", () => {
     const saved = g.localStorage;
     for (const view of ["cards", "table"]) {
       g.localStorage = { getItem: () => view, setItem: () => undefined };
-      const html = await render(mods.Fixtures, { league, crests: {}, manage: false });
+      // league pages treatment (11-13): the remembered view is read once mounted; server rendering starts from LIST_VIEW_START
+      const html = await render(mods.Fixtures, { league, crests: {}, manage: false }, undefined, undefined, view);
       expect(html).toContain(view === "table" ? "lg-fx-table" : "lg-results");
       expect(html).toMatch(/data-tone="soon"[^>]*data-deadline[^>]*>Due in 2 d</);
       expect(html).toMatch(/data-tone="urgent"[^>]*data-deadline[^>]*>Due in 5 h</);

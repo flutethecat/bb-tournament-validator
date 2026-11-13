@@ -12,8 +12,10 @@ import LeagueGiveAward from "./LeagueGiveAward.vue";
 import LeaguePinDialog from "./LeaguePinDialog.vue";
 import { awardIcon, awardsFor, LEAGUE_HONOURS_KEY, recipientLine, SOURCE_LABEL, type AwardView } from "../leagues/honours";
 import {
-  AWARD_COLUMNS, awardWhen, groupAwardsBySeason, readAwardsLayout, sortAwards, writeAwardsLayout, type AwardSortKey, type AwardsLayout, type SortDir,
+  AWARD_COLUMNS, awardWhen, groupAwardsBySeason, sortAwards, type AwardSortKey, type SortDir,
 } from "../leagues/awardsView";
+import ListFilter from "./ListFilter.vue";
+import { filterList, LIST_VIEW_KEYS, listCount, useListView } from "../shared/listView";
 import { awardDate } from "../leagues/honours";
 import "../leagues/honours.css";
 
@@ -21,11 +23,16 @@ const props = defineProps<{ manage: boolean; seasons: ReadonlyArray<{ id: string
 const honours = inject(LEAGUE_HONOURS_KEY)!;
 const { state } = honours;
 const season = ref("");
-const awards = computed(() => awardsFor(state.view?.awards ?? [], season.value));
+const seasonAwards = computed(() => awardsFor(state.view?.awards ?? [], season.value));
+// The filter box (league pages treatment, owner 11-13): award, team, coach, race or season; both views.
+const query = ref("");
+const awards = computed(() => filterList(seasonAwards.value, query.value, (a) => [a.title, a.toTeam, a.toCoach, a.race, a.seasonName ?? (a.seasonId ? "" : "League-wide")]));
+const filtering = computed(() => Boolean(query.value.trim()));
+const filterCount = computed(() => listCount(awards.value.length, seasonAwards.value.length, "award"));
 const awardPins = computed(() => new Map((state.view?.pins ?? []).filter((p) => p.kind === "award" && p.awardId).map((p) => [p.awardId!, p.id])));
 const pinnedIds = computed(() => new Set(awardPins.value.keys()));
-const layout = ref<AwardsLayout>(readAwardsLayout());
-const setLayout = (v: AwardsLayout): void => { layout.value = v; writeAwardsLayout(v); };
+// Cards | Table, remembered per browser (read once mounted: server rendering always gives cards)
+const { view: layout, setView: setLayout } = useListView(LIST_VIEW_KEYS.awards);
 const groups = computed(() => groupAwardsBySeason(awards.value, props.seasons, pinnedIds.value));
 const sortKey = ref<AwardSortKey>("season");
 const sortDir = ref<SortDir>("desc");
@@ -55,7 +62,7 @@ const PIN_PATH = "M5 1h6v2h-1v4l2 2v2H9v4H7v-4H4V9l2-2V3H5z";
 
 <template>
   <section class="hm-panel aw-panel" aria-labelledby="aw-list-h" :data-layout="layout">
-    <header class="hm-band"><h2 id="aw-list-h">Awards</h2><span class="hm-cap">({{ awards.length }})</span></header>
+    <header class="hm-band"><h2 id="aw-list-h">Awards</h2><span class="hm-cap">({{ filtering ? filterCount : awards.length }})</span></header>
     <div class="aw-tools">
       <label class="sf-field"><span class="sf-k">Season</span>
         <select v-model="season">
@@ -64,6 +71,7 @@ const PIN_PATH = "M5 1h6v2h-1v4l2 2v2H9v4H7v-4H4V9l2-2V3H5z";
           <option v-for="s in seasons" :key="s.id" :value="s.id">{{ s.name }}</option>
         </select>
       </label>
+      <ListFilter v-if="seasonAwards.length" v-model="query" class="aw-filter" label="Filter awards" placeholder="Filter by award, team, coach or race" data="data-awards-filter" :status="filterCount" />
       <div class="sf-tabs small aw-layout" role="group" aria-label="Awards view">
         <button type="button" class="sf-tab" data-layout="cards" :aria-pressed="layout === 'cards' ? 'true' : 'false'" @click="setLayout('cards')">Cards</button>
         <button type="button" class="sf-tab" data-layout="table" :aria-pressed="layout === 'table' ? 'true' : 'false'" @click="setLayout('table')">Table</button>
@@ -74,6 +82,7 @@ const PIN_PATH = "M5 1h6v2h-1v4l2 2v2H9v4H7v-4H4V9l2-2V3H5z";
     <p v-if="state.writeError && !giving && !pinning" class="sf-error aw-status" role="alert">{{ state.writeError }}</p>
     <p v-if="!state.view && state.error" class="sf-error" role="alert">{{ state.error }}</p>
     <p v-else-if="!state.view" class="hm-empty" role="status">Loading awards...</p>
+    <p v-else-if="!awards.length && filtering && seasonAwards.length" class="hm-empty" role="status">No awards match that filter.</p>
     <p v-else-if="!awards.length" class="hm-empty">{{ season ? "No awards for this choice." : "No awards yet." }}</p>
     <div v-else class="lg-scroll aw-body">
       <!-- Cards, by season -->

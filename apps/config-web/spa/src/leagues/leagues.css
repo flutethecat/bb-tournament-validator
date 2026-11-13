@@ -812,3 +812,53 @@ button.lg-cog { margin: 0; padding: 0; font: inherit; color: inherit; cursor: po
   .rpop-scroll { max-height: calc(60vh / var(--sf-zoom, 1)); overflow: auto; }
   .rpop-scroll thead th { position: sticky; top: 0; z-index: 1; background: var(--ui-surface); }
 }
+
+/* ---- League pages treatment (owner 11-13: Cards / Table switches and filter boxes, shared/listView.ts, ListViewToggle,
+   ListFilter): the switch sits at the band's right, the filter box under the band or beside the list's own selects. */
+.lg-band-tools { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px 12px; min-width: 0; margin-left: auto; }
+.hm-band:has(> .lg-band-tools, > .lg-view-toggle) { align-items: center; flex-wrap: wrap; }
+.hm-band:has(> .lg-band-tools, > .lg-view-toggle) > h2 { white-space: nowrap; }
+.hm-band > .lg-view-toggle { margin-left: auto; }
+.lg-view-toggle, .hof-layout { flex: none; }
+.lg-view-toggle .sf-tab, .hof-layout .sf-tab { min-height: 28px; padding: 2px 10px; font-size: 11px; }
+.lg-list-filter { display: block; max-width: 420px; margin-bottom: 10px; }
+.lg-list-filter input, .lg-fx-filter input, .lg-stats-filter input, .aw-filter input, .hof-filter input { width: 100%; }
+.lg-fx-filter { flex: 1 1 240px; max-width: 360px; min-width: 0; }
+.lg-stats-filter { display: block; width: 100%; max-width: 420px; }
+/* Overview: the latest results as a table, Current Champions as a table */
+.lg-ov-table { container: lg-res / inline-size; overflow-x: auto; }
+.hm-panel > .lg-ov-table > .lg-res-table, .lg-ov-table > .lg-res-table { width: 100%; margin: 0; }
+.lg-res-table { font-size: 13px; }
+.lg-res-when { white-space: nowrap; }
+.lg-res-when > .lg-fx-when, .lg-res-when > .lg-fx-round { display: block; }
+.lg-res-table .lg-fx-who { max-width: 100%; }
+.lg-res-table .lg-fx-who > * { white-space: normal; overflow-wrap: anywhere; }
+.lg-res-table .lg-fx-score { min-width: 52px; min-height: 32px; font-size: 16px; }
+.lg-champ-wrap { margin-bottom: 0; }
+.lg-champ-table { width: 100%; font-size: 14px; }
+.lg-champ-table .lg-team-cell { min-width: 0; }
+/* Participants as cards: the team tiles; organisers keep the coach profile button under each tile */
+.lg-team-tiles > li { display: grid; gap: 4px; align-content: start; }
+.lg-tile-coach { justify-self: start; font-size: 13px; }
+/* a narrow results box: each row becomes a compact card (as the Fixtures table does on a phone) */
+@container lg-res (max-width: 440px) {
+  .lg-res-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .lg-res-table, .lg-res-table tbody { display: block; }
+  .lg-res-table tbody { display: grid; gap: 8px; }
+  .lg-res-table tbody tr:nth-child(even) { background: none; }
+  .lg-res-table .lg-fx-row {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); grid-template-areas: "home score away" "when when when" "status status status";
+    gap: 4px 8px; align-items: center; padding: 6px 8px;
+    background: color-mix(in srgb, var(--ui-surface-2) 60%, transparent); border: 2px solid var(--sf-panel-line); border-radius: 2px;
+  }
+  .lg-res-table .lg-fx-row > td { display: block; padding: 0; border: 0; }
+  .lg-res-table .lg-fx-row > .lg-fx-side[data-side="home"] { grid-area: home; }
+  .lg-res-table .lg-fx-row > .lg-fx-side[data-side="away"] { grid-area: away; text-align: right; }
+  .lg-res-table .lg-fx-row > .lg-fx-score-cell { grid-area: score; }
+  .lg-res-table .lg-fx-row > .lg-res-when { grid-area: when; display: flex; justify-content: space-between; gap: 8px; }
+  .lg-res-table .lg-fx-row > .lg-fx-status { grid-area: status; }
+}
+@media (max-width: 760px) {
+  .lg-res-table .lg-fx-row { grid-template-areas: "home score away" "when when when" "status status status"; }
+  .lg-res-table .lg-fx-row > .lg-res-when { grid-area: when; display: flex; justify-content: space-between; gap: 8px; }
+}

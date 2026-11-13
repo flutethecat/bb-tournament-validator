@@ -2,6 +2,7 @@
 // table view's status chip) and the per-viewer Cards | Table choice. No DOM except the guarded localStorage access.
 
 import { concedeOf, fixturePlayed, type PhaseGroup } from "./league";
+import { matchesWords, queryWords } from "../shared/listView";
 import type { LeagueFixture } from "./types";
 
 /** A round number, or every round. */
@@ -55,6 +56,31 @@ export function filterFixtures(groups: PhaseGroup[], round: RoundPick, team: str
     }))
     .filter((g) => g.rounds.length);
 }
+
+/** A fixture's filter text (the Fixtures filter box): both teams, coaches and races, the round, group and phase. */
+export const fixtureHay = (f: LeagueFixture, phaseTitle = ""): string[] =>
+  [f.home.team, f.home.coach, f.home.race, f.away.team, f.away.coach, f.away.race, `Round ${f.round}`, f.group, phaseTitle];
+
+/** The groups narrowed to the fixtures matching every typed word (shared/listView.ts); empty rounds and phases drop out
+ *  and `played` follows the filter. An empty box returns the groups unchanged. */
+export function filterFixturesText(groups: PhaseGroup[], query: string): PhaseGroup[] {
+  const words = queryWords(query);
+  if (!words.length) return groups;
+  return groups
+    .map((g) => ({
+      ...g,
+      rounds: g.rounds
+        .map((r) => {
+          const fixtures = r.fixtures.filter((f) => matchesWords(words, fixtureHay(f, g.title)));
+          return { ...r, fixtures, played: fixtures.filter(fixturePlayed).length };
+        })
+        .filter((r) => r.fixtures.length),
+    }))
+    .filter((g) => g.rounds.length);
+}
+
+/** How many fixtures the groups hold. */
+export const fixtureCount = (groups: PhaseGroup[]): number => groups.reduce((n, g) => n + g.rounds.reduce((m, r) => m + r.fixtures.length, 0), 0);
 
 export type FixtureStatusTone = "ok" | "soon" | "urgent" | "muted";
 /** The table view's status chip: Played, Forfeit (a concession), Suspended / Not played, Overdue (a scheduled date that

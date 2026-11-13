@@ -1,7 +1,11 @@
 <script setup lang="ts">
 // Honour boards (league season Honours, tournament Honours): one panel per group (Players / Teams / Coaches), a card per
 // stat with the top five and the full board behind a disclosure. A player row with a playerId links through `playerTo`.
+// `query` (the league Honours filter box) keeps the rows matching every typed word (name, team, coach) with their ranks;
+// a board without a match drops out. Empty (tournaments never pass it) = every row.
+import { computed } from "vue";
 import { RouterLink, type RouteLocationRaw } from "vue-router";
+import { filterList } from "../shared/listView";
 
 export interface BoardRow { rank: number; name: string; team: string; coach: string; playerId?: string; value: unknown }
 export interface Board { key: string; title: string; rows: BoardRow[] }
@@ -11,14 +15,18 @@ const props = withDefaults(defineProps<{
   groups: BoardGroup[];
   value: (v: unknown) => string;
   playerTo?: ((playerId: string) => RouteLocationRaw) | null;
-}>(), { playerTo: null });
+  query?: string;
+}>(), { playerTo: null, query: "" });
+const shown = computed(() => (props.query.trim() ? props.groups
+  .map((b) => ({ ...b, tables: b.tables.map((t) => ({ ...t, rows: filterList(t.rows, props.query, (r) => [r.name, r.team, r.coach]) })).filter((t) => t.rows.length) }))
+  .filter((b) => b.tables.length) : props.groups));
 // Players show their team; teams their coach; coaches their team when one is named.
 const sub = (kind: BoardGroup["kind"], r: BoardRow): string => (kind === "team" ? r.coach : r.team);
 const to = (r: BoardRow): RouteLocationRaw | undefined => (r.playerId && props.playerTo ? props.playerTo(r.playerId) : undefined);
 </script>
 
 <template>
-  <section v-for="b in groups" :key="b.kind" class="hm-panel" :aria-label="`${b.title} honours`" :data-kind="b.kind">
+  <section v-for="b in shown" :key="b.kind" class="hm-panel" :aria-label="`${b.title} honours`" :data-kind="b.kind">
     <header class="hm-band"><h2>{{ b.title }}</h2><span class="hm-cap">{{ b.tables.length }} boards</span></header>
     <div class="lg-boards">
       <article v-for="t in b.tables" :key="t.key" class="lg-board" :data-board="t.key">

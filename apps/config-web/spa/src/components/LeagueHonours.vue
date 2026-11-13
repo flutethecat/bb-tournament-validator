@@ -3,7 +3,7 @@
 // the selected season's honour boards, top five each with the full board behind a disclosure. Owner 11-02: a Player /
 // Coach / Team selector (in the Hall of Fame band, ?view=) shows one view at a time: the Hall of Fame and the boards switch
 // together (player records and leaders; coach titles and records; team champions and records).
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { honourBoards, honourLabel, honourValue, playerQuery } from "../leagues/league";
 import { honoursView, type HonoursView as ViewKind } from "../leagues/hallViews";
@@ -17,6 +17,8 @@ const props = withDefaults(defineProps<{ season: SeasonRecord; seasons?: SeasonS
 const route = useRoute();
 const router = useRouter();
 const view = computed<ViewKind>(() => honoursView(route.query.view));
+// The filter box (league pages treatment, owner 11-13): in the Hall of Fame panel, narrowing it and the season boards.
+const query = ref("");
 function pickView(v: ViewKind): void {
   const q = { ...route.query };
   if (v === "team") delete q.view; else q.view = v;
@@ -34,8 +36,8 @@ const groups = computed(() => boards.value
 
 <template>
   <div class="lg-stack lg-honours" :data-view="view">
-    <LeagueHallOfFame :manage="manage" :crests="crests" :view="view" @view="pickView" />
+    <LeagueHallOfFame v-model:query="query" :manage="manage" :crests="crests" :view="view" @view="pickView" />
     <LeagueAwards v-if="awards" :manage="manage" :seasons="seasons" />
-    <HonourBoards :groups="groups" :value="(v) => honourValue(v as HonourValue)" :player-to="playerTo" />
+    <HonourBoards :groups="groups" :value="(v) => honourValue(v as HonourValue)" :player-to="playerTo" :query="query" />
   </div>
 </template>

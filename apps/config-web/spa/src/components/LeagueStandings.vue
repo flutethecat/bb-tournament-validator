@@ -9,6 +9,8 @@ import { computed, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import CoachSummaryDialog from "./CoachSummaryDialog.vue";
 import RosterDialog from "./RosterDialog.vue";
+import ListFilter from "./ListFilter.vue";
+import { filterList, listCount } from "../shared/listView";
 import { isMyStanding, LATEST_LABEL, STANDINGS_STAT_COLUMNS, standingsTables } from "../leagues/league";
 import { teamForRow } from "../leagues/popups";
 import { currentStandingsPhase, pickStandingsPhase, standingsPhaseOptions, tablePhase } from "../leagues/standingsView";
@@ -26,7 +28,12 @@ const all = computed(() => standingsTables(props.season).map((t) => ({
 const phases = computed(() => standingsPhaseOptions(props.season, all.value));
 const current = computed(() => currentStandingsPhase(props.season, phases.value));
 const phase = computed(() => pickStandingsPhase(route.query.phase, phases.value, current.value));
-const tables = computed(() => (phase.value === "all" ? all.value : all.value.filter((t) => t.phase === phase.value)));
+const picked = computed(() => (phase.value === "all" ? all.value : all.value.filter((t) => t.phase === phase.value)));
+// The filter box (league pages treatment, owner 11-13): team, coach or race; rows keep their rank.
+const query = ref("");
+const filtering = computed(() => Boolean(query.value.trim()));
+const tables = computed(() => picked.value.map((t) => ({ ...t, shownRows: filterList(t.rows, query.value, (r) => [r.team, r.coach, r.race]) })));
+const filterCount = computed(() => listCount(tables.value.reduce((n, t) => n + t.shownRows.length, 0), picked.value.reduce((n, t) => n + t.rows.length, 0), "team"));
 function onPhase(e: Event): void {
   const v = (e.target as HTMLSelectElement).value;
   const q = { ...route.query };
@@ -53,7 +60,7 @@ const rosterOf = (r: StandingRow): LeagueTeam | undefined => teamForRow(props.se
       <header class="hm-band">
         <h2>{{ t.title }}</h2>
         <span class="lg-st-tools">
-          <span class="hm-cap">{{ t.rows.length }} teams<template v-if="sourceCap(t.source)"> · {{ sourceCap(t.source) }}</template></span>
+          <span class="hm-cap"><template v-if="filtering">{{ listCount(t.shownRows.length, t.rows.length, "team") }}</template><template v-else>{{ t.rows.length }} teams</template><template v-if="sourceCap(t.source)"> · {{ sourceCap(t.source) }}</template></span>
           <label v-if="i === 0 && phases.length > 1" class="lg-st-phase">
             <span class="sf-sr">Phase</span>
             <select data-standings-phase :value="phase" @change="onPhase">
@@ -63,6 +70,7 @@ const rosterOf = (r: StandingRow): LeagueTeam | undefined => teamForRow(props.se
           </label>
         </span>
       </header>
+      <ListFilter v-if="i === 0" v-model="query" class="lg-list-filter" label="Filter standings" placeholder="Filter by team, coach or race" data="data-standings-filter" :status="filterCount" />
       <p v-if="t.note" class="hm-empty hm-small">{{ t.note }}</p>
       <p v-if="t.mine" class="lg-my-standing">
         <span class="lg-award-type">My standing</span>
@@ -82,7 +90,8 @@ const rosterOf = (r: StandingRow): LeagueTeam | undefined => teamForRow(props.se
           </thead>
           <tbody>
             <tr v-if="!t.rows.length"><td :colspan="10 + t.columns.length" class="hm-empty">No teams scheduled in this division yet.</td></tr>
-            <tr v-for="r in t.rows" :key="r.teamId ?? `${r.team}|${r.coach}`" :data-mine="r === t.mine ? 'true' : undefined" :aria-current="r === t.mine ? 'true' : undefined">
+            <tr v-else-if="!t.shownRows.length"><td :colspan="10 + t.columns.length" class="hm-empty">No teams match that filter.</td></tr>
+            <tr v-for="r in t.shownRows" :key="r.teamId ?? `${r.team}|${r.coach}`" :data-mine="r === t.mine ? 'true' : undefined" :aria-current="r === t.mine ? 'true' : undefined">
               <td class="lg-num">{{ r.rank }}</td>
               <th scope="row" class="lg-team-cell">
                 <button v-if="rosterOf(r)" type="button" class="lg-team-name lg-st-link" data-team-open aria-haspopup="dialog" :aria-label="`${r.team}: roster`" @click="teamOpen = rosterOf(r)!">{{ r.team }}</button>

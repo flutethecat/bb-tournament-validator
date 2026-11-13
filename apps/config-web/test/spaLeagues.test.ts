@@ -247,23 +247,25 @@ describe("league routes (server-rendered against a mocked API)", () => {
     renderToString: (app: unknown) => Promise<string>;
     gateFor: (route: { meta: Record<string, unknown> }, s: unknown) => string;
     league: typeof import("../spa/src/leagues/league");
+    listView: typeof import("../spa/src/shared/listView");
     ResultCard: unknown;
   };
 
   beforeAll(async () => {
     const { createServer } = await import("vite");
     vite = await createServer({ configFile: SPA_CONFIG, logLevel: "silent", appType: "custom", server: { middlewareMode: true, hmr: false, ws: false } });
-    const [app, router, league, vueRouter, renderer, card] = await Promise.all([
+    const [app, router, league, vueRouter, renderer, card, listView] = await Promise.all([
       vite.ssrLoadModule("/src/app.ts"),
       vite.ssrLoadModule("/src/router.ts"),
       vite.ssrLoadModule("/src/leagues/league.ts"),
       vite.ssrLoadModule("vue-router"),
       vite.ssrLoadModule("vue/server-renderer"),
       vite.ssrLoadModule("/src/components/ResultCard.vue"),
+      vite.ssrLoadModule("/src/shared/listView.ts"),
     ]);
     mods = {
       createSpa: app.createSpa, createMemoryHistory: vueRouter.createMemoryHistory, renderToString: renderer.renderToString, gateFor: router.gateFor,
-      league: league as typeof import("../spa/src/leagues/league"), ResultCard: card.default,
+      league: league as typeof import("../spa/src/leagues/league"), listView: listView as typeof import("../spa/src/shared/listView"), ResultCard: card.default,
     };
   }, 60_000);
   afterAll(async () => { await vite?.close(); });
@@ -686,11 +688,17 @@ describe("league routes (server-rendered against a mocked API)", () => {
   });
 
   it("fixtures table view (remembered per viewer): Round, Date, Home, Score, Away, Status; rows open the fixture summary", async () => {
+    // League pages treatment (11-13): the remembered choice is read only once mounted, so server rendering always starts on
+    // cards; the table is rendered here through the list's start view (shared/listView.ts LIST_VIEW_START).
     const store = new Map<string, string>([["sf-league-fixtures-view", "table"]]);
     const g = globalThis as { localStorage?: unknown };
     g.localStorage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) };
+    const tableDetail = async (inject: (k: symbol, v: unknown) => void, f: Fetcher) => { await loadedDetail()(inject, f); inject(mods.listView.LIST_VIEW_START, { "sf-league-fixtures-view": "table" }); };
     try {
-      const { html } = await render("/leagues/tabbl?tab=fixtures&round=all", loadedDetail());
+      const remembered = await render("/leagues/tabbl?tab=fixtures&round=all", loadedDetail());
+      expect(remembered.html).toMatch(/aria-pressed="true"[^>]*>Cards<\/button>/); // never read during server rendering
+      expect(remembered.html).not.toContain("lg-fx-table");
+      const { html } = await render("/leagues/tabbl?tab=fixtures&round=all", tableDetail);
       expect(html).toMatch(/aria-pressed="true"[^>]*>Table<\/button>/);
       expect(html).toMatch(/<th scope="col">Round<\/th><th scope="col">Date<\/th><th scope="col">Home<\/th><th scope="col" class="lg-fx-c">Score<\/th><th scope="col">Away<\/th><th scope="col">Status<\/th>/);
       // owner 11-02: a completed phase starts collapsed (its one fixture hidden), the live phase stays open
@@ -702,7 +710,7 @@ describe("league routes (server-rendered against a mocked API)", () => {
     store.set("sf-league-fixtures-phases:tabbl", JSON.stringify({ "season-6:season-preseason": true }));
     g.localStorage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) };
     try {
-      const { html } = await render("/leagues/tabbl?tab=fixtures&round=all", loadedDetail());
+      const { html } = await render("/leagues/tabbl?tab=fixtures&round=all", tableDetail);
       expect(html.match(/class="lg-fx-row"/g)).toHaveLength(4);
       expect(html).toContain('class="lg-fx-crest" src="/crests/dwarf.png"');
       expect(html).toMatch(/<a[^>]*href="\/app\/leagues\/tabbl\?tab=fixtures&amp;fixture=f2"[^>]*lg-fx-score"/);

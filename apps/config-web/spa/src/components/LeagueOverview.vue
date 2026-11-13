@@ -17,6 +17,9 @@ import HouseRulesPanel from "./HouseRulesPanel.vue";
 import PayEntryFee from "./PayEntryFee.vue";
 import { rulesetLabel } from "../shared/competition";
 import ResultCard from "./ResultCard.vue";
+import LeagueResultsTable from "./LeagueResultsTable.vue";
+import ListViewToggle from "./ListViewToggle.vue";
+import { LIST_VIEW_KEYS, useListView } from "../shared/listView";
 import { latestResults, resultCardProps, RULESET_TONE, SEASON_STATUS_LABEL, seasonDates } from "../leagues/league";
 import { isLiveEntry, LEAGUE_JOIN_KEY } from "../leagues/registration";
 import type { LeagueSummary, SeasonRecord, SeasonSummary } from "../leagues/types";
@@ -28,7 +31,13 @@ const houseEdit = computed(() => (props.canManage ? { name: "league-settings", p
 const money = computed(() => props.league.money?.bySeason[props.season.id] ?? props.league.money?.rules ?? null);
 const moneyEdit = computed(() => (props.canManage ? { name: "league-settings", params: { id: props.league.id }, query: { tab: "money" } } : null));
 const route = useRoute();
-const latest = computed(() => latestResults(props.season, 12).map((f) => ({ id: f.id, card: resultCardProps(props.league, props.season, f, props.crests) })));
+const latestFixtures = computed(() => latestResults(props.season, 12));
+const latest = computed(() => latestFixtures.value.map((f) => ({ id: f.id, card: resultCardProps(props.league, props.season, f, props.crests) })));
+// Cards or Table (league pages treatment, owner 11-13), each remembered per browser once mounted: the latest results share
+// the Fixtures tab's choice; Current Champions shares the Hall of Fame's.
+const { view: resultsView, setView: setResultsView } = useListView(LIST_VIEW_KEYS.fixtures);
+const { view: champsView, setView: setChampsView } = useListView(LIST_VIEW_KEYS.champions);
+const linkSeason = computed(() => (typeof route.query.season === "string" && route.query.season ? route.query.season : undefined));
 const podium = computed(() => props.season.awards.filter((a) => a.type === "Overall Champion" || a.type === "Runner-up" || a.type === "Consolation"));
 const honorary = computed(() => props.season.awards.filter((a) => a.type === "Honorary award"));
 const fixturesLink = computed(() => ({ name: "league-detail", params: { id: props.league.id }, query: { ...(route.query.season ? { season: String(route.query.season) } : {}), tab: "fixtures" } }));
@@ -60,8 +69,17 @@ const phases = computed(() => props.season.phases.filter((p) => props.season.fix
 
 <template>
   <section class="hm-panel lg-ov-results" aria-labelledby="lg-latest-h">
-    <header class="hm-band"><h2 id="lg-latest-h">Latest results</h2><RouterLink class="hm-cap" :to="fixturesLink">All fixtures</RouterLink></header>
+    <header class="hm-band">
+      <h2 id="lg-latest-h">Latest results</h2>
+      <span class="lg-band-tools">
+        <RouterLink class="hm-cap" :to="fixturesLink">All fixtures</RouterLink>
+        <ListViewToggle v-if="latest.length" class="small lg-view-toggle" :model-value="resultsView" label="Latest results view" data="data-results-view" @update:model-value="setResultsView" />
+      </span>
+    </header>
     <p v-if="!latest.length" class="hm-empty">No results yet this season.</p>
+    <div v-else-if="resultsView === 'table'" class="lg-ov-scroll lg-ov-table">
+      <LeagueResultsTable :fixtures="latestFixtures" :season-id="linkSeason" label="Latest results" />
+    </div>
     <div v-else class="lg-ov-scroll">
       <ul class="lg-results lg-results-sm" aria-label="Latest results">
         <li v-for="r in latest" :key="r.id"><ResultCard v-bind="r.card" size="sm" /></li>
@@ -70,8 +88,29 @@ const phases = computed(() => props.season.phases.filter((p) => props.season.fix
   </section>
   <div class="lg-ov-side">
       <section v-if="shown.any" class="hm-panel lg-champions" aria-labelledby="lg-champs-h">
-        <header class="hm-band"><h2 id="lg-champs-h">Current Champions</h2></header>
-        <div class="lg-champs">
+        <header class="hm-band"><h2 id="lg-champs-h">Current Champions</h2><ListViewToggle class="small lg-view-toggle" :model-value="champsView" label="Current Champions view" data="data-champions-view" @update:model-value="setChampsView" /></header>
+        <div v-if="champsView === 'table'" class="lg-scroll lg-champ-wrap" data-champions-table>
+          <table class="sf-table lg-champ-table" aria-label="Current champions">
+            <thead><tr><th scope="col">Title</th><th scope="col">Team</th><th scope="col">Details</th></tr></thead>
+            <tbody>
+              <template v-if="shown.cups">
+                <tr v-for="c in champions!.cups" :key="c.seasonId + c.label" data-kind="cup">
+                  <td>{{ c.seasonName }} {{ c.label.toLowerCase() }}</td>
+                  <th scope="row" class="lg-team-cell"><span class="lg-team-name">{{ c.team }}</span><small>{{ c.coach }}</small></th>
+                  <td>{{ c.race }}</td>
+                </tr>
+              </template>
+              <template v-if="shown.belts">
+                <tr v-for="b in champions!.belts" :key="b.ladderId" data-kind="belt">
+                  <td>{{ b.ladderName }} belt</td>
+                  <th scope="row" class="lg-team-cell"><span class="lg-team-name">{{ b.team }}</span><small>{{ b.coach }}</small></th>
+                  <td>{{ plural(b.days, "day") }} · {{ plural(b.defences, "defence") }}<template v-if="b.inactive"> · inactive</template><template v-if="b.interim"> · interim {{ b.interim.team }}</template></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+        <div v-else class="lg-champs">
           <template v-if="shown.cups">
             <p class="sf-k">Cups</p>
             <ul class="lg-champ-list" aria-label="Season champions">
@@ -121,7 +160,7 @@ const phases = computed(() => props.season.phases.filter((p) => props.season.fix
         />
       </section>
       <HouseRulesPanel kind="league" :rules="league.houseRules" :ruleset="rulesetName" id-prefix="lg" :edit-to="houseEdit" :money="money" :money-edit-to="moneyEdit" />
-      <section class="hm-panel" aria-labelledby="lg-org-h">
+      <section class="hm-panel lg-ov-org" aria-labelledby="lg-org-h">
         <header class="hm-band"><h2 id="lg-org-h">Organisers</h2></header>
         <p v-if="!league.organisers.length" class="hm-empty">No organisers listed.</p>
         <ul v-else class="lg-organisers">
