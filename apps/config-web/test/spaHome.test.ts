@@ -773,7 +773,7 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(navOf(html)).toContain('href="/app/tournaments/t1"');
     const css = readFileSync(new URL("../spa/src/home/home.css", import.meta.url), "utf8");
     expect(css).toContain("--sf-rail-w: 56px;");
-    expect(css).toContain("--sf-nav-w: 260px;");
+    expect(css).toContain("--sf-nav-w: 216px;"); // owner 11-13: the expanded sidebar was too wide
     expect(css).toMatch(/\.sf-body\[data-rail="true"\] \{ grid-template-columns: var\(--sf-rail-w\)/);
     expect(navOf(html)).not.toContain("data-glyph"); // icons replace the letter glyphs
     expect(css).toMatch(/\.sf-nav\[data-collapsed="true"\] \.sf-count,\s*\.sf-nav\[data-collapsed="true"\] \.sf-rows \{ display: none; \}/);

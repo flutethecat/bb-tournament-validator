@@ -22,7 +22,7 @@
   --sf-bevel: inset 0 1px 0 rgb(255 255 255 / 0.16), inset 0 -1px 0 rgb(0 0 0 / 0.4);
   --sf-led: var(--ui-coach-led, #4cff6a);
   --sf-top-h: 56px;
-  --sf-nav-w: 260px;
+  --sf-nav-w: 216px;
   --sf-rail-w: 56px;
   /* Typography (owner 11-02, design.md §4): band header rows in SNES Italic; captions, chips, tabs, buttons and table
      heads in the bold sans (--font-heading); body copy in the sans (--font-body). The wordmark keeps SNES Italic. */
@@ -334,6 +334,21 @@ a.hm-cap:hover { color: var(--ui-text); }
 .hm-team-comp, .hm-team-tv { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ui-muted); font-size: 11px; line-height: 1.25; }
 .hm-team-tv { color: var(--ui-text); }
 .hm-team { position: relative; }
+/* My teams: the Cards / Table switch in the band, and the table view (crest + name link, race, team value, registrations) */
+.mt-view-toggle { flex: none; margin-left: auto; }
+.mt-view-toggle .sf-tab { min-height: 28px; padding: 2px 10px; font-size: 11px; }
+.mt-filter { display: block; max-width: 420px; margin: 0 12px 10px; }
+.mt-filter input { width: 100%; }
+.mt-table-wrap { overflow-x: auto; }
+.mt-table th[scope="row"] { font-weight: 600; }
+.mt-team { display: inline-flex; align-items: center; gap: 8px; min-width: 0; color: var(--ui-text); text-decoration: none; }
+.mt-team:hover .mt-name, .mt-team:focus-visible .mt-name { text-decoration: underline; }
+.mt-crest { flex: none; width: 28px; height: 28px; object-fit: contain; image-rendering: pixelated; }
+.mt-crest.hm-team-blank { font-size: 14px; }
+.mt-name { overflow-wrap: anywhere; }
+.mt-table .mt-num { text-align: right; white-space: nowrap; }
+.mt-reg { color: var(--ui-muted); overflow-wrap: anywhere; }
+.mt-todo { display: inline-block; min-width: 18px; padding: 0 4px; text-align: center; font: 11px/18px var(--sf-band-font); color: var(--ui-scarlet-contrast); background: var(--ui-scarlet); }
 .hm-team-badge { position: absolute; top: 4px; right: 4px; min-width: 18px; padding: 0 4px; font: 11px/18px var(--sf-band-font); color: var(--ui-scarlet-contrast); background: var(--ui-scarlet); }
 /* Coach page strip (owner 10-30): three rows visible, the rest scroll. Fixed row height so a two-line race name
    ("Necromantic Horror") cannot stretch a row past the cap; the All-teams page (.hm-teams-lg) is not capped. */

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ViteDevServer } from "vite";
@@ -501,6 +502,16 @@ describe("team management + My teams pages (server-rendered)", () => {
     expect(html).toContain('class="hm-grid sf-fill sf-cols"'); // fit to 1920x1080 (owner 11-02)
     expect(html).toContain('<span class="hm-cap">2 teams</span>');
     expect(html).toContain('class="hm-teams hm-teams-lg"');
+    // owner 11-13: a Cards / Table switch (cards first) and a filter box over both views
+    expect(html).toMatch(/<button type="button" class="sf-tab" aria-pressed="true" data-teams-view="cards">Cards<\/button><button type="button" class="sf-tab" aria-pressed="false" data-teams-view="table">Table<\/button>/);
+    expect(html).toContain('data-teams-filter');
+    expect(html).not.toContain("data-teams-table");
+    const view = readFileSync(fileURLToPath(new URL("../spa/src/views/MyTeamsView.vue", import.meta.url)), "utf8");
+    expect(view).toContain(`<div v-else-if="shown.length && view === 'table'" class="mt-table-wrap" data-teams-table>`);
+    expect(view).toContain('<tr v-for="t in shown" :key="t.ref">');
+    expect(view).toContain('<li v-for="t in shown" :key="t.ref">');
+    expect(view).toMatch(/<th scope="col">Team<\/th><th scope="col">Race<\/th><th scope="col" class="mt-num">Team value<\/th><th scope="col">Registered in<\/th>/);
+    expect(view).toContain("words.every((w) => hay.includes(w))");
     expect(html).toContain('<a href="/app/teams/library%3A77" class="hm-team" title="Manage Alice Lib">');
     expect(html).toContain('<a href="/app/teams/sv_a" class="hm-team" title="Manage Alice Save">');
     // owner 10-30: avatar upload moved to the team page; no Avatars panel or per-team upload forms here
