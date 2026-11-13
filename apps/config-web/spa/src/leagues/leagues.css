@@ -672,9 +672,24 @@ button.lg-cog { margin: 0; padding: 0; font: inherit; color: inherit; cursor: po
      can give up height and then scrolls inside itself under its band (down to its band and about two lines); the long ones
      (house rules, organisers, inducements) give it up first, the champions and the season facts only once those are at
      their least. The column itself still scrolls when even that does not fit (a very short window). */
-  .lg-ov > .lg-ov-side > .hm-panel { flex: 0 1 auto; min-height: 88px; overflow-y: auto; overscroll-behavior: contain; }
+  .lg-ov > .lg-ov-side > .hm-panel { flex: 0 1 auto; min-height: 80px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--sf-panel-hi) transparent; }
   .lg-ov > .lg-ov-side > :is(.cf-house-panel, .lg-ov-org, .ind-panel) { flex-shrink: 16; }
+  /* a scrolling house rules panel always shows its band and at least three full rows */
+  .lg-ov > .lg-ov-side > .cf-house-panel { min-height: 136px; }
   .lg-ov > .lg-ov-side > .hm-panel > .hm-band { position: sticky; top: 0; z-index: 2; background: linear-gradient(var(--sf-panel-top), var(--sf-panel-top)), var(--ui-surface); }
+  /* the short panels give up spacing first: a tighter band, gap and bottom padding in this column */
+  .lg-ov > .lg-ov-side { gap: 10px; }
+  .lg-ov > .lg-ov-side > .hm-panel { padding-bottom: 8px; }
+  .lg-ov > .lg-ov-side > .hm-panel > .hm-band { margin-bottom: 6px; padding-top: 5px; padding-bottom: 5px; }
+  .lg-ov > .lg-ov-side .lg-champs { padding-bottom: 0; }
+  /* scroll affordance: a shade at the bottom edge while more of the panel is below (the "local" cover hides it at the end) */
+  .lg-ov > .lg-ov-side > .hm-panel {
+    background:
+      linear-gradient(var(--sf-panel-bottom), var(--sf-panel-bottom)) local bottom / 100% 22px no-repeat,
+      linear-gradient(var(--ui-surface), var(--ui-surface)) local bottom / 100% 22px no-repeat,
+      linear-gradient(transparent, color-mix(in srgb, var(--ui-heading) 28%, transparent)) scroll bottom / 100% 18px no-repeat,
+      linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface);
+  }
   /* the latest results as a table get a wider column (the table keeps its columns at 1920 and 1367) */
   .lg-tab-body > .lg-ov:has(> .lg-ov-results > .lg-ov-table) { grid-template-columns: minmax(400px, 40%) minmax(340px, 1fr) minmax(260px, 340px); }
   /* Fixtures: the nav bar (rounds, filters, view) stays at the top of the tab while the phases scroll under it */
@@ -687,7 +702,7 @@ button.lg-cog { margin: 0; padding: 0; font: inherit; color: inherit; cursor: po
       align-items: start; overflow-y: auto; overscroll-behavior: contain; padding: 2px 6px 8px 2px; margin: -2px -6px 0 -2px; }
     .lg-ov > .lg-ov-main, .lg-ov > .lg-ov-side { min-height: auto; overflow: visible; padding: 0; margin: 0; }
     .lg-ov > .lg-ov-results { position: sticky; top: 0; max-height: calc(100dvh / var(--sf-zoom, 1) - 240px); }
-    .lg-ov > .lg-ov-side > .hm-panel { min-height: auto; overflow: visible; }
+    .lg-ov > .lg-ov-side > .hm-panel, .lg-ov > .lg-ov-side > .cf-house-panel { min-height: auto; overflow: visible; background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface); }
     .lg-ov > .lg-ov-side > .hm-panel > .hm-band { position: static; background: none; }
     .lg-tab-body > .lg-ov:has(> .lg-ov-results > .lg-ov-table) { grid-template-columns: minmax(260px, 42%) minmax(0, 1fr); }
   }
@@ -840,6 +855,9 @@ button.lg-cog { margin: 0; padding: 0; font: inherit; color: inherit; cursor: po
 .lg-list-filter input, .lg-fx-filter input, .lg-stats-filter input, .aw-filter input, .hof-filter input { width: 100%; }
 .lg-fx-filter { flex: 1 1 240px; max-width: 360px; min-width: 0; }
 .lg-stats-filter { display: block; width: 100%; max-width: 420px; }
+/* Standings with several divisions: the filter and phase selector above them (a division without a match hides) */
+.lg-st-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; min-width: 0; }
+.lg-st-bar .lg-list-filter { flex: 1 1 260px; margin-bottom: 0; }
 /* Overview: the latest results as a table, Current Champions as a table */
 .lg-ov-table { container: lg-res / inline-size; overflow-x: auto; }
 .hm-panel > .lg-ov-table > .lg-res-table, .lg-ov-table > .lg-res-table { width: 100%; margin: 0; }

@@ -318,3 +318,134 @@ describe("league lists: source pins", () => {
     }
   });
 });
+
+// ---- fix round 1 (Sol 6.1 review of the league treatment) ----
+describe("fix round 1: filters cover every list, honest counts, no reorder while filtered", () => {
+  let vite: ViteDevServer | undefined;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let m: Record<string, any>;
+  beforeAll(async () => {
+    const { createServer } = await import("vite");
+    vite = await createServer({ configFile: SPA_CONFIG, logLevel: "silent", appType: "custom", server: { middlewareMode: true, hmr: false, ws: false } });
+    const load = (p: string) => vite!.ssrLoadModule(p);
+    const [renderer, vueRouter, app, honours, league, Hall] = await Promise.all([
+      load("vue/server-renderer"), load("vue-router"), load("/src/app.ts"), load("/src/leagues/honours.ts"), load("/src/leagues/league.ts"), load("/src/components/LeagueHallOfFame.vue"),
+    ]);
+    m = { renderer, vueRouter, app, honours, league, Hall: Hall.default };
+  }, 60_000);
+  afterAll(async () => { await vite?.close(); });
+
+  async function hall(props: Record<string, unknown>, view: unknown, coaches: unknown[] = []): Promise<string> {
+    const blank = { render: () => null };
+    const router = m.vueRouter.createRouter({ history: m.vueRouter.createMemoryHistory("/app/"), routes: [{ path: "/:p(.*)*", component: blank }] });
+    await router.push("/leagues/rivertown?tab=honours");
+    await router.isReady();
+    const app = createSSRApp(m.Hall, props);
+    app.use(router);
+    const api = (async () => { throw new Error("no api in this test"); }) as never;
+    app.provide(m.app.API_KEY, api);
+    const h = m.honours.createHonours({ api });
+    h.state.leagueId = "rivertown";
+    h.state.loaded = true;
+    h.state.view = view;
+    app.provide(m.honours.LEAGUE_HONOURS_KEY, h);
+    const stats = m.league.createLeagueStats({ api });
+    stats.state.id = "rivertown";
+    stats.state.byScope.all = { coaches, teams: [], leaders: {}, champions: [] };
+    app.provide(m.league.LEAGUE_STATS_KEY, stats);
+    return ((await m.renderer.renderToString(app)) as string).replace(/<!--[^>]*-->/g, "");
+  }
+  const pin = (id: string, title: string, team: string) => ({ id, kind: "record", note: "", by: "Veers", at: "2026-11-01T00:00:00.000Z", resolved: { title, team, coach: "C", race: "R" } });
+  const PINNED = { revision: 1, awards: [], hallOfFame: [], pins: [pin("a", "Alpha", "Karak Hammers"), pin("h", "Hidden", "Gloom Lords"), pin("n", "Another", "Karak Hammers")] };
+
+  it("pins: Up / Down are not offered while the filter hides pins (a move would swap with a hidden pin); unfiltered they are", async () => {
+    const full = await hall({ manage: true, crests: {} }, PINNED);
+    expect(full.match(/aria-label="Move [^"]+ up"/g)).toHaveLength(3);
+    expect(full.match(/aria-label="Move [^"]+ down"/g)).toHaveLength(3);
+    expect(full).not.toContain("data-pin-reorder-note");
+    const filtered = await hall({ manage: true, crests: {}, query: "karak" }, PINNED);
+    expect(filtered).toContain(">Alpha<");
+    expect(filtered).toContain(">Another<");
+    expect(filtered).not.toContain(">Hidden<");
+    expect(filtered).not.toMatch(/aria-label="Move /);
+    expect(filtered).toContain("Clear the filter to reorder the pins.");
+    expect(filtered.match(/aria-label="Unpin"/g)).toHaveLength(2); // unpinning goes by id and stays
+  });
+
+  const rec = (coach: string, games: number, wins: number) => ({ coach, games, wins, draws: 0, losses: games - wins, winPct: wins / games, points: wins * 3, tdFor: 0, tdAgainst: 0, casFor: 0, casAgainst: 0, seasons: [1], teams: 1, titles: 0 });
+  const COACHES = [rec("Dee", 11, 8), rec("Alice", 11, 7), rec("Nia", 11, 6), rec("Kit", 11, 5), rec("Ivy", 11, 4)];
+  const TITLES = { revision: 1, awards: [], pins: [], hallOfFame: [{ seasonId: "s1", number: 1, name: "Season 1", ruleset: "BB2025", champion: { team: "Karak Hammers", coach: "Carol", race: "Dwarf" }, source: "podium" }] };
+
+  it("Coach view: the filter narrows the best records too (rank kept), counts both lists, and says when nothing matches", async () => {
+    const all = await hall({ manage: false, crests: {}, view: "coach" }, TITLES, COACHES);
+    expect(all.match(/data-hof="coach-record"/g)).toHaveLength(5);
+    const nia = await hall({ manage: false, crests: {}, view: "coach", query: "nia" }, TITLES, COACHES);
+    expect(nia.match(/data-hof="coach-record"/g)).toHaveLength(1);
+    expect(nia).toMatch(/<span class="hof-rank">3<\/span><strong>Nia<\/strong>/);
+    expect(nia).toContain("0 of 1 champion · 1 of 5 best records");
+    const none = await hall({ manage: false, crests: {}, view: "coach", query: "zebra" }, TITLES, COACHES);
+    expect(none).not.toContain('data-hof="coach-record"');
+    expect(none).not.toContain("Best records");
+    expect(none).toContain('<p class="hm-empty" role="status">No coaches match that filter.</p>');
+  });
+
+  it("Standings: with several divisions a division without a match hides while filtering; nothing anywhere = one line", async () => {
+    const { filterStandings } = await import("../spa/src/leagues/standingsView");
+    const row = (team: string, coach: string, race: string, rank: number) => ({ team, coach, race, rank }) as never;
+    const north = { key: "regular:North", title: "Regular · North", rows: [row("Karak Hammers", "Carol", "Dwarf", 1), row("Gloom Lords", "Bea", "Dark Elf", 2)] };
+    const south = { key: "regular:South", title: "Regular · South", rows: [row("Élan Vital", "Émile", "Wood Elf", 1), row("Pie Eaters", "Mo", "Halfling", 2)] };
+    const open = filterStandings([north, south], "");
+    expect(open.tables.map((t) => t.key)).toEqual(["regular:North", "regular:South"]);
+    expect(open).toMatchObject({ multi: true, filtering: false, none: false, count: "4 teams" });
+    const elan = filterStandings([north, south], "elan");
+    expect(elan.tables.map((t) => t.key)).toEqual(["regular:South"]);
+    expect(elan.tables[0]!.shownRows.map((r) => (r as { rank: number }).rank)).toEqual([1]);
+    expect(elan).toMatchObject({ none: false, count: "1 of 4 teams" });
+    const none = filterStandings([north, south], "zebra");
+    expect(none.tables).toEqual([]);
+    expect(none).toMatchObject({ none: true, count: "0 of 4 teams" });
+    // one division always stays: it holds the filter box and shows its own "No teams match" row
+    const single = filterStandings([north], "zebra");
+    expect(single.tables).toHaveLength(1);
+    expect(single.multi).toBe(false);
+    const vue = src("components/LeagueStandings.vue");
+    expect(vue).toContain('<div v-if="multi" class="lg-st-bar" data-standings-bar>');
+    expect(vue).toContain('<p v-if="multi && view.none" class="hm-empty" role="status" data-standings-none>No teams match that filter.</p>');
+    expect(vue).toContain('<ListFilter v-if="!multi && i === 0"');
+  });
+
+  it("every band over a filtered list reads 'N of M' while filtering (Statistics, honour boards, Participants, Fixtures)", () => {
+    const stats = src("views/LeagueStatsView.vue");
+    for (const needle of [
+      'filtering ? of(coaches.length, Math.min(stats.coaches.length, 25), "coach", "coaches")', 'filtering ? of(teams.length, Math.min(stats.teams.length, 20), "team")',
+      'of(races.length, stats.races.length, "race")', 'of(champions.length, stats.champions.length, "champion")', 'of(leaderRows, leaderTotal, "player row")',
+      'of(wins.length, stats.biggestWins.length, "game")', 'of(most.length, stats.mostGames.length, "coach", "coaches")',
+    ]) expect(stats, needle).toContain(needle);
+    expect(src("components/HonourBoards.vue")).toContain('listCount(b.tables.length, b.total, "board")');
+    expect(src("components/LeagueParticipantsList.vue")).toContain("Inactive ({{ filtering ? `${inactiveRows.length} of ${inactiveAll}` : inactiveRows.length }})");
+    const fx = src("components/LeagueFixtures.vue");
+    expect(fx).toContain('<span class="hm-cap">{{ phaseCap(g) }}');
+    expect(fx).toContain('<span class="hm-cap">{{ roundCap(g.phase.id, r) }}</span>');
+  });
+
+  it("honour boards: counts follow the filter", async () => {
+    const Boards = (await vite!.ssrLoadModule("/src/components/HonourBoards.vue")).default;
+    const groups = [{ kind: "team", title: "Teams", tables: [{ key: "td", title: "Touchdowns", rows: Array.from({ length: 7 }, (_, i) => ({ rank: i + 1, name: i === 6 ? "Élan Vital" : `Team ${i}`, team: "", coach: "C", value: 9 - i })) }, { key: "cas", title: "Casualties", rows: [{ rank: 1, name: "Team 0", team: "", coach: "C", value: 3 }] }] }];
+    const render = async (query: string) => {
+      const router = m.vueRouter.createRouter({ history: m.vueRouter.createMemoryHistory("/app/"), routes: [{ path: "/:p(.*)*", component: { render: () => null } }] });
+      await router.push("/"); await router.isReady();
+      const app = createSSRApp(Boards, { groups, value: String, query });
+      app.use(router);
+      return ((await m.renderer.renderToString(app)) as string).replace(/<!--[^>]*-->/g, "");
+    };
+    expect(await render("")).toContain(">2 boards<");
+    expect(await render("elan")).toContain(">1 of 2 boards<");
+  });
+
+  it("the Overview side column keeps three full house-rules rows in view and a token-only scroll shade", () => {
+    const css = src("leagues/leagues.css");
+    expect(css).toContain(".lg-ov > .lg-ov-side > .cf-house-panel { min-height: 136px; }");
+    expect(css).toMatch(/linear-gradient\(transparent, color-mix\(in srgb, var\(--ui-heading\) 28%, transparent\)\) scroll bottom/);
+    expect(css).toMatch(/linear-gradient\(var\(--sf-panel-bottom\), var\(--sf-panel-bottom\)\) local bottom/);
+  });
+});

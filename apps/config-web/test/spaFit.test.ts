@@ -131,11 +131,12 @@ describe("fit to 1920x1080: the pages that opted in", () => {
 describe("fit to 1920x1080: league pages (owner 11-13: \"Panels stay on screen\")", () => {
   const block = fitBlock(src("leagues/leagues.css"));
   it("the Overview side column: every panel band stays in view, long panels give up height first and scroll under a sticky band", () => {
-    expect(block).toMatch(/\.lg-ov > \.lg-ov-side > \.hm-panel \{ flex: 0 1 auto; min-height: 88px; overflow-y: auto;/);
+    expect(block).toMatch(/\.lg-ov > \.lg-ov-side > \.hm-panel \{ flex: 0 1 auto; min-height: 80px; overflow-y: auto;/);
+    expect(block).toContain(".lg-ov > .lg-ov-side > .cf-house-panel { min-height: 136px; }"); // the band and three full rows
     expect(block).toMatch(/\.lg-ov > \.lg-ov-side > :is\(\.cf-house-panel, \.lg-ov-org, \.ind-panel\) \{ flex-shrink: 16; \}/);
     expect(block).toMatch(/\.lg-ov > \.lg-ov-side > \.hm-panel > \.hm-band \{ position: sticky; top: 0;/);
     // the narrow two-column overview (a small desktop) scrolls its right column as one: the panels go back to their height
-    expect(block.slice(block.indexOf("@container lg-ov"))).toMatch(/\.lg-ov > \.lg-ov-side > \.hm-panel \{ min-height: auto; overflow: visible; \}/);
+    expect(block.slice(block.indexOf("@container lg-ov"))).toMatch(/\.lg-ov > \.lg-ov-side > \.hm-panel, \.lg-ov > \.lg-ov-side > \.cf-house-panel \{ min-height: auto; overflow: visible;/);
   });
   it("Fixtures keeps its nav bar at the top of the tab while the phases scroll; the results table keeps its header", () => {
     expect(block).toContain(".lg-tab-body > .lg-stack > .lg-fx-nav { position: sticky; top: 0; z-index: 3; }");
