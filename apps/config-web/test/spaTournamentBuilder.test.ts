@@ -1489,7 +1489,7 @@ describe("tournament builder wiring", () => {
 describe("left accordion five-row window", () => {
   it("rowWindowHeight: the bottom of the 5th row, nothing for five or fewer", async () => {
     const { rowWindowHeight, ROW_WINDOW, CARD_WINDOW } = await import("../spa/src/teams/hireWindow");
-    expect(CARD_WINDOW).toBe(4); // Hireable players and Star Players show four cards (owner 11-12)
+    expect(CARD_WINDOW).toBe(3); // Hireable players and Star Players show three cards (owner 11-13)
     for (const f of ["TournamentBuilderHire.vue", "TournamentBuilderStars.vue"]) expect(readFileSync(new URL(`../spa/src/components/${f}`, import.meta.url), "utf8")).toContain(", CARD_WINDOW);");
     expect(ROW_WINDOW).toBe(5);
     const card = (top: number, h: number) => ({ offsetTop: top, offsetHeight: h });

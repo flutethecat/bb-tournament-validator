@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Tournament Builder, Hireable players (a panel of the Roster pane's left accordion, owner 10-30 / 10-31): the roster's
-// position cards stacked (limits, position groups, the 16-player cap), four cards at a time. Hiring needs a named team: an
+// position cards stacked (limits, position groups, the 16-player cap), three cards at a time. Hiring needs a named team: an
 // unnamed team gets the name gate (message in the save-line box, focus on the team name field). The panel's header bar is
 // the accordion's (TournamentBuilderAccordion.vue).
 import { computed, inject, ref } from "vue";
