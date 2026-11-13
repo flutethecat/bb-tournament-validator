@@ -278,6 +278,19 @@ describe("GET gates + reads", () => {
     expect(bugReportAccessError({ organizer: false, adminAuthed: true })).toBeUndefined();
   });
 
+  it("lists the reporter's OS label (context.os.label) as osLabel: null for old reports and non-string labels, clipped to 120", async () => {
+    const d = dir();
+    const withOs = await submitBugReport({ ...BASE, context: { os: { label: "Windows 11" } } }, undefined, deps(d), Date.UTC(2026, 10, 13, 10));
+    const old = await submitBugReport({ ...BASE, context: { turn: 1 } }, undefined, deps(d), Date.UTC(2026, 10, 13, 11));
+    const bad = await submitBugReport({ ...BASE, context: { os: { label: 42 } } }, undefined, deps(d), Date.UTC(2026, 10, 13, 12));
+    const long = await submitBugReport({ ...BASE, context: { os: { label: "L".repeat(300) } } }, undefined, deps(d), Date.UTC(2026, 10, 13, 13));
+    const byId = new Map(listBugReports(d).map((r) => [r.id, r.osLabel]));
+    expect(byId.get((withOs.body as { id: string }).id)).toBe("Windows 11");
+    expect(byId.get((old.body as { id: string }).id)).toBeNull();
+    expect(byId.get((bad.body as { id: string }).id)).toBeNull();
+    expect(byId.get((long.body as { id: string }).id)).toBe("L".repeat(120));
+  });
+
   it("lists newest-first with truncated descriptions; get returns the full report.json", async () => {
     const d = dir();
     const first = await submitBugReport({ ...BASE, description: "y".repeat(300) }, undefined, deps(d), Date.UTC(2026, 7, 18, 10));

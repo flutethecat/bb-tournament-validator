@@ -343,12 +343,21 @@ function normalizedPlayerUpdate(value: unknown): PlayerUpdate {
   return { reply: text(raw.reply), replyAt: text(raw.replyAt), fixedIn: text(raw.fixedIn), updatedAt: text(raw.updatedAt) };
 }
 
+/** `context.os.label` from a stored report, as short text, else null. */
+export function reportOsLabel(context: unknown): string | null {
+  const os = context && typeof context === "object" ? (context as Record<string, unknown>).os : null;
+  const label = os && typeof os === "object" ? (os as Record<string, unknown>).label : null;
+  return typeof label === "string" && label.trim() ? label.trim().slice(0, 120) : null;
+}
+
 export interface BugReportRow {
   id: string;
   coach: string;
   gameId: string | null;
   gameService: "fumbbl" | "fork" | null;
   clientVersion: string | null;
+  /** The client's `context.os.label` (client 1.0.32x+), e.g. "Windows 11"; null for older reports. */
+  osLabel: string | null;
   description: string;
   submittedAt: string;
   kind: ReportKind;
@@ -413,6 +422,7 @@ export function listBugReports(dir: string): BugReportRow[] {
         gameId: r.gameId ?? null,
         gameService: normalizeGameService(r.gameService), // pre-08-18 reports have no field → null
         clientVersion: r.clientVersion ?? null,
+        osLabel: reportOsLabel((r as { context?: unknown }).context),
         description: (r.description ?? "").slice(0, 200),
         submittedAt: r.submittedAt ?? "",
         kind: r.kind === "feedback" ? "feedback" : "bug",

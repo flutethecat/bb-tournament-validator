@@ -27,6 +27,7 @@ const row = (over: Partial<BugReportRow> = {}): BugReportRow => ({
   gameId: "1940051",
   gameService: "fumbbl",
   clientVersion: "0.3.20-o66iy",
+  osLabel: null,
   description: "Trail numbers survive a touchdown.",
   submittedAt: "2026-09-08T03:00:00.000Z",
   kind: "bug",
@@ -91,7 +92,7 @@ describe("rendering", () => {
     const embed = renderBugReportEmbed(r, "https://superfumbbltest.duckdns.org:4310/").toJSON();
     expect(embed.title).toBe("🐛 Bug report from Flutethecat");
     expect(embed.url).toBe("https://superfumbbltest.duckdns.org:4310/admin.html#reports");
-    expect(embed.fields?.map((f) => f.value)).toEqual(["fumbbl #1940051", "0.3.20-o66iy", "wire log, screenshot", "**New**", "No reply yet."]);
+    expect(embed.fields?.map((f) => f.value)).toEqual(["fumbbl #1940051", "0.3.20-o66iy", "—", "wire log, screenshot", "**New**", "No reply yet."]);
     expect(embed.footer?.text).toContain(r.id);
 
     const rows = renderTriageButtons(r.id, "https://x.test", "new").map((a) => a.toJSON());
@@ -102,6 +103,15 @@ describe("rendering", () => {
     const modal = buildTriageModal("resolved", shortToken(r.id), { ...r.triage, rootCause: "stale dialog" }).toJSON();
     expect(modal.title).toBe("Mark as Resolved");
     expect(modal.custom_id).toBe(`bugtriage-modal:resolved:${shortToken(r.id)}`);
+  });
+});
+
+describe("System (OS) label", () => {
+  it("shows the list row's osLabel, falls back to a detail answer's context.os.label, clips it, and ignores non-strings", () => {
+    const listed = parseBugReportRows({ reports: [{ id: "a", osLabel: "Windows 11" }, { id: "b", context: { os: { label: "macOS 15" } } }, { id: "c", osLabel: 5, context: { os: { label: 7 } } }, { id: "d", osLabel: "x".repeat(300) }] });
+    expect(listed.map((r) => r.osLabel)).toEqual(["Windows 11", "macOS 15", null, "x".repeat(120)]);
+    const fields = renderBugReportEmbed(row({ osLabel: "Windows 11" }), "https://x.test").toJSON().fields!;
+    expect(fields.find((f) => f.name === "System")).toMatchObject({ value: "Windows 11", inline: true });
   });
 });
 

@@ -208,6 +208,16 @@ describe("admin console (server-rendered)", () => {
       for (const c of ["Deleted coach #3", "Stuck", "Retry", "Close", "fork-db"]) expect(jobs).toContain(c);
     });
 
+    it("reports: the System row shows the reporter's OS as escaped text, 'not reported' when absent", async () => {
+      const mk = (extra: Record<string, unknown>) => ({ id: "2026-11-13T10-00-00-000Z_Kildash_nogame", coach: "Kildash", kind: "bug", description: "d", submittedAt: "2026-11-13T10:00:00.000Z", gameId: null, gameService: null, clientVersion: "1.0.321", files: {}, triage: { status: "new" }, playerUpdate: {}, ...extra });
+      const page = async (r: ReturnType<typeof mk>) => (await render(`/admin/reports?report=${encodeURIComponent(r.id)}`, { ...ADMIN, "/api/bug-reports": { reports: [r] }, [`/api/bug-reports/${encodeURIComponent(r.id)}`]: { report: r } })).html;
+      const html = await page(mk({ osLabel: "Windows <i>11</i>", context: { os: { label: "Windows <i>11</i>" } } }));
+      expect(html).toContain("<dt>System</dt>");
+      expect(html).toContain("Windows &lt;i&gt;11&lt;/i&gt;");
+      expect(html).not.toContain("Windows <i>11</i>");
+      expect(await page(mk({}))).toContain("not reported");
+    });
+
     it("reports: the reply and Fixed-in sit in their own 'Visible to the player' block after the private triage; one PATCH carries both (ported from adminReportReply)", async () => {
       const REPORT = {
         id: "2026-11-04T10-00-00-000Z_Kildash_nogame", coach: "fumbbl:Kildash", kind: "bug", description: "Ball vanished after a blitz.", submittedAt: "2026-11-04T10:00:00.000Z",

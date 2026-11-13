@@ -61,6 +61,7 @@ export interface BugReportRow {
   gameId: string | null;
   gameService: "fumbbl" | "fork" | null;
   clientVersion: string | null;
+  osLabel: string | null;
   description: string;
   submittedAt: string;
   kind: "bug" | "feedback";
@@ -77,6 +78,14 @@ export interface BugReportDetail extends BugReportRow {
 const isStatus = (v: unknown): v is TriageStatus => TRIAGE_STATUSES.includes(v as TriageStatus);
 const str = (v: unknown, fallback = ""): string => (typeof v === "string" ? v : fallback);
 const textOrNull = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
+
+/** List rows carry osLabel; a detail answer is report.json (context.os.label). */
+function osLabelOf(r: Record<string, unknown>): string | null {
+  if (typeof r.osLabel === "string" && r.osLabel) return r.osLabel.slice(0, 120);
+  const os = r.context && typeof r.context === "object" ? (r.context as Record<string, unknown>).os : null;
+  const label = os && typeof os === "object" ? (os as Record<string, unknown>).label : null;
+  return typeof label === "string" && label ? label.slice(0, 120) : null;
+}
 
 /** Defensive parse of config-web's `{ reports: [...] }` listing — a malformed row is skipped, never thrown on. */
 export function parseBugReportRows(json: unknown): BugReportRow[] {
@@ -96,6 +105,7 @@ export function parseBugReportRows(json: unknown): BugReportRow[] {
       gameId: typeof r.gameId === "string" ? r.gameId : null,
       gameService: r.gameService === "fumbbl" || r.gameService === "fork" ? r.gameService : null,
       clientVersion: typeof r.clientVersion === "string" ? r.clientVersion : null,
+      osLabel: osLabelOf(r),
       description: str(r.description),
       submittedAt: str(r.submittedAt),
       kind: r.kind === "feedback" ? "feedback" : "bug",
@@ -295,6 +305,7 @@ export function renderBugReportEmbed(r: BugReportDetail, publicUrl: string): Emb
     .addFields(
       { name: "Game", value: game, inline: true },
       { name: "Client", value: r.clientVersion ?? "—", inline: true },
+      { name: "System", value: clip(r.osLabel ?? "—", 1024), inline: true },
       { name: "Attachments", value: attachments.length ? attachments.join(", ") : "none", inline: true },
       { name: "Triage", value: triageSummary(r.triage) },
       { name: "Reply to reporter (shown to the player)", value: playerUpdateSummary(r.playerUpdate) },

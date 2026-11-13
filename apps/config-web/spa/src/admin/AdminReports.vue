@@ -8,7 +8,10 @@ import { useRoute, useRouter } from "vue-router";
 import { API_KEY } from "../app";
 import { REPORT_STATUSES, reportPlayerUpdate, reportTriage, safeArray, triageBody } from "./model";
 
-interface ReportRow { id: string; kind?: string; coach?: string; description?: string; gameService?: string | null; gameId?: string | null; submittedAt?: string; clientVersion?: string | null; triage?: Record<string, unknown>; playerUpdate?: Record<string, unknown>; files?: { screenshot?: boolean; screenshotMimeType?: string } }
+/** The detail answer is report.json (context.os.label); the list row carries osLabel. */
+const osOf = (r: ReportRow): string | null =>
+  r.osLabel ?? (typeof r.context?.os?.label === "string" ? r.context.os.label : null);
+interface ReportRow { id: string; kind?: string; coach?: string; description?: string; gameService?: string | null; gameId?: string | null; submittedAt?: string; clientVersion?: string | null; osLabel?: string | null; context?: { os?: { label?: unknown } } | null; triage?: Record<string, unknown>; playerUpdate?: Record<string, unknown>; files?: { screenshot?: boolean; screenshotMimeType?: string } }
 
 const fetcher = inject(API_KEY)!;
 const route = useRoute();
@@ -94,7 +97,7 @@ const toneOf = (s: string) => (s === "new" ? "urgent" : s === "resolved" || s ==
             <button class="adm-row" type="button" :aria-pressed="selected?.id === r.id ? 'true' : 'false'" @click="open(r.id)">
               <span class="adm-row-head"><strong>{{ r.kind === "feedback" ? "Feedback" : "Bug report" }}</strong><span class="sf-chip" :data-tone="toneOf(reportTriage(r).status)">{{ reportTriage(r).status }}</span></span>
               <span class="adm-row-text">{{ r.description }}</span>
-              <span class="adm-muted">{{ r.coach }} · {{ r.gameService ?? "no service" }}{{ r.gameId ? ` #${r.gameId}` : "" }} · {{ r.submittedAt }}</span>
+              <span class="adm-muted">{{ r.coach }} · {{ r.gameService ?? "no service" }}{{ r.gameId ? ` #${r.gameId}` : "" }}{{ r.osLabel ? ` · ${r.osLabel}` : "" }} · {{ r.submittedAt }}</span>
             </button>
           </li>
         </ul>
@@ -113,6 +116,7 @@ const toneOf = (s: string) => (s === "new" ? "urgent" : s === "resolved" || s ==
         <dl class="adm-kv">
           <dt>Coach</dt><dd>{{ selected.coach }}</dd>
           <dt>Build</dt><dd>{{ selected.clientVersion ?? "unknown" }}</dd>
+          <dt>System</dt><dd>{{ osOf(selected) ?? "not reported" }}</dd>
           <dt>Game</dt><dd>{{ selected.gameService ?? "none" }}{{ selected.gameId ? ` #${selected.gameId}` : "" }}</dd>
           <dt>Submitted</dt><dd>{{ selected.submittedAt }}</dd>
         </dl>
