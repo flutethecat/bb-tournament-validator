@@ -265,7 +265,7 @@
 .tb-roster-foot .tb-key { flex: 1 1 auto; min-width: 0; }
 .tb-player-count { flex: none; margin-left: auto; }
 /* A roster row is a player card (owner 10-31; 11-13: no number column, the card starts at the gripper). Top line: portrait
-   (56 px), name, then at the right end Make Captain / the captain's C, the row number, the cost and the red fire X. Second
+   (56 px), name (with the reroll button and, on the captain's row, the gold C), then at the right end Make Captain, the row number, the cost and the red fire X. Second
    line (beside the portrait): the stat strip with Add Skill / Add Stat at its right end. Then the skills band, from the
    gripper to the right edge. The slim gripper runs the full card height, flush against the left edge. */
 .tb-row {
@@ -307,10 +307,12 @@
 .tb-captain-img { width: 24px; height: 24px; object-fit: contain; pointer-events: none; }
 .tb-captain.broken { border: 2px solid var(--ui-gold); }
 .tb-row > .tb-make-captain { white-space: nowrap; }
-/* both captain controls are small on the card; an invisible pad brings the hit area to about 44 px without moving anything */
+/* both captain controls are small on the card; an invisible pad enlarges the hit area without moving anything. Each pad
+   stops short of the neighbouring controls: the C's left side stays inside its own margin (the reroll button or the name
+   input is 8 px away), and Make Captain's pad stays inside the name plate row. */
 .tb-captain, .tb-make-captain { position: relative; }
-.tb-captain::after { content: ""; position: absolute; inset: -10px; }
-.tb-make-captain::after { content: ""; position: absolute; inset: -12px -4px; }
+.tb-captain::after { content: ""; position: absolute; inset: -8px -10px -8px -3px; }
+.tb-make-captain::after { content: ""; position: absolute; inset: -8px -3px; }
 /* red X badges: fire the player (card corner) and remove an added skill / stat (chip corner) */
 .tb-fire-x, .tb-row-skills .tb-chip-x {
   position: relative; display: grid; place-items: center; min-width: 0; min-height: 0; margin: 0; padding: 0; color: var(--tb-badge-ink); cursor: pointer;
@@ -574,7 +576,8 @@
   /* the cost sits under the fire X so the name gets the width (owner 11-01: player names) */
   .tb-row { grid-template-columns: 14px auto minmax(0, 1fr) auto auto auto; grid-template-areas: "grip sprite who cap num x" "grip sprite who cost cost cost" "grip line2 line2 line2 line2 line2" "grip mk mk mk mk mk" "grip skills skills skills skills skills"; column-gap: 8px; }
   /* Make Captain gets its own line under the stats so the name keeps its width */
-  .tb-row > .tb-make-captain { grid-area: mk; justify-self: start; margin: 4px 0 0 8px; }
+  .tb-row > .tb-make-captain { grid-area: mk; justify-self: start; min-height: 32px; margin: 6px 0 2px 8px; padding: 6px 10px; }
+  .tb-row > .tb-make-captain::after { inset: -4px; } /* the taller button carries the target itself; the pad stays off the stats above and the skills band below */
   .tb-row > .tb-cost { align-self: start; justify-self: end; padding-top: 2px; }
   .tb-row-line2 > .tb-row-stats { flex: 1 1 0; min-width: 200px; max-width: none; }
   .tb-page .sprite-frame.tb-sprite.tb-row-sprite { width: 48px; height: 48px; }

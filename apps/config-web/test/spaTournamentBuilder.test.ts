@@ -814,7 +814,7 @@ describe("tournament builder page (server-rendered)", () => {
     expect(roster).not.toContain('class="tb-fire"');
     expect(roster).toContain('class="tb-fire-x" aria-label="Fire Human Blitzer #1"');
     expect(roster).toContain('aria-label="Fire Grim Ironjaw #2"');
-    // every row number is plain (owner 11-13); the eligible row offers Make Captain in its skills band, the star does not
+    // every row number is plain (owner 11-13); the eligible row offers Make Captain on its name plate, the star does not
     expect(roster).toContain('<span class="tb-num">1</span>');
     expect(roster).toContain('<span class="tb-num">2</span>');
     expect(roster).not.toContain("tb-captain-img");
