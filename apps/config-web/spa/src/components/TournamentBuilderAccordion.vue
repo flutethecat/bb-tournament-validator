@@ -3,8 +3,8 @@
 // players, one open at a time. Hireable players is pinned first and is the open panel by default (on load, and whenever no
 // other panel is open). The panels keep one fixed order (owner 10-31: a panel opens IN PLACE and pushes the bars below it
 // down; nothing re-sorts), DOM order = visual order, so reading and tab order match the screen. Clicking a collapsed bar
-// opens it and collapses the others; clicking an open bar other than Hireable players closes it, which reopens Hireable
-// players. Headers are buttons (aria-expanded / aria-controls; Enter and Space work natively). The open panel lives on the controller (state.leftPanel), so it survives
+// opens it and collapses the others; clicking the open bar collapses it, Hireable players included (owner 11-12), leaving
+// every panel shut. Headers are buttons (aria-expanded / aria-controls; Enter and Space work natively). The open panel lives on the controller (state.leftPanel), so it survives
 // the page's own address moves for the page session. A race with no star access keeps its star bar, titled NO STAR ACCESS,
 // muted and never expandable. Bodies open / close with a ~200 ms height + opacity animation, instant under reduced motion.
 import { computed, inject, nextTick } from "vue";
@@ -24,9 +24,9 @@ const BODY = { hire: TournamentBuilderHire, staff: TournamentBuilderStaff, induc
 
 const noStars = computed(() => !builder.starsAllowed());
 const disabled = (p: LeftPanel): boolean => p === "stars" && noStars.value;
-/** The open panel: Hireable players unless another one is open (a remembered Star players panel falls back to Hireable
- *  players for a race with no star access). */
-const open = computed<LeftPanel>(() => (!state.leftPanel || disabled(state.leftPanel) ? "hire" : state.leftPanel));
+/** The open panel, or null when every panel is collapsed (a remembered Star players panel falls back to Hireable players
+ *  for a race with no star access). */
+const open = computed<LeftPanel | null>(() => (state.leftPanel && disabled(state.leftPanel) ? "hire" : state.leftPanel));
 /** Fixed order; the open panel expands in place (owner 10-31). */
 const ordered = computed(() => [...LEFT_PANELS]);
 
@@ -48,7 +48,7 @@ function cap(p: LeftPanel): string {
 }
 
 async function toggle(p: LeftPanel): Promise<void> {
-  if (disabled(p) || (p === "hire" && open.value === "hire")) return; // Hireable players stays open until another panel opens
+  if (disabled(p)) return;
   state.leftPanel = open.value === p ? null : p;
   // Keep focus on the clicked header after the bodies swap.
   await nextTick();

@@ -1,12 +1,12 @@
 <script setup lang="ts">
 // Tournament Builder, Hireable players (a panel of the Roster pane's left accordion, owner 10-30 / 10-31): the roster's
-// position cards stacked (limits, position groups, the 16-player cap), five cards at a time. Hiring needs a named team: an
+// position cards stacked (limits, position groups, the 16-player cap), four cards at a time. Hiring needs a named team: an
 // unnamed team gets the name gate (message in the save-line box, focus on the team name field). The panel's header bar is
 // the accordion's (TournamentBuilderAccordion.vue).
 import { computed, inject, ref } from "vue";
 import { ELITE_ICON, TOURNAMENT_BUILDER_KEY, TOURNAMENT_BUILDER_UI_KEY } from "../teams/builder";
 import { core, type BuilderPosition } from "../teams/builderCore";
-import { useRowWindow } from "../teams/hireWindow";
+import { CARD_WINDOW, useRowWindow } from "../teams/hireWindow";
 import TournamentBuilderStats from "./TournamentBuilderStats.vue";
 
 const builder = inject(TOURNAMENT_BUILDER_KEY)!;
@@ -16,7 +16,7 @@ const cards = computed(() => builder.positionCards());
 const nonLineman = computed(() => builder.nonLineman());
 const printed = (p: BuilderPosition): string[] => p.skills ?? [];
 const list = ref<HTMLElement | null>(null);
-const { maxHeight } = useRowWindow(list, () => cards.value.map((c) => c.position.positionId));
+const { maxHeight } = useRowWindow(list, () => cards.value.map((c) => c.position.positionId), CARD_WINDOW);
 function add(positionId: string): void {
   if (ui.requireName() && builder.addPosition(positionId)) ui.noteAdded();
 }

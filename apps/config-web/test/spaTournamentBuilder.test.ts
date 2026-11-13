@@ -1212,7 +1212,7 @@ describe("tournament builder page (client behaviour)", () => {
   const bars = (page: { all: () => FakeEl[] }): string[] => page.all().filter((e) => e.tag === "section" && String(e.attrs.class ?? "").includes("tb-acc"))
     .map((e) => `${e.attrs["data-panel"]}${String(e.attrs.class).includes("open") ? "*" : ""}`);
 
-  it("left accordion: a click opens a panel in place (the others collapse, order never changes), focus stays on its header; closing it reopens Hireable players", async () => {
+  it("left accordion: a click opens a panel in place (the others collapse, order never changes), focus stays on its header; a click on the open panel collapses it, Hireable players included", async () => {
     const page = await mount("/tournament-team-builder?package=Test%20Cup&race=human", mockFetcher(routes()));
     try {
       expect(bars(page)).toEqual(["hire*", "staff", "inducements", "stars"]);
@@ -1226,10 +1226,14 @@ describe("tournament builder page (client behaviour)", () => {
       expect(page.all().some((e) => e.attrs.id === "tb-acc-body-inducements")).toBe(true);
       expect(page.all().some((e) => e.attrs.id === "tb-acc-body-hire")).toBe(false);
       expect(fakeDocument.activeElement?.attrs.id).toBe("tb-acc-inducements");
-      await page.fire(btn("inducements"), "click"); // close it: Hireable players opens again
+      await page.fire(btn("inducements"), "click"); // close it: every panel is collapsed (owner 11-12)
+      expect(bars(page)).toEqual(["hire", "staff", "inducements", "stars"]);
+      expect(btn("inducements").attrs["aria-expanded"]).toBe("false");
+      await page.fire(btn("hire"), "click"); // a collapsed Hireable players opens...
       expect(bars(page)).toEqual(["hire*", "staff", "inducements", "stars"]);
-      await page.fire(btn("hire"), "click"); // Hireable players stays open until another panel opens
-      expect(bars(page)).toEqual(["hire*", "staff", "inducements", "stars"]);
+      await page.fire(btn("hire"), "click"); // ...and collapses on a second click
+      expect(bars(page)).toEqual(["hire", "staff", "inducements", "stars"]);
+      expect(page.all().some((e) => e.attrs.id === "tb-acc-body-hire")).toBe(false);
     } finally { page.app.unmount(); }
   });
 
@@ -1484,7 +1488,9 @@ describe("tournament builder wiring", () => {
 
 describe("left accordion five-row window", () => {
   it("rowWindowHeight: the bottom of the 5th row, nothing for five or fewer", async () => {
-    const { rowWindowHeight, ROW_WINDOW } = await import("../spa/src/teams/hireWindow");
+    const { rowWindowHeight, ROW_WINDOW, CARD_WINDOW } = await import("../spa/src/teams/hireWindow");
+    expect(CARD_WINDOW).toBe(4); // Hireable players and Star Players show four cards (owner 11-12)
+    for (const f of ["TournamentBuilderHire.vue", "TournamentBuilderStars.vue"]) expect(readFileSync(new URL(`../spa/src/components/${f}`, import.meta.url), "utf8")).toContain(", CARD_WINDOW);");
     expect(ROW_WINDOW).toBe(5);
     const card = (top: number, h: number) => ({ offsetTop: top, offsetHeight: h });
     expect(rowWindowHeight([card(0, 100), card(110, 100), card(220, 100), card(330, 100), card(440, 100)])).toBeUndefined();

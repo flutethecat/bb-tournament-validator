@@ -4,6 +4,8 @@
 import { nextTick, onBeforeUnmount, onMounted, ref, watch, type Ref, type WatchSource } from "vue";
 
 export const ROW_WINDOW = 5;
+/** Card lists (Hireable players, Star Players) show four cards at a time (owner 11-12); the short stepper rows keep five. */
+export const CARD_WINDOW = 4;
 
 /** Height of the first `n` rows (top of the first to bottom of the nth), or undefined when there are `n` or fewer. */
 export function rowWindowHeight(kids: ArrayLike<{ offsetTop: number; offsetHeight: number }>, n = ROW_WINDOW): number | undefined {

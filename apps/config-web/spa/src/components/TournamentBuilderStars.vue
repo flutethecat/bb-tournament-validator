@@ -5,7 +5,7 @@
 // A race with no star access never opens this panel: its header bar reads NO STAR ACCESS (TournamentBuilderAccordion.vue).
 import { computed, inject, ref } from "vue";
 import { TOURNAMENT_BUILDER_KEY, TOURNAMENT_BUILDER_UI_KEY } from "../teams/builder";
-import { useRowWindow } from "../teams/hireWindow";
+import { CARD_WINDOW, useRowWindow } from "../teams/hireWindow";
 import CustomStarSpecialRules from "./CustomStarSpecialRules.vue";
 
 const builder = inject(TOURNAMENT_BUILDER_KEY)!;
@@ -13,7 +13,7 @@ const ui = inject(TOURNAMENT_BUILDER_UI_KEY)!;
 const stars = computed(() => (builder.starsAllowed() ? builder.starChoices().map((c) => builder.starRow(c)) : []));
 const spTable = computed(() => builder.starSpTable());
 const list = ref<HTMLElement | null>(null);
-const { maxHeight } = useRowWindow(list, () => stars.value.map((r) => r.choice.key));
+const { maxHeight } = useRowWindow(list, () => stars.value.map((r) => r.choice.key), CARD_WINDOW);
 function addStar(key: string): void {
   if (ui.requireName() && builder.addStar(key)) ui.noteAdded();
 }
