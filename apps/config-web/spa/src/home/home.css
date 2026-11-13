@@ -225,7 +225,7 @@ body { zoom: var(--sf-zoom); }
 /* Sidebar action buttons (owner 10-31): bevelled gold-ink buttons under a category's rows, like the landing's Browse
    buttons. Full width of the category body, stacked. */
 .sf-actions { display: grid; gap: 6px; padding: 6px 10px 4px; }
-.sf-nav-btn { display: flex; align-items: center; justify-content: center; min-height: 34px; padding: 6px 10px; font: 12px/1.1 var(--sf-band-font); letter-spacing: .08em; text-transform: uppercase; color: var(--sf-gold); text-decoration: none; background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface); border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: 0 2px 0 var(--sf-panel-drop), inset 0 1px 0 var(--sf-panel-hi); }
+.sf-nav-btn { display: flex; align-items: center; justify-content: center; min-height: 34px; padding: 6px 4px; font: 12px/1.1 var(--sf-band-font); letter-spacing: .05em; white-space: nowrap; text-transform: uppercase; color: var(--sf-gold); text-decoration: none; background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface); border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: 0 2px 0 var(--sf-panel-drop), inset 0 1px 0 var(--sf-panel-hi); }
 .sf-nav-btn:hover { filter: brightness(1.15); border-color: var(--sf-gold); }
 .sf-nav-btn:active { transform: translateY(1px); box-shadow: 0 1px 0 var(--sf-panel-drop), inset 0 1px 0 var(--sf-panel-hi); }
 .sf-nav-btn:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
