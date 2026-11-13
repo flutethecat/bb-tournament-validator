@@ -18,6 +18,7 @@ import CaptainVacantChip from "../components/CaptainVacantChip.vue";
 import CaptainVacantDialog from "../components/CaptainVacantDialog.vue";
 import { libraryCaptainRows } from "../shared/captain";
 import { builderHref, canAdvance, createTeamManage, progressLine, shareUrl, TEAM_MANAGE_KEY, teamManagePath, type ManagedPlayer } from "../teams/manage";
+import { copyText } from "../shell/copyText";
 
 interface TeamViewCore { viewHtml: (team: unknown, opts?: Record<string, unknown>) => string }
 const TeamView = (globalThis as unknown as { TeamView?: TeamViewCore }).TeamView;
@@ -127,7 +128,7 @@ function onSheetClick(e: MouseEvent): void {
 const origin = computed(() => (typeof window !== "undefined" ? window.location.origin : ""));
 const link = computed(() => (info.value?.shareToken ? shareUrl(origin.value, info.value.shareToken) : ""));
 async function copy(): Promise<void> {
-  try { await navigator.clipboard?.writeText(link.value); } catch { /* the field stays selectable */ }
+  try { await copyText(link.value); } catch { /* the field stays selectable */ }
 }
 const kTv = (n: number) => `${n.toLocaleString("en-US")}k`;
 const gold = (n: number) => `${Math.round(n / 1000).toLocaleString("en-US")}k`;

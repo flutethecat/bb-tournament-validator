@@ -10,6 +10,7 @@ import { usePageTitle } from "../shell/pageTitle";
 import { goldCell, goldText, ruleKind, sanitizeSummary, summaryPdfDoc, summaryPdfName, teamColumns, type RulesetSummaryView } from "../tournaments/rulesetSummary";
 import "../../../public/sheet-pdf.js";
 import "../tournaments/summary.css";
+import { copyText } from "../shell/copyText";
 
 const api = inject(API_KEY)!;
 const route = useRoute();
@@ -45,7 +46,7 @@ const cols = computed(() => (view.value ? teamColumns(view.value) : []));
 const shareUrl = computed(() => (typeof window === "undefined" ? "" : window.location.href));
 const copied = ref(false);
 async function copyLink(): Promise<void> {
-  try { await navigator.clipboard.writeText(shareUrl.value); copied.value = true; setTimeout(() => (copied.value = false), 2000); } catch { copied.value = false; }
+  try { await copyText(shareUrl.value); copied.value = true; setTimeout(() => (copied.value = false), 2000); } catch { copied.value = false; }
 }
 
 interface SheetPdfGlobal { loadPdfMake(): Promise<{ createPdf(doc: unknown): { getBlob(): Promise<Blob> } }> }

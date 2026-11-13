@@ -11,6 +11,7 @@ import { ApiError } from "../shared/api";
 import { usePageTitle } from "../shell/pageTitle";
 import { countdownText, gateWhen } from "../leagues/gates";
 import "../leagues/gates.css";
+import { copyText } from "../shell/copyText";
 
 interface RollRow { key: string; at: string; teamId: string; team: string; race: string; player: string; position: string; roll: number; target: number; recovered: boolean; source: "site" | "entered" }
 interface RollsView {
@@ -79,7 +80,7 @@ async function linkAction(action: "create" | "revoke"): Promise<void> {
   } finally { busy.value = false; }
 }
 async function copy(): Promise<void> {
-  try { await navigator.clipboard.writeText(shareUrl.value); copied.value = true; } catch { copied.value = false; }
+  try { await copyText(shareUrl.value); copied.value = true; } catch { copied.value = false; }
 }
 usePageTitle(() => (data.value ? `${data.value.leagueName}: Redraft rolls` : "Redraft rolls"));
 </script>

@@ -34,6 +34,7 @@ import { cleanPlayerName, PLAYER_NAME_MAX, randomPlayerName } from "../../../src
 import { LEAGUE_FORK_NOTE, parseLeaguePackageName, type LeagueBuilderRef } from "../../../src/leagueBuilderMarker";
 import { leagueRaceRows, sanitizeLeagueContext, type LeagueContext } from "./builderLeague";
 import { customStarPosition, sanitizeCustomStars, type CustomStarDoc, type CustomStarRuleDoc } from "../tournaments/customStars";
+import { copyText } from "../shell/copyText";
 
 const isCustomStarId = (id: string): boolean => id.startsWith("cs-");
 export { PLAYER_NAME_MAX };
@@ -1922,7 +1923,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
   async function copy(text: string): Promise<boolean> {
     try {
       if (deps.clipboard) await deps.clipboard(text);
-      else await navigator.clipboard.writeText(text);
+      else await copyText(text);
       return true;
     } catch { return false; }
   }
