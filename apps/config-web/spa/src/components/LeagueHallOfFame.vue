@@ -65,9 +65,11 @@ const titles = computed(() => filterList(allTitles.value, props.query, (c) => [c
 // The Statistics "Best coach record" ranking (win %, at least half the busiest coach's games), top five.
 const bestRanking = computed(() => rankCoachRecords(all.value?.coaches ?? []));
 const bestCoaches = computed(() => bestRanking.value.ranked.slice(0, 5));
+// The filter covers every list in the panel: the best records keep their rank.
+const bestShown = computed(() => { const words = queryWords(props.query); return bestCoaches.value.map((c, i) => ({ c, rank: i + 1 })).filter((x) => matchesWords(words, [x.c.coach])); });
 const filtering = computed(() => Boolean(props.query.trim()));
 const count = computed(() => (props.view === "team" ? listCount(cards.value.length, allCards.value.length, "season")
-  : props.view === "coach" ? listCount(titles.value.length, allTitles.value.length, "champion") : listCount(leaderRows.value.length, allLeaders.value.reduce((n, b) => n + 1 + b.rest.length, 0), "record")));
+  : props.view === "coach" ? [listCount(titles.value.length, allTitles.value.length, "champion"), ...(filtering.value && bestCoaches.value.length ? [listCount(bestShown.value.length, bestCoaches.value.length, "best record")] : [])].join(" · ") : listCount(leaderRows.value.length, allLeaders.value.reduce((n, b) => n + 1 + b.rest.length, 0), "record")));
 const cap = computed(() => (props.view === "player" && !filtering.value ? "All time" : count.value));
 </script>
 
@@ -92,6 +94,7 @@ const cap = computed(() => (props.view === "player" && !filtering.value ? "All t
     <p v-else-if="!state.view" class="hm-empty" role="status">Loading the Hall of Fame...</p>
     <template v-if="pins.length">
       <h3 class="hof-sub">Pinned</h3>
+      <p v-if="manage && filtering" class="hm-small hof-pin-note" data-pin-reorder-note>Clear the filter to reorder the pins.</p>
       <ol class="aw-list hof-pins" aria-label="Pinned entries">
         <li v-for="(p, i) in pins" :key="p.id" class="aw-item" :data-pin="p.kind">
           <img class="aw-icon" :src="pinIcon(p)" alt="" width="32" height="32" loading="lazy" />
@@ -102,8 +105,11 @@ const cap = computed(() => (props.view === "player" && !filtering.value ? "All t
             <p v-if="p.note" class="aw-note">{{ p.note }}</p>
           </div>
           <div v-if="manage" class="aw-actions">
-            <button type="button" class="sf-btn small" :disabled="Boolean(state.busy) || i === 0" :aria-label="`Move ${pinTitle(p)} up`" @click="honours.move(p.id, -1)">Up</button>
-            <button type="button" class="sf-btn small" :disabled="Boolean(state.busy) || i === pins.length - 1" :aria-label="`Move ${pinTitle(p)} down`" @click="honours.move(p.id, 1)">Down</button>
+            <!-- reordering needs the whole list: Up / Down are not offered while the filter hides pins -->
+            <template v-if="!filtering">
+              <button type="button" class="sf-btn small" :disabled="Boolean(state.busy) || i === 0" :aria-label="`Move ${pinTitle(p)} up`" @click="honours.move(p.id, -1)">Up</button>
+              <button type="button" class="sf-btn small" :disabled="Boolean(state.busy) || i === pins.length - 1" :aria-label="`Move ${pinTitle(p)} down`" @click="honours.move(p.id, 1)">Down</button>
+            </template>
             <button type="button" class="hof-pin" data-pinned="true" aria-label="Unpin" :title="`Unpin ${pinTitle(p)}`" :disabled="Boolean(state.busy)" @click="honours.unpin(p.id)">
               <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true" shape-rendering="crispEdges"><path class="hof-pin-ink" d="M5 1h6v2h-1v4l2 2v2H9v4H7v-4H4V9l2-2V3H5z" /></svg>
             </button>
@@ -176,8 +182,8 @@ const cap = computed(() => (props.view === "player" && !filtering.value ? "All t
 
     <!-- Coach: titles and the best records -->
     <template v-else-if="view === 'coach'">
-      <p v-if="state.view && !titles.length && filtering && allTitles.length" class="hm-empty" role="status">No champions match that filter.</p>
-      <p v-else-if="state.view && !titles.length && !bestCoaches.length" class="hm-empty">No coach honours yet.</p>
+      <p v-if="state.view && filtering && !titles.length && !bestShown.length && (allTitles.length || bestCoaches.length)" class="hm-empty" role="status">No coaches match that filter.</p>
+      <p v-else-if="state.view && !allTitles.length && !bestCoaches.length" class="hm-empty">No coach honours yet.</p>
       <div v-else-if="layout === 'table' && titles.length" class="hof-table-wrap" data-hof-table="coach">
         <table class="sf-table lg-table hof-table" aria-label="Coach titles">
           <thead><tr><th scope="col">Coach</th><th scope="col" class="lg-num">Titles</th><th scope="col">Seasons</th><th scope="col">Champion with</th><th scope="col" class="lg-num">Runner-up</th></tr></thead>
@@ -198,11 +204,11 @@ const cap = computed(() => (props.view === "player" && !filtering.value ? "All t
           </ul>
         </li>
       </ul>
-      <template v-if="bestCoaches.length">
+      <template v-if="bestShown.length">
         <h3 class="hof-sub">Best records <span class="hof-sub-note">(win %, min. {{ bestRanking.min }} {{ bestRanking.min === 1 ? "game" : "games" }})</span></h3>
         <ol class="hof-records" aria-label="Best coach records">
-          <li v-for="(c, i) in bestCoaches" :key="c.coach" data-hof="coach-record">
-            <span class="hof-rank">{{ i + 1 }}</span><strong>{{ c.coach }}</strong>
+          <li v-for="{ c, rank } in bestShown" :key="c.coach" data-hof="coach-record">
+            <span class="hof-rank">{{ rank }}</span><strong>{{ c.coach }}</strong>
             <span class="hof-rec">{{ pct(c.winPct) }} · {{ c.wins }}-{{ c.draws }}-{{ c.losses }} · {{ c.games }} games</span>
           </li>
         </ol>

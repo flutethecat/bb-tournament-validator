@@ -156,5 +156,6 @@
 .aw-filter, .hof-filter { flex: 1 1 220px; max-width: 360px; }
 .hof-table-wrap { position: relative; overflow-x: auto; min-width: 0; } /* not .lg-scroll: a lone Hall of Fame panel must not stretch its table to fill the tab */
 .hof-table { font-size: 15px; }
+.hof-pin-note { margin: 0 0 6px; color: var(--ui-muted); }
 .hof-table .lg-team-cell { min-width: 140px; }
 .hof-table th[scope="row"] { font-weight: 600; white-space: nowrap; }
