@@ -52,8 +52,8 @@ const role = (s: Slot): string => (position(s)?.isStar ? "Star player: no added 
 
 // ── Team Captain (owner 11-13, replacing the 10-31 number-badge toggle): the name plate's right end reads [captain] [number]
 // [cost] [fire]. While no captain is set every eligible row offers a "Make Captain" button left of its number. Once one is
-// chosen the buttons go and the painted gold C takes that spot on the captain's row; clicking the C removes the captaincy
-// so another player can be chosen. Ineligible rows and stars never show either. A gold ring with a "C" stands in if the
+// chosen the buttons go and the painted gold C sits on the captain's name line, after the reroll button; clicking the C
+// removes the captaincy so another player can be chosen. Ineligible rows and stars never show either. A gold ring with a "C" stands in if the
 // image fails to load. ──
 const CAPTAIN_ON_HINT = "Team captain. Remove to choose another player.";
 const CAPTAIN_OFF_HINT = "Make this player the team captain (gains Pro for free)";
@@ -75,6 +75,13 @@ const veteranOn = (i: number): boolean => veteranAt.value === i;
 const ui = inject(TOURNAMENT_BUILDER_UI_KEY, null);
 const rowEls = new Map<number, HTMLElement>();
 function setRowEl(i: number, el: unknown): void { if (el) rowEls.set(i, el as HTMLElement); else rowEls.delete(i); }
+/** Make Captain and the captain's C are different buttons, so the click's element is replaced: keep keyboard focus on
+ *  the control that took its place on that row (the C after choosing, Make Captain after clearing). */
+async function toggleCaptainAt(i: number): Promise<void> {
+  builder.toggleCaptain(i);
+  await nextTick();
+  (rowEls.get(i)?.querySelector?.(".tb-captain, .tb-make-captain") as HTMLElement | null | undefined)?.focus?.();
+}
 const flash = ref<number | null>(null);
 let flashTimer: ReturnType<typeof setTimeout> | null = null;
 watch(() => ui?.added, async (n, was) => {
@@ -266,20 +273,20 @@ function onGripKey(e: KeyboardEvent, index: number): void {
             <button v-else type="button" class="tb-pname" :data-name="i" :title="`Rename ${s.name || 'player'}`"
               :aria-label="`${s.name || 'Unnamed player'}, #${i + 1} ${builder.shortName(position(s))}. Press Enter to rename.`" @click="startEdit(i)" @keydown="onNameButtonKey($event, i)">{{ s.name || builder.shortName(position(s)) }}</button>
             <button v-if="!position(s)?.isStar && editing !== i" type="button" class="tb-reroll" :aria-label="`Reroll name for #${i + 1}`" title="Reroll name" @click="reroll(i)"><span aria-hidden="true">↻</span></button>
+            <!-- the captain's gold C sits on the name line, after the reroll button (owner 11-13); it removes the captaincy -->
+            <button v-if="captainOn(s)" type="button" class="tb-captain" :class="{ broken: captainIconBroken }"
+              aria-pressed="true" :title="CAPTAIN_ON_HINT" :aria-description="CAPTAIN_ON_HINT"
+              :aria-label="`Team captain: ${position(s)?.name ?? 'player'}, player ${i + 1}`" @click="toggleCaptainAt(i)"
+            ><img v-if="!captainIconBroken" class="tb-captain-img" :src="CAPTAIN_ICON(32)" :srcset="`${CAPTAIN_ICON(32)} 1x, ${CAPTAIN_ICON(64)} 2x`"
+              width="24" height="24" alt="" @error="captainIconBroken = true" /><span v-else aria-hidden="true">C</span></button>
           </span>
           <small class="tb-psub" :title="position(s)?.name">{{ position(s)?.isStar ? role(s) : builder.shortName(position(s)) || "Unknown position" }}</small>
         </span>
-        <!-- the name plate's right end (owner 11-13): Make Captain (or the captain's gold C, which removes it), the row
-             number, the cost, the fire X -->
+        <!-- the name plate's right end (owner 11-13): Make Captain, the row number, the cost, the fire X -->
         <button v-if="showMakeCaptain(s)" type="button" class="tb-vet tb-make-captain tb-row-cap" :title="CAPTAIN_OFF_HINT"
-          :aria-label="`Make team captain: ${position(s)?.name ?? 'player'}, player ${i + 1}`" @click="builder.toggleCaptain(i)"
+          :aria-label="`Make team captain: ${position(s)?.name ?? 'player'}, player ${i + 1}`" @click="toggleCaptainAt(i)"
         >Make Captain</button>
-        <button v-else-if="captainOn(s)" type="button" class="tb-captain tb-row-cap" :class="{ broken: captainIconBroken }"
-          aria-pressed="true" :title="CAPTAIN_ON_HINT" :aria-description="CAPTAIN_ON_HINT"
-          :aria-label="`Team captain: ${position(s)?.name ?? 'player'}, player ${i + 1}`" @click="builder.toggleCaptain(i)"
-        ><img v-if="!captainIconBroken" class="tb-captain-img" :src="CAPTAIN_ICON(32)" :srcset="`${CAPTAIN_ICON(32)} 1x, ${CAPTAIN_ICON(64)} 2x`"
-          width="28" height="28" alt="" @error="captainIconBroken = true" /><span v-else aria-hidden="true">C</span></button>
-        <span class="tb-num" :aria-label="`Player ${i + 1}`">{{ i + 1 }}</span>
+        <span class="tb-num">{{ i + 1 }}</span>
         <span class="tb-cost">{{ core.gold(position(s)?.cost) }}</span>
         <button type="button" class="tb-fire-x" :aria-label="`Fire ${position(s)?.name ?? 'player'} #${i + 1}`" title="Fire" @click="builder.removeSlot(i)"><span aria-hidden="true">×</span></button>
         <span class="tb-row-line2">

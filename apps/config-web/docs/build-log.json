@@ -2,7 +2,7 @@
   {
     "date": "2026-11-13",
     "title": "Roster Builder: Make Captain button, wider cards and page",
-    "body": "Choosing a Team Captain is now a Make Captain button on each eligible player card. Once chosen, the gold C sits beside that player's number; click it to pick someone else. The player number moved up beside the cost, so each card starts at the left edge, and on very wide screens the Roster tab now uses the whole width.",
+    "body": "Choosing a Team Captain is now a Make Captain button on each eligible player card. Once chosen, the gold C sits beside that player's name; click it to pick someone else. The player number moved up beside the cost, so each card starts at the left edge, and on very wide screens the Roster tab now uses the whole width.",
     "links": [
       {
         "label": "Roster Builder",

@@ -815,12 +815,12 @@ describe("tournament builder page (server-rendered)", () => {
     expect(roster).toContain('class="tb-fire-x" aria-label="Fire Human Blitzer #1"');
     expect(roster).toContain('aria-label="Fire Grim Ironjaw #2"');
     // every row number is plain (owner 11-13); the eligible row offers Make Captain in its skills band, the star does not
-    expect(roster).toContain('<span class="tb-num" aria-label="Player 1">1</span>');
-    expect(roster).toContain('<span class="tb-num" aria-label="Player 2">2</span>');
+    expect(roster).toContain('<span class="tb-num">1</span>');
+    expect(roster).toContain('<span class="tb-num">2</span>');
     expect(roster).not.toContain("tb-captain-img");
     expect(roster.match(/class="tb-vet tb-make-captain tb-row-cap"/g)).toHaveLength(1);
     // the name plate's right end: Make Captain, the number, the cost, the fire X (owner 11-13)
-    expect(roster).toMatch(/class="tb-vet tb-make-captain tb-row-cap"[^>]*aria-label="Make team captain: Human Blitzer, player 1"[^>]*>Make Captain<\/button><span class="tb-num" aria-label="Player 1">1<\/span><span class="tb-cost">/);
+    expect(roster).toMatch(/class="tb-vet tb-make-captain tb-row-cap"[^>]*aria-label="Make team captain: Human Blitzer, player 1"[^>]*>Make Captain<\/button><span class="tb-num">1<\/span><span class="tb-cost">/);
     expect(roster).not.toContain("Roster player"); // no subtitle except the star line
     expect(roster).toContain('class="sprite-frame tb-sprite tb-row-sprite"'); // the bigger portrait
     expect(roster.match(/class="row-skills tb-row-skills"/g)).toHaveLength(2); // the skills band on every row
@@ -952,7 +952,7 @@ describe("tournament builder page (server-rendered)", () => {
     expect(html).not.toContain(">Star Players<");
   });
 
-  it("captain: Make Captain buttons while none is set, then the painted gold C left of the captain's number (owner 11-13); added skills wear the gold border and the red X badge, printed skills neither", async () => {
+  it("captain: Make Captain buttons while none is set, then the painted gold C after the captain's reroll button (owner 11-13); added skills wear the gold border and the red X badge, printed skills neither", async () => {
     const f = mockFetcher(routes());
     const none = await render("/tournament-team-builder?tab=roster", f, (b) => { b.setTeamName("Reavers"); b.addPosition("hbli"); b.addPosition("hlin"); });
     const rows0 = between(none, "tb-roster-h", "tb-team-name");
@@ -960,18 +960,19 @@ describe("tournament builder page (server-rendered)", () => {
     expect(rows0).toContain('title="Make this player the team captain (gains Pro for free)"');
     expect(rows0).not.toContain('class="tb-captain'); // no C until one is chosen
     expect(rows0).not.toContain("team-captain-grey"); // the grey badge behind the number is gone
-    expect(rows0).toContain('<span class="tb-num" aria-label="Player 1">1</span>');
-    expect(rows0).toContain('<span class="tb-num" aria-label="Player 2">2</span>');
+    expect(rows0).toContain('<span class="tb-num">1</span>');
+    expect(rows0).toContain('<span class="tb-num">2</span>');
     const set = await render("/tournament-team-builder?tab=roster", f, async (b) => {
       b.setTeamName("Reavers"); b.addPosition("hbli"); b.addPosition("hlin"); b.toggleCaptain(1);
       await b.openSkills(0); b.addSkill(0, "Tackle");
     });
     const rows = between(set, "tb-roster-h", "tb-team-name");
     expect(rows).not.toContain("tb-make-captain"); // the buttons go once a captain is chosen
-    expect(rows.match(/class="tb-captain tb-row-cap"/g)).toHaveLength(1);
-    expect(rows).toMatch(/<button type="button" class="tb-captain tb-row-cap" aria-pressed="true"[^>]*><img class="tb-captain-img"[^>]*><\/button><span class="tb-num" aria-label="Player 2">2<\/span>/); // the C left of the captain's number
-    expect(rows).toContain('<span class="tb-num" aria-label="Player 1">1</span>');
-    expect(rows).toContain('src="/icons/builder/team-captain-gold-32.png" srcset="/icons/builder/team-captain-gold-32.png 1x, /icons/builder/team-captain-gold-64.png 2x" width="28" height="28" alt=""');
+    expect(rows.match(/class="tb-captain"/g)).toHaveLength(1);
+    expect(rows).toMatch(/class="tb-reroll" aria-label="Reroll name for #2"[^>]*><span aria-hidden="true">↻<\/span><\/button>(<!--[^>]*-->)*<button type="button" class="tb-captain" aria-pressed="true"[^>]*><img class="tb-captain-img"[^>]*><\/button>/); // the C on the captain's name line, after the reroll button
+    expect(rows).toContain('<span class="tb-num">2</span>');
+    expect(rows).toContain('<span class="tb-num">1</span>');
+    expect(rows).toContain('src="/icons/builder/team-captain-gold-32.png" srcset="/icons/builder/team-captain-gold-32.png 1x, /icons/builder/team-captain-gold-64.png 2x" width="24" height="24" alt=""');
     expect(rows).toContain('aria-pressed="true" title="Team captain. Remove to choose another player." aria-description="Team captain. Remove to choose another player."');
     expect(rows).not.toContain("tb-captain-slot");
     expect(rows).not.toMatch(/<small>Team Captain<\/small>/); // no captain subtitle either
@@ -1607,7 +1608,7 @@ describe("roster scroller, reveal and drag edge (owner 10-31)", () => {
     expect(css).toMatch(/\.tb-added\.access-primary \{ box-shadow: inset 0 -3px 0 var\(--ui-heading\); \}/);
     expect(css).toMatch(/\.tb-added\.access-secondary \{ box-shadow: inset 0 -3px 0 var\(--tb-secondary-bar\); \}/);
     expect(css).toMatch(/\.tb-page \.row-skills \.tb-bought \{[^}]*border: 2px solid var\(--ui-gold\)/);
-    expect(css).toMatch(/\.tb-captain-img \{ width: 28px; height: 28px;/);
+    expect(css).toMatch(/\.tb-captain-img \{ width: 24px; height: 24px;/);
     expect(css).toMatch(/\.tb-row \{\s*position: relative; display: grid; grid-template-columns: 14px auto minmax\(0, 1fr\) auto auto auto auto;\s*grid-template-areas: "grip sprite who cap num cost x"/); // no number column: the card starts at the gripper (owner 11-13)
     expect(css).not.toMatch(/\.tb-captain-img \{[^}]*pixelated/); // painted art: normal smoothing
   });

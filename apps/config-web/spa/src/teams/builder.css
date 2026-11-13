@@ -299,14 +299,18 @@
 .tb-grip:hover { color: var(--ui-text); background: color-mix(in srgb, var(--ui-surface) 80%, transparent); }
 .tb-grip i { width: 8px; height: 16px; background: radial-gradient(circle, currentColor 1.5px, transparent 2px) 0 0 / 4px 5px; }
 .tb-grip:focus-visible, .tb-captain:focus-visible, .tb-fire-x:focus-visible, .tb-stepper button:focus-visible, .tb-chip:focus-visible, .tb-blade:focus-visible, .tb-chip-x:focus-visible, .tb-acc-btn:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
-/* Team Captain (owner 11-13): the painted gold C left of the captain's row number, in the Make Captain button's place (28
-   CSS px, normal smoothing, no box behind it); it is the button that removes the captaincy. A gold ring with a "C" if the
-   image fails. The Make Captain button is a .tb-vet. */
-.tb-captain { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; color: var(--ui-gold); font: 13px/1 var(--sf-band-font); background: none; border: 0; border-radius: 50%; cursor: pointer; }
+/* Team Captain (owner 11-13): the painted gold C on the captain's name line, after the reroll button (24 CSS px, normal
+   smoothing, no box behind it); it is the button that removes the captaincy. A gold ring with a "C" if the image fails.
+   The Make Captain button is a .tb-vet on the name plate, left of the row number. */
+.tb-captain { flex: none; display: inline-grid; place-items: center; width: 24px; height: 24px; margin-left: 4px; padding: 0; vertical-align: middle; color: var(--ui-gold); font: 13px/1 var(--sf-band-font); background: none; border: 0; border-radius: 50%; cursor: pointer; }
 .tb-captain:hover .tb-captain-img { filter: brightness(1.12); }
-.tb-captain-img { width: 28px; height: 28px; object-fit: contain; pointer-events: none; }
+.tb-captain-img { width: 24px; height: 24px; object-fit: contain; pointer-events: none; }
 .tb-captain.broken { border: 2px solid var(--ui-gold); }
 .tb-row > .tb-make-captain { white-space: nowrap; }
+/* both captain controls are small on the card; an invisible pad brings the hit area to about 44 px without moving anything */
+.tb-captain, .tb-make-captain { position: relative; }
+.tb-captain::after { content: ""; position: absolute; inset: -10px; }
+.tb-make-captain::after { content: ""; position: absolute; inset: -12px -4px; }
 /* red X badges: fire the player (card corner) and remove an added skill / stat (chip corner) */
 .tb-fire-x, .tb-row-skills .tb-chip-x {
   position: relative; display: grid; place-items: center; min-width: 0; min-height: 0; margin: 0; padding: 0; color: var(--tb-badge-ink); cursor: pointer;
@@ -555,9 +559,9 @@
   .tb-row > .tb-row-skills { min-height: 24px; padding: 1px 8px; margin-top: 3px; }
   .tb-row .tb-advance { --tb-adv-size: 39px; } /* the compact tiles: 22 px value + 17 px */
 }
-/* wide roster (660 px of panel and up, e.g. 1920): one line per player (name, captain, stats, Add Skill, cost, fire X) with
+/* wide roster (760 px of panel and up; 660 before Make Captain joined the line, owner 11-13): one line per player (name, stats, Add Skill, Make Captain, number, cost, fire X) with
    the skills band beside the portrait under it, so more rows fit in the roster scroller */
-@container tbpanel (min-width: 660px) {
+@container tbpanel (min-width: 760px) {
   .tb-row { grid-template-columns: 14px auto minmax(90px, 1fr) auto auto auto auto auto; grid-template-areas: "grip sprite who line2 cap num cost x" "grip sprite skills skills skills skills skills skills"; column-gap: 8px; }
   .tb-row > .tb-row-line2 { margin-top: 3px; flex-wrap: nowrap; }
   .tb-row-line2 > .tb-row-stats { flex: none; width: 216px; min-width: 0; }
@@ -569,7 +573,7 @@
 @container tbpanel (max-width: 520px) {
   /* the cost sits under the fire X so the name gets the width (owner 11-01: player names) */
   .tb-row { grid-template-columns: 14px auto minmax(0, 1fr) auto auto auto; grid-template-areas: "grip sprite who cap num x" "grip sprite who cost cost cost" "grip line2 line2 line2 line2 line2" "grip mk mk mk mk mk" "grip skills skills skills skills skills"; column-gap: 8px; }
-  /* Make Captain gets its own line under the stats so the name keeps its width; the captain's C stays beside the number */
+  /* Make Captain gets its own line under the stats so the name keeps its width */
   .tb-row > .tb-make-captain { grid-area: mk; justify-self: start; margin: 4px 0 0 8px; }
   .tb-row > .tb-cost { align-self: start; justify-self: end; padding-top: 2px; }
   .tb-row-line2 > .tb-row-stats { flex: 1 1 0; min-width: 200px; max-width: none; }
