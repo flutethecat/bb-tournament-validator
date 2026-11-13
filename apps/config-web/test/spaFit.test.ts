@@ -118,13 +118,34 @@ describe("fit to 1920x1080: the pages that opted in", () => {
   });
 
   it("the page CSS that fills the panes stays inside the desktop query (phones get no nested scroll traps)", () => {
-    for (const [file, marker] of [["leagues/leagues.css", ".lg-tab-body:has"], ["tournaments/tournaments.css", ".tn-tab-body > .hm-grid"],
+    for (const [file, marker] of [["leagues/leagues.css", ".lg-tab-body:has"], ["leagues/leagues.css", ".lg-ov > .lg-ov-side > .hm-panel {"], ["leagues/leagues.css", ".lg-tab-body > .lg-stack > .lg-fx-nav {"], ["tournaments/tournaments.css", ".tn-tab-body > .hm-grid"],
       ["tournaments/creator.css", ".cr-pane-fit"], ["teams/builder.css", ".tb-pane.sf-fill"], ["leagues/lobby.css", ".fl-grid.sf-fill"],
       ["home/social.css", ".so-page.sf-fit"], ["leagues/calendar.css", ".lg-tab-body:has(> .lgc)"], ["tournaments/wizard.css", ".tw-fit .tw-body"], ["leagues/wizard.css", ".lw-fit .lw-pane-body"]] as const) {
       const css = src(file);
       expect(fitBlock(css), file).toContain(marker);
       expect(css.replace(fitBlock(css), ""), file).not.toContain(marker);
     }
+  });
+});
+
+describe("fit to 1920x1080: league pages (owner 11-13: \"Panels stay on screen\")", () => {
+  const block = fitBlock(src("leagues/leagues.css"));
+  it("the Overview side column: every panel band stays in view, long panels give up height first and scroll under a sticky band", () => {
+    expect(block).toMatch(/\.lg-ov > \.lg-ov-side > \.hm-panel \{ flex: 0 1 auto; min-height: 88px; overflow-y: auto;/);
+    expect(block).toMatch(/\.lg-ov > \.lg-ov-side > :is\(\.cf-house-panel, \.lg-ov-org, \.ind-panel\) \{ flex-shrink: 16; \}/);
+    expect(block).toMatch(/\.lg-ov > \.lg-ov-side > \.hm-panel > \.hm-band \{ position: sticky; top: 0;/);
+    // the narrow two-column overview (a small desktop) scrolls its right column as one: the panels go back to their height
+    expect(block.slice(block.indexOf("@container lg-ov"))).toMatch(/\.lg-ov > \.lg-ov-side > \.hm-panel \{ min-height: auto; overflow: visible; \}/);
+  });
+  it("Fixtures keeps its nav bar at the top of the tab while the phases scroll; the results table keeps its header", () => {
+    expect(block).toContain(".lg-tab-body > .lg-stack > .lg-fx-nav { position: sticky; top: 0; z-index: 3; }");
+    expect(block).toContain(".lg-ov-table thead th { position: sticky; top: 0;");
+  });
+  it("the league views keep their fitted panes (the filter boxes sit inside them)", () => {
+    const detail = src("views/LeagueDetailView.vue");
+    expect(detail).toContain('class="lg-tab-body sf-fill sf-scroll sf-col"');
+    // Participants: the filter is a child of the single table panel, so the panel still fills the tab and its list scrolls
+    expect(src("components/LeagueParticipantsList.vue")).toMatch(/<ListFilter v-if="season\.teams\.length"[^>]*class="lg-list-filter"/);
   });
 });
 

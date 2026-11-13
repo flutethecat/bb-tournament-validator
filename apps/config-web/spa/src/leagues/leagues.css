@@ -668,6 +668,18 @@ button.lg-cog { margin: 0; padding: 0; font: inherit; color: inherit; cursor: po
   .lg-ov > .lg-ov-results { display: flex; flex-direction: column; min-height: 0; padding-bottom: 0; }
   .lg-ov-results > * { flex: none; }
   .lg-ov-results > .lg-ov-scroll { position: relative; flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; margin-right: 4px; padding: 2px 6px 10px 2px; }
+  /* League pages treatment (owner 11-13: "Panels stay on screen"): in the side column every band stays in view. Each panel
+     can give up height and then scrolls inside itself under its band (down to its band and about two lines); the long ones
+     (house rules, organisers, inducements) give it up first, the champions and the season facts only once those are at
+     their least. The column itself still scrolls when even that does not fit (a very short window). */
+  .lg-ov > .lg-ov-side > .hm-panel { flex: 0 1 auto; min-height: 88px; overflow-y: auto; overscroll-behavior: contain; }
+  .lg-ov > .lg-ov-side > :is(.cf-house-panel, .lg-ov-org, .ind-panel) { flex-shrink: 16; }
+  .lg-ov > .lg-ov-side > .hm-panel > .hm-band { position: sticky; top: 0; z-index: 2; background: linear-gradient(var(--sf-panel-top), var(--sf-panel-top)), var(--ui-surface); }
+  /* the latest results as a table get a wider column (the table keeps its columns at 1920 and 1367) */
+  .lg-tab-body > .lg-ov:has(> .lg-ov-results > .lg-ov-table) { grid-template-columns: minmax(400px, 40%) minmax(340px, 1fr) minmax(260px, 340px); }
+  /* Fixtures: the nav bar (rounds, filters, view) stays at the top of the tab while the phases scroll under it */
+  .lg-tab-body > .lg-stack > .lg-fx-nav { position: sticky; top: 0; z-index: 3; }
+  .lg-ov-table thead th { position: sticky; top: 0; z-index: 1; background: var(--ui-surface); }
   /* a narrow tab pane (a small desktop with the sidebar open, Sol 11-02): two columns, the results box held in view on
      the left while the front, season, news and side panels scroll as one column on the right */
   @container lg-ov (max-width: 1100px) {
@@ -675,6 +687,9 @@ button.lg-cog { margin: 0; padding: 0; font: inherit; color: inherit; cursor: po
       align-items: start; overflow-y: auto; overscroll-behavior: contain; padding: 2px 6px 8px 2px; margin: -2px -6px 0 -2px; }
     .lg-ov > .lg-ov-main, .lg-ov > .lg-ov-side { min-height: auto; overflow: visible; padding: 0; margin: 0; }
     .lg-ov > .lg-ov-results { position: sticky; top: 0; max-height: calc(100dvh / var(--sf-zoom, 1) - 240px); }
+    .lg-ov > .lg-ov-side > .hm-panel { min-height: auto; overflow: visible; }
+    .lg-ov > .lg-ov-side > .hm-panel > .hm-band { position: static; background: none; }
+    .lg-tab-body > .lg-ov:has(> .lg-ov-results > .lg-ov-table) { grid-template-columns: minmax(260px, 42%) minmax(0, 1fr); }
   }
   .lg-tab-body:has(> .lg-stack > .hm-panel:only-child > .lg-scroll), .lg-tab-body:has(> .lg-part) { display: flex; flex-direction: column; overflow-y: auto; }
   .lg-tab-body > .lg-stack:has(> .hm-panel:only-child > .lg-scroll) { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; }
