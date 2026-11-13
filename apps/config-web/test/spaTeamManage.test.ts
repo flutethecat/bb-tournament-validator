@@ -615,7 +615,9 @@ describe("team management + My teams pages (server-rendered)", () => {
     expect(view).toContain('<tr v-for="t in shown" :key="t.ref">');
     expect(view).toContain('<li v-for="t in shown" :key="t.ref">');
     expect(view).toMatch(/<th scope="col">Team<\/th><th scope="col">Race<\/th><th scope="col" class="mt-num">Team value<\/th><th scope="col">Registered in<\/th>/);
-    expect(view).toContain("words.every((w) => hay.includes(w))");
+    // the filter moved into the shared list helper (league pages treatment): every typed word must match
+    expect(view).toContain("filterList(teams.value, query.value,");
+    expect(readFileSync(fileURLToPath(new URL("../spa/src/shared/listView.ts", import.meta.url)), "utf8")).toContain("words.every((w) => hay.includes(w))");
     expect(html).toContain('<a href="/app/teams/library%3A77" class="hm-team" title="Manage Alice Lib">');
     expect(html).toContain('<a href="/app/teams/sv_a" class="hm-team" title="Manage Alice Save">');
     // owner 10-30: avatar upload moved to the team page; no Avatars panel or per-team upload forms here

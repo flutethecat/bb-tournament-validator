@@ -6,15 +6,16 @@
 // in this browser. A filter box narrows both views by team name, race or competition.
 import { computed, inject, onMounted, onServerPrefetch, ref } from "vue";
 import { RouterLink } from "vue-router";
+import ListFilter from "../components/ListFilter.vue";
+import ListViewToggle from "../components/ListViewToggle.vue";
 import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
 import { resolveCrest, type ArtManifests } from "../tabletop/art";
 import { teamManagePath } from "../teams/manage";
 import { fmtK } from "../shared/format";
+import { filterList, LIST_VIEW_KEYS, listCount, useListView } from "../shared/listView";
 
 interface MyTeam { ref: string; name: string; race?: string; tv?: number | null; registered?: Array<{ id: string; name: string }>; actions?: { count: number; items: string[] }; avatarUrl?: string }
-type TeamsView = "cards" | "table";
-const VIEW_KEY = "sf.myTeams.view";
 
 const session = inject(SESSION_KEY)!;
 const fetcher = inject(API_KEY)!;
@@ -22,22 +23,14 @@ const teams = ref<MyTeam[]>([]);
 const art = ref<ArtManifests>({});
 const loaded = ref(false);
 const error = ref("");
-const view = ref<TeamsView>("cards");
-function setView(v: TeamsView): void {
-  view.value = v;
-  try { localStorage.setItem(VIEW_KEY, v); } catch { /* not remembered */ }
-}
+// Cards or Table, remembered per browser (read once mounted: server rendering always gives cards)
+const { view, setView } = useListView(LIST_VIEW_KEYS.myTeams);
 const tvText = (t: MyTeam): string => (typeof t.tv === "number" ? fmtK(t.tv) : "");
 const regText = (t: MyTeam): string => (t.registered ?? []).map((r) => r.name).join(", ");
 const todoTitle = (t: MyTeam): string => (t.actions?.items ?? []).join("; ");
 const query = ref("");
-const fold = (s: string): string => s.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();
 /** Teams matching every word typed (name, race or a competition the team is registered in). */
-const shown = computed(() => {
-  const words = fold(query.value).split(/\s+/).filter(Boolean);
-  if (!words.length) return teams.value;
-  return teams.value.filter((t) => { const hay = fold(`${t.name} ${t.race ?? ""} ${regText(t)}`); return words.every((w) => hay.includes(w)); });
-});
+const shown = computed(() => filterList(teams.value, query.value, (t) => [t.name, t.race, regText(t)]));
 
 async function load(): Promise<void> {
   const coach = session.coach();
@@ -63,12 +56,9 @@ async function load(): Promise<void> {
 }
 
 const crestFor = (t: MyTeam): string => resolveCrest(art.value, t.race);
-const countLabel = computed(() => (shown.value.length === teams.value.length ? `${teams.value.length} team${teams.value.length === 1 ? "" : "s"}` : `${shown.value.length} of ${teams.value.length} teams`));
+const countLabel = computed(() => listCount(shown.value.length, teams.value.length, "team"));
 
-onMounted(() => {
-  try { if (localStorage.getItem(VIEW_KEY) === "table") view.value = "table"; } catch { /* cards */ }
-  void load();
-});
+onMounted(() => { void load(); });
 onServerPrefetch(async () => {
   // Server rendering has no browser fetch for the HEAD probes: read the list only.
   const coach = session.coach();
@@ -87,17 +77,11 @@ onServerPrefetch(async () => {
       <div class="hm-col hm-col-main">
         <section id="teams" class="hm-panel" aria-labelledby="mt-teams-h">
           <header class="hm-band"><h2 id="mt-teams-h">My teams</h2><span class="hm-cap">{{ countLabel }}</span>
-            <span class="sf-tabs mt-view-toggle" role="group" aria-label="Teams view">
-              <button type="button" class="sf-tab" :aria-pressed="view === 'cards' ? 'true' : 'false'" data-teams-view="cards" @click="setView('cards')">Cards</button>
-              <button type="button" class="sf-tab" :aria-pressed="view === 'table' ? 'true' : 'false'" data-teams-view="table" @click="setView('table')">Table</button>
-            </span>
+            <ListViewToggle class="mt-view-toggle" :model-value="view" label="Teams view" data="data-teams-view" @update:model-value="setView" />
           </header>
           <p v-if="error" class="lobby-error hm-small" role="alert">{{ error }}</p>
           <p v-else-if="loaded && !teams.length" class="hm-empty">No teams yet. <a href="/team-builder.html">Build one</a>.</p>
-          <label v-if="teams.length" class="sf-field mt-filter">
-            <span class="sf-sr">Filter teams</span>
-            <input v-model="query" class="sf-input" type="search" placeholder="Filter by team, race or competition" autocomplete="off" data-teams-filter />
-          </label>
+          <ListFilter v-if="teams.length" v-model="query" class="mt-filter" label="Filter teams" placeholder="Filter by team, race or competition" data="data-teams-filter" />
           <p v-if="teams.length && !shown.length" class="hm-empty" role="status">No teams match that filter.</p>
           <div v-else-if="shown.length && view === 'table'" class="mt-table-wrap" data-teams-table>
             <table class="sf-table mt-table">
