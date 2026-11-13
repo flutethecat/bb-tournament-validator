@@ -35,7 +35,9 @@
 
 .tb-page { --tb-col: 1040px; align-content: start; justify-items: center; max-width: none; }
 .tb-page > * { width: 100%; max-width: var(--tb-col); min-width: 0; }
-.tb-page.tb-wide { --tb-col: 1560px; } /* the Roster tab's three-column working pane uses the room */
+.tb-page.tb-wide { --tb-col: 2400px; max-width: none; } /* the Roster tab's three-column working pane uses the room (owner 11-13: also on an ultrawide screen, where the page stopped at teams.css's 1280 px and left a third of the screen empty) */
+/* the site shell stops at 1600 px (home.css); the Roster tab alone may run wider, so its working pane is not cut off there */
+.sf-body .shell-main:has(> .tb-page.tb-wide) { max-width: 2432px; }
 .tb-page .hm-title { justify-self: center; }
 .tb-pane { display: grid; gap: 16px; min-width: 0; }
 .tb-panel { min-width: 0; }
@@ -262,12 +264,13 @@
 .tb-roster-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; margin-top: 8px; }
 .tb-roster-foot .tb-key { flex: 1 1 auto; min-width: 0; }
 .tb-player-count { flex: none; margin-left: auto; }
-/* A roster row is a player card (owner 10-31). Top line: number, portrait (56 px), name, the Team Captain badge, cost and the
-   red fire X in the top-right corner. Second line (beside the portrait): the stat strip with Add Skill / Add Stat at its right
-   end. Then the skills. The slim gripper runs the full card height, flush against the left edge. */
+/* A roster row is a player card (owner 10-31; 11-13: no number column, the card starts at the gripper). Top line: portrait
+   (56 px), name, then at the right end Make Captain / the captain's C, the row number, the cost and the red fire X. Second
+   line (beside the portrait): the stat strip with Add Skill / Add Stat at its right end. Then the skills band, from the
+   gripper to the right edge. The slim gripper runs the full card height, flush against the left edge. */
 .tb-row {
-  position: relative; display: grid; grid-template-columns: 14px 34px auto minmax(0, 1fr) auto auto;
-  grid-template-areas: "grip num sprite who cost x" "grip num sprite line2 line2 line2" "grip num skills skills skills skills";
+  position: relative; display: grid; grid-template-columns: 14px auto minmax(0, 1fr) auto auto auto auto;
+  grid-template-areas: "grip sprite who cap num cost x" "grip sprite line2 line2 line2 line2 line2" "grip skills skills skills skills skills skills";
   column-gap: 8px; row-gap: 0; align-items: center; padding: 0 6px 3px 0; background: var(--ui-surface-2); border: 1px solid var(--sf-panel-line); border-radius: 2px;
   scroll-margin-top: calc(var(--sf-top-h, 56px) + 12px); scroll-margin-bottom: 12px;
 }
@@ -276,6 +279,8 @@
 .tb-row.drop-mark { box-shadow: 0 -3px 0 var(--ui-heading); }
 .tb-row > .tb-grip { grid-area: grip; grid-row: 1 / -1; align-self: stretch; }
 .tb-row > .tb-num { grid-area: num; padding-top: 4px; align-self: center; }
+.tb-row > .tb-row-cap { grid-area: cap; align-self: center; justify-self: end; margin: 4px 0 0; }
+.tb-row > .tb-sprite { margin-left: 2px; }
 .tb-row > .tb-sprite { grid-area: sprite; margin-top: 4px; align-self: center; }
 .tb-row > .tb-who { grid-area: who; display: grid; align-content: center; min-width: 0; padding-top: 2px; line-height: 1.15; }
 .tb-row > .tb-cost { grid-area: cost; padding-top: 4px; }
@@ -294,20 +299,14 @@
 .tb-grip:hover { color: var(--ui-text); background: color-mix(in srgb, var(--ui-surface) 80%, transparent); }
 .tb-grip i { width: 8px; height: 16px; background: radial-gradient(circle, currentColor 1.5px, transparent 2px) 0 0 / 4px 5px; }
 .tb-grip:focus-visible, .tb-captain:focus-visible, .tb-fire-x:focus-visible, .tb-stepper button:focus-visible, .tb-chip:focus-visible, .tb-blade:focus-visible, .tb-chip-x:focus-visible, .tb-acc-btn:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
-/* the Team Captain badge (the owner's painted art at 32 CSS px, normal smoothing, no box behind it; the "C" glyph if the
-   image fails) */
-/* the row number as the Team Captain toggle (owner 10-31): the painted badge (32 px, normal smoothing, no box) behind the
-   number; the number keeps its colour with a dark outline so it reads on gold and grey; a ring if the image fails */
-.tb-captain { position: relative; display: grid; place-items: center; width: 40px; height: 40px; padding: 0; background: none; border: 0; border-radius: 50%; cursor: pointer; }
+/* Team Captain (owner 11-13): the painted gold C left of the captain's row number, in the Make Captain button's place (28
+   CSS px, normal smoothing, no box behind it); it is the button that removes the captaincy. A gold ring with a "C" if the
+   image fails. The Make Captain button is a .tb-vet. */
+.tb-captain { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; color: var(--ui-gold); font: 13px/1 var(--sf-band-font); background: none; border: 0; border-radius: 50%; cursor: pointer; }
 .tb-captain:hover .tb-captain-img { filter: brightness(1.12); }
-.tb-captain-img { grid-area: 1 / 1; width: 40px; height: 40px; object-fit: contain; pointer-events: none; }
-/* The number sits in the C's opening (owner 10-31): the badge's C stroke covers ~16-44% of its width, so the counter's
-   centre is ~62% across, mid-height. A broken image (plain ring) centres it normally. */
-.tb-num-n { position: absolute; left: 62%; top: 50%; transform: translate(-50%, -50%); font-size: 15px; line-height: 1; text-shadow: var(--tb-num-outline); pointer-events: none; }
-.tb-captain.broken .tb-num-n { left: 50%; }
-.tb-captain.broken { border: 2px solid var(--ui-muted); }
-.tb-captain.broken[data-tone="gold"] { border-color: var(--ui-gold); }
-.tb-row > .tb-num.tb-captain { padding: 0; justify-self: center; }
+.tb-captain-img { width: 28px; height: 28px; object-fit: contain; pointer-events: none; }
+.tb-captain.broken { border: 2px solid var(--ui-gold); }
+.tb-row > .tb-make-captain { white-space: nowrap; }
 /* red X badges: fire the player (card corner) and remove an added skill / stat (chip corner) */
 .tb-fire-x, .tb-row-skills .tb-chip-x {
   position: relative; display: grid; place-items: center; min-width: 0; min-height: 0; margin: 0; padding: 0; color: var(--tb-badge-ink); cursor: pointer;
@@ -559,7 +558,7 @@
 /* wide roster (660 px of panel and up, e.g. 1920): one line per player (name, captain, stats, Add Skill, cost, fire X) with
    the skills band beside the portrait under it, so more rows fit in the roster scroller */
 @container tbpanel (min-width: 660px) {
-  .tb-row { grid-template-columns: 14px 34px auto minmax(90px, 1fr) auto auto auto; grid-template-areas: "grip num sprite who line2 cost x" "grip num sprite skills skills skills skills"; column-gap: 8px; }
+  .tb-row { grid-template-columns: 14px auto minmax(90px, 1fr) auto auto auto auto auto; grid-template-areas: "grip sprite who line2 cap num cost x" "grip sprite skills skills skills skills skills skills"; column-gap: 8px; }
   .tb-row > .tb-row-line2 { margin-top: 3px; flex-wrap: nowrap; }
   .tb-row-line2 > .tb-row-stats { flex: none; width: 216px; min-width: 0; }
   .tb-row > .tb-fire-x { margin-top: 3px; }
@@ -569,7 +568,9 @@
    the portrait; Add Skill / Add Stat stay at its right end while they fit, else wrap under the stats */
 @container tbpanel (max-width: 520px) {
   /* the cost sits under the fire X so the name gets the width (owner 11-01: player names) */
-  .tb-row { grid-template-columns: 14px 34px auto minmax(0, 1fr) auto; grid-template-areas: "grip num sprite who x" "grip num sprite who cost" "grip line2 line2 line2 line2" "grip skills skills skills skills"; column-gap: 8px; }
+  .tb-row { grid-template-columns: 14px auto minmax(0, 1fr) auto auto auto; grid-template-areas: "grip sprite who cap num x" "grip sprite who cost cost cost" "grip line2 line2 line2 line2 line2" "grip mk mk mk mk mk" "grip skills skills skills skills skills"; column-gap: 8px; }
+  /* Make Captain gets its own line under the stats so the name keeps its width; the captain's C stays beside the number */
+  .tb-row > .tb-make-captain { grid-area: mk; justify-self: start; margin: 4px 0 0 8px; }
   .tb-row > .tb-cost { align-self: start; justify-self: end; padding-top: 2px; }
   .tb-row-line2 > .tb-row-stats { flex: 1 1 0; min-width: 200px; max-width: none; }
   .tb-page .sprite-frame.tb-sprite.tb-row-sprite { width: 48px; height: 48px; }

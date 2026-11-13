@@ -7,7 +7,7 @@
 // increases are allowed; stars never take either); then the skills (elite ones wear the diamond at their top-left corner).
 // Added skills and stats wear a gold border and a red X badge that removes them. The
 // skill key and the skill counts sit under the roster.
-import { computed, inject, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { TOURNAMENT_BUILDER_KEY, TOURNAMENT_BUILDER_UI_KEY } from "../teams/builder";
 import { edgeStep, revealRow, REVEAL_FLASH_MS, rosterHeight, wideLayout } from "../teams/rosterReveal";
 import { core, type BuilderPosition, type Slot } from "../teams/builderCore";
@@ -50,16 +50,17 @@ const captainOn = (s: Slot): boolean => s.captain === true && builder.slotCanCap
 /** The subtitle under the name, only for stars (owner 10-31: the captain badge says Team Captain). */
 const role = (s: Slot): string => (position(s)?.isStar ? "Star player: no added skills" : "");
 
-// ── Team Captain (owner 10-31): the row number is the toggle, the owner's painted badge behind it (gold = this player is
-// the captain, grey = "make captain"; a gold / grey ring if the image fails to load). Ineligible rows show a plain number. While a captain is set only the captain's row shows it; the coach clears it
-// there before another row offers the toggle again. ──
+// ── Team Captain (owner 11-13, replacing the 10-31 number-badge toggle): the name plate's right end reads [captain] [number]
+// [cost] [fire]. While no captain is set every eligible row offers a "Make Captain" button left of its number. Once one is
+// chosen the buttons go and the painted gold C takes that spot on the captain's row; clicking the C removes the captaincy
+// so another player can be chosen. Ineligible rows and stars never show either. A gold ring with a "C" stands in if the
+// image fails to load. ──
 const CAPTAIN_ON_HINT = "Team captain. Remove to choose another player.";
-const CAPTAIN_OFF_HINT = "Make team captain";
+const CAPTAIN_OFF_HINT = "Make this player the team captain (gains Pro for free)";
 const captainAt = computed(() => builder.captainIndex());
-const showCaptain = (s: Slot, i: number): boolean => builder.slotCanCaptain(s) && (captainAt.value < 0 || captainAt.value === i);
-const captainTone = (s: Slot): "gold" | "grey" => (captainOn(s) ? "gold" : "grey");
-const captainSrc = (s: Slot, px: 24 | 32 | 48 | 64): string => `/icons/builder/team-captain-${captainTone(s)}-${px}.png`;
-const brokenIcon = reactive<Record<string, boolean>>({});
+const showMakeCaptain = (s: Slot): boolean => captainAt.value < 0 && builder.slotCanCaptain(s);
+const CAPTAIN_ICON = (px: 32 | 64): string => `/icons/builder/team-captain-gold-${px}.png`;
+const captainIconBroken = ref(false);
 
 // ── Blood Bowl Sevens Veteran (spec 11-02): a captain-style toggle on Lineman-keyword rows, one per team. While a Veteran is
 // set only its row shows the chip (click to clear); then every eligible row offers "Make Veteran" again. The Veteran's stat
@@ -254,13 +255,6 @@ function onGripKey(e: KeyboardEvent, index: number): void {
           :aria-label="`Reorder ${position(s)?.name ?? 'player'}, player ${i + 1}. Alt plus Up or Down arrow moves it.`"
           @pointerdown="onGripDown($event, i)" @pointermove="onGripMove" @pointerup="onGripUp($event, true)" @pointercancel="onGripUp($event, false)"
           @keydown="onGripKey($event, i)"><i aria-hidden="true"></i></button>
-        <!-- the row number is the Team Captain toggle (owner 10-31): the badge sits behind the number on eligible rows -->
-        <button v-if="showCaptain(s, i)" type="button" class="tb-num tb-captain" :class="{ broken: brokenIcon[captainTone(s)] }" :data-tone="captainTone(s)"
-          :aria-pressed="captainOn(s) ? 'true' : 'false'" :title="captainOn(s) ? CAPTAIN_ON_HINT : CAPTAIN_OFF_HINT" :aria-description="captainOn(s) ? CAPTAIN_ON_HINT : undefined"
-          :aria-label="`${captainOn(s) ? 'Team captain' : 'Make team captain'}: ${position(s)?.name ?? 'player'}, player ${i + 1}`" @click="builder.toggleCaptain(i)"
-        ><img v-if="!brokenIcon[captainTone(s)]" class="tb-captain-img" :src="captainSrc(s, 48)" :srcset="`${captainSrc(s, 48)} 1x, ${captainSrc(s, 64)} 2x`"
-          width="40" height="40" alt="" @error="brokenIcon[captainTone(s)] = true" /><span class="tb-num-n">{{ i + 1 }}</span></button>
-        <span v-else class="tb-num">{{ i + 1 }}</span>
         <span class="sprite-frame tb-sprite tb-row-sprite" aria-hidden="true"><span class="sprite-fallback">{{ builder.shortName(position(s)).slice(0, 2).toUpperCase() }}</span><img v-if="builder.spritePath(position(s)?.name ?? '')" class="sprite-image" :src="builder.spritePath(position(s)?.name ?? '')" alt="" loading="lazy" /></span>
         <span class="tb-who">
           <!-- the player's name in the header styling (owner 11-01), the position as the subheader under it; stars keep
@@ -275,6 +269,17 @@ function onGripKey(e: KeyboardEvent, index: number): void {
           </span>
           <small class="tb-psub" :title="position(s)?.name">{{ position(s)?.isStar ? role(s) : builder.shortName(position(s)) || "Unknown position" }}</small>
         </span>
+        <!-- the name plate's right end (owner 11-13): Make Captain (or the captain's gold C, which removes it), the row
+             number, the cost, the fire X -->
+        <button v-if="showMakeCaptain(s)" type="button" class="tb-vet tb-make-captain tb-row-cap" :title="CAPTAIN_OFF_HINT"
+          :aria-label="`Make team captain: ${position(s)?.name ?? 'player'}, player ${i + 1}`" @click="builder.toggleCaptain(i)"
+        >Make Captain</button>
+        <button v-else-if="captainOn(s)" type="button" class="tb-captain tb-row-cap" :class="{ broken: captainIconBroken }"
+          aria-pressed="true" :title="CAPTAIN_ON_HINT" :aria-description="CAPTAIN_ON_HINT"
+          :aria-label="`Team captain: ${position(s)?.name ?? 'player'}, player ${i + 1}`" @click="builder.toggleCaptain(i)"
+        ><img v-if="!captainIconBroken" class="tb-captain-img" :src="CAPTAIN_ICON(32)" :srcset="`${CAPTAIN_ICON(32)} 1x, ${CAPTAIN_ICON(64)} 2x`"
+          width="28" height="28" alt="" @error="captainIconBroken = true" /><span v-else aria-hidden="true">C</span></button>
+        <span class="tb-num" :aria-label="`Player ${i + 1}`">{{ i + 1 }}</span>
         <span class="tb-cost">{{ core.gold(position(s)?.cost) }}</span>
         <button type="button" class="tb-fire-x" :aria-label="`Fire ${position(s)?.name ?? 'player'} #${i + 1}`" title="Fire" @click="builder.removeSlot(i)"><span aria-hidden="true">×</span></button>
         <span class="tb-row-line2">
