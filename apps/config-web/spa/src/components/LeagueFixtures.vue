@@ -75,6 +75,18 @@ const picked = computed(() => filterFixtures(phased.value, pick.value, teamOn.va
 const query = ref("");
 const shown = computed(() => filterFixturesText(picked.value, query.value));
 const filterCount = computed(() => listCount(fixtureCount(shown.value), fixtureCount(picked.value), "fixture"));
+const filtering = computed(() => Boolean(query.value.trim()));
+// While filtering, the phase and round counts say what is shown of what the round strip and selects picked.
+const pickedRounds = (phaseId: string) => picked.value.find((g) => g.phase.id === phaseId)?.rounds ?? [];
+const phaseCap = (g: { phase: { id: string }; rounds: unknown[] }): string => {
+  const n = g.rounds.length, of = pickedRounds(g.phase.id).length;
+  return filtering.value ? `${n} of ${of} ${of === 1 ? "round" : "rounds"}` : `${n} ${n === 1 ? "round" : "rounds"}`;
+};
+const roundCap = (phaseId: string, r: { round: number; played: number; fixtures: unknown[] }): string => {
+  if (!filtering.value) return `${r.played} of ${r.fixtures.length} played`;
+  const all = pickedRounds(phaseId).find((x) => x.round === r.round)?.fixtures.length ?? r.fixtures.length;
+  return `${listCount(r.fixtures.length, all, "fixture")} · ${r.played} played`;
+};
 // Collapse state: judged on the whole phase (every round), not the round or team on show.
 const folds = ref<PhaseFolds>(readPhaseFolds(props.league.id));
 watch(() => props.league.id, (id) => { folds.value = readPhaseFolds(id); });
@@ -87,7 +99,7 @@ const tally = computed(() => {
   return { played: all.reduce((n, r) => n + r.played, 0), total: all.reduce((n, r) => n + r.fixtures.length, 0) };
 });
 /** "Round 3 · 2 of 4 played"; while filtering "Round 3 · 3 of 12 fixtures · 1 of 3 played". */
-const navCap = computed(() => [pick.value === "all" ? "All rounds" : `Round ${pick.value}`, ...(query.value.trim() ? [filterCount.value] : []), `${tally.value.played} of ${tally.value.total} played`].join(" · "));
+const navCap = computed(() => [pick.value === "all" ? "All rounds" : `Round ${pick.value}`, ...(filtering.value ? [filterCount.value] : []), `${tally.value.played} of ${tally.value.total} played`].join(" · "));
 /** Round strip links keep the rest of the query (season, tab) and drop an open fixture. */
 const roundLink = (r: RoundPick) => {
   const rest = { ...route.query };
@@ -170,12 +182,12 @@ watch(pick, placeStrip);
     >
       <header class="hm-band">
         <h2><button type="button" class="lg-fx-fold" :aria-expanded="isOpen(g.phase.id) ? 'true' : 'false'" data-phase-toggle @click="toggle(g.phase.id)"><span class="lg-fx-caret" aria-hidden="true">▸</span>{{ g.title }}</button></h2>
-        <span class="hm-cap">{{ g.rounds.length }} {{ g.rounds.length === 1 ? "round" : "rounds" }}<template v-if="complete(g.phase.id)"> · Complete</template></span>
+        <span class="hm-cap">{{ phaseCap(g) }}<template v-if="complete(g.phase.id)"> · Complete</template></span>
       </header>
       <template v-if="!isOpen(g.phase.id)" />
       <template v-else-if="view === 'cards'">
         <div v-for="r in g.rounds" :key="r.round" class="lg-round">
-          <h3 class="lg-round-h">Round {{ r.round }} <span class="hm-cap">{{ r.played }} of {{ r.fixtures.length }} played</span></h3>
+          <h3 class="lg-round-h">Round {{ r.round }} <span class="hm-cap">{{ roundCap(g.phase.id, r) }}</span></h3>
           <ul class="lg-results">
             <li v-for="f in r.fixtures" :key="f.id">
               <ResultCard v-if="fixturePlayed(f)" v-bind="card(f)" />

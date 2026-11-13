@@ -9,7 +9,7 @@ import { API_KEY } from "../app";
 import LeagueSectionHeader from "../components/LeagueSectionHeader.vue";
 import LeagueStatsCards from "../components/LeagueStatsCards.vue";
 import ListFilter from "../components/ListFilter.vue";
-import { matchesWords, queryWords } from "../shared/listView";
+import { listCount, matchesWords, queryWords } from "../shared/listView";
 import { carriedSeason, createLeagueDetail, createLeagueStats, LEAGUE_DETAIL_KEY, isStatsScope, LEAGUE_STATS_KEY, pct, phaseLabel, playerQuery, RULESET_TONE, seasonsLine, STATS_SCOPES } from "../leagues/league";
 import type { LeaderStat, StatsScope } from "../leagues/types";
 import "../leagues/leagues.css";
@@ -63,6 +63,10 @@ const leadersOf = (id: LeaderStat) => ranked(stats.value?.leaders[id] ?? [], (p)
 const wins = computed(() => ranked(stats.value?.biggestWins ?? [], (w) => [w.winner.team, w.loser.team]));
 const most = computed(() => ranked(stats.value?.mostGames ?? [], (c) => [c.coach]));
 const filtering = computed(() => words.value.length > 0);
+/** While filtering, a band reads "N of M <things>" over the rows the list holds. */
+const of = (shown: number, total: number, one: string, many?: string): string => listCount(shown, total, one, many);
+const leaderRows = computed(() => LEADERS.reduce((n, b) => n + leadersOf(b.id).length, 0));
+const leaderTotal = computed(() => LEADERS.reduce((n, b) => n + (stats.value?.leaders[b.id]?.length ?? 0), 0));
 const filterStatus = computed(() => (filtering.value ? `${coaches.value.length} coaches, ${teams.value.length} teams and ${races.value.length} races match` : ""));
 const wdl = (r: { wins: number; draws: number; losses: number }): string => `${r.wins}-${r.draws}-${r.losses}`;
 const diff = (a: number, b: number): string => (a - b > 0 ? `+${a - b}` : String(a - b));
@@ -106,7 +110,7 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} statistics` : "")
 
       <template v-if="stats.seasons.length">
         <section class="hm-panel" aria-labelledby="lg-champ-h">
-          <header class="hm-band"><h2 id="lg-champ-h">Champions</h2></header>
+          <header class="hm-band"><h2 id="lg-champ-h">Champions</h2><span v-if="filtering" class="hm-cap">{{ of(champions.length, stats.champions.length, "champion") }}</span></header>
           <p v-if="!stats.champions.length" class="hm-empty">No champions crowned yet.</p>
           <p v-else-if="!champions.length" class="hm-empty">No champions match.</p>
           <ul v-else class="lg-podium">
@@ -118,7 +122,7 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} statistics` : "")
         </section>
 
         <section class="hm-panel" aria-labelledby="lg-lead-h">
-          <header class="hm-band"><h2 id="lg-lead-h">Player leaders</h2><span class="hm-cap">Career totals</span></header>
+          <header class="hm-band"><h2 id="lg-lead-h">Player leaders</h2><span class="hm-cap">{{ filtering ? of(leaderRows, leaderTotal, "player row") : "Career totals" }}</span></header>
           <div class="lg-boards">
             <article v-for="b in LEADERS" :key="b.id" class="lg-board" :data-stat="b.id">
               <h3 class="lg-board-h">{{ b.label }}</h3>
@@ -136,7 +140,7 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} statistics` : "")
         </section>
 
         <section class="hm-panel" aria-labelledby="lg-coach-h">
-          <header class="hm-band"><h2 id="lg-coach-h">Coach records</h2><span class="hm-cap">{{ stats.coaches.length }} coaches · 3 / 1 / 0</span></header>
+          <header class="hm-band"><h2 id="lg-coach-h">Coach records</h2><span class="hm-cap">{{ filtering ? of(coaches.length, Math.min(stats.coaches.length, 25), "coach", "coaches") : `${stats.coaches.length} coaches` }} · 3 / 1 / 0</span></header>
           <div class="lg-scroll">
             <table class="lg-table">
               <thead><tr><th scope="col" class="lg-num">#</th><th scope="col">Coach</th><th scope="col" class="lg-num">G</th><th scope="col" class="lg-num">W-D-L</th><th scope="col" class="lg-num">Win %</th><th scope="col" class="lg-num">TD</th><th scope="col" class="lg-num">CAS</th><th scope="col" class="lg-num">Titles</th><th scope="col" class="lg-num">Pts</th></tr></thead>
@@ -157,7 +161,7 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} statistics` : "")
         <div class="hm-grid">
           <div class="hm-col">
             <section class="hm-panel" aria-labelledby="lg-team-h">
-              <header class="hm-band"><h2 id="lg-team-h">Team records</h2><span class="hm-cap">Top {{ Math.min(stats.teams.length, 20) }}</span></header>
+              <header class="hm-band"><h2 id="lg-team-h">Team records</h2><span class="hm-cap">{{ filtering ? of(teams.length, Math.min(stats.teams.length, 20), "team") : `Top ${Math.min(stats.teams.length, 20)}` }}</span></header>
               <div class="lg-scroll">
                 <table class="lg-table">
                   <thead><tr><th scope="col">Team</th><th scope="col" class="lg-num">G</th><th scope="col" class="lg-num">W-D-L</th><th scope="col" class="lg-num">TD</th><th scope="col" class="lg-num">Pts</th></tr></thead>
@@ -172,7 +176,7 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} statistics` : "")
               </div>
             </section>
             <section class="hm-panel" aria-labelledby="lg-race-h">
-              <header class="hm-band"><h2 id="lg-race-h">Race win rates</h2><span class="hm-cap">Draw = half a win</span></header>
+              <header class="hm-band"><h2 id="lg-race-h">Race win rates</h2><span class="hm-cap"><template v-if="filtering">{{ of(races.length, stats.races.length, "race") }} · </template>Draw = half a win</span></header>
               <div class="lg-scroll">
                 <table class="lg-table">
                   <thead><tr><th scope="col">Race</th><th scope="col" class="lg-num">Teams</th><th scope="col" class="lg-num">G</th><th scope="col" class="lg-num">W-D-L</th><th scope="col" class="lg-num">Win %</th></tr></thead>
@@ -190,7 +194,7 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} statistics` : "")
           </div>
           <div class="hm-col">
             <section class="hm-panel" aria-labelledby="lg-big-h">
-              <header class="hm-band"><h2 id="lg-big-h">Biggest wins</h2></header>
+              <header class="hm-band"><h2 id="lg-big-h">Biggest wins</h2><span v-if="filtering" class="hm-cap">{{ of(wins.length, stats.biggestWins.length, "game") }}</span></header>
               <p v-if="!stats.biggestWins.length" class="hm-empty">None yet.</p>
               <p v-else-if="!wins.length" class="hm-empty">None match.</p>
               <ol v-else class="lg-board-rows lg-wins">
@@ -202,8 +206,9 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} statistics` : "")
               </ol>
             </section>
             <section class="hm-panel" aria-labelledby="lg-most-h">
-              <header class="hm-band"><h2 id="lg-most-h">Most games</h2></header>
-              <ol class="lg-board-rows">
+              <header class="hm-band"><h2 id="lg-most-h">Most games</h2><span v-if="filtering" class="hm-cap">{{ of(most.length, stats.mostGames.length, "coach", "coaches") }}</span></header>
+              <p v-if="filtering && !most.length" class="hm-empty">None match.</p>
+              <ol v-else class="lg-board-rows">
                 <li v-for="{ x: c, rank } in most" :key="c.coach">
                   <span class="lg-board-rank">{{ rank }}</span>
                   <span class="lg-board-who"><strong>{{ c.coach }}</strong><small>{{ wdl(c) }} · {{ seasonsLine(c.seasons) }}</small></span>

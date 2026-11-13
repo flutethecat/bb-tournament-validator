@@ -32,6 +32,7 @@ const hay = (t: LeagueTeam): string[] => [t.name, t.coach, t.race];
 const rows = computed(() => filterList(props.season.teams.filter((t) => t.status !== "inactive"), query.value, hay).map(row));
 const inactiveRows = computed(() => filterList(props.season.teams.filter((t) => t.status === "inactive"), query.value, hay).map(row));
 const filtering = computed(() => Boolean(query.value.trim()));
+const inactiveAll = computed(() => props.season.teams.filter((t) => t.status === "inactive").length);
 const filterCount = computed(() => listCount(rows.value.length + inactiveRows.value.length, props.season.teams.length, "team"));
 const showInactive = ref(false);
 const profile = ref<LeagueTeam | null>(null);
@@ -89,7 +90,7 @@ const manageTo = computed(() => ({ name: "league-settings", params: { id: props.
         </table>
       </div>
       <template v-if="inactiveRows.length">
-        <h3 class="ts-inactive-h"><button type="button" class="lg-fx-fold" :aria-expanded="showInactive ? 'true' : 'false'" aria-controls="lg-plist-inactive" @click="showInactive = !showInactive">Inactive ({{ inactiveRows.length }}) <i class="tb-acc-chev" aria-hidden="true"></i></button></h3>
+        <h3 class="ts-inactive-h"><button type="button" class="lg-fx-fold" :aria-expanded="showInactive ? 'true' : 'false'" aria-controls="lg-plist-inactive" @click="showInactive = !showInactive">Inactive ({{ filtering ? `${inactiveRows.length} of ${inactiveAll}` : inactiveRows.length }}) <i class="tb-acc-chev" aria-hidden="true"></i></button></h3>
         <div v-if="showInactive" id="lg-plist-inactive" class="lg-scroll" data-inactive-teams>
           <table class="lg-table lg-plist-table">
             <thead><tr><th scope="col">Team</th><th scope="col">Race</th><th scope="col">Coach</th></tr></thead>
