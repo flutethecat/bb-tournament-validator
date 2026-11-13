@@ -128,3 +128,5 @@
 .tm-ps-value b { color: var(--ui-text); }
 .tm-ps-break { margin-left: 4px; font-variant-numeric: tabular-nums; }
 .tm-psheet .tn-actions { flex-wrap: wrap; }
+/* A long unbroken team name wraps inside the summary band instead of widening the page (phones). */
+.tm-summary .ts-band h2 { min-width: 0; overflow-wrap: anywhere; }
