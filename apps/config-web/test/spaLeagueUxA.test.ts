@@ -210,10 +210,12 @@ describe("standings + popups: rendered", () => {
     expect(blank).toContain("No games recorded in this league yet.");
   });
 
-  it("the roster popup: the team page's columns at a glance and a link to the full team page", async () => {
+  it("the roster popup: the team page's own roster table (TeamRosterTable, league pages treatment 11-13) and a link to the full team page", async () => {
     const html = await render(m.Roster, { leagueId: "harbour", seasonId: "season-6", team: team("t1", "Team 1") });
-    expect(html).toMatch(/<th scope="col" class="lg-num">#<\/th><th scope="col">Player<\/th><th scope="col" class="lg-num">MA<\/th><th scope="col" class="lg-num">ST<\/th><th scope="col" class="lg-num">AG<\/th><th scope="col" class="lg-num">PA<\/th><th scope="col" class="lg-num">AV<\/th><th scope="col">Skills<\/th><th[^>]*>SPP<\/th><th scope="col" class="lg-num">Value<\/th>/);
-    expect(html).toContain(">Grimtooth</span><small>Orc Blitzer</small>");
+    expect(html).toContain('<table class="lg-table lg-players ts-table" aria-label="Team 1 roster">');
+    expect(html).toMatch(/<th scope="col" class="lg-num">#<\/th><th scope="col" class="ts-sprite-h"><span class="tn-sr">Portrait<\/span><\/th><th scope="col">Player<\/th><th scope="col" class="lg-num">MA<\/th><th scope="col" class="lg-num">ST<\/th><th scope="col" class="lg-num">AG<\/th><th scope="col" class="lg-num">PA<\/th><th scope="col" class="lg-num">AV<\/th><th scope="col">Skills<\/th>(<th[^>]*>(TD|CAS|MVP|SPP|Avail\.)<\/th>){5}<th scope="col" class="lg-num">Value<\/th>/);
+    expect(html).toContain(">Grimtooth</span><small>Orc Blitzer · Experienced</small>");
+    expect(html).not.toMatch(/<input|ts-fire|ts-plus/); // read-only
     expect(html).toContain("Block, Tackle");
     expect(html).toContain(">90k<");
     expect(html).toMatch(/href="\/app\/leagues\/harbour\?season=season-6&amp;tab=teams&amp;team=t1"[^>]*data-team-page-link/);

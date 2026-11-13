@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-13",
+    "title": "League pages: cards or table, filter boxes, panels that fit",
+    "body": "League lists now have the same Cards / Table switch as My teams: latest results, fixtures, current champions, the Hall of Fame, participants and awards. Your choice is remembered in this browser. Fixtures, standings, statistics, honours, participants and awards also get a filter box: type a team, coach or race. On a desktop screen the overview's side panels stay on screen and long ones scroll inside, and the roster popup on the standings uses the team page's table.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-13",
     "title": "Roster Builder: Make Captain button, wider cards and page",
     "body": "Choosing a Team Captain is now a Make Captain button on each eligible player card. Once chosen, the gold C sits beside that player's name; click it to pick someone else. The player number moved up beside the cost, so each card starts at the left edge, and on very wide screens the Roster tab now uses the whole width.",
     "links": [
