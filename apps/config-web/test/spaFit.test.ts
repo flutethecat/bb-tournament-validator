@@ -118,7 +118,7 @@ describe("fit to 1920x1080: the pages that opted in", () => {
   });
 
   it("the page CSS that fills the panes stays inside the desktop query (phones get no nested scroll traps)", () => {
-    for (const [file, marker] of [["leagues/leagues.css", ".lg-tab-body:has"], ["leagues/leagues.css", ".lg-ov > .lg-ov-side > .hm-panel {"], ["leagues/leagues.css", ".lg-tab-body > .lg-stack > .lg-fx-nav {"], ["tournaments/tournaments.css", ".tn-tab-body > .hm-grid"],
+    for (const [file, marker] of [["leagues/leagues.css", ".lg-tab-body:has"], ["leagues/leagues.css", ".lg-ov > .lg-ov-side > .hm-panel {"], ["leagues/leagues.css", ".lg-tab-body > .lg-stack > .lg-fx-nav {"], ["leagues/leagues.css", ".lg-tab-body > .lg-st-one > .hm-panel > .lg-scroll {"], ["tournaments/tournaments.css", ".tn-tab-body > .hm-grid"],
       ["tournaments/creator.css", ".cr-pane-fit"], ["teams/builder.css", ".tb-pane.sf-fill"], ["leagues/lobby.css", ".fl-grid.sf-fill"],
       ["home/social.css", ".so-page.sf-fit"], ["leagues/calendar.css", ".lg-tab-body:has(> .lgc)"], ["tournaments/wizard.css", ".tw-fit .tw-body"], ["leagues/wizard.css", ".lw-fit .lw-pane-body"]] as const) {
       const css = src(file);

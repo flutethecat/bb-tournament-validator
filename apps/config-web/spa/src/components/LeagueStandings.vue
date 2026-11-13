@@ -30,12 +30,12 @@ const current = computed(() => currentStandingsPhase(props.season, phases.value)
 const phase = computed(() => pickStandingsPhase(route.query.phase, phases.value, current.value));
 const picked = computed(() => (phase.value === "all" ? all.value : all.value.filter((t) => t.phase === phase.value)));
 // The filter box (league pages treatment, owner 11-13; standingsView.ts filterStandings): team, coach or race, rows keep
-// their rank. Several divisions: the filter and the phase selector sit in a bar above them and a division without a
-// match hides while filtering. One division: both stay in its own panel (the fitted pane keeps it filling the tab).
+// their rank; a division without a match hides while filtering. The filter and the phase selector are ONE instance each,
+// always in the bar above the tables (Sol fix round 2): changing the phase or typing never swaps the control the coach is
+// operating, so focus and caret stay. One table on show (.lg-st-one) still fills the tab.
 const query = ref("");
 const view = computed(() => filterStandings(picked.value, query.value));
 const filtering = computed(() => view.value.filtering);
-const multi = computed(() => view.value.multi);
 const tables = computed(() => view.value.tables);
 const filterCount = computed(() => view.value.count);
 function onPhase(e: Event): void {
@@ -55,12 +55,12 @@ const rosterOf = (r: StandingRow): LeagueTeam | undefined => teamForRow(props.se
 </script>
 
 <template>
-  <div class="lg-stack lg-standings-tab">
+  <div class="lg-stack lg-standings-tab" :class="{ 'lg-st-one': tables.length === 1 }">
     <section v-if="!all.length" class="hm-panel" aria-labelledby="lg-st-none">
       <header class="hm-band"><h2 id="lg-st-none">Standings</h2></header>
       <p class="hm-empty">No results yet this season. The table fills in as results come in.</p>
     </section>
-    <div v-if="multi" class="lg-st-bar" data-standings-bar>
+    <div v-if="all.length" class="lg-st-bar" data-standings-bar>
       <ListFilter v-model="query" class="lg-list-filter" label="Filter standings" placeholder="Filter by team, coach or race" data="data-standings-filter" :status="filterCount" />
       <label v-if="phases.length > 1" class="lg-st-phase">
         <span class="sf-sr">Phase</span>
@@ -70,22 +70,14 @@ const rosterOf = (r: StandingRow): LeagueTeam | undefined => teamForRow(props.se
         </select>
       </label>
     </div>
-    <p v-if="multi && view.none" class="hm-empty" role="status" data-standings-none>No teams match that filter.</p>
-    <section v-for="(t, i) in tables" :key="t.key" class="hm-panel" :aria-label="t.title">
+    <p v-if="view.none" class="hm-empty" role="status" data-standings-none>No teams match that filter.</p>
+    <section v-for="t in tables" :key="t.key" class="hm-panel" :aria-label="t.title">
       <header class="hm-band">
         <h2>{{ t.title }}</h2>
         <span class="lg-st-tools">
           <span class="hm-cap"><template v-if="filtering">{{ listCount(t.shownRows.length, t.rows.length, "team") }}</template><template v-else>{{ t.rows.length }} teams</template><template v-if="sourceCap(t.source)"> · {{ sourceCap(t.source) }}</template></span>
-          <label v-if="!multi && i === 0 && phases.length > 1" class="lg-st-phase">
-            <span class="sf-sr">Phase</span>
-            <select data-standings-phase :value="phase" @change="onPhase">
-              <option v-for="p in phases" :key="p.id" :value="p.id">{{ p.title }}</option>
-              <option value="all">All phases</option>
-            </select>
-          </label>
         </span>
       </header>
-      <ListFilter v-if="!multi && i === 0" v-model="query" class="lg-list-filter" label="Filter standings" placeholder="Filter by team, coach or race" data="data-standings-filter" :status="filterCount" />
       <p v-if="t.note" class="hm-empty hm-small">{{ t.note }}</p>
       <p v-if="t.mine" class="lg-my-standing">
         <span class="lg-award-type">My standing</span>

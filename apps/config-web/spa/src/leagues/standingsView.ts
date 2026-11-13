@@ -36,16 +36,16 @@ export function pickStandingsPhase(asked: unknown, options: readonly StandingsPh
   return typeof v === "string" && options.some((o) => o.id === v) ? v : current;
 }
 
-/** The Standings filter box (league pages treatment, owner 11-13): team, coach or race; rows keep their rank. With several
- *  divisions on show (`multi`: the filter bar sits above them) a division without a matching row drops out while
- *  filtering, and `none` says nothing matched anywhere; one division always stays (it holds the filter). */
+/** The Standings filter box (league pages treatment, owner 11-13): team, coach or race; rows keep their rank. While
+ *  filtering a division without a matching row drops out and `none` says nothing matched anywhere (the filter lives in
+ *  the bar above the tables, so no table has to stay to hold it). `multi`: more than one division picked. */
 export function filterStandings<T extends { rows: StandingRow[] }>(tables: readonly T[], query: string): {
   tables: Array<T & { shownRows: StandingRow[] }>; multi: boolean; filtering: boolean; none: boolean; count: string;
 } {
   const filtering = Boolean(query.trim());
   const multi = tables.length > 1;
   const all = tables.map((t) => ({ ...t, shownRows: filterList(t.rows, query, (r) => [r.team, r.coach, r.race]) }));
-  const shown = multi && filtering ? all.filter((t) => t.shownRows.length) : all;
+  const shown = filtering ? all.filter((t) => t.shownRows.length) : all;
   const matched = all.reduce((n, t) => n + t.shownRows.length, 0);
   return { tables: shown, multi, filtering, none: filtering && matched === 0, count: listCount(matched, tables.reduce((n, t) => n + t.rows.length, 0), "team") };
 }

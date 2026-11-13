@@ -404,14 +404,15 @@ describe("fix round 1: filters cover every list, honest counts, no reorder while
     const none = filterStandings([north, south], "zebra");
     expect(none.tables).toEqual([]);
     expect(none).toMatchObject({ none: true, count: "0 of 4 teams" });
-    // one division always stays: it holds the filter box and shows its own "No teams match" row
+    // one division hides the same way: the filter lives in the bar above the tables (fix round 2), not in a table
     const single = filterStandings([north], "zebra");
-    expect(single.tables).toHaveLength(1);
-    expect(single.multi).toBe(false);
+    expect(single.tables).toEqual([]);
+    expect(single).toMatchObject({ multi: false, none: true });
     const vue = src("components/LeagueStandings.vue");
-    expect(vue).toContain('<div v-if="multi" class="lg-st-bar" data-standings-bar>');
-    expect(vue).toContain('<p v-if="multi && view.none" class="hm-empty" role="status" data-standings-none>No teams match that filter.</p>');
-    expect(vue).toContain('<ListFilter v-if="!multi && i === 0"');
+    expect(vue).toContain('<div v-if="all.length" class="lg-st-bar" data-standings-bar>');
+    expect(vue).toContain('<p v-if="view.none" class="hm-empty" role="status" data-standings-none>No teams match that filter.</p>');
+    expect(vue.match(/<ListFilter /g)).toHaveLength(1);
+    expect(vue.match(/<select data-standings-phase/g)).toHaveLength(1);
   });
 
   it("every band over a filtered list reads 'N of M' while filtering (Statistics, honour boards, Participants, Fixtures)", () => {
