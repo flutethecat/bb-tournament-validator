@@ -117,7 +117,7 @@ const cap = computed(() => (props.view === "player" && !filtering.value ? "All t
       <h3 v-if="pins.length" class="hof-sub">Champions</h3>
       <p v-if="state.view && !cards.length && filtering && allCards.length" class="hm-empty" role="status">No seasons match that filter.</p>
       <p v-else-if="state.view && !cards.length" class="hm-empty">No finished seasons yet.</p>
-      <div v-else-if="layout === 'table'" class="lg-scroll" data-hof-table="team">
+      <div v-else-if="layout === 'table'" class="hof-table-wrap" data-hof-table="team">
         <table class="sf-table lg-table hof-table" aria-label="Season champions">
           <thead><tr><th scope="col">Season</th><th scope="col">Rules</th><th scope="col">Dates</th><th scope="col">Champion</th><th scope="col">Race</th><th scope="col">Runner-up</th><th scope="col">Consolation</th><th v-if="manage" scope="col"><span class="sf-sr">Pin</span></th></tr></thead>
           <tbody>
@@ -178,7 +178,7 @@ const cap = computed(() => (props.view === "player" && !filtering.value ? "All t
     <template v-else-if="view === 'coach'">
       <p v-if="state.view && !titles.length && filtering && allTitles.length" class="hm-empty" role="status">No champions match that filter.</p>
       <p v-else-if="state.view && !titles.length && !bestCoaches.length" class="hm-empty">No coach honours yet.</p>
-      <div v-else-if="layout === 'table' && titles.length" class="lg-scroll" data-hof-table="coach">
+      <div v-else-if="layout === 'table' && titles.length" class="hof-table-wrap" data-hof-table="coach">
         <table class="sf-table lg-table hof-table" aria-label="Coach titles">
           <thead><tr><th scope="col">Coach</th><th scope="col" class="lg-num">Titles</th><th scope="col">Seasons</th><th scope="col">Champion with</th><th scope="col" class="lg-num">Runner-up</th></tr></thead>
           <tbody>
@@ -215,7 +215,7 @@ const cap = computed(() => (props.view === "player" && !filtering.value ? "All t
       <p v-else-if="!all" class="hm-empty" role="status">Loading the player records...</p>
       <p v-else-if="!leaders.length && filtering && allLeaders.length" class="hm-empty" role="status">No records match that filter.</p>
       <p v-else-if="!leaders.length" class="hm-empty">No player records yet.</p>
-      <div v-else-if="layout === 'table'" class="lg-scroll" data-hof-table="player">
+      <div v-else-if="layout === 'table'" class="hof-table-wrap" data-hof-table="player">
         <table class="sf-table lg-table hof-table" aria-label="Player records">
           <thead><tr><th scope="col">Record</th><th scope="col" class="lg-num">#</th><th scope="col">Player</th><th scope="col">Team</th><th scope="col">Coach</th><th scope="col" class="lg-num">Value</th></tr></thead>
           <tbody>
