@@ -74,6 +74,8 @@
 .adm-field { display: grid; gap: 4px; min-width: 0; }
 .adm-field :is(input, select, textarea) { width: 100%; min-width: 0; box-sizing: border-box; }
 .adm-field textarea { min-height: 84px; resize: vertical; }
+/* triage boxes grow with their text so a whole reply is readable without scrolling inside the box (owner 11-16); the rows attribute is the fallback height where field-sizing is not supported */
+.adm-field textarea.adm-grow { field-sizing: content; min-height: 120px; max-height: 70vh; line-height: 1.45; }
 .adm-sub { margin: 12px 0 6px; font: 11px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-heading); }
 .adm-fieldset { margin: 12px 0 0; padding: 10px 12px; border: 2px solid var(--ui-admin); border-radius: 2px; }
 .adm-fieldset > legend { padding: 0 6px; font: 11px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-admin); }

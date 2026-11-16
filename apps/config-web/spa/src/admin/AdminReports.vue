@@ -130,16 +130,17 @@ const toneOf = (s: string) => (s === "new" ? "urgent" : s === "resolved" || s ==
             <label class="adm-field sf-field"><span class="sf-k">Status</span>
               <select v-model="form.status"><option v-for="s in REPORT_STATUSES" :key="s" :value="s">{{ s }}</option></select>
             </label>
-            <label class="adm-field sf-field wide"><span class="sf-k">Root cause</span><textarea v-model="form.rootCause" rows="4" maxlength="8000" placeholder="What caused this issue?"></textarea></label>
-            <label class="adm-field sf-field wide"><span class="sf-k">Reason / disposition</span><textarea v-model="form.reason" rows="4" maxlength="8000" placeholder="Why this status, and what happens next?"></textarea></label>
+            <label class="adm-field sf-field wide"><span class="sf-k">Root cause</span><textarea v-model="form.rootCause" class="adm-grow" rows="6" maxlength="8000" placeholder="What caused this issue?"></textarea></label>
+            <label class="adm-field sf-field wide"><span class="sf-k">Reason / disposition</span><textarea v-model="form.reason" class="adm-grow" rows="6" maxlength="8000" placeholder="Why this status, and what happens next?"></textarea></label>
           </div>
           <fieldset class="adm-fieldset">
             <legend>Visible to the player</legend>
             <p class="adm-help">The player sees the status, this reply and the fixed-in version in their client. Write nothing private here.</p>
             <div class="adm-grid">
-              <label class="adm-field sf-field wide"><span class="sf-k">Reply to the reporter (shown to the player)</span><textarea v-model="form.reply" rows="3" maxlength="2000" placeholder="Thanks for the report. This is fixed in the next update."></textarea></label>
+              <label class="adm-field sf-field wide"><span class="sf-k">Reply to the reporter (shown to the player)</span><textarea v-model="form.reply" class="adm-grow" rows="8" maxlength="2000" placeholder="Thanks for the report. This is fixed in the next update."></textarea></label>
               <label class="adm-field sf-field"><span class="sf-k">Fixed in version (shown to the player)</span><input v-model="form.fixedIn" type="text" maxlength="32" placeholder="1.0.307" /></label>
             </div>
+            <p class="adm-help">{{ form.reply.length }} / 2000 characters</p>
             <p v-if="reportPlayerUpdate(selected).replyAt" class="adm-help">Reply saved {{ reportPlayerUpdate(selected).replyAt }}</p>
           </fieldset>
           <div class="sf-btn-row adm-save-row">
